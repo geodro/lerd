@@ -21,6 +21,8 @@ func main() {
 
 	// Register all subcommands
 	root.AddCommand(cli.NewInstallCmd())
+	root.AddCommand(cli.NewStartCmd())
+	root.AddCommand(cli.NewStopCmd())
 	root.AddCommand(cli.NewUpdateCmd(version.Version))
 	root.AddCommand(cli.NewUninstallCmd())
 	root.AddCommand(cli.NewParkCmd())

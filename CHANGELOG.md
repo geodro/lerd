@@ -7,6 +7,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.11] — 2026-03-17
+
+### Added
+
+- `lerd start` — start DNS, nginx, and all installed PHP-FPM containers
+- `lerd stop` — stop DNS, nginx, and all installed PHP-FPM containers
+
+---
+
 ## [0.1.10] — 2026-03-17
 
 ### Fixed
@@ -175,6 +184,7 @@ Initial release.
 
 ---
 
+[0.1.11]: https://github.com/geodro/lerd/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/geodro/lerd/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/geodro/lerd/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/geodro/lerd/compare/v0.1.7...v0.1.8
