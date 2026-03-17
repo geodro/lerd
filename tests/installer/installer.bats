@@ -223,10 +223,12 @@ teardown() {
 
 # ── latest_version ────────────────────────────────────────────────────────────
 
-@test "latest_version parses tag_name from API response" {
-  # Mock curl to return a fake GitHub API response
+@test "latest_version parses version from redirect Location header" {
+  # Mock curl -fsSLI to return headers containing a Location pointing to the tag
   function curl() {
-    echo '{"tag_name":"v2.0.0","name":"Lerd v2.0.0"}'
+    echo "HTTP/2 302"
+    echo "location: https://github.com/geodro/lerd/releases/tag/v2.0.0"
+    echo ""
   }
   export -f curl
 
@@ -235,9 +237,10 @@ teardown() {
   [ "$output" = "2.0.0" ]
 }
 
-@test "latest_version returns empty string when no releases exist" {
+@test "latest_version returns empty string when redirect has no tag" {
   function curl() {
-    echo '{"message":"Not Found","documentation_url":"https://docs.github.com"}'
+    echo "HTTP/2 404"
+    echo ""
   }
   export -f curl
 
@@ -286,7 +289,7 @@ teardown() {
   # Mock all check commands as present
   function command() {
     case "$2" in
-      podman|unzip) return 0 ;;
+      podman|unzip|certutil) return 0 ;;
       *) builtin command "$@" ;;
     esac
   }
