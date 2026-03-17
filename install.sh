@@ -327,6 +327,11 @@ cmd_install() {
   local local_binary="${1:-}"
   header "Installing Lerd"
 
+  # Validate local binary path before running any checks so the error is clear.
+  if [ -n "$local_binary" ]; then
+    [ -f "$local_binary" ] || die "File not found: $local_binary"
+  fi
+
   check_prerequisites
 
   if ! command -v podman &>/dev/null; then
