@@ -130,7 +130,7 @@
                     <th class="text-left px-4 py-3 font-medium text-gray-600">Path</th>
                     <th class="text-left px-4 py-3 font-medium text-gray-600">PHP</th>
                     <th class="text-left px-4 py-3 font-medium text-gray-600">Node</th>
-                    <th class="text-left px-4 py-3 font-medium text-gray-600">TLS</th>
+                    <th class="text-left px-4 py-3 font-medium text-gray-600">HTTPS</th>
                     <th class="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                   </tr>
                 </thead>
@@ -155,16 +155,24 @@
                       <td class="px-4 py-3 text-gray-600 font-mono text-xs truncate max-w-xs" x-text="site.path"></td>
                       <td class="px-4 py-3 text-gray-600" x-text="site.php_version || '—'"></td>
                       <td class="px-4 py-3 text-gray-600" x-text="site.node_version || '—'"></td>
-                      <td class="px-4 py-3">
-                        <template x-if="site.tls">
-                          <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
-                            HTTPS
-                          </span>
-                        </template>
-                        <template x-if="!site.tls">
-                          <span class="text-gray-400 text-xs">—</span>
-                        </template>
+                      <td class="px-4 py-3" @click.stop>
+                        <button
+                          @click="toggleTLS(site)"
+                          :disabled="site.tlsLoading"
+                          :title="site.tls ? 'Disable HTTPS' : 'Enable HTTPS'"
+                          class="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 transition-colors disabled:opacity-50"
+                          :class="site.tls
+                            ? 'text-green-700 bg-green-100 hover:bg-green-200'
+                            : 'text-gray-500 bg-gray-100 hover:bg-gray-200'"
+                        >
+                          <svg x-show="site.tlsLoading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                          </svg>
+                          <svg x-show="!site.tlsLoading && site.tls" class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                          <span x-show="!site.tlsLoading" x-text="site.tls ? 'On' : 'Off'"></span>
+                        </button>
+                        <div x-show="site.tlsError" class="text-[10px] text-red-600 mt-1" x-text="site.tlsError"></div>
                       </td>
                       <td class="px-4 py-3">
                         <template x-if="site.fpm_running">
@@ -513,7 +521,8 @@ function lerdApp() {
       this.sitesLoading = true;
       try {
         const res = await fetch('/api/sites');
-        this.sites = await res.json();
+        const raw = await res.json();
+        this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '' }));
       } catch (_) {
         this.sites = [];
       } finally {
@@ -565,11 +574,42 @@ function lerdApp() {
     },
 
     async copyEnvVars(svc) {
+      const text = this.envPreview(svc);
       try {
-        await navigator.clipboard.writeText(this.envPreview(svc));
-        svc.copied = true;
-        setTimeout(() => { svc.copied = false; }, 2000);
-      } catch (_) {}
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        // Fallback for non-HTTPS contexts
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      svc.copied = true;
+      setTimeout(() => { svc.copied = false; }, 2000);
+    },
+
+    async toggleTLS(site) {
+      site.tlsLoading = true;
+      site.tlsError = '';
+      const action = site.tls ? 'unsecure' : 'secure';
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          site.tls = !site.tls;
+        } else {
+          site.tlsError = data.error || 'Failed';
+        }
+      } catch (e) {
+        site.tlsError = e.message || 'Request failed';
+      } finally {
+        site.tlsLoading = false;
+      }
     },
 
     fpmContainer(site) {

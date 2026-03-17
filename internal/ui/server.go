@@ -15,6 +15,7 @@ import (
 
 	_ "embed"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
@@ -108,6 +109,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/update", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		handleUpdate(w, r, currentVersion)
 	}))
+	mux.HandleFunc("/api/sites/", withCORS(handleSiteAction))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -414,6 +416,52 @@ func fetchLatestRelease() string {
 type UpdateResponse struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output"`
+}
+
+// SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
+type SiteActionResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+func handleSiteAction(w http.ResponseWriter, r *http.Request) {
+	// path: /api/sites/{domain}/secure or /api/sites/{domain}/unsecure
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/sites/"), "/")
+	if len(parts) != 2 || r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	domain, action := parts[0], parts[1]
+
+	site, err := config.FindSite(domain)
+	if err != nil {
+		writeJSON(w, SiteActionResponse{Error: "site not found"})
+		return
+	}
+
+	switch action {
+	case "secure":
+		if err := certs.SecureSite(site.Domain, site.PHPVersion); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		site.Secured = true
+	case "unsecure":
+		if err := certs.UnsecureSite(site.Domain, site.PHPVersion); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		site.Secured = false
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := config.AddSite(*site); err != nil {
+		writeJSON(w, SiteActionResponse{Error: "updating site registry: " + err.Error()})
+		return
+	}
+	writeJSON(w, SiteActionResponse{OK: true})
 }
 
 // allowedContainer validates that a container name is a known lerd container.
