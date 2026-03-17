@@ -3,7 +3,7 @@ Description=Lerd Redis
 After=network.target
 
 [Container]
-Image=redis:7-alpine
+Image=docker.io/library/redis:7-alpine
 ContainerName=lerd-redis
 Network=lerd
 PublishPort=6379:6379

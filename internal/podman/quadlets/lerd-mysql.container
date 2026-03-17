@@ -3,7 +3,7 @@ Description=Lerd MySQL
 After=network.target
 
 [Container]
-Image=mysql:8.0
+Image=docker.io/library/mysql:8.0
 ContainerName=lerd-mysql
 Network=lerd
 PublishPort=3306:3306

@@ -3,7 +3,7 @@ Description=Lerd Mailpit
 After=network.target
 
 [Container]
-Image=axllent/mailpit:latest
+Image=docker.io/axllent/mailpit:latest
 ContainerName=lerd-mailpit
 Network=lerd
 PublishPort=1025:1025
