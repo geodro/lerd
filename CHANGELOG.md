@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.62] — 2026-03-17
+
+### Fixed
+
+- PHP 8.5 image build no longer fails when the `imagick` PECL extension can't compile against the new PHP API — imagick is installed if available, silently skipped otherwise (redis is unaffected)
+
+---
+
 ## [0.1.61] — 2026-03-17
 
 ### Fixed

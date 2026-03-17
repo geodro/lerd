@@ -31,8 +31,9 @@ RUN apk add --no-cache \
         pcntl \
         exif \
         sockets \
-    && pecl install redis imagick \
-    && docker-php-ext-enable redis imagick \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && (pecl install imagick && docker-php-ext-enable imagick || true) \
     && rm -rf /tmp/pear /var/cache/apk/*
 
 # Override pool: run workers as root, log errors to stderr
