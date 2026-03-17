@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.30] — 2026-03-17
+
+### Fixed
+
+- `lerd update` now restarts the `lerd-ui` systemd service after applying changes so the new binary is immediately picked up without manual intervention
+
+---
+
 ## [0.1.29] — 2026-03-17
 
 ### Added
