@@ -7,6 +7,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.22] — 2026-03-17
+
+### Fixed
+
+- `lerd.test` dashboard now reachable: UI server changed to listen on `0.0.0.0:7073` so nginx (running inside the Podman container) can reach it via the network gateway IP
+- `lerd install` now reloads nginx after writing the `lerd.test` proxy vhost so it takes effect immediately without a manual restart
+- `lerd.test` is now a reserved domain — `lerd park` silently skips any directory that would resolve to it, `lerd link` returns an error if the resolved domain is reserved
+
+---
+
 ## [0.1.21] — 2026-03-17
 
 ### Added
@@ -290,6 +300,7 @@ Initial release.
 
 ---
 
+[0.1.22]: https://github.com/geodro/lerd/compare/v0.1.21...v0.1.22
 [0.1.21]: https://github.com/geodro/lerd/compare/v0.1.20...v0.1.21
 [0.1.20]: https://github.com/geodro/lerd/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/geodro/lerd/compare/v0.1.18...v0.1.19

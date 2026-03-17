@@ -22,7 +22,7 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
-const listenAddr = "127.0.0.1:7073"
+const listenAddr = "0.0.0.0:7073"
 
 var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"}
 

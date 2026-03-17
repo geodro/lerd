@@ -49,6 +49,10 @@ func runLink(args []string, customDomain string) error {
 		domain = customDomain
 	}
 
+	if isReservedDomain(domain) {
+		return fmt.Errorf("domain %q is reserved for internal Lerd use", domain)
+	}
+
 	phpVersion, err := phpDet.DetectVersion(cwd)
 	if err != nil {
 		phpVersion = cfg.PHP.DefaultVersion

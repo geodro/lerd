@@ -191,6 +191,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		ok()
 	}
 
+	step("Reloading nginx")
+	if err := nginx.Reload(); err != nil {
+		fmt.Printf(" [WARN: %v]\n", err)
+	} else {
+		ok()
+	}
+
 	step("Starting lerd-ui")
 	if err := podman.StartUnit("lerd-ui"); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)

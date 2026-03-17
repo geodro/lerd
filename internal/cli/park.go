@@ -83,6 +83,9 @@ func runPark(_ *cobra.Command, args []string) error {
 		}
 
 		name, domain := siteNameAndDomain(entry.Name(), cfg.DNS.TLD)
+		if isReservedDomain(domain) {
+			continue
+		}
 
 		phpVersion, err := phpDet.DetectVersion(projectDir)
 		if err != nil {
@@ -131,6 +134,19 @@ func runPark(_ *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// reservedDomains are domains used by Lerd itself that cannot be assigned to user sites.
+var reservedDomains = []string{"lerd.test"}
+
+// isReservedDomain returns true if the domain is reserved for internal Lerd use.
+func isReservedDomain(domain string) bool {
+	for _, r := range reservedDomains {
+		if domain == r {
+			return true
+		}
+	}
+	return false
 }
 
 // siteNameAndDomain converts a directory name into a clean site name and .test domain.
