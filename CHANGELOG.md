@@ -7,6 +7,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.32] — 2026-03-17
+
+### Fixed
+
+- `lerd uninstall` now stops and disables all services that were enabled at runtime (e.g. mailpit, soketi started from the UI dashboard) — the unit list is now derived dynamically from the quadlet files on disk instead of a hardcoded list, so nothing is left behind
+- `lerd uninstall` now also removes `lerd-ui.service` alongside `lerd-watcher.service`
+
+---
+
 ## [0.1.31] — 2026-03-17
 
 ### Fixed

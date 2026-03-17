@@ -38,21 +38,17 @@ func runUninstall(force bool) error {
 		}
 	}
 
-	// 1. Stop and disable all known units
-	units := []string{
-		"lerd-nginx",
-		"lerd-dns",
-		"lerd-watcher",
-		"lerd-php81-fpm",
-		"lerd-php82-fpm",
-		"lerd-php83-fpm",
-		"lerd-php84-fpm",
-		"lerd-mysql",
-		"lerd-redis",
-		"lerd-postgres",
-		"lerd-meilisearch",
-		"lerd-minio",
+	// 1. Discover all installed units from quadlet files on disk, plus the watcher service.
+	quadletDir := config.QuadletDir()
+	var units []string
+	if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
+		for _, f := range entries {
+			// lerd-foo.container → lerd-foo
+			units = append(units, strings.TrimSuffix(filepath.Base(f), ".container"))
+		}
 	}
+	// Always include the watcher and UI services even if they have no quadlet file.
+	units = append(units, "lerd-watcher", "lerd-ui")
 
 	step("Stopping containers and services")
 	for _, unit := range units {
@@ -67,18 +63,18 @@ func runUninstall(force bool) error {
 
 	// 2. Remove Quadlet files
 	step("Removing Quadlet units")
-	quadletDir := config.QuadletDir()
 	if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
 		for _, f := range entries {
-			os.Remove(f)
+			os.Remove(f) //nolint:errcheck
 		}
 	}
 	ok()
 
-	// 3. Remove watcher service
-	step("Removing systemd user service")
-	watcherService := filepath.Join(config.SystemdUserDir(), "lerd-watcher.service")
-	os.Remove(watcherService)
+	// 3. Remove user service unit files
+	step("Removing systemd user services")
+	for _, svc := range []string{"lerd-watcher.service", "lerd-ui.service"} {
+		os.Remove(filepath.Join(config.SystemdUserDir(), svc)) //nolint:errcheck
+	}
 	ok()
 
 	// 4. daemon-reload so systemd clears its state
