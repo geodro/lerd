@@ -76,7 +76,7 @@ release:
     Or if already installed:
 
     ```bash
-    lerd-installer --update
+    lerd update
     ```
   footer: |
     **Full Changelog**: https://github.com/geodro/lerd/compare/{{ .PreviousTag }}...{{ .Tag }}
