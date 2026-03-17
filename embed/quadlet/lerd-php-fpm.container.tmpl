@@ -3,7 +3,7 @@ Description=Lerd PHP {{.Version}} FPM
 After=network.target
 
 [Container]
-Image=php:{{.Version}}-fpm-alpine
+Image=docker.io/library/php:{{.Version}}-fpm-alpine
 ContainerName=lerd-php{{.VersionShort}}-fpm
 Network=lerd
 Volume={{.ProjectsDir}}:{{.ProjectsDir}}:ro

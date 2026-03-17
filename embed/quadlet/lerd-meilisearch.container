@@ -3,7 +3,7 @@ Description=Lerd Meilisearch
 After=network.target
 
 [Container]
-Image=getmeili/meilisearch:v1.7
+Image=docker.io/getmeili/meilisearch:v1.7
 ContainerName=lerd-meilisearch
 Network=lerd
 PublishPort=7700:7700

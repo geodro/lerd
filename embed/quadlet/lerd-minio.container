@@ -3,7 +3,7 @@ Description=Lerd MinIO
 After=network.target
 
 [Container]
-Image=minio/minio:latest
+Image=docker.io/minio/minio:latest
 ContainerName=lerd-minio
 Network=lerd
 PublishPort=9000:9000

@@ -3,7 +3,7 @@ Description=Lerd Nginx Web Server
 After=network.target
 
 [Container]
-Image=nginx:alpine
+Image=docker.io/library/nginx:alpine
 ContainerName=lerd-nginx
 Network=lerd
 PublishPort=80:80

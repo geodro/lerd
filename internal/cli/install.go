@@ -148,7 +148,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	// 7. Pre-pull container images so first start doesn't hit systemd timeout
 	step("Pulling container images")
-	for _, image := range []string{"nginx:alpine", "alpine:latest"} {
+	for _, image := range []string{"docker.io/library/nginx:alpine", "docker.io/library/alpine:latest"} {
 		cmd := exec.Command("podman", "pull", image)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -167,6 +167,16 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Starting lerd-dns")
 	if err := podman.RestartUnit("lerd-dns"); err != nil {
+		fmt.Printf(" [WARN: %v]\n", err)
+	} else {
+		ok()
+	}
+
+	// Write UI vhost before starting nginx so it's available on first start.
+	step("Writing UI vhost")
+	// host.containers.internal is a Podman built-in hostname that always resolves
+	// to the host from inside any container, bypassing firewall rules on the gateway IP.
+	if err := nginx.GenerateProxyVhost("lerd.test", "host.containers.internal", 7073); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)
 	} else {
 		ok()
@@ -204,22 +214,6 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("ui service: %w", err)
 	}
 	if err := lerdSystemd.EnableService("lerd-ui"); err != nil {
-		fmt.Printf(" [WARN: %v]\n", err)
-	} else {
-		ok()
-	}
-
-	step("Writing UI vhost")
-	// host.containers.internal is a Podman built-in hostname that always resolves
-	// to the host from inside any container, bypassing firewall rules on the gateway IP.
-	if err := nginx.GenerateProxyVhost("lerd.test", "host.containers.internal", 7073); err != nil {
-		fmt.Printf(" [WARN: %v]\n", err)
-	} else {
-		ok()
-	}
-
-	step("Reloading nginx")
-	if err := nginx.Reload(); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)
 	} else {
 		ok()

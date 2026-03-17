@@ -3,7 +3,7 @@ Description=Lerd PostgreSQL
 After=network.target
 
 [Container]
-Image=postgres:16-alpine
+Image=docker.io/library/postgres:16-alpine
 ContainerName=lerd-postgres
 Network=lerd
 PublishPort=5432:5432
