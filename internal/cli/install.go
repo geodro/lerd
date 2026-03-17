@@ -146,6 +146,20 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
+	// Refresh any already-installed service quadlets so image names etc. stay current.
+	step("Refreshing installed service quadlets")
+	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"} {
+		if !podman.QuadletInstalled("lerd-" + svc) {
+			continue
+		}
+		content, err := podman.GetQuadletTemplate("lerd-" + svc + ".container")
+		if err != nil {
+			continue
+		}
+		podman.WriteQuadlet("lerd-"+svc, content) //nolint:errcheck
+	}
+	ok()
+
 	// 7. Pre-pull container images so first start doesn't hit systemd timeout
 	step("Pulling container images")
 	for _, image := range []string{"docker.io/library/nginx:alpine", "docker.io/library/alpine:latest"} {
