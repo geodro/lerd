@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.5] — 2026-03-17
+
+### Fixed
+
+- `install.sh` — definitively fixed the `install: cannot stat '...\033[0m...'` error by refactoring `download_binary` to accept a caller-supplied directory instead of returning a path via stdout; all output now goes directly to the terminal (stderr) and is never captured by command substitution
+
+---
+
 ## [0.1.4] — 2026-03-17
 
 ### Fixed
@@ -106,6 +114,7 @@ Initial release.
 
 ---
 
+[0.1.5]: https://github.com/geodro/lerd/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/geodro/lerd/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/geodro/lerd/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/geodro/lerd/compare/v0.1.1...v0.1.2

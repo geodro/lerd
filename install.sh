@@ -221,23 +221,23 @@ latest_version() {
   echo "$body" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/' || true
 }
 
+# download_binary <version> <arch> <destdir>
+# Downloads and extracts the release archive into <destdir>.
+# The extracted binary will be at <destdir>/lerd.
+# All output goes to stderr — nothing is printed to stdout.
 download_binary() {
-  local version="$1" arch="$2"
+  local version="$1" arch="$2" destdir="$3"
   local filename="lerd_${version}_linux_${arch}.tar.gz"
   local url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
-  local tmp; tmp="$(mktemp -d)"
 
-  info "Downloading lerd v${version} (${arch}) via $(_download_tool) ..." >&2
-  if ! fetch "$url" "${tmp}/${filename}"; then
-    rm -rf "$tmp"
+  info "Downloading lerd v${version} (${arch}) via $(_download_tool) ..."
+  if ! fetch "$url" "${destdir}/${filename}"; then
     die "Download failed (HTTP 404).\nNo release v${version} found at:\n  ${url}\n\nIf you built lerd locally, use:\n  bash install.sh --local ./build/lerd"
   fi
 
-  if ! tar -xzf "${tmp}/${filename}" -C "$tmp" >&2 2>&1; then
-    rm -rf "$tmp"
+  if ! tar -xzf "${destdir}/${filename}" -C "$destdir" 2>&1; then
     die "Failed to extract archive: ${filename}"
   fi
-  echo "${tmp}/lerd"
 }
 
 installed_version() {
@@ -325,8 +325,10 @@ cmd_install() {
       exit 0
     fi
 
-    local binary; binary="$(download_binary "$version" "$arch")"
-    install -m 755 "$binary" "${INSTALL_DIR}/${BINARY}"
+    local tmpdir; tmpdir="$(mktemp -d)"
+    download_binary "$version" "$arch" "$tmpdir"
+    install -m 755 "${tmpdir}/lerd" "${INSTALL_DIR}/${BINARY}"
+    rm -rf "$tmpdir"
     success "Installed lerd v${version} → ${INSTALL_DIR}/${BINARY}"
   fi
 
@@ -354,8 +356,10 @@ cmd_update() {
   fi
 
   info "Updating v${current:-unknown} → v${latest}"
-  local binary; binary="$(download_binary "$latest" "$arch")"
-  install -m 755 "$binary" "${INSTALL_DIR}/${BINARY}"
+  local tmpdir; tmpdir="$(mktemp -d)"
+  download_binary "$latest" "$arch" "$tmpdir"
+  install -m 755 "${tmpdir}/lerd" "${INSTALL_DIR}/${BINARY}"
+  rm -rf "$tmpdir"
   success "Updated to lerd v${latest}"
 }
 
