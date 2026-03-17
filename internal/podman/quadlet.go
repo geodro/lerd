@@ -20,6 +20,13 @@ func WriteQuadlet(name, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+// QuadletInstalled returns true if a quadlet .container file exists for the given unit name.
+func QuadletInstalled(name string) bool {
+	path := filepath.Join(config.QuadletDir(), name+".container")
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // RemoveQuadlet removes a Podman quadlet container unit file.
 func RemoveQuadlet(name string) error {
 	path := filepath.Join(config.QuadletDir(), name+".container")

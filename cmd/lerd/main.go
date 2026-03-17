@@ -35,6 +35,7 @@ func main() {
 	root.AddCommand(cli.NewIsolateCmd())
 	root.AddCommand(cli.NewIsolateNodeCmd())
 	root.AddCommand(cli.NewPhpListCmd())
+	root.AddCommand(cli.NewPhpRebuildCmd())
 	root.AddCommand(cli.NewPhpCmd())
 	root.AddCommand(cli.NewArtisanCmd())
 	root.AddCommand(cli.NewNodeCmd())
@@ -42,6 +43,7 @@ func main() {
 	root.AddCommand(cli.NewNpxCmd())
 	root.AddCommand(cli.NewServiceCmd())
 	root.AddCommand(cli.NewStatusCmd())
+	root.AddCommand(cli.NewLogsCmd())
 	root.AddCommand(newDNSCheckCmd())
 	root.AddCommand(newWatchCmd())
 

@@ -13,7 +13,7 @@ import (
 func NewStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
-		Short: "Start Lerd (DNS, nginx, PHP-FPM)",
+		Short: "Start Lerd (DNS, nginx, PHP-FPM, and installed services)",
 		RunE:  runStart,
 	}
 }
@@ -22,7 +22,7 @@ func NewStartCmd() *cobra.Command {
 func NewStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
-		Short: "Stop Lerd (DNS, nginx, PHP-FPM)",
+		Short: "Stop Lerd (DNS, nginx, PHP-FPM, and running services)",
 		RunE:  runStop,
 	}
 }
@@ -37,9 +37,20 @@ func coreUnits() []string {
 	return units
 }
 
+// installedServiceUnits returns service units that have a quadlet file installed.
+func installedServiceUnits() []string {
+	var units []string
+	for _, svc := range knownServices {
+		if podman.QuadletInstalled("lerd-" + svc) {
+			units = append(units, "lerd-"+svc)
+		}
+	}
+	return units
+}
+
 func runStart(_ *cobra.Command, _ []string) error {
-	units := coreUnits()
-	fmt.Println("Starting Lerd services...")
+	units := append(coreUnits(), installedServiceUnits()...)
+	fmt.Println("Starting Lerd...")
 	for _, u := range units {
 		fmt.Printf("  --> %s ... ", u)
 		if err := podman.StartUnit(u); err != nil {
@@ -52,8 +63,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 }
 
 func runStop(_ *cobra.Command, _ []string) error {
-	units := coreUnits()
-	fmt.Println("Stopping Lerd services...")
+	units := append(coreUnits(), installedServiceUnits()...)
+	fmt.Println("Stopping Lerd...")
 	for _, u := range units {
 		fmt.Printf("  --> %s ... ", u)
 		if err := podman.StopUnit(u); err != nil {

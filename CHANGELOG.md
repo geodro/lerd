@@ -7,6 +7,88 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.20] — 2026-03-17
+
+### Changed
+
+- `lerd stop` now also stops all installed services (those with a quadlet file) in addition to DNS, nginx, and PHP-FPM
+- `lerd start` now also starts all installed services
+
+---
+
+## [0.1.19] — 2026-03-17
+
+### Added
+
+- `lerd php:rebuild` — force-removes and rebuilds all installed PHP-FPM images; useful after a Containerfile change
+- `lerd update` now automatically runs `lerd php:rebuild` after `lerd install` so PHP-FPM image changes (new extensions, config tweaks) are applied on every update
+
+---
+
+## [0.1.18] — 2026-03-17
+
+### Added
+
+- `lerd logs` — show PHP-FPM container logs for the current project (auto-detects version)
+- `lerd logs -f` / `--follow` — tail logs in real time
+- `lerd logs nginx` — show nginx container logs
+- `lerd logs <service>` — show logs for any service (e.g. `lerd logs mailpit`)
+- `lerd logs <version>` — show logs for a specific PHP-FPM container (e.g. `lerd logs 8.5`)
+- PHP-FPM containers now route all PHP errors to stderr (`catch_workers_output`, `log_errors`, `error_log=/proc/self/fd/2`) so they appear in `podman logs` / `lerd logs`
+
+---
+
+## [0.1.17] — 2026-03-17
+
+### Added
+
+- `mailpit` service — local SMTP server with web UI at `http://127.0.0.1:8025`; catches all outgoing mail from Laravel apps
+- `soketi` service — self-hosted Pusher-compatible WebSocket server for Laravel Echo / broadcasting
+- PHP 8.5 support — `lerd use 8.5` builds and starts the PHP 8.5 FPM container; default PHP version updated to 8.5
+
+---
+
+## [0.1.16] — 2026-03-17
+
+### Added
+
+- `lerd php [args...]` — runs PHP inside the correct versioned FPM container, detecting version from `.php-version` / `composer.json` / global default
+- `lerd artisan [args...]` — shortcut for `lerd php artisan [args]`
+- `lerd node [args...]` — runs Node via fnm with auto-detected version
+- `lerd npm [args...]` — runs npm via fnm with auto-detected version
+- `lerd npx [args...]` — runs npx via fnm with auto-detected version
+- `lerd install` now writes `php`, `composer`, `node`, `npm`, `npx` shims to `~/.local/share/lerd/bin/` so commands work directly from the terminal
+
+---
+
+## [0.1.15] — 2026-03-17
+
+### Fixed
+
+- Service `.env` variables now use container hostnames (`lerd-mysql`, `lerd-redis`, etc.) instead of `127.0.0.1` — PHP-FPM runs inside the `lerd` Podman network so `127.0.0.1` resolves to the container's own loopback, not the host
+
+---
+
+## [0.1.14] — 2026-03-17
+
+### Fixed
+
+- nginx `resolver` directive added to `nginx.conf` using the Podman network gateway so upstream container hostnames are re-resolved dynamically after FPM restarts (previously nginx cached the old IP and returned 502)
+- `fastcgi_pass` in vhost templates now uses a `$fpm` variable to force use of the resolver
+- `lerd install` now regenerates all registered site vhosts so template changes are applied immediately
+- PHP-FPM containers now use a locally built image (`lerd-php{version}-fpm:local`) with all Laravel-required extensions pre-installed: `pdo_mysql`, `pdo_pgsql`, `bcmath`, `mbstring`, `xml`, `zip`, `gd`, `intl`, `opcache`, `pcntl`, `exif`, `sockets`, `redis`, `imagick`
+- PHP-FPM images are built automatically on first `lerd use <version>` — subsequent runs reuse the cached image
+
+---
+
+## [0.1.13] — 2026-03-17
+
+### Changed
+
+- `lerd service start` / `lerd service restart` — `.env` output is printed without leading whitespace for direct copy-paste
+
+---
+
 ## [0.1.12] — 2026-03-17
 
 ### Fixed
@@ -196,6 +278,14 @@ Initial release.
 
 ---
 
+[0.1.20]: https://github.com/geodro/lerd/compare/v0.1.19...v0.1.20
+[0.1.19]: https://github.com/geodro/lerd/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/geodro/lerd/compare/v0.1.17...v0.1.18
+[0.1.17]: https://github.com/geodro/lerd/compare/v0.1.16...v0.1.17
+[0.1.16]: https://github.com/geodro/lerd/compare/v0.1.15...v0.1.16
+[0.1.15]: https://github.com/geodro/lerd/compare/v0.1.14...v0.1.15
+[0.1.14]: https://github.com/geodro/lerd/compare/v0.1.13...v0.1.14
+[0.1.13]: https://github.com/geodro/lerd/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/geodro/lerd/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/geodro/lerd/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/geodro/lerd/compare/v0.1.9...v0.1.10

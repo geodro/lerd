@@ -70,7 +70,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	fmt.Println("\n[PHP FPM]")
 	versions, _ := phpPkg.ListInstalled()
 	if len(versions) == 0 {
-		warn2("PHP versions", "none installed — run: lerd use 8.4")
+		warn2("PHP versions", "none installed — run: lerd use 8.5")
 	}
 	for _, v := range versions {
 		short := ""

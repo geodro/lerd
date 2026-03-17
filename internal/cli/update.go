@@ -78,11 +78,21 @@ func runUpdate(currentVersion string) error {
 
 	// Re-exec the new binary with `install` to reapply quadlet files,
 	// DNS config, sysctl, etc. lerd install is idempotent.
-	cmd := exec.Command(self, "install")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	installCmd := exec.Command(self, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	installCmd.Stdin = os.Stdin
+	if err := installCmd.Run(); err != nil {
+		return err
+	}
+
+	// Rebuild all PHP-FPM images so Containerfile changes take effect.
+	fmt.Println("\n==> Rebuilding PHP-FPM images")
+	rebuildCmd := exec.Command(self, "php:rebuild")
+	rebuildCmd.Stdout = os.Stdout
+	rebuildCmd.Stderr = os.Stderr
+	rebuildCmd.Stdin = os.Stdin
+	return rebuildCmd.Run()
 }
 
 func fetchLatestVersion() (string, error) {

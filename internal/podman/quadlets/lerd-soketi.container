@@ -1,0 +1,19 @@
+[Unit]
+Description=Lerd Soketi
+After=network.target
+
+[Container]
+Image=quay.io/soketi/soketi:latest-16-alpine
+ContainerName=lerd-soketi
+Network=lerd
+PublishPort=6001:6001
+PublishPort=9601:9601
+Environment=SOKETI_DEFAULT_APP_ID=lerd
+Environment=SOKETI_DEFAULT_APP_KEY=lerd-key
+Environment=SOKETI_DEFAULT_APP_SECRET=lerd-secret
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

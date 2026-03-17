@@ -1,0 +1,18 @@
+[Unit]
+Description=Lerd Mailpit
+After=network.target
+
+[Container]
+Image=axllent/mailpit:latest
+ContainerName=lerd-mailpit
+Network=lerd
+PublishPort=1025:1025
+PublishPort=8025:8025
+Volume=%h/.local/share/lerd/data/mailpit:/data
+Environment=MP_DATA_FILE=/data/mailpit.db
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

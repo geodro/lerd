@@ -138,48 +138,60 @@ That's it. Nginx is serving your project through PHP-FPM, all inside Podman cont
 | Command | Description |
 |---|---|
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
+| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services |
+| `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
 | `lerd update` | Update to the latest release |
 | `lerd uninstall` | Stop all containers and remove Lerd |
 | `lerd uninstall --force` | Same, skipping all confirmation prompts |
 | `lerd dns:check` | Verify that `*.test` resolves to `127.0.0.1` |
 | `lerd status` | Health summary: DNS, nginx, PHP-FPM containers, services, cert expiry |
+| `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 
 ### Site management
 
 | Command | Description |
 |---|---|
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
+| `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
 | `lerd link [name]` | Register the current directory as a site |
 | `lerd link [name] --domain foo.test` | Register with a custom domain |
 | `lerd unlink` | Remove the current directory from Lerd |
 | `lerd sites` | Table view of all registered sites |
 | `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS for a site |
 
+> **Domain naming:** directories with real TLDs are automatically normalised — dots are replaced with dashes and the TLD is stripped before appending `.test`. For example `admin.astrolov.com` → `admin-astrolov.test`.
+
 ### PHP
 
 | Command | Description |
 |---|---|
-| `lerd use <version>` | Set the global PHP version (e.g. `lerd use 8.3`) |
+| `lerd use <version>` | Set the global PHP version and build the FPM image if needed |
 | `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` |
-| `lerd php:list` | List all downloaded static PHP binaries |
+| `lerd php:list` | List all installed PHP-FPM versions |
+| `lerd php:rebuild` | Force-rebuild all installed PHP-FPM images (run after `lerd update` if needed) |
+| `lerd php [args...]` | Run PHP in the project's container |
+| `lerd artisan [args...]` | Run `php artisan` in the project's container |
 
 ### Node
 
 | Command | Description |
 |---|---|
 | `lerd isolate:node <version>` | Pin Node version for cwd — writes `.node-version`, runs `fnm install` |
+| `lerd node [args...]` | Run node using the project's version via fnm |
+| `lerd npm [args...]` | Run npm using the project's version via fnm |
+| `lerd npx [args...]` | Run npx using the project's version via fnm |
 
 ### Services
 
 | Command | Description |
 |---|---|
-| `lerd service start <name>` | Start a service container |
+| `lerd service start <name>` | Start a service (auto-installs on first use) |
 | `lerd service stop <name>` | Stop a service container |
 | `lerd service restart <name>` | Restart a service container |
 | `lerd service status <name>` | Show systemd unit status |
 | `lerd service list` | Show all services and their current state |
 
-Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`.
+Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`, `mailpit`, `soketi`.
 
 ### Shell completion
 
@@ -256,7 +268,7 @@ Created automatically on first run with sensible defaults:
 
 ```yaml
 php:
-  default_version: "8.4"
+  default_version: "8.5"
 node:
   default_version: "22"
 nginx:
@@ -272,6 +284,8 @@ services:
   postgres:    { enabled: false, image: "postgres:16-alpine",           port: 5432 }
   meilisearch: { enabled: false, image: "getmeili/meilisearch:v1.7",    port: 7700 }
   minio:       { enabled: false, image: "minio/minio:latest",           port: 9000 }
+  mailpit:     { enabled: false, image: "axllent/mailpit:latest",       port: 1025 }
+  soketi:      { enabled: false, image: "quay.io/soketi/soketi:latest-16-alpine", port: 6001 }
 ```
 
 ### Per-project config — `.lerd.yaml`
@@ -337,8 +351,8 @@ Browser → 127.0.0.1:80 → lerd-nginx
 |---|---|
 | CLI | Go + Cobra, single static binary |
 | Web server | Podman Quadlet — `nginx:alpine` |
-| PHP-FPM | Podman Quadlet per version — `php:X.Y-fpm-alpine` |
-| PHP CLI | Static binary from [static-php.dev](https://static-php.dev) |
+| PHP-FPM | Podman Quadlet per version — locally built image with all Laravel extensions |
+| PHP CLI | `php` binary inside the FPM container (`podman exec`) |
 | Composer | `composer.phar` via bundled PHP CLI |
 | Node | [fnm](https://github.com/Schniz/fnm) binary, version per project |
 | Services | Podman Quadlet containers |
@@ -366,15 +380,28 @@ GOARCH=arm64 GOOS=linux go build -o ./build/lerd-arm64 ./cmd/lerd
 
 ## Service credentials (defaults)
 
-| Service | Host | Port | User | Password | DB |
-|---|---|---|---|---|---|
-| MySQL | 127.0.0.1 | 3306 | root | `lerd` | `lerd` |
-| PostgreSQL | 127.0.0.1 | 5432 | postgres | `lerd` | `lerd` |
-| Redis | 127.0.0.1 | 6379 | — | — | — |
-| Meilisearch | 127.0.0.1 | 7700 | — | — | — |
-| MinIO | 127.0.0.1 | 9000 | `lerd` | `lerdpassword` | — |
+Services run as Podman containers on the `lerd` network. Two sets of hostnames apply:
+
+- **From host tools** (e.g. TablePlus, Redis CLI): use `127.0.0.1`
+- **From your Laravel app** (PHP-FPM runs inside the `lerd` network): use container hostnames (e.g. `lerd-mysql`)
+
+`lerd service start <name>` prints the correct `.env` variables to paste into your project.
+
+| Service | Host (host tools) | Host (Laravel `.env`) | Port | User | Password | DB |
+|---|---|---|---|---|---|---|
+| MySQL | 127.0.0.1 | lerd-mysql | 3306 | root | `lerd` | `lerd` |
+| PostgreSQL | 127.0.0.1 | lerd-postgres | 5432 | postgres | `lerd` | `lerd` |
+| Redis | 127.0.0.1 | lerd-redis | 6379 | — | — | — |
+| Meilisearch | 127.0.0.1 | lerd-meilisearch | 7700 | — | — | — |
+| MinIO | 127.0.0.1 | lerd-minio | 9000 | `lerd` | `lerdpassword` | — |
+| Mailpit SMTP | 127.0.0.1 | lerd-mailpit | 1025 | — | — | — |
+| Soketi | 127.0.0.1 | lerd-soketi | 6001 | — | — | — |
 
 MinIO console is available at `http://127.0.0.1:9001`.
+
+Mailpit web UI is available at `http://127.0.0.1:8025`.
+
+Soketi metrics are available at `http://127.0.0.1:9601`.
 
 ---
 

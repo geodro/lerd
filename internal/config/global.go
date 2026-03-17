@@ -35,7 +35,7 @@ type GlobalConfig struct {
 
 func defaultConfig() *GlobalConfig {
 	cfg := &GlobalConfig{}
-	cfg.PHP.DefaultVersion = "8.4"
+	cfg.PHP.DefaultVersion = "8.5"
 	cfg.Node.DefaultVersion = "22"
 	cfg.Nginx.HTTPPort = 80
 	cfg.Nginx.HTTPSPort = 443
@@ -69,6 +69,16 @@ func defaultConfig() *GlobalConfig {
 			Enabled: false,
 			Image:   "minio/minio:latest",
 			Port:    9000,
+		},
+		"mailpit": {
+			Enabled: false,
+			Image:   "axllent/mailpit:latest",
+			Port:    1025,
+		},
+		"soketi": {
+			Enabled: false,
+			Image:   "quay.io/soketi/soketi:latest-16-alpine",
+			Port:    6001,
 		},
 	}
 	return cfg

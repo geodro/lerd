@@ -35,5 +35,5 @@ RUN apk add --no-cache \
     && docker-php-ext-enable redis imagick \
     && rm -rf /tmp/pear /var/cache/apk/*
 
-# Override pool: run workers as root so they can access user home dirs in rootless Podman
-RUN printf '[www]\nuser=root\ngroup=root\n' > /usr/local/etc/php-fpm.d/zz-lerd.conf
+# Override pool: run workers as root, log errors to stderr
+RUN printf '[www]\nuser=root\ngroup=root\ncatch_workers_output=yes\nphp_flag[display_errors]=off\nphp_admin_value[error_log]=/proc/self/fd/2\nphp_admin_flag[log_errors]=on\n' > /usr/local/etc/php-fpm.d/zz-lerd.conf

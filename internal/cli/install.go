@@ -54,6 +54,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		config.DataSubDir("postgres"),
 		config.DataSubDir("meilisearch"),
 		config.DataSubDir("minio"),
+		config.DataSubDir("mailpit"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
