@@ -7,7 +7,7 @@ Image=docker.io/library/postgres:16-alpine
 ContainerName=lerd-postgres
 Network=lerd
 PublishPort=5432:5432
-Volume=%h/.local/share/lerd/data/postgres:/var/lib/postgresql/data
+Volume=%h/.local/share/lerd/data/postgres:/var/lib/postgresql/data:z
 Environment=POSTGRES_PASSWORD=lerd
 Environment=POSTGRES_DB=lerd
 

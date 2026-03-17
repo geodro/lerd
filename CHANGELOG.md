@@ -7,6 +7,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.60] — 2026-03-17
+
+### Fixed
+
+- All container volume mounts now include the `:z` SELinux relabeling option — on Fedora (and other SELinux-enforcing systems) dnsmasq and nginx containers were unable to read their config files, causing DNS and nginx to fail immediately after install
+- Home-directory volume mounts (nginx, PHP-FPM) use `--security-opt=label=disable` instead of `:z` to avoid recursively relabeling the user's home directory
+
+---
+
 ## [0.1.53] — 2026-03-17
 
 ### Fixed

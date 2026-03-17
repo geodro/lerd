@@ -7,7 +7,7 @@ Image=docker.io/getmeili/meilisearch:v1.7
 ContainerName=lerd-meilisearch
 Network=lerd
 PublishPort=7700:7700
-Volume=%h/.local/share/lerd/data/meilisearch:/meili_data
+Volume=%h/.local/share/lerd/data/meilisearch:/meili_data:z
 
 [Service]
 Restart=always

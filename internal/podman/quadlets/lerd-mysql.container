@@ -7,7 +7,7 @@ Image=docker.io/library/mysql:8.0
 ContainerName=lerd-mysql
 Network=lerd
 PublishPort=3306:3306
-Volume=%h/.local/share/lerd/data/mysql:/var/lib/mysql
+Volume=%h/.local/share/lerd/data/mysql:/var/lib/mysql:z
 Environment=MYSQL_ROOT_PASSWORD=lerd
 Environment=MYSQL_DATABASE=lerd
 

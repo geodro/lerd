@@ -8,7 +8,7 @@ ContainerName=lerd-mailpit
 Network=lerd
 PublishPort=1025:1025
 PublishPort=8025:8025
-Volume=%h/.local/share/lerd/data/mailpit:/data
+Volume=%h/.local/share/lerd/data/mailpit:/data:z
 Environment=MP_DATA_FILE=/data/mailpit.db
 
 [Service]

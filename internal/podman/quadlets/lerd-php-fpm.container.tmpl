@@ -7,6 +7,7 @@ Image=lerd-php{{.VersionShort}}-fpm:local
 ContainerName=lerd-php{{.VersionShort}}-fpm
 Network=lerd
 Volume=%h:%h:rw
+PodmanArgs=--security-opt=label=disable
 Exec=php-fpm -F -R
 
 [Service]

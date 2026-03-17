@@ -8,7 +8,7 @@ ContainerName=lerd-minio
 Network=lerd
 PublishPort=9000:9000
 PublishPort=9001:9001
-Volume=%h/.local/share/lerd/data/minio:/data
+Volume=%h/.local/share/lerd/data/minio:/data:z
 Environment=MINIO_ROOT_USER=lerd
 Environment=MINIO_ROOT_PASSWORD=lerdpassword
 Exec=server /data --console-address :9001
