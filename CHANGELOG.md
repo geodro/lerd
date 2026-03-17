@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.27] — 2026-03-17
+
+### Fixed
+
+- `lerd update` (and `lerd install`) no longer prompts for sudo if DNS is already configured — `dns.Setup()` now checks whether `/etc/NetworkManager/conf.d/lerd.conf` and `/etc/NetworkManager/dnsmasq.d/lerd.conf` already contain the correct content and skips all sudo steps if so; this makes updating from the UI dashboard work without any password prompt in the common case
+
+---
+
 ## [0.1.26] — 2026-03-17
 
 ### Fixed
@@ -335,6 +343,7 @@ Initial release.
 
 ---
 
+[0.1.27]: https://github.com/geodro/lerd/compare/v0.1.26...v0.1.27
 [0.1.26]: https://github.com/geodro/lerd/compare/v0.1.25...v0.1.26
 [0.1.25]: https://github.com/geodro/lerd/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/geodro/lerd/compare/v0.1.23...v0.1.24

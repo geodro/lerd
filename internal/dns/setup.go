@@ -21,24 +21,36 @@ dns=dnsmasq
 const nmDnsmasqConf = `server=/test/127.0.0.1#5300
 `
 
+// isFileContent returns true if the file at path already contains exactly content.
+func isFileContent(path string, content []byte) bool {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return string(existing) == string(content)
+}
+
 // Setup writes NetworkManager dnsmasq configuration and restarts NetworkManager.
+// Skips sudo steps if the files are already correctly configured.
 func Setup() error {
 	if err := WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
 		return fmt.Errorf("writing lerd dnsmasq config: %w", err)
 	}
 
+	nmConfFile := "/etc/NetworkManager/conf.d/lerd.conf"
+	nmDnsmasqFile := "/etc/NetworkManager/dnsmasq.d/lerd.conf"
+
+	// If both files are already correct, skip sudo entirely.
+	if isFileContent(nmConfFile, []byte(nmDnsConf)) && isFileContent(nmDnsmasqFile, []byte(nmDnsmasqConf)) {
+		return nil
+	}
+
 	fmt.Println("  [sudo required] Configuring NetworkManager for .test DNS resolution")
 
-	// Write /etc/NetworkManager/conf.d/lerd.conf
-	nmConfDir := "/etc/NetworkManager/conf.d"
-	nmConfFile := filepath.Join(nmConfDir, "lerd.conf")
 	if err := sudoWriteFile(nmConfFile, []byte(nmDnsConf)); err != nil {
 		return fmt.Errorf("writing NetworkManager conf: %w", err)
 	}
 
-	// Write /etc/NetworkManager/dnsmasq.d/lerd.conf
-	nmDnsmasqDir := "/etc/NetworkManager/dnsmasq.d"
-	nmDnsmasqFile := filepath.Join(nmDnsmasqDir, "lerd.conf")
 	if err := sudoWriteFile(nmDnsmasqFile, []byte(nmDnsmasqConf)); err != nil {
 		return fmt.Errorf("writing NetworkManager dnsmasq conf: %w", err)
 	}
