@@ -184,9 +184,9 @@ func printEnvVars(name string) {
 	if !ok || len(info.envVars) == 0 {
 		return
 	}
-	fmt.Printf("\n  Add to your .env:\n")
+	fmt.Println("\nAdd to your .env:")
 	for _, v := range info.envVars {
-		fmt.Printf("    %s\n", v)
+		fmt.Println(v)
 	}
 	fmt.Println()
 }
