@@ -74,8 +74,15 @@ func runUpdate(currentVersion string) error {
 		return fmt.Errorf("replacing binary: %w", err)
 	}
 
-	fmt.Printf("\nLerd updated to v%s\n", lat)
-	return nil
+	fmt.Printf("\nLerd updated to v%s — applying infrastructure changes...\n\n", lat)
+
+	// Re-exec the new binary with `install` to reapply quadlet files,
+	// DNS config, sysctl, etc. lerd install is idempotent.
+	cmd := exec.Command(self, "install")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
 
 func fetchLatestVersion() (string, error) {
