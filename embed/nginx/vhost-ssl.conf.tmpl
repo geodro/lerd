@@ -1,7 +1,7 @@
 server {
     listen 80;
     server_name {{.Domain}};
-    return 301 https://$host$request_uri;
+    return 302 https://$host$request_uri;
 }
 
 server {

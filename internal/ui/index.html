@@ -144,7 +144,7 @@
                     >
                       <td class="px-4 py-3">
                         <a
-                          :href="'http://' + site.domain"
+                          :href="(site.tls ? 'https://' : 'http://') + site.domain"
                           target="_blank"
                           rel="noopener"
                           class="text-blue-600 hover:underline font-medium"
