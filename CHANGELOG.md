@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.2] — 2026-03-17
+
+### Fixed
+
+- `install.sh` — `BASH_SOURCE[0]: unbound variable` crash when the script is piped to bash (`curl|bash` / `wget|bash`); `BASH_SOURCE` is unset in that execution context so it now defaults to `$0`
+
+---
+
 ## [0.1.1] — 2026-03-17
 
 ### Fixed
@@ -81,5 +89,6 @@ Initial release.
 
 ---
 
+[0.1.2]: https://github.com/geodro/lerd/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/geodro/lerd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/geodro/lerd/releases/tag/v0.1.0
