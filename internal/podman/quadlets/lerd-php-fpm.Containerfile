@@ -1,6 +1,6 @@
 FROM php:{{.Version}}-fpm-alpine
 
-RUN apk add --no-cache \
+RUN apk update && apk add --no-cache \
         autoconf \
         make \
         g++ \
@@ -28,15 +28,16 @@ RUN apk add --no-cache \
         zip \
         gd \
         intl \
-        opcache \
         pcntl \
         exif \
         sockets \
+    && (docker-php-ext-enable opcache || true) \
     && { (pecl install redis && docker-php-ext-enable redis) \
          || (git clone --depth 1 https://github.com/phpredis/phpredis /tmp/phpredis \
              && cd /tmp/phpredis && phpize && ./configure && make -j$(nproc) && make install \
              && docker-php-ext-enable redis \
-             && rm -rf /tmp/phpredis); } \
+             && rm -rf /tmp/phpredis) \
+         || true; } \
     && { (pecl install imagick && docker-php-ext-enable imagick) \
          || (git clone --depth 1 https://github.com/Imagick/imagick /tmp/imagick \
              && cd /tmp/imagick && phpize && ./configure && make -j$(nproc) && make install \

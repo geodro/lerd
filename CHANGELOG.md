@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.65] — 2026-03-17
+
+### Fixed
+
+- PHP 8.5 FPM image now builds successfully: `opcache` is already compiled into PHP 8.5 so `docker-php-ext-enable opcache` is now a no-op (`|| true`); `apk update` is run before `apk add` to avoid stale index warnings; `redis` falls back to building from GitHub source when PECL fails
+
+---
+
 ## [0.1.64] — 2026-03-17
 
 ### Fixed
