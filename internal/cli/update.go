@@ -99,19 +99,7 @@ func runUpdate(currentVersion string) error {
 		}
 	}
 	fmt.Println("\n==> PHP-FPM images are up to date, skipping rebuild")
-	restartUI()
 	return nil
-}
-
-// restartUI restarts the lerd-ui systemd user service so the new binary is picked up.
-func restartUI() {
-	fmt.Println("\n==> Restarting lerd-ui")
-	cmd := exec.Command("systemctl", "--user", "restart", "lerd-ui")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("[WARN] restarting lerd-ui: %v\n", err)
-	}
 }
 
 func fetchLatestVersion() (string, error) {

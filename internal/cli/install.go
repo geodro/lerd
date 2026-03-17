@@ -140,14 +140,14 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	ok()
 
 	step("Starting lerd-dns")
-	if err := podman.StartUnit("lerd-dns"); err != nil {
+	if err := podman.RestartUnit("lerd-dns"); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)
 	} else {
 		ok()
 	}
 
 	step("Starting lerd-nginx")
-	if err := podman.StartUnit("lerd-nginx"); err != nil {
+	if err := podman.RestartUnit("lerd-nginx"); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)
 	} else {
 		ok()
@@ -200,7 +200,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	step("Starting lerd-ui")
-	if err := podman.StartUnit("lerd-ui"); err != nil {
+	if err := podman.RestartUnit("lerd-ui"); err != nil {
 		fmt.Printf(" [WARN: %v]\n", err)
 	} else {
 		ok()
