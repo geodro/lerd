@@ -160,7 +160,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// 7. Pre-pull container images so first start doesn't hit systemd timeout
+	// 7. Pre-pull container images and pre-build lerd-dnsmasq so services start instantly
 	step("Pulling container images")
 	for _, image := range []string{"docker.io/library/nginx:alpine", "docker.io/library/alpine:latest"} {
 		cmd := exec.Command("podman", "pull", image)
@@ -171,6 +171,19 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 	ok()
+
+	// Pre-build dnsmasq image so lerd-dns starts instantly without downloading at runtime.
+	step("Building dnsmasq image")
+	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
+	buildCmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+	buildCmd.Stdin = strings.NewReader(containerfile)
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	if err := buildCmd.Run(); err != nil {
+		fmt.Printf(" [WARN building dnsmasq image: %v]\n", err)
+	} else {
+		ok()
+	}
 
 	// 8. daemon-reload and start services
 	step("Reloading systemd daemon")
