@@ -78,50 +78,11 @@ func runPark(_ *cobra.Command, args []string) error {
 			continue
 		}
 		projectDir := filepath.Join(absDir, entry.Name())
-		if !laravel.IsLaravel(projectDir) {
-			continue
+		if registered, err := RegisterProject(projectDir, cfg); err != nil {
+			fmt.Printf("  [WARN] could not register %s: %v\n", entry.Name(), err)
+		} else if registered {
+			count++
 		}
-
-		name, domain := siteNameAndDomain(entry.Name(), cfg.DNS.TLD)
-		if isReservedDomain(domain) {
-			continue
-		}
-
-		phpVersion, err := phpDet.DetectVersion(projectDir)
-		if err != nil {
-			phpVersion = cfg.PHP.DefaultVersion
-		}
-
-		nodeVersion, err := nodeDet.DetectVersion(projectDir)
-		if err != nil {
-			nodeVersion = cfg.Node.DefaultVersion
-		}
-
-		site := config.Site{
-			Name:        name,
-			Domain:      domain,
-			Path:        projectDir,
-			PHPVersion:  phpVersion,
-			NodeVersion: nodeVersion,
-			Secured:     false,
-		}
-
-		if err := config.AddSite(site); err != nil {
-			fmt.Printf("  [WARN] could not register %s: %v\n", name, err)
-			continue
-		}
-
-		if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-			fmt.Printf("  [WARN] could not generate vhost for %s: %v\n", name, err)
-			continue
-		}
-
-		if err := ensureFPMQuadlet(phpVersion); err != nil {
-			fmt.Printf("  [WARN] could not ensure FPM for PHP %s: %v\n", phpVersion, err)
-		}
-
-		fmt.Printf("  + %s -> %s (PHP %s, Node %s)\n", name, domain, phpVersion, nodeVersion)
-		count++
 	}
 
 	if count > 0 {
@@ -169,6 +130,58 @@ func siteNameAndDomain(dirName, tld string) (string, string) {
 	}
 	name = strings.ReplaceAll(name, ".", "-")
 	return name, name + "." + tld
+}
+
+// RegisterProject registers a single project directory as a lerd site if it is a Laravel
+// project and not already registered. Returns true if newly registered.
+func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) {
+	if !laravel.IsLaravel(projectDir) {
+		return false, nil
+	}
+
+	name, domain := siteNameAndDomain(filepath.Base(projectDir), cfg.DNS.TLD)
+	if isReservedDomain(domain) {
+		return false, nil
+	}
+
+	phpVersion, err := phpDet.DetectVersion(projectDir)
+	if err != nil {
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+
+	nodeVersion, err := nodeDet.DetectVersion(projectDir)
+	if err != nil {
+		nodeVersion = cfg.Node.DefaultVersion
+	}
+
+	// Skip already-registered sites to avoid overwriting settings like Secured.
+	if existing, err := config.FindSite(name); err == nil && existing != nil {
+		return false, nil
+	}
+
+	site := config.Site{
+		Name:        name,
+		Domain:      domain,
+		Path:        projectDir,
+		PHPVersion:  phpVersion,
+		NodeVersion: nodeVersion,
+		Secured:     false,
+	}
+
+	if err := config.AddSite(site); err != nil {
+		return false, err
+	}
+
+	if err := nginx.GenerateVhost(site, phpVersion); err != nil {
+		return false, fmt.Errorf("generating vhost: %w", err)
+	}
+
+	if err := ensureFPMQuadlet(phpVersion); err != nil {
+		fmt.Printf("  [WARN] could not ensure FPM for PHP %s: %v\n", phpVersion, err)
+	}
+
+	fmt.Printf("  + %s -> %s (PHP %s, Node %s)\n", name, domain, phpVersion, nodeVersion)
+	return true, nil
 }
 
 // ensureFPMQuadlet builds the PHP image if needed, then writes (or overwrites) the quadlet.

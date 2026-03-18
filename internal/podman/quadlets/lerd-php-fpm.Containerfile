@@ -17,6 +17,7 @@ RUN apk update && apk add --no-cache \
         linux-headers \
         imagemagick-dev \
         imagemagick \
+        gmp-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         curl \
@@ -31,6 +32,7 @@ RUN apk update && apk add --no-cache \
         pcntl \
         exif \
         sockets \
+        gmp \
     && (docker-php-ext-enable opcache || true) \
     && { (pecl install redis && docker-php-ext-enable redis) \
          || (git clone --depth 1 https://github.com/phpredis/phpredis /tmp/phpredis \

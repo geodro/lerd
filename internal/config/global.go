@@ -57,7 +57,7 @@ func defaultConfig() *GlobalConfig {
 		},
 		"postgres": {
 			Enabled: false,
-			Image:   "postgres:16-alpine",
+			Image:   "postgis/postgis:16-3.5-alpine",
 			Port:    5432,
 		},
 		"meilisearch": {

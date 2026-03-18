@@ -1,0 +1,176 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/geodro/lerd/internal/config"
+	phpDet "github.com/geodro/lerd/internal/php"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/podman"
+	"github.com/spf13/cobra"
+)
+
+// NewQueueCmd returns the queue parent command with start/stop subcommands.
+func NewQueueCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "queue",
+		Short: "Manage queue workers for the current site",
+	}
+	cmd.AddCommand(newQueueStartCmd("start"))
+	cmd.AddCommand(newQueueStopCmd("stop"))
+	return cmd
+}
+
+// NewQueueStartCmd returns the standalone queue:start command.
+func NewQueueStartCmd() *cobra.Command { return newQueueStartCmd("queue:start") }
+
+// NewQueueStopCmd returns the standalone queue:stop command.
+func NewQueueStopCmd() *cobra.Command { return newQueueStopCmd("queue:stop") }
+
+func newQueueStartCmd(use string) *cobra.Command {
+	var queue string
+	var tries int
+	var timeout int
+
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: "Start a queue worker for the current site as a systemd service",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runQueueStart(queue, tries, timeout)
+		},
+	}
+	cmd.Flags().StringVar(&queue, "queue", "default", "Queue name to process")
+	cmd.Flags().IntVar(&tries, "tries", 3, "Number of times to attempt a job before logging it as failed")
+	cmd.Flags().IntVar(&timeout, "timeout", 60, "Seconds a job may run before timing out")
+	return cmd
+}
+
+func newQueueStopCmd(use string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: "Stop the queue worker for the current site",
+		RunE:  func(_ *cobra.Command, _ []string) error { return runQueueStop() },
+	}
+}
+
+func queueSiteName(cwd string) (string, error) {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return "", err
+	}
+	for _, s := range reg.Sites {
+		if s.Path == cwd {
+			return s.Name, nil
+		}
+	}
+	// Fall back to directory name.
+	name, _ := siteNameAndDomain(filepath.Base(cwd), "test")
+	return name, nil
+}
+
+func runQueueStart(queue string, tries, timeout int) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	siteName, err := queueSiteName(cwd)
+	if err != nil {
+		return err
+	}
+
+	phpVersion, err := phpDet.DetectVersion(cwd)
+	if err != nil {
+		cfg, _ := config.LoadGlobal()
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+
+	return queueStartExplicit(siteName, cwd, phpVersion, queue, tries, timeout)
+}
+
+func runQueueStop() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	siteName, err := queueSiteName(cwd)
+	if err != nil {
+		return err
+	}
+
+	return QueueStopForSite(siteName)
+}
+
+func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, timeout int) error {
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := "lerd-php" + versionShort + "-fpm"
+	unitName := "lerd-queue-" + siteName
+
+	artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd Queue Worker (%s)
+After=network.target %s.service
+BindsTo=%s.service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=podman exec -w %s %s php artisan %s
+
+[Install]
+WantedBy=default.target
+`, siteName, fpmUnit, fpmUnit, sitePath, container, artisanArgs)
+
+	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+		return fmt.Errorf("writing service unit: %w", err)
+	}
+
+	if err := podman.DaemonReload(); err != nil {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+
+	if err := lerdSystemd.EnableService(unitName); err != nil {
+		fmt.Printf("[WARN] enable: %v\n", err)
+	}
+
+	if err := lerdSystemd.StartService(unitName); err != nil {
+		return fmt.Errorf("starting queue worker: %w", err)
+	}
+
+	fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
+	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
+	return nil
+}
+
+// QueueStartForSite starts a queue worker for the given site with default settings.
+func QueueStartForSite(siteName, sitePath, phpVersion string) error {
+	return queueStartExplicit(siteName, sitePath, phpVersion, "default", 3, 60)
+}
+
+// QueueStopForSite stops and removes the queue worker for the named site.
+func QueueStopForSite(siteName string) error {
+	unitName := "lerd-queue-" + siteName
+	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+
+	// Stop and disable — ignore errors if already stopped.
+	_ = lerdSystemd.DisableService(unitName)
+	podman.StopUnit(unitName) //nolint:errcheck
+
+	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing unit file: %w", err)
+	}
+
+	if err := podman.DaemonReload(); err != nil {
+		fmt.Printf("[WARN] daemon-reload: %v\n", err)
+	}
+
+	fmt.Printf("Queue worker stopped for %s\n", siteName)
+	return nil
+}

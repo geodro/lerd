@@ -89,6 +89,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
+	step("Installing DNS sudoers rule")
+	if err := dns.InstallSudoers(); err != nil {
+		fmt.Printf(" [WARN: %v]\n", err)
+	} else {
+		ok()
+	}
+
 	// 6. Nginx config and quadlet
 	step("Writing nginx configuration")
 	if err := nginx.EnsureNginxConfig(); err != nil {
@@ -271,7 +278,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println("\nLerd installation complete!")
-	fmt.Println("\n  Dashboard: http://lerd.test")
+	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.test\033[0m  \033[2m(or \033[0m\033[96mhttp://127.0.0.1:7073\033[0m\033[2m)\033[0m")
 	return nil
 }
 
@@ -325,9 +332,9 @@ func downloadBinaries() error {
 
 	// composer
 	step("Downloading composer")
-	composerPath := filepath.Join(binDir, "composer")
-	if _, err := os.Stat(composerPath); os.IsNotExist(err) {
-		if err := downloadFile("https://getcomposer.org/composer-stable.phar", composerPath, 0755); err != nil {
+	composerPharPath := filepath.Join(binDir, "composer.phar")
+	if _, err := os.Stat(composerPharPath); os.IsNotExist(err) {
+		if err := downloadFile("https://getcomposer.org/composer-stable.phar", composerPharPath, 0755); err != nil {
 			return fmt.Errorf("composer download: %w", err)
 		}
 	}
@@ -438,7 +445,7 @@ func addShellShims() error {
 	}
 
 	// Write composer shim
-	composerShim := "#!/bin/sh\nexec lerd php /home/$(whoami)/.local/share/lerd/bin/composer \"$@\"\n"
+	composerShim := fmt.Sprintf("#!/bin/sh\nexec lerd php %s/.local/share/lerd/bin/composer.phar \"$@\"\n", home)
 	if err := os.WriteFile(filepath.Join(binDir, "composer"), []byte(composerShim), 0755); err != nil {
 		return fmt.Errorf("writing composer shim: %w", err)
 	}

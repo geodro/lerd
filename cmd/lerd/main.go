@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/nginx"
+	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/geodro/lerd/internal/watcher"
 	"github.com/spf13/cobra"
@@ -48,13 +50,31 @@ func main() {
 	root.AddCommand(cli.NewServiceCmd())
 	root.AddCommand(cli.NewStatusCmd())
 	root.AddCommand(cli.NewLogsCmd())
+	root.AddCommand(cli.NewOpenCmd())
+	root.AddCommand(cli.NewQueueCmd())
+	root.AddCommand(cli.NewQueueStartCmd())
+	root.AddCommand(cli.NewQueueStopCmd())
 	root.AddCommand(cli.NewAutostartCmd())
+	root.AddCommand(cli.NewMCPCmd())
+	root.AddCommand(cli.NewMCPInjectCmd())
 	root.AddCommand(newDNSCheckCmd())
 	root.AddCommand(newWatchCmd())
-	root.AddCommand(cli.NewServeUICmd())
+	root.AddCommand(newServeUICmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+// newServeUICmd returns the serve-ui command.
+func newServeUICmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "serve-ui",
+		Short:  "Start the Lerd UI dashboard server",
+		Hidden: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return ui.Start(version.Version)
+		},
 	}
 }
 
@@ -99,7 +119,7 @@ func newWatchCmd() *cobra.Command {
 
 			fmt.Println("Lerd watcher started, monitoring:", cfg.ParkedDirectories)
 
-			// Initial scan: register any existing projects not yet linked
+			// Initial scan: register new projects.
 			reloadNeeded := false
 			for _, dir := range cfg.ParkedDirectories {
 				entries, err := os.ReadDir(dir)
@@ -118,11 +138,28 @@ func newWatchCmd() *cobra.Command {
 					}
 				}
 			}
+
+			// Remove stale sites (deleted while we were offline or during the scan above).
+			if removeStale(cfg) {
+				reloadNeeded = true
+			}
+
 			if reloadNeeded {
 				if err := nginx.Reload(); err != nil {
 					fmt.Printf("[WARN] nginx reload: %v\n", err)
 				}
 			}
+
+			// Periodically catch deletions that happen while the watcher is busy.
+			go func() {
+				for range time.Tick(30 * time.Second) {
+					if removeStale(cfg) {
+						if err := nginx.Reload(); err != nil {
+							fmt.Printf("[WARN] nginx reload: %v\n", err)
+						}
+					}
+				}
+			}()
 
 			return watcher.Watch(cfg.ParkedDirectories, func(projectPath string) {
 				fmt.Printf("New project detected: %s\n", projectPath)
@@ -134,7 +171,54 @@ func newWatchCmd() *cobra.Command {
 						fmt.Printf("[WARN] nginx reload: %v\n", err)
 					}
 				}
+			}, func(removedPath string) {
+				site, err := config.FindSiteByPath(removedPath)
+				if err != nil {
+					return // not a registered site
+				}
+				fmt.Printf("Project deleted: %s (%s)\n", site.Name, removedPath)
+				_ = nginx.RemoveVhost(site.Domain)
+				if err := config.RemoveSite(site.Name); err != nil {
+					fmt.Printf("[WARN] removing site %s: %v\n", site.Name, err)
+					return
+				}
+				if err := nginx.Reload(); err != nil {
+					fmt.Printf("[WARN] nginx reload: %v\n", err)
+				}
 			})
 		},
 	}
+}
+
+// removeStale removes registered sites under parked directories whose paths no
+// longer exist on disk. Returns true if any sites were removed.
+func removeStale(cfg *config.GlobalConfig) bool {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return false
+	}
+
+	removed := false
+	for _, site := range reg.Sites {
+		if site.Ignored {
+			continue
+		}
+		underParked := false
+		for _, dir := range cfg.ParkedDirectories {
+			if filepath.Dir(site.Path) == dir {
+				underParked = true
+				break
+			}
+		}
+		if !underParked {
+			continue
+		}
+		if _, statErr := os.Stat(site.Path); os.IsNotExist(statErr) {
+			fmt.Printf("Removing stale site: %s (%s)\n", site.Name, site.Path)
+			_ = nginx.RemoveVhost(site.Domain)
+			_ = config.RemoveSite(site.Name)
+			removed = true
+		}
+	}
+	return removed
 }

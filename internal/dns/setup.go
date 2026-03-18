@@ -19,22 +19,24 @@ const nmDnsmasqConf = `server=/test/127.0.0.1#5300
 
 const resolvedDropin = `[Resolve]
 DNS=127.0.0.1:5300
-Domains=~.
+Domains=~test
 `
 
 // nmDispatcherScript is installed at /etc/NetworkManager/dispatcher.d/99-lerd-dns.
 // On Ubuntu, NetworkManager manages systemd-resolved via DBUS and overrides global
 // resolved.conf drop-ins. Per-interface DNS set via resolvectl is respected.
-// We use ~. (catch-all routing domain) so ALL queries go through our dnsmasq, which
-// handles .test locally and forwards everything else to its configured upstream servers.
+// We route only .test through lerd's dnsmasq so that internet DNS never depends on
+// lerd being running — lerd is a user-level service that starts after login.
+// The DHCP-assigned DNS servers are preserved alongside lerd's so internet continues
+// to work even when lerd-dns is not yet running.
 const nmDispatcherScript = `#!/bin/sh
-# Lerd DNS: route all queries through local dnsmasq on port 5300
-# dnsmasq resolves .test locally and forwards everything else to real upstreams.
+# Lerd DNS: route .test queries through local dnsmasq on port 5300
 IFACE="$1"
 ACTION="$2"
 if [ "$ACTION" = "up" ] || [ "$ACTION" = "dhcp4-change" ] || [ "$ACTION" = "dhcp6-change" ]; then
-    resolvectl dns "$IFACE" 127.0.0.1:5300 2>/dev/null || true
-    resolvectl domain "$IFACE" ~. 2>/dev/null || true
+    DHCP_DNS=$(nmcli -g IP4.DNS device show "$IFACE" 2>/dev/null | tr '|' '\n' | grep -v '^$' | tr '\n' ' ')
+    resolvectl dns "$IFACE" 127.0.0.1:5300 $DHCP_DNS 2>/dev/null || true
+    resolvectl domain "$IFACE" ~test 2>/dev/null || true
 fi
 `
 
@@ -223,13 +225,28 @@ func setupNMWithResolved() error {
 		rmCmd.Run() //nolint:errcheck
 	}
 
-	// Apply immediately to the current default interface
+	// Apply immediately to the current default interface.
+	// Include DHCP-assigned upstream DNS servers alongside lerd's so internet
+	// continues to work even when lerd-dns is not running.
 	iface := defaultInterface()
 	if iface == "" {
 		return nil
 	}
 
-	dnsCmd := exec.Command("sudo", "resolvectl", "dns", iface, "127.0.0.1:5300")
+	// Revert the interface to clear any stale DNS server failure state from boot.
+	// At boot, the NM dispatcher sets 127.0.0.1:5300 before lerd-dns starts; resolved
+	// marks it failed and promotes the fallback to "current". Calling resolvectl with
+	// the same list later does not reset the current server. Reverting first forces a
+	// clean slate so our subsequent dns call starts with 127.0.0.1:5300 as current.
+	revertCmd := exec.Command("sudo", "resolvectl", "revert", iface)
+	revertCmd.Stdin = os.Stdin
+	revertCmd.Stdout = os.Stdout
+	revertCmd.Stderr = os.Stderr
+	revertCmd.Run() //nolint:errcheck
+
+	dnsArgs := []string{"sudo", "resolvectl", "dns", iface, "127.0.0.1:5300"}
+	dnsArgs = append(dnsArgs, readUpstreamDNS()...)
+	dnsCmd := exec.Command(dnsArgs[0], dnsArgs[1:]...)
 	dnsCmd.Stdin = os.Stdin
 	dnsCmd.Stdout = os.Stdout
 	dnsCmd.Stderr = os.Stderr
@@ -237,7 +254,7 @@ func setupNMWithResolved() error {
 		return fmt.Errorf("applying DNS to %s: %w", iface, err)
 	}
 
-	domainCmd := exec.Command("sudo", "resolvectl", "domain", iface, "~.")
+	domainCmd := exec.Command("sudo", "resolvectl", "domain", iface, "~test")
 	domainCmd.Stdin = os.Stdin
 	domainCmd.Stdout = os.Stdout
 	domainCmd.Stderr = os.Stderr
@@ -378,6 +395,44 @@ func WriteDnsmasqConfig(dir string) error {
 	sb.WriteString("address=/.test/127.0.0.1\n")
 
 	return os.WriteFile(filepath.Join(dir, "lerd.conf"), []byte(sb.String()), 0644)
+}
+
+// InstallSudoers writes a sudoers drop-in granting the current user passwordless
+// access to resolvectl commands. This is required for the autostart service which
+// runs non-interactively and cannot prompt for a sudo password.
+func InstallSudoers() error {
+	user := os.Getenv("USER")
+	if user == "" {
+		user = os.Getenv("LOGNAME")
+	}
+	if user == "" {
+		return fmt.Errorf("cannot determine current user")
+	}
+
+	content := fmt.Sprintf(
+		"# Lerd: allow resolvectl without password for non-interactive DNS setup\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/resolvectl dns *, /usr/bin/resolvectl domain *, /usr/bin/resolvectl revert *\n",
+		user,
+	)
+
+	const sudoersPath = "/etc/sudoers.d/lerd"
+	if isFileContent(sudoersPath, []byte(content)) {
+		return nil
+	}
+
+	if err := sudoWriteFile(sudoersPath, []byte(content)); err != nil {
+		return fmt.Errorf("writing sudoers drop-in: %w", err)
+	}
+
+	// sudoers files must not be world-writable or group-writable
+	chmodCmd := exec.Command("sudo", "chmod", "440", sudoersPath)
+	chmodCmd.Stdin = os.Stdin
+	chmodCmd.Stdout = os.Stdout
+	chmodCmd.Stderr = os.Stderr
+	if err := chmodCmd.Run(); err != nil {
+		return fmt.Errorf("chmod sudoers: %w", err)
+	}
+	return nil
 }
 
 // sudoWriteFile writes content to a system path by writing to a temp file

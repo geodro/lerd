@@ -19,6 +19,8 @@ build:
 install: build
 	install -Dm755 $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@echo "Installed $(INSTALL_DIR)/$(BINARY)"
+	@systemctl --user restart lerd-ui 2>/dev/null && echo "Restarted lerd-ui" || true
+	@systemctl --user restart lerd-watcher 2>/dev/null && echo "Restarted lerd-watcher" || true
 
 # Install the installer script as 'lerd-installer' so users can run
 # lerd-installer --update  or  lerd-installer --uninstall

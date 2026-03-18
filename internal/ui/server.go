@@ -17,10 +17,11 @@ import (
 	_ "embed"
 
 	"github.com/geodro/lerd/internal/certs"
+	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
-	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/envfile"
+	"github.com/geodro/lerd/internal/nginx"
 	nodePkg "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -119,6 +120,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/node-versions/install", withCORS(handleInstallNodeVersion))
 	mux.HandleFunc("/api/sites/", withCORS(handleSiteAction))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
+	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -196,12 +198,14 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 // SiteResponse is the response for GET /api/sites.
 type SiteResponse struct {
-	Domain      string `json:"domain"`
-	Path        string `json:"path"`
-	PHPVersion  string `json:"php_version"`
-	NodeVersion string `json:"node_version"`
-	TLS         bool   `json:"tls"`
-	FPMRunning  bool   `json:"fpm_running"`
+	Name         string `json:"name"`
+	Domain       string `json:"domain"`
+	Path         string `json:"path"`
+	PHPVersion   string `json:"php_version"`
+	NodeVersion  string `json:"node_version"`
+	TLS          bool   `json:"tls"`
+	FPMRunning   bool   `json:"fpm_running"`
+	QueueRunning bool   `json:"queue_running"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -213,6 +217,9 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 	var sites []SiteResponse
 	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
 		// Always detect the live version from disk so .php-version / .node-version
 		// files are reflected without needing a re-link.
 		phpVersion := s.PHPVersion
@@ -238,13 +245,16 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			short := strings.ReplaceAll(phpVersion, ".", "")
 			fpmRunning, _ = podman.ContainerRunning("lerd-php" + short + "-fpm")
 		}
+		queueStatus, _ := podman.UnitStatus("lerd-queue-" + s.Name)
 		sites = append(sites, SiteResponse{
-			Domain:      s.Domain,
-			Path:        s.Path,
-			PHPVersion:  phpVersion,
-			NodeVersion: nodeVersion,
-			TLS:         s.Secured,
-			FPMRunning:  fpmRunning,
+			Name:         s.Name,
+			Domain:       s.Domain,
+			Path:         s.Path,
+			PHPVersion:   phpVersion,
+			NodeVersion:  nodeVersion,
+			TLS:          s.Secured,
+			FPMRunning:   fpmRunning,
+			QueueRunning: queueStatus == "active",
 		})
 	}
 	if sites == nil {
@@ -556,6 +566,31 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.NodeVersion = version
+	case "unlink":
+		if err := cli.UnlinkSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "queue:start":
+		phpVersion := site.PHPVersion
+		if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
+			phpVersion = detected
+		}
+		if err := cli.QueueStartForSite(site.Name, site.Path, phpVersion); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "queue:stop":
+		if err := cli.QueueStopForSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
 	default:
 		http.NotFound(w, r)
 		return
@@ -631,6 +666,59 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		// Escape backslashes and encode as a single SSE data line.
+		escaped := strings.ReplaceAll(line, "\\", "\\\\")
+		fmt.Fprintf(w, "data: %s\n\n", escaped)
+		flusher.Flush()
+		if r.Context().Err() != nil {
+			break
+		}
+	}
+	if cmd.Process != nil {
+		cmd.Process.Kill() //nolint:errcheck
+	}
+}
+
+var allowedQueueUnit = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
+	// path: /api/queue/<sitename>/logs
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/queue/"), "/")
+	if len(parts) != 2 || parts[1] != "logs" || !allowedQueueUnit.MatchString(parts[0]) {
+		http.NotFound(w, r)
+		return
+	}
+	unit := "lerd-queue-" + parts[0]
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	pr, pw := io.Pipe()
+	cmd := exec.CommandContext(r.Context(), "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		pw.Close()
+	}()
+
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		line := scanner.Text()
 		escaped := strings.ReplaceAll(line, "\\", "\\\\")
 		fmt.Fprintf(w, "data: %s\n\n", escaped)
 		flusher.Flush()

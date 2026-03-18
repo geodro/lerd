@@ -161,9 +161,14 @@ Lerd includes a browser dashboard, served at **`http://127.0.0.1:7073`** by the 
 
 The UI gives you a visual overview of your entire Lerd environment without touching the terminal:
 
-- **Sites** — lists all registered projects with their domain, PHP version, Node version, TLS status, and FPM health. From here you can toggle HTTPS on/off, change PHP version, and change Node version per site. Toggling HTTPS updates `APP_URL` in the project's `.env` automatically.
-- **Services** — shows all available services (MySQL, Redis, PostgreSQL, Meilisearch, MinIO, Mailpit, Soketi) with their current status. Start or stop any service with one click; the panel shows the correct `.env` connection values for each service.
-- **Status** — health check panel for DNS, nginx, and each PHP-FPM container.
+- **Sites tab** — lists all registered projects with their domain, path, PHP version, Node version, and per-site controls:
+  - **HTTPS toggle** — enable or disable TLS with one click; updates `APP_URL` in `.env` automatically
+  - **PHP / Node dropdowns** — change the version per site; writes `.php-version` / `.node-version` into the project and regenerates the nginx vhost on the fly
+  - **Queue toggle** — start or stop the Laravel queue worker for a site; amber when running; click the **logs** link next to the toggle to open the live log drawer for that worker
+  - **Unlink button** — remove a site from nginx without touching the terminal; for parked sites the directory is left on disk (run `lerd link` to re-register it)
+  - **Click any row** — opens the live PHP-FPM log drawer at the bottom of the screen
+- **Services tab** — shows all available services (MySQL, Redis, PostgreSQL, Meilisearch, MinIO, Mailpit, Soketi) with their current status. Start or stop any service with one click; each panel shows the correct `.env` connection values with a one-click copy button.
+- **System tab** — health check panel for DNS, nginx, PHP-FPM containers, and the autostart toggle.
 - **Updates** — shows the current and latest version, with a one-click update button that runs `lerd update` in the background.
 
 ---
@@ -180,6 +185,8 @@ The UI gives you a visual overview of your entire Lerd environment without touch
 | `lerd update` | Update to the latest release |
 | `lerd uninstall` | Stop all containers and remove Lerd |
 | `lerd uninstall --force` | Same, skipping all confirmation prompts |
+| `lerd autostart enable` | Start Lerd automatically on every login |
+| `lerd autostart disable` | Disable autostart on login |
 | `lerd dns:check` | Verify that `*.test` resolves to `127.0.0.1` |
 | `lerd status` | Health summary: DNS, nginx, PHP-FPM containers, services, cert expiry |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
@@ -192,13 +199,16 @@ The UI gives you a visual overview of your entire Lerd environment without touch
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
 | `lerd link [name]` | Register the current directory as a site |
 | `lerd link [name] --domain foo.test` | Register with a custom domain |
-| `lerd unlink` | Remove the current directory from Lerd |
+| `lerd unlink [name]` | Stop serving the site; for parked dirs keeps the registry entry so the watcher won't re-register it |
 | `lerd sites` | Table view of all registered sites |
+| `lerd open [name]` | Open the site in the default browser |
 | `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS for a site — updates `APP_URL` in `.env` |
 | `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings |
 
 > **Domain naming:** directories with real TLDs are automatically normalised — dots are replaced with dashes and the TLD is stripped before appending `.test`. For example `admin.astrolov.com` → `admin-astrolov.test`.
+
+> **Unlink behaviour for parked sites:** when you unlink a site that lives inside a parked directory, the vhost is removed but the registry entry is kept and marked as *ignored* — the watcher will not re-register it on its next scan. Running `lerd link` in that directory clears the ignored flag and restores the site.
 
 ### PHP
 
@@ -231,6 +241,36 @@ The UI gives you a visual overview of your entire Lerd environment without touch
 | `lerd service list` | Show all services and their current state |
 
 Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`, `mailpit`, `soketi`.
+
+### Queue workers
+
+Lerd can run Laravel queue workers as persistent systemd user services. The worker runs `php artisan queue:work` inside the project's PHP-FPM container and restarts automatically on failure.
+
+| Command | Description |
+|---|---|
+| `lerd queue:start` | Start a queue worker for the current project |
+| `lerd queue:stop` | Stop the queue worker for the current project |
+| `lerd queue start` | Same as `queue:start` (subcommand form) |
+| `lerd queue stop` | Same as `queue:stop` (subcommand form) |
+
+Options for `queue:start`:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--queue` | `default` | Queue name to process |
+| `--tries` | `3` | Max attempts before marking a job as failed |
+| `--timeout` | `60` | Seconds a job may run before timing out |
+
+Example:
+
+```bash
+cd ~/Lerd/my-app
+lerd queue:start --queue=emails,default --tries=5 --timeout=120
+# Systemd unit: lerd-queue-my-app.service
+# Logs: journalctl --user -u lerd-queue-my-app -f
+```
+
+Queue workers are also controllable from the **Sites tab** in the web UI — the amber toggle starts/stops the worker and the **logs** link opens a live log drawer in the browser.
 
 ### Shell completion
 
@@ -338,6 +378,64 @@ Running `lerd env` on a project that already has a `.env` is safe — it only up
 
 ---
 
+## AI assistant integration (MCP)
+
+Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, letting AI assistants (Claude Code, JetBrains Junie, and any other MCP-compatible tool) manage your dev environment directly — run migrations, start services, toggle queue workers, and inspect logs without leaving the chat.
+
+### Injecting the config
+
+Run this once from a Laravel project root:
+
+```bash
+cd ~/Lerd/my-app
+lerd mcp:inject
+```
+
+This writes three files:
+
+| File | Purpose |
+|---|---|
+| `.mcp.json` | MCP server entry for Claude Code |
+| `.claude/skills/lerd/SKILL.md` | Skill file that teaches Claude about lerd tools |
+| `.junie/mcp/mcp.json` | MCP server entry for JetBrains Junie |
+
+The command **merges** into existing configs — other MCP servers (e.g. `laravel-boost`, `herd`) are left untouched. Re-running it is safe.
+
+To target a different directory:
+
+```bash
+lerd mcp:inject --path ~/Lerd/another-app
+```
+
+### Available MCP tools
+
+Once the MCP server is connected, your AI assistant has access to:
+
+| Tool | Description |
+|---|---|
+| `sites` | List all registered lerd sites (name, domain, path, PHP version, queue status) |
+| `artisan` | Run `php artisan` in the PHP-FPM container — migrations, generators, seeders, cache, tinker |
+| `service_start` | Start an infrastructure service (mysql, redis, postgres, …) |
+| `service_stop` | Stop a service |
+| `queue_start` | Start a queue worker for a site |
+| `queue_stop` | Stop a queue worker |
+| `logs` | Fetch recent container logs (nginx, any service, PHP version, or site name) |
+
+### Example interactions
+
+```
+You: run migrations for the whitewaters project
+AI:  → sites()           # finds path /home/user/Lerd/whitewaters
+     → artisan(path: "/home/user/Lerd/whitewaters", args: ["migrate"])
+     ✓  Ran 3 migrations in 42ms
+
+You: the app is throwing 500s — check the logs
+AI:  → logs(target: "8.4", lines: 50)
+     PHP Fatal error: Class "App\Jobs\ProcessOrder" not found ...
+```
+
+---
+
 ## Configuration
 
 ### Global config — `~/.config/lerd/config.yaml`
@@ -365,17 +463,6 @@ services:
   mailpit:     { enabled: false, image: "axllent/mailpit:latest",       port: 1025 }
   soketi:      { enabled: false, image: "quay.io/soketi/soketi:latest-16-alpine", port: 6001 }
 ```
-
-### Start on login
-
-Lerd can be configured to start automatically when you log in:
-
-```bash
-lerd autostart enable   # start lerd automatically on every login
-lerd autostart disable  # disable autostart
-```
-
-This can also be toggled from the web UI under the **System** tab.
 
 ### Per-project config — `.lerd.yaml`
 

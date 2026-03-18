@@ -64,10 +64,8 @@ func runWithFnm(bin string, args []string) error {
 		return fmt.Errorf("fnm not found at %s — run 'lerd install' first", fnm)
 	}
 
-	// Ensure the version is installed
+	// Ensure the version is installed (suppress output — fnm prints even when already installed)
 	installCmd := exec.Command(fnm, "install", version)
-	installCmd.Stdout = os.Stdout
-	installCmd.Stderr = os.Stderr
 	_ = installCmd.Run() // best-effort
 
 	cmdArgs := []string{"exec", "--using=" + version, "--", bin}

@@ -15,6 +15,7 @@ type Site struct {
 	PHPVersion  string `yaml:"php_version"`
 	NodeVersion string `yaml:"node_version"`
 	Secured     bool   `yaml:"secured"`
+	Ignored     bool   `yaml:"ignored,omitempty"`
 }
 
 // SiteRegistry holds all registered sites.
@@ -87,6 +88,22 @@ func RemoveSite(name string) error {
 	return SaveSites(reg)
 }
 
+// IgnoreSite marks a site as ignored (used for parked sites that have been unlinked).
+func IgnoreSite(name string) error {
+	reg, err := LoadSites()
+	if err != nil {
+		return err
+	}
+
+	for i, s := range reg.Sites {
+		if s.Name == name {
+			reg.Sites[i].Ignored = true
+			return SaveSites(reg)
+		}
+	}
+	return fmt.Errorf("site %q not found", name)
+}
+
 // FindSite returns the site with the given name, or an error if not found.
 func FindSite(name string) (*Site, error) {
 	reg, err := LoadSites()
@@ -101,6 +118,22 @@ func FindSite(name string) (*Site, error) {
 		}
 	}
 	return nil, fmt.Errorf("site %q not found", name)
+}
+
+// FindSiteByPath returns the site whose path matches, or an error if not found.
+func FindSiteByPath(path string) (*Site, error) {
+	reg, err := LoadSites()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, s := range reg.Sites {
+		if s.Path == path {
+			s := s
+			return &s, nil
+		}
+	}
+	return nil, fmt.Errorf("site with path %q not found", path)
 }
 
 // FindSiteByDomain returns the site with the given domain, or an error if not found.

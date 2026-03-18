@@ -7,10 +7,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Watch monitors the given directories for new project subdirectories.
-// When an artisan file appears in a new subdirectory, onNew is called with
-// the project path.
-func Watch(dirs []string, onNew func(path string)) error {
+// Watch monitors the given directories for new and deleted project subdirectories.
+// onNew is called when an artisan file appears in a subdirectory.
+// onRemoved is called when a watched subdirectory is deleted.
+func Watch(dirs []string, onNew func(path string), onRemoved func(path string)) error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -25,6 +25,13 @@ func Watch(dirs []string, onNew func(path string)) error {
 		if err := w.Add(expanded); err != nil {
 			continue
 		}
+		// Also watch existing subdirectories so we catch artisan creation inside them.
+		entries, _ := os.ReadDir(expanded)
+		for _, e := range entries {
+			if e.IsDir() {
+				_ = w.Add(filepath.Join(expanded, e.Name()))
+			}
+		}
 	}
 
 	for {
@@ -33,10 +40,17 @@ func Watch(dirs []string, onNew func(path string)) error {
 			if !ok {
 				return nil
 			}
-			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+			switch {
+			case event.Op&fsnotify.Remove != 0:
+				onRemoved(event.Name)
+			case event.Op&(fsnotify.Create|fsnotify.Write) != 0:
 				if filepath.Base(event.Name) == "artisan" {
-					projectDir := filepath.Dir(event.Name)
-					onNew(projectDir)
+					onNew(filepath.Dir(event.Name))
+				} else if event.Op&fsnotify.Create != 0 {
+					// New subdirectory in a parked dir — watch it for artisan.
+					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+						_ = w.Add(event.Name)
+					}
 				}
 			}
 		case err, ok := <-w.Errors:
