@@ -277,9 +277,15 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	// Restart the tray if it is currently running so it picks up the new binary.
+	wasTrayRunning := trayRunning()
 	exec.Command("pkill", "-f", "lerd tray").Run() //nolint:errcheck
 	if lerdSystemd.IsServiceEnabled("lerd-tray") {
 		_ = lerdSystemd.StartService("lerd-tray")
+	} else if wasTrayRunning {
+		// Tray was running directly (not via systemd); relaunch it.
+		if exe, err := os.Executable(); err == nil {
+			_ = exec.Command(exe, "tray").Start()
+		}
 	}
 
 	// 9. Shell shims
