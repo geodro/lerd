@@ -24,8 +24,20 @@ jobs:
       - name: Install tray build dependencies
         run: |
           sudo dpkg --add-architecture arm64
+          # Pin existing repos to amd64 so apt-get update doesn't fail on missing arm64 indexes.
+          # Handles both traditional sources.list and DEB822 format (Ubuntu 24.04).
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/g' /etc/apt/sources.list 2>/dev/null || true
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i '/^Architectures:/d' /etc/apt/sources.list.d/ubuntu.sources
+            sudo sed -i 's/^Types:/Architectures: amd64\nTypes:/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          # Add Ubuntu Ports for arm64 packages
+          . /etc/os-release
+          printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main restricted universe multiverse\ndeb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main restricted universe multiverse\ndeb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main restricted universe multiverse\n' \
+            "$VERSION_CODENAME" "$VERSION_CODENAME" "$VERSION_CODENAME" | \
+            sudo tee /etc/apt/sources.list.d/arm64-ports.list
           sudo apt-get update
-          sudo apt-get install -y --fix-missing \
+          sudo apt-get install -y \
             libappindicator3-dev \
             gcc-aarch64-linux-gnu \
             libappindicator3-dev:arm64

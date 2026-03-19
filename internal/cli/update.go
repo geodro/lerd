@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/geodro/lerd/internal/podman"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
@@ -102,7 +104,34 @@ func runUpdate(currentVersion string) error {
 }
 
 func fetchLatestVersion() (string, error) {
-	return lerdUpdate.FetchLatestVersion()
+	url := githubReleasesBase + "/latest"
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "lerd-cli")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusMovedPermanently {
+		return "", fmt.Errorf("unexpected status from %s: HTTP %d", url, resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return "", fmt.Errorf("no Location header in redirect from %s", url)
+	}
+	parts := strings.Split(location, "/tag/")
+	if len(parts) != 2 || parts[1] == "" {
+		return "", fmt.Errorf("unexpected release URL format: %s", location)
+	}
+	return parts[1], nil
 }
 
 // downloadReleaseBinary downloads and extracts the release archive for the
