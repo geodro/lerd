@@ -116,6 +116,24 @@ func runStatus(_ *cobra.Command, _ []string) error {
 			fail2(svc, status, "systemctl --user status "+unit)
 		}
 	}
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		unit := "lerd-" + svc.Name
+		if !podman.QuadletInstalled(unit) {
+			continue
+		}
+		installedCount++
+		status, _ := podman.UnitStatus(unit)
+		label := svc.Name + " [custom]"
+		switch status {
+		case "active":
+			ok2(label)
+		case "inactive":
+			warn2(label, "inactive — start with: lerd service start "+svc.Name)
+		default:
+			fail2(label, status, "systemctl --user status "+unit)
+		}
+	}
 	if installedCount == 0 {
 		fmt.Println("  No services installed. Start one with: lerd service start <name>")
 	}

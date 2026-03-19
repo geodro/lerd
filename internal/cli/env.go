@@ -154,6 +154,33 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// 3b. Detect custom services
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		if svc.EnvDetect == nil || len(svc.EnvVars) == 0 {
+			continue
+		}
+		val, exists := envMap[svc.EnvDetect.Key]
+		if !exists {
+			continue
+		}
+		if svc.EnvDetect.ValuePrefix != "" && !strings.HasPrefix(val, svc.EnvDetect.ValuePrefix) {
+			continue
+		}
+		fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc.Name)
+		for _, kv := range svc.EnvVars {
+			k, v, _ := strings.Cut(kv, "=")
+			updates[k] = applySiteHandle(v, dbName)
+		}
+		if err := ensureServiceRunning(svc.Name); err != nil {
+			fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
+			continue
+		}
+		if svc.SiteInit != nil && svc.SiteInit.Exec != "" {
+			runSiteInit(svc, dbName)
+		}
+	}
+
 	// 4. Set APP_URL to the registered .test domain
 	if url := siteURL(cwd); url != "" {
 		updates["APP_URL"] = url
@@ -219,8 +246,18 @@ func ensureServiceRunning(name string) error {
 		return nil
 	}
 	fmt.Printf("  Starting %s...\n", name)
-	if err := ensureServiceQuadlet(name); err != nil {
-		return err
+	if isKnownService(name) {
+		if err := ensureServiceQuadlet(name); err != nil {
+			return err
+		}
+	} else {
+		svc, err := config.LoadCustomService(name)
+		if err != nil {
+			return fmt.Errorf("custom service %q not found: %w", name, err)
+		}
+		if err := ensureCustomServiceQuadlet(svc); err != nil {
+			return err
+		}
 	}
 	return podman.StartUnit(unit)
 }
@@ -284,6 +321,28 @@ func artisanIn(dir string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// applySiteHandle replaces {{site}} and {{site_testing}} placeholders in s.
+func applySiteHandle(s, site string) string {
+	s = strings.ReplaceAll(s, "{{site}}", site)
+	s = strings.ReplaceAll(s, "{{site_testing}}", site+"_testing")
+	return s
+}
+
+// runSiteInit executes the site_init.exec command inside the service container.
+func runSiteInit(svc *config.CustomService, site string) {
+	container := svc.SiteInit.Container
+	if container == "" {
+		container = "lerd-" + svc.Name
+	}
+	script := applySiteHandle(svc.SiteInit.Exec, site)
+	cmd := exec.Command("podman", "exec", container, "sh", "-c", script)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("  [WARN] site_init for %s failed: %v\n", svc.Name, err)
+	}
 }
 
 // copyEnvFile copies src to dst with 0644 permissions.

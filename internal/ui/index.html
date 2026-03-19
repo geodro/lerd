@@ -358,9 +358,9 @@
                   x-text="svc.showEnv ? 'Hide' : '.env'"
                 ></button>
 
-                <template x-if="svc.status === 'active' && serviceDashboard(svc.name)">
+                <template x-if="svc.status === 'active' && svc.dashboard">
                   <a
-                    :href="serviceDashboard(svc.name)"
+                    :href="svc.dashboard"
                     target="_blank"
                     class="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors"
                     title="Open dashboard"
@@ -698,11 +698,6 @@ function lerdApp() {
     },
 
     capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); },
-    serviceDashboard(name) {
-      const dashboards = { mailpit: 'http://localhost:8025', minio: 'http://localhost:9001', meilisearch: 'http://localhost:7700' };
-      return dashboards[name] || null;
-    },
-
     async loadVersion() {
       try {
         const res = await fetch('/api/version');

@@ -271,9 +271,17 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 // ServiceResponse is the response for GET /api/services.
 type ServiceResponse struct {
-	Name    string            `json:"name"`
-	Status  string            `json:"status"`
-	EnvVars map[string]string `json:"env_vars"`
+	Name      string            `json:"name"`
+	Status    string            `json:"status"`
+	EnvVars   map[string]string `json:"env_vars"`
+	Dashboard string            `json:"dashboard,omitempty"`
+}
+
+// builtinDashboards maps built-in service names to their dashboard URLs.
+var builtinDashboards = map[string]string{
+	"mailpit":     "http://localhost:8025",
+	"minio":       "http://localhost:9001",
+	"meilisearch": "http://localhost:7700",
 }
 
 func buildServiceResponse(name string) ServiceResponse {
@@ -292,9 +300,10 @@ func buildServiceResponse(name string) ServiceResponse {
 	}
 
 	return ServiceResponse{
-		Name:    name,
-		Status:  status,
-		EnvVars: envMap,
+		Name:      name,
+		Status:    status,
+		EnvVars:   envMap,
+		Dashboard: builtinDashboards[name],
 	}
 }
 
@@ -302,6 +311,30 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 	services := make([]ServiceResponse, 0, len(knownServices))
 	for _, name := range knownServices {
 		services = append(services, buildServiceResponse(name))
+	}
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		unit := "lerd-" + svc.Name
+		status, _ := podman.UnitStatus(unit)
+		if status == "" {
+			status = "inactive"
+		}
+		displayHandle := "lerd-" + svc.Name
+		envMap := map[string]string{}
+		for _, kv := range svc.EnvVars {
+			parts := strings.SplitN(kv, "=", 2)
+			if len(parts) == 2 {
+				v := strings.ReplaceAll(parts[1], "{{site}}", displayHandle)
+				v = strings.ReplaceAll(v, "{{site_testing}}", displayHandle+"_testing")
+				envMap[parts[0]] = v
+			}
+		}
+		services = append(services, ServiceResponse{
+			Name:      svc.Name,
+			Status:    status,
+			EnvVars:   envMap,
+			Dashboard: svc.Dashboard,
+		})
 	}
 	writeJSON(w, services)
 }
@@ -328,17 +361,22 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate service name
-	valid := false
+	// Validate service name — built-in or custom
+	isBuiltin := false
 	for _, s := range knownServices {
 		if s == name {
-			valid = true
+			isBuiltin = true
 			break
 		}
 	}
-	if !valid {
-		http.Error(w, "unknown service", http.StatusNotFound)
-		return
+	var customSvc *config.CustomService
+	if !isBuiltin {
+		var loadErr error
+		customSvc, loadErr = config.LoadCustomService(name)
+		if loadErr != nil {
+			http.Error(w, "unknown service", http.StatusNotFound)
+			return
+		}
 	}
 
 	unit := "lerd-" + name
@@ -347,11 +385,17 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "start":
 		// Ensure quadlet file exists and systemd knows about it before starting
-		if err := ensureServiceQuadlet(name); err != nil {
+		var quadletErr error
+		if isBuiltin {
+			quadletErr = ensureServiceQuadlet(name)
+		} else {
+			quadletErr = ensureCustomServiceQuadlet(customSvc)
+		}
+		if quadletErr != nil {
 			resp := ServiceActionResponse{
 				ServiceResponse: buildServiceResponse(name),
 				OK:              false,
-				Error:           err.Error(),
+				Error:           quadletErr.Error(),
 				Logs:            serviceRecentLogs(unit),
 			}
 			writeJSON(w, resp)
@@ -388,7 +432,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ensureServiceQuadlet writes the quadlet for a service and reloads systemd.
+// ensureServiceQuadlet writes the quadlet for a built-in service and reloads systemd.
 func ensureServiceQuadlet(name string) error {
 	quadletName := "lerd-" + name
 	content, err := podman.GetQuadletTemplate(quadletName + ".container")
@@ -397,6 +441,21 @@ func ensureServiceQuadlet(name string) error {
 	}
 	if err := podman.WriteQuadlet(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", name, err)
+	}
+	return podman.DaemonReload()
+}
+
+// ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
+func ensureCustomServiceQuadlet(svc *config.CustomService) error {
+	if svc.DataDir != "" {
+		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
+			return fmt.Errorf("creating data directory for %s: %w", svc.Name, err)
+		}
+	}
+	content := podman.GenerateCustomQuadlet(svc)
+	quadletName := "lerd-" + svc.Name
+	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
 	}
 	return podman.DaemonReload()
 }

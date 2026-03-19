@@ -90,3 +90,8 @@ func PHPImageHashFile() string {
 func PHPConfFile(version string) string {
 	return filepath.Join(DataDir(), "php", version, "99-xdebug.ini")
 }
+
+// CustomServicesDir returns the directory for custom service YAML files.
+func CustomServicesDir() string {
+	return filepath.Join(ConfigDir(), "services")
+}

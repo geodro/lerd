@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxServices = 7
+	maxServices = 20
 	maxPHP      = 8
 )
 

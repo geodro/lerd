@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -64,6 +65,12 @@ func installedServiceUnits() []string {
 	for _, svc := range knownServices {
 		if podman.QuadletInstalled("lerd-" + svc) {
 			units = append(units, "lerd-"+svc)
+		}
+	}
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		if podman.QuadletInstalled("lerd-" + svc.Name) {
+			units = append(units, "lerd-"+svc.Name)
 		}
 	}
 	return units

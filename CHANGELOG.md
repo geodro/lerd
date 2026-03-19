@@ -7,6 +7,33 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.4] — 2026-03-19
+
+### Added
+
+- **Custom services**: users can now define arbitrary OCI-based services without recompiling. Config lives at `~/.config/lerd/services/<name>.yaml`.
+  - `lerd service add [file.yaml]` — add from a YAML file or inline flags (`--name`, `--image`, `--port`, `--env`, `--env-var`, `--data-dir`, `--detect-key`, `--detect-prefix`, `--init-exec`, `--init-container`, `--dashboard`, `--description`)
+  - `lerd service remove <name>` — stop (if running), remove quadlet and config; data directory preserved
+  - `lerd service list` — shows built-in and custom services with a `[custom]` type column
+  - `lerd service start/stop` — works for custom services
+  - `lerd start` / `lerd stop` — includes installed custom services
+  - `lerd env` — auto-detects custom services via `env_detect`, applies `env_vars`, runs `site_init.exec`
+  - `lerd status` — includes custom services in the `[Services]` section
+  - Web UI services tab — shows custom services with start/stop and dashboard link
+  - System tray — shows custom services (slot pool expanded from 7 to 20)
+- **`{{site}}` / `{{site_testing}}` placeholders** in `env_vars` and `site_init.exec` — substituted with the project site handle at `lerd env` time
+- **`site_init`** YAML block — runs a `sh -c` command inside the service container once per project when `lerd env` detects the service (for DB/collection creation, user setup, etc.)
+- **`dashboard`** field on custom services and built-in service responses — shows an "Open" button in the web UI when the service is active; dashboard URLs for built-ins (Mailpit, MinIO, Meilisearch) moved from hardcoded JS to the API response
+- **README simplified** — now a slim landing page pointing to the docs site; full documentation at `geodro.github.io/lerd`
+- **Docs updated** — `docs/usage/services.md` extended with full custom services reference
+
+### Fixed
+
+- Custom service data directory is now created automatically before starting (`podman` refused to mount a non-existent host path)
+- `lerd service remove` now checks unit status before stopping — skips stop if not running, and aborts removal if stop fails (prevents orphaned running containers)
+
+---
+
 ## [0.5.3] — 2026-03-19
 
 ### Fixed
