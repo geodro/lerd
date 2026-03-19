@@ -159,6 +159,10 @@ That's it. Nginx is serving your project through PHP-FPM, all inside Podman cont
 
 Lerd includes a browser dashboard, served at **`http://127.0.0.1:7073`** by the `lerd-ui` systemd service (started automatically with `lerd install`).
 
+![Sites tab](screenshots/app-3.png)
+![Services tab](screenshots/app-2.png)
+![System tab](screenshots/app-1.png)
+
 The UI gives you a visual overview of your entire Lerd environment without touching the terminal:
 
 - **Sites tab** — lists all registered projects with their domain, path, PHP version, Node version, and per-site controls:
