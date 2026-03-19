@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.2] — 2026-03-19
+
+### Fixed
+
+- `lerd db:create` and `lerd db:shell` were missing from the binary — `cmd/lerd/main.go` was not staged in the v0.5.1 commit
+
+---
+
 ## [0.5.1] — 2026-03-19
 
 ### Added
@@ -762,6 +770,7 @@ Initial release.
 
 ---
 
+[0.5.2]: https://github.com/geodro/lerd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/geodro/lerd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/geodro/lerd/compare/v0.4.3...v0.5.0
 [0.1.53]: https://github.com/geodro/lerd/compare/v0.1.52...v0.1.53
