@@ -7,7 +7,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.5.10] — 2026-03-20
+## [0.5.11] — 2026-03-20
 
 ### Added
 
