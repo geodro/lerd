@@ -13,14 +13,17 @@ cd ~/Lerd/my-app
 lerd mcp:inject
 ```
 
-This writes four files:
+This writes five files:
 
 | File | Purpose |
 |---|---|
 | `.mcp.json` | MCP server entry for Claude Code |
 | `.claude/skills/lerd/SKILL.md` | Skill file that teaches Claude about lerd tools |
+| `.ai/mcp/mcp.json` | MCP server entry for Windsurf and other MCP-compatible tools |
 | `.junie/mcp/mcp.json` | MCP server entry for JetBrains Junie |
 | `.junie/guidelines.md` | Lerd context section for JetBrains Junie (merged, not overwritten) |
+
+Each config includes a `LERD_SITE_PATH` environment variable pointing to the project root. This means tools like `artisan`, `composer`, `env_setup`, and `db_export` don't need an explicit `path` argument when called from within that project — the server uses `LERD_SITE_PATH` as the default.
 
 The command **merges** into existing configs — other MCP servers (e.g. `laravel-boost`, `herd`) are left untouched. Re-running it is safe.
 
@@ -65,16 +68,17 @@ Once the MCP server is connected, your AI assistant has access to:
 
 ## Example interactions
 
+`LERD_SITE_PATH` is set automatically by `mcp:inject`, so `path` is omitted from most calls.
+
 ```
-You: run migrations for the whitewaters project
-AI:  → sites()           # finds path /home/user/Lerd/whitewaters
-     → artisan(path: "/home/user/Lerd/whitewaters", args: ["migrate"])
+You: run migrations
+AI:  → artisan(args: ["migrate"])
      ✓  Ran 3 migrations in 42ms
 
 You: install sanctum and run its migrations
-AI:  → composer(path: "/home/user/Lerd/whitewaters", args: ["require", "laravel/sanctum"])
-     → artisan(path: "/home/user/Lerd/whitewaters", args: ["vendor:publish", "--provider=Laravel\\Sanctum\\SanctumServiceProvider"])
-     → artisan(path: "/home/user/Lerd/whitewaters", args: ["migrate"])
+AI:  → composer(args: ["require", "laravel/sanctum"])
+     → artisan(args: ["vendor:publish", "--provider=Laravel\\Sanctum\\SanctumServiceProvider"])
+     → artisan(args: ["migrate"])
 
 You: add a MongoDB service
 AI:  → service_add(name: "mongodb", image: "docker.io/library/mongo:7", ports: ["27017:27017"], data_dir: "/data/db")
@@ -86,16 +90,16 @@ AI:  → runtime_versions()
      { "php": { "installed": ["8.3", "8.4"], "default_version": "8.4" },
        "node": { "installed": ["v20.11.0", "v18.20.4"], "default_version": "20" } }
 
-You: set up the whitewaters project I just cloned to ~/Lerd/whitewaters
-AI:  → site_link(path: "/home/user/Lerd/whitewaters")
-     → env_setup(path: "/home/user/Lerd/whitewaters")
+You: set up the project I just cloned
+AI:  → site_link()
+     → env_setup()
        # detects MySQL + Redis, starts them, creates database, generates APP_KEY
-     → composer(path: "/home/user/Lerd/whitewaters", args: ["install"])
-     → artisan(path: "/home/user/Lerd/whitewaters", args: ["migrate", "--seed"])
+     → composer(args: ["install"])
+     → artisan(args: ["migrate", "--seed"])
      ✓  whitewaters -> whitewaters.test ready
 
 You: enable xdebug so I can step through a failing job
-AI:  → xdebug_status()         # check current state
+AI:  → xdebug_status()
      → xdebug_on(version: "8.4")
      ✓  Xdebug enabled for PHP 8.4 (port 9003)
 

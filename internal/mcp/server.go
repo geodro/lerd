@@ -24,6 +24,18 @@ const protocolVersion = "2024-11-05"
 
 var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"}
 
+// defaultSitePath is set at startup from LERD_SITE_PATH, injected by mcp:inject.
+// Tools that accept a "path" argument use this as a fallback when none is provided.
+var defaultSitePath = os.Getenv("LERD_SITE_PATH")
+
+// resolvedPath returns the "path" argument from args, falling back to defaultSitePath.
+func resolvedPath(args map[string]any) string {
+	if p := strArg(args, "path"); p != "" {
+		return p
+	}
+	return defaultSitePath
+}
+
 // ---- JSON-RPC wire types ----
 
 type rpcRequest struct {
@@ -133,14 +145,14 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{
 					"path": {
 						Type:        "string",
-						Description: "Absolute path to the Laravel project root (e.g. /home/user/code/myapp)",
+						Description: "Absolute path to the Laravel project root (e.g. /home/user/code/myapp). Defaults to LERD_SITE_PATH when omitted.",
 					},
 					"args": {
 						Type:        "array",
 						Description: `Artisan arguments as an array, e.g. ["migrate"] or ["make:model", "Post", "-m"] or ["tinker", "--execute=App\\Models\\User::count()"]`,
 					},
 				},
-				Required: []string{"path", "args"},
+				Required: []string{"args"},
 			},
 		},
 		{
@@ -247,14 +259,14 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{
 					"path": {
 						Type:        "string",
-						Description: "Absolute path to the Laravel project root (e.g. /home/user/code/myapp)",
+						Description: "Absolute path to the Laravel project root (e.g. /home/user/code/myapp). Defaults to LERD_SITE_PATH when omitted.",
 					},
 					"args": {
 						Type:        "array",
 						Description: `Composer arguments as an array, e.g. ["install"] or ["require", "laravel/sanctum"] or ["dump-autoload"]`,
 					},
 				},
-				Required: []string{"path", "args"},
+				Required: []string{"args"},
 			},
 		},
 		{
@@ -357,10 +369,9 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{
 					"path": {
 						Type:        "string",
-						Description: "Absolute path to the Laravel project root",
+						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
 					},
 				},
-				Required: []string{"path"},
 			},
 		},
 		{
@@ -371,7 +382,7 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{
 					"path": {
 						Type:        "string",
-						Description: "Absolute path to the project directory",
+						Description: "Absolute path to the project directory. Defaults to LERD_SITE_PATH when omitted.",
 					},
 					"name": {
 						Type:        "string",
@@ -382,7 +393,6 @@ func toolList() []mcpTool {
 						Description: "Custom domain (defaults to <name>.test)",
 					},
 				},
-				Required: []string{"path"},
 			},
 		},
 		{
@@ -469,14 +479,13 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{
 					"path": {
 						Type:        "string",
-						Description: "Absolute path to the Laravel project root",
+						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
 					},
 					"output": {
 						Type:        "string",
 						Description: "Output file path (defaults to <database>.sql in the project root)",
 					},
 				},
-				Required: []string{"path"},
 			},
 		},
 	}
@@ -619,9 +628,9 @@ func isKnownService(name string) bool {
 // ---- Tool implementations ----
 
 func execArtisan(args map[string]any) (any, *rpcError) {
-	projectPath := strArg(args, "path")
+	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required"), nil
+		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
 	}
 	artisanArgs := strSliceArg(args, "args")
 	if len(artisanArgs) == 0 {
@@ -861,9 +870,9 @@ func resolveLogsContainer(target string) (string, error) {
 }
 
 func execComposer(args map[string]any) (any, *rpcError) {
-	projectPath := strArg(args, "path")
+	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required"), nil
+		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
 	}
 	composerArgs := strSliceArg(args, "args")
 	if len(composerArgs) == 0 {
@@ -1075,9 +1084,9 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 }
 
 func execEnvSetup(args map[string]any) (any, *rpcError) {
-	projectPath := strArg(args, "path")
+	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required"), nil
+		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
 	}
 
 	self, err := os.Executable()
@@ -1097,9 +1106,9 @@ func execEnvSetup(args map[string]any) (any, *rpcError) {
 }
 
 func execSiteLink(args map[string]any) (any, *rpcError) {
-	projectPath := strArg(args, "path")
+	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required"), nil
+		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
 	}
 
 	cfg, err := config.LoadGlobal()
@@ -1339,9 +1348,9 @@ func execXdebugStatus() (any, *rpcError) {
 }
 
 func execDBExport(args map[string]any) (any, *rpcError) {
-	projectPath := strArg(args, "path")
+	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required"), nil
+		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
 	}
 
 	env, err := readDBEnv(projectPath)

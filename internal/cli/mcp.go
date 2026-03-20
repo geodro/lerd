@@ -66,6 +66,7 @@ func runMCPInject(targetPath string) error {
 	lerdEntry := map[string]any{
 		"command": "lerd",
 		"args":    []string{"mcp"},
+		"env":     map[string]string{"LERD_SITE_PATH": abs},
 	}
 
 	fmt.Printf("Injecting lerd MCP config into: %s\n\n", abs)
@@ -76,6 +77,16 @@ func runMCPInject(targetPath string) error {
 	}
 	rel1 := ".mcp.json"
 	fmt.Printf("  updated %s\n", rel1)
+
+	// .ai/mcp/mcp.json — same mcpServers format (Windsurf and others)
+	aiPath := filepath.Join(abs, ".ai", "mcp", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(aiPath), 0755); err != nil {
+		return fmt.Errorf("creating .ai/mcp: %w", err)
+	}
+	if err := mergeMCPServersJSON(aiPath, lerdEntry); err != nil {
+		return err
+	}
+	fmt.Printf("  updated .ai/mcp/mcp.json\n")
 
 	// .junie/mcp/mcp.json — same mcpServers format
 	juniePath := filepath.Join(abs, ".junie", "mcp", "mcp.json")
@@ -209,31 +220,31 @@ List all installed PHP and Node.js versions and the configured defaults. Call th
 
 ### ` + bt + `artisan` + bt + `
 Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container for the project. Arguments:
-- ` + bt + `path` + bt + ` (required): absolute path to the Laravel project root
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 - ` + bt + `args` + bt + ` (required): artisan arguments as an array
 
 Examples:
 ` + "```" + `
-artisan(path: "/home/user/code/myapp", args: ["migrate"])
-artisan(path: "/home/user/code/myapp", args: ["make:model", "Post", "-m"])
-artisan(path: "/home/user/code/myapp", args: ["db:seed", "--class=UserSeeder"])
-artisan(path: "/home/user/code/myapp", args: ["cache:clear"])
-artisan(path: "/home/user/code/myapp", args: ["tinker", "--execute=echo App\\Models\\User::count();"])
+artisan(args: ["migrate"])
+artisan(args: ["make:model", "Post", "-m"])
+artisan(args: ["db:seed", "--class=UserSeeder"])
+artisan(args: ["cache:clear"])
+artisan(args: ["tinker", "--execute=echo App\\Models\\User::count();"])
 ` + "```" + `
 
 > **Note:** ` + bt + `tinker` + bt + ` requires ` + bt + `--execute=<code>` + bt + ` for non-interactive use.
 
 ### ` + bt + `composer` + bt + `
 Run ` + bt + `composer` + bt + ` inside the PHP-FPM container for the project. Arguments:
-- ` + bt + `path` + bt + ` (required): absolute path to the Laravel project root
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 - ` + bt + `args` + bt + ` (required): composer arguments as an array
 
 Examples:
 ` + "```" + `
-composer(path: "/home/user/code/myapp", args: ["install"])
-composer(path: "/home/user/code/myapp", args: ["require", "laravel/sanctum"])
-composer(path: "/home/user/code/myapp", args: ["dump-autoload"])
-composer(path: "/home/user/code/myapp", args: ["update", "laravel/framework"])
+composer(args: ["install"])
+composer(args: ["require", "laravel/sanctum"])
+composer(args: ["dump-autoload"])
+composer(args: ["update", "laravel/framework"])
 ` + "```" + `
 
 ### ` + bt + `node_install` + bt + ` / ` + bt + `node_uninstall` + bt + `
@@ -296,13 +307,13 @@ Configure the project's ` + bt + `.env` + bt + ` for lerd in one call:
 - Sets ` + bt + `APP_URL` + bt + ` to the registered ` + bt + `.test` + bt + ` domain
 
 Arguments:
-- ` + bt + `path` + bt + ` (required): absolute path to the Laravel project root
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 
 > Run this right after ` + bt + `site_link` + bt + ` when setting up a fresh project.
 
 ### ` + bt + `site_link` + bt + ` / ` + bt + `site_unlink` + bt + `
 Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_link` + bt + `:
-- ` + bt + `path` + bt + ` (required): absolute path to the project directory
+- ` + bt + `path` + bt + ` (optional): absolute path to the project directory — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 - ` + bt + `name` + bt + ` (optional): site name (defaults to directory name, cleaned up)
 - ` + bt + `domain` + bt + ` (optional): custom domain (defaults to ` + bt + `<name>.test` + bt + `)
 
@@ -325,7 +336,7 @@ Start or stop a Laravel queue worker for a site. The worker runs ` + bt + `php a
 
 ### ` + bt + `db_export` + bt + `
 Export the project's database to a SQL dump file. Arguments:
-- ` + bt + `path` + bt + ` (required): absolute path to the Laravel project root
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 - ` + bt + `output` + bt + ` (optional): output file path (defaults to ` + bt + `<database>.sql` + bt + ` in the project root)
 
 ### ` + bt + `logs` + bt + `
@@ -346,10 +357,10 @@ runtime_versions()   // see PHP and Node.js versions available
 
 **Set up a brand-new cloned project (full flow):**
 ` + "```" + `
-site_link(path: "/home/user/code/myapp")
-env_setup(path: "/home/user/code/myapp")    // auto-configures .env, starts services, creates DB
-composer(path: "/home/user/code/myapp", args: ["install"])
-artisan(path: "/home/user/code/myapp", args: ["migrate", "--seed"])
+site_link()                          // registers LERD_SITE_PATH as a lerd site
+env_setup()                          // auto-configures .env, starts services, creates DB
+composer(args: ["install"])
+artisan(args: ["migrate", "--seed"])
 ` + "```" + `
 
 **Enable HTTPS for a site:**
@@ -367,23 +378,23 @@ xdebug_off(version: "8.4")  // disable when done (Xdebug adds overhead)
 
 **Run migrations after schema changes:**
 ` + "```" + `
-artisan(path, args: ["migrate"])
+artisan(args: ["migrate"])
 ` + "```" + `
 
 **Install and configure a service:**
 ` + "```" + `
 service_start(name: "mysql")
 service_start(name: "redis")   // if needed
-composer(path, args: ["install"])
-artisan(path, args: ["key:generate"])
-artisan(path, args: ["migrate", "--seed"])
+composer(args: ["install"])
+artisan(args: ["key:generate"])
+artisan(args: ["migrate", "--seed"])
 ` + "```" + `
 
 **Install a new package:**
 ` + "```" + `
-composer(path, args: ["require", "spatie/laravel-permission"])
-artisan(path, args: ["vendor:publish", "--provider=Spatie\\Permission\\PermissionServiceProvider"])
-artisan(path, args: ["migrate"])
+composer(args: ["require", "spatie/laravel-permission"])
+artisan(args: ["vendor:publish", "--provider=Spatie\\Permission\\PermissionServiceProvider"])
+artisan(args: ["migrate"])
 ` + "```" + `
 
 **Install a Node.js version and pin it to the project:**
@@ -400,8 +411,8 @@ service_start(name: "mongodb")
 
 **Back up the database before a risky migration:**
 ` + "```" + `
-db_export(path, output: "/tmp/myapp-backup.sql")
-artisan(path, args: ["migrate"])
+db_export(output: "/tmp/myapp-backup.sql")
+artisan(args: ["migrate"])
 ` + "```" + `
 
 **Diagnose PHP errors:**
@@ -412,15 +423,15 @@ logs(target: "nginx")   // nginx errors
 
 **Work with failed queue jobs:**
 ` + "```" + `
-artisan(path, args: ["queue:failed"])
-artisan(path, args: ["queue:retry", "all"])
+artisan(args: ["queue:failed"])
+artisan(args: ["queue:retry", "all"])
 ` + "```" + `
 
 **Generate and run a new migration:**
 ` + "```" + `
-artisan(path, args: ["make:migration", "add_status_to_orders"])
+artisan(args: ["make:migration", "add_status_to_orders"])
 // ... edit the migration file ...
-artisan(path, args: ["migrate"])
+artisan(args: ["migrate"])
 ` + "```" + `
 `
 
