@@ -56,6 +56,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `service_stop` | Stop a service |
 | `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, …) |
 | `service_remove` | Stop and deregister a custom service |
+| `db_export` | Export the project database to a SQL dump file |
 | `queue_start` | Start a queue worker for a site |
 | `queue_stop` | Stop a queue worker |
 | `logs` | Fetch recent container logs (nginx, any service, PHP version, or site name) |

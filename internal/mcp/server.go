@@ -461,6 +461,24 @@ func toolList() []mcpTool {
 				Properties: map[string]mcpProp{},
 			},
 		},
+		{
+			Name:        "db_export",
+			Description: "Export the project's database to a SQL dump file. Reads connection details from the project .env.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the Laravel project root",
+					},
+					"output": {
+						Type:        "string",
+						Description: "Output file path (defaults to <database>.sql in the project root)",
+					},
+				},
+				Required: []string{"path"},
+			},
+		},
 	}
 }
 
@@ -528,6 +546,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execXdebugToggle(args, false)
 	case "xdebug_status":
 		return execXdebugStatus()
+	case "db_export":
+		return execDBExport(args)
 	default:
 		return toolErr("unknown tool: " + p.Name), nil
 	}
@@ -1316,6 +1336,86 @@ func execXdebugStatus() (any, *rpcError) {
 	}
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return toolOK(string(data)), nil
+}
+
+func execDBExport(args map[string]any) (any, *rpcError) {
+	projectPath := strArg(args, "path")
+	if projectPath == "" {
+		return toolErr("path is required"), nil
+	}
+
+	env, err := readDBEnv(projectPath)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+
+	output := strArg(args, "output")
+	if output == "" {
+		output = filepath.Join(projectPath, env.database+".sql")
+	}
+
+	f, err := os.Create(output)
+	if err != nil {
+		return toolErr(fmt.Sprintf("creating %s: %v", output, err)), nil
+	}
+	defer f.Close()
+
+	var cmd *exec.Cmd
+	switch env.connection {
+	case "mysql", "mariadb":
+		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+			"mysqldump", "-u"+env.username, "-p"+env.password, env.database)
+	case "pgsql", "postgres":
+		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+			"lerd-postgres", "pg_dump", "-U", env.username, env.database)
+	default:
+		_ = os.Remove(output)
+		return toolErr("unsupported DB_CONNECTION: " + env.connection), nil
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stdout = f
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		_ = os.Remove(output)
+		return toolErr(fmt.Sprintf("export failed (%v):\n%s", err, stderr.String())), nil
+	}
+	return toolOK(fmt.Sprintf("Exported %s (%s) to %s", env.database, env.connection, output)), nil
+}
+
+type mcpDBEnv struct {
+	connection string
+	database   string
+	username   string
+	password   string
+}
+
+func readDBEnv(projectPath string) (*mcpDBEnv, error) {
+	envPath := filepath.Join(projectPath, ".env")
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		return nil, fmt.Errorf("no .env found in %s", projectPath)
+	}
+	vals := map[string]string{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		k, v, _ := strings.Cut(line, "=")
+		vals[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	conn := vals["DB_CONNECTION"]
+	if conn == "" {
+		return nil, fmt.Errorf("DB_CONNECTION not set in .env")
+	}
+	return &mcpDBEnv{
+		connection: conn,
+		database:   vals["DB_DATABASE"],
+		username:   vals["DB_USERNAME"],
+		password:   vals["DB_PASSWORD"],
+	}, nil
 }
 
 // siteLinkNameAndDomain derives a clean site name and domain from a directory name.

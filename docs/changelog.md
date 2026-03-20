@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.13] — 2026-03-20
+
+### Fixed
+
+- **`lerd mcp:inject`** — `db_export` tool now correctly appears in the generated SKILL.md and `.junie/guidelines.md` (skill content was omitted from the v0.5.12 release)
+
+---
+
 ## [0.5.12] — 2026-03-20
 
 ### Added
