@@ -265,11 +265,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	ok()
 
 	// Restart tray if running.
-	wasTrayRunning := trayRunning()
-	exec.Command("pkill", "-f", "lerd tray").Run() //nolint:errcheck
 	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		_ = lerdSystemd.StartService("lerd-tray")
-	} else if wasTrayRunning {
+		_ = lerdSystemd.RestartService("lerd-tray")
+	} else {
+		killTray()
 		if exe, err := os.Executable(); err == nil {
 			_ = exec.Command(exe, "tray").Start()
 		}

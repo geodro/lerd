@@ -124,17 +124,17 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
 	}
 
-	// Start the tray applet if it is not already running.
+	// Restart the tray applet, stopping any existing instance first.
 	// Prefer the systemd service when enabled; otherwise launch directly.
+	fmt.Print("  --> lerd-tray ... ")
 	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		fmt.Print("  --> lerd-tray ... ")
-		if err := lerdSystemd.StartService("lerd-tray"); err != nil {
+		if err := lerdSystemd.RestartService("lerd-tray"); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
 		} else {
 			fmt.Println("OK")
 		}
-	} else if !trayRunning() {
-		fmt.Print("  --> lerd-tray ... ")
+	} else {
+		killTray()
 		exe, err := os.Executable()
 		if err == nil {
 			err = exec.Command(exe, "tray").Start()
@@ -149,10 +149,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// trayRunning returns true if a lerd tray daemon process is already running.
-func trayRunning() bool {
-	out, err := exec.Command("pgrep", "-f", "lerd tray").Output()
-	return err == nil && len(strings.TrimSpace(string(out))) > 0
+// killTray kills any running lerd tray process (launched directly or as lerd-tray binary).
+func killTray() {
+	exec.Command("pkill", "-f", "lerd tray").Run()
+	exec.Command("pkill", "-f", "lerd-tray").Run()
 }
 
 func runStop(_ *cobra.Command, _ []string) error {

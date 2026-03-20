@@ -50,6 +50,16 @@ func DisableService(name string) error {
 	return nil
 }
 
+// RestartService restarts a systemd user service.
+func RestartService(name string) error {
+	cmd := exec.Command("systemctl", "--user", "restart", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restart %s: %w\n%s", name, err, out)
+	}
+	return nil
+}
+
 // IsServiceEnabled returns true if the systemd user service is enabled.
 func IsServiceEnabled(name string) bool {
 	cmd := exec.Command("systemctl", "--user", "is-enabled", name)
