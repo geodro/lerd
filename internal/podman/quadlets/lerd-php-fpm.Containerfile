@@ -1,3 +1,4 @@
+FROM composer:latest AS composer-bin
 FROM php:{{.Version}}-fpm-alpine
 
 RUN apk update && apk add --no-cache \
@@ -66,7 +67,7 @@ RUN apk update && apk add --no-cache \
     && rm -rf /tmp/pear /var/cache/apk/*
 
 # Install Composer and Node.js (for CLI tools like laravel new that spawn npm)
-COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 RUN apk add --no-cache nodejs npm
 
 # Override pool: run workers as root, log errors to stderr

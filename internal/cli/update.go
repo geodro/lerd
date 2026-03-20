@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/spf13/cobra"
@@ -108,8 +109,20 @@ func runUpdate(currentVersion string) error {
 		if err := rebuildCmd.Run(); err != nil {
 			return err
 		}
+	} else {
+		fmt.Println("\n==> PHP-FPM images are up to date, skipping rebuild")
+		// Ensure FPM containers are running after the install step.
+		versions, _ := phpPkg.ListInstalled()
+		for _, v := range versions {
+			unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
+			fmt.Printf("  --> %s ... ", unit)
+			if err := podman.StartUnit(unit); err != nil {
+				fmt.Printf("WARN (%v)\n", err)
+			} else {
+				fmt.Println("OK")
+			}
+		}
 	}
-	fmt.Println("\n==> PHP-FPM images are up to date, skipping rebuild")
 	return nil
 }
 

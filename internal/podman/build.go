@@ -93,10 +93,6 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 		if checkCmd.Run() == nil {
 			return nil
 		}
-	} else {
-		// Remove existing image so we get a clean rebuild
-		rmCmd := exec.Command("podman", "rmi", "-f", imageName)
-		_ = rmCmd.Run() // ignore error if image didn't exist
 	}
 
 	fmt.Fprintf(w, "\n  Building PHP %s image (may take a few minutes)...\n", version)
@@ -119,7 +115,15 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 		return err
 	}
 
-	cmd := exec.Command("podman", "build", "-t", imageName, "-f", cfPath, tmp)
+	buildArgs := []string{"build", "-t", imageName, "-f", cfPath}
+	if force {
+		// Force rebuild: bypass layer cache so changes are fully applied.
+		// The old image stays tagged and the container keeps running until
+		// we restart the unit after the build completes.
+		buildArgs = append(buildArgs, "--no-cache")
+	}
+	buildArgs = append(buildArgs, tmp)
+	cmd := exec.Command("podman", buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

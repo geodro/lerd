@@ -706,6 +706,12 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 
+	if exists, _ := podman.ContainerExists(container); !exists {
+		fmt.Fprintf(w, "data: container %s is not running\n\n", container)
+		flusher.Flush()
+		return
+	}
+
 	pr, pw := io.Pipe()
 	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", "100", container)
 	cmd.Stdout = pw

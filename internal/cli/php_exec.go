@@ -9,6 +9,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,10 @@ func runPhp(_ *cobra.Command, args []string) error {
 		composerHome = filepath.Join(xdgConfig, "composer")
 	}
 	composerBin := filepath.Join(composerHome, "vendor", "bin")
+
+	if running, _ := podman.ContainerRunning(container); !running {
+		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
+	}
 
 	cmdArgs := []string{
 		"exec", "-it", "-w", cwd,
