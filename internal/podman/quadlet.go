@@ -63,6 +63,8 @@ func StopUnit(name string) error {
 	if err != nil {
 		return fmt.Errorf("stop %s failed: %w\n%s", name, err, out)
 	}
+	// Clear any failed state so the unit shows as inactive rather than failed.
+	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
 	return nil
 }
 

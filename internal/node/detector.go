@@ -21,10 +21,9 @@ func DetectVersion(dir string) (string, error) {
 	nvmrc := filepath.Join(dir, ".nvmrc")
 	if data, err := os.ReadFile(nvmrc); err == nil {
 		v := strings.TrimSpace(string(data))
-		// strip leading 'v'
 		v = strings.TrimPrefix(v, "v")
-		if v != "" {
-			return extractMajor(v), nil
+		if major := extractMajor(v); isNumericVersion(major) {
+			return major, nil
 		}
 	}
 
@@ -33,8 +32,8 @@ func DetectVersion(dir string) (string, error) {
 	if data, err := os.ReadFile(nodeVersion); err == nil {
 		v := strings.TrimSpace(string(data))
 		v = strings.TrimPrefix(v, "v")
-		if v != "" {
-			return extractMajor(v), nil
+		if major := extractMajor(v); isNumericVersion(major) {
+			return major, nil
 		}
 	}
 
@@ -66,6 +65,14 @@ func DetectVersion(dir string) (string, error) {
 func extractMajor(v string) string {
 	parts := strings.SplitN(v, ".", 2)
 	return parts[0]
+}
+
+// isNumericVersion returns true if s is a non-empty string of digits only.
+func isNumericVersion(s string) bool {
+	if s == "" {
+		return false
+	}
+	return strings.Trim(s, "0123456789") == ""
 }
 
 // parseNodeConstraint extracts the first numeric major version from a constraint.

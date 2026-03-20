@@ -50,8 +50,37 @@ func Run(mono bool) error {
 	if os.Getenv(daemonEnv) == "" {
 		return detach(mono)
 	}
+	if !acquireLock() {
+		// Another instance is already running — exit silently.
+		return nil
+	}
 	systray.Run(func() { onReady(mono) }, nil)
 	return nil
+}
+
+// acquireLock tries to acquire an exclusive flock on a per-user lock file.
+// It returns true if the lock was acquired (safe to start), false if another
+// instance already holds it. When true is returned the lock is held for the
+// lifetime of the process (the file is intentionally never closed).
+func acquireLock() bool {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	path := filepath.Join(dir, "lerd-tray.lock")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		// Can't create the lock file — allow startup rather than blocking.
+		return true
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return false
+	}
+	// Write PID for debugging; keep f open to hold the lock.
+	_ = f.Truncate(0)
+	_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
+	return true
 }
 
 // detach re-execs the current binary with the same tray arguments in a new

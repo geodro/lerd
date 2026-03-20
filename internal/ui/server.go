@@ -113,8 +113,10 @@ func Start(currentVersion string) error {
 		handleVersion(w, r, currentVersion)
 	}))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
+	mux.HandleFunc("/api/php-versions/", withCORS(handlePHPVersionAction))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(handleInstallNodeVersion))
+	mux.HandleFunc("/api/node-versions/", withCORS(handleNodeVersionAction))
 	mux.HandleFunc("/api/sites/", withCORS(handleSiteAction))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
@@ -150,10 +152,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // StatusResponse is the response for GET /api/status.
 type StatusResponse struct {
-	DNS        DNSStatus    `json:"dns"`
-	Nginx      ServiceCheck `json:"nginx"`
-	PHPFPMs    []PHPStatus  `json:"php_fpms"`
-	PHPDefault string       `json:"php_default"`
+	DNS         DNSStatus    `json:"dns"`
+	Nginx       ServiceCheck `json:"nginx"`
+	PHPFPMs     []PHPStatus  `json:"php_fpms"`
+	PHPDefault  string       `json:"php_default"`
+	NodeDefault string       `json:"node_default"`
 }
 
 type DNSStatus struct {
@@ -191,14 +194,17 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	phpDefault := ""
+	nodeDefault := ""
 	if cfg != nil {
 		phpDefault = cfg.PHP.DefaultVersion
+		nodeDefault = cfg.Node.DefaultVersion
 	}
 	writeJSON(w, StatusResponse{
-		DNS:        DNSStatus{OK: dnsOK, TLD: tld},
-		Nginx:      ServiceCheck{Running: nginxRunning},
-		PHPFPMs:    phpStatuses,
-		PHPDefault: phpDefault,
+		DNS:         DNSStatus{OK: dnsOK, TLD: tld},
+		Nginx:       ServiceCheck{Running: nginxRunning},
+		PHPFPMs:     phpStatuses,
+		PHPDefault:  phpDefault,
+		NodeDefault: nodeDefault,
 	})
 }
 
@@ -245,6 +251,9 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 				_ = config.AddSite(s)
 			}
 		}
+		if strings.Trim(nodeVersion, "0123456789") != "" {
+			nodeVersion = "" // discard non-numeric values like "system"
+		}
 
 		fpmRunning := false
 		if phpVersion != "" {
@@ -275,6 +284,9 @@ type ServiceResponse struct {
 	Status    string            `json:"status"`
 	EnvVars   map[string]string `json:"env_vars"`
 	Dashboard string            `json:"dashboard,omitempty"`
+	Custom    bool              `json:"custom,omitempty"`
+	SiteCount int               `json:"site_count"`
+	QueueSite string            `json:"queue_site,omitempty"`
 }
 
 // builtinDashboards maps built-in service names to their dashboard URLs.
@@ -304,7 +316,31 @@ func buildServiceResponse(name string) ServiceResponse {
 		Status:    status,
 		EnvVars:   envMap,
 		Dashboard: builtinDashboards[name],
+		SiteCount: countSitesUsingService(name),
 	}
+}
+
+// listActiveQueueWorkers returns the site names of active lerd-queue-* systemd units.
+func listActiveQueueWorkers() []string {
+	out, err := exec.Command("systemctl", "--user", "list-units", "--state=active",
+		"--no-legend", "--plain", "lerd-queue-*.service").Output()
+	if err != nil {
+		return nil
+	}
+	var sites []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		// line format: "lerd-queue-sitename.service  active running ..."
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		unit := strings.TrimSuffix(fields[0], ".service")
+		siteName := strings.TrimPrefix(unit, "lerd-queue-")
+		if siteName != unit && siteName != "" {
+			sites = append(sites, siteName)
+		}
+	}
+	return sites
 }
 
 func handleServices(w http.ResponseWriter, _ *http.Request) {
@@ -334,6 +370,16 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			Status:    status,
 			EnvVars:   envMap,
 			Dashboard: svc.Dashboard,
+			Custom:    true,
+			SiteCount: countSitesUsingService(svc.Name),
+		})
+	}
+	for _, siteName := range listActiveQueueWorkers() {
+		services = append(services, ServiceResponse{
+			Name:      "queue-" + siteName,
+			Status:    "active",
+			EnvVars:   map[string]string{},
+			QueueSite: siteName,
 		})
 	}
 	writeJSON(w, services)
@@ -356,8 +402,34 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	name, action := parts[0], parts[1]
 
+	// Allow GET for logs sub-resource
+	if action == "logs" {
+		writeJSON(w, map[string]string{"logs": serviceRecentLogs("lerd-" + name)})
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Handle queue worker services (queue-{sitename})
+	if strings.HasPrefix(name, "queue-") {
+		siteName := strings.TrimPrefix(name, "queue-")
+		if action == "stop" {
+			opErr := podman.StopUnit("lerd-queue-" + siteName)
+			resp := ServiceActionResponse{
+				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, QueueSite: siteName},
+				OK:              opErr == nil,
+			}
+			if opErr != nil {
+				resp.Error = opErr.Error()
+				resp.Status = "active"
+			}
+			writeJSON(w, resp)
+		} else {
+			http.Error(w, "unsupported action for queue worker", http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -411,6 +483,22 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "stop":
 		opErr = podman.StopUnit(unit)
+	case "remove":
+		if isBuiltin {
+			http.Error(w, "cannot remove built-in service", http.StatusForbidden)
+			return
+		}
+		if err := podman.RemoveQuadlet(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		_ = podman.DaemonReload()
+		if err := config.RemoveCustomService(name); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+		return
 	default:
 		http.NotFound(w, r)
 		return
@@ -458,6 +546,29 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
 	}
 	return podman.DaemonReload()
+}
+
+// countSitesUsingService counts how many site .env files reference lerd-{name}.
+func countSitesUsingService(name string) int {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return 0
+	}
+	needle := "lerd-" + name
+	count := 0
+	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), needle) {
+			count++
+		}
+	}
+	return count
 }
 
 // serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
@@ -534,6 +645,7 @@ func handleNodeVersions(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, []string{})
 		return
 	}
+	seen := map[string]bool{}
 	var versions []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		// fnm list output: "* v20.0.0 default" or "  v18.0.0"
@@ -544,8 +656,13 @@ func handleNodeVersions(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		v := strings.TrimPrefix(fields[0], "v")
-		if v != "" {
-			versions = append(versions, v)
+		if v == "" {
+			continue
+		}
+		major := strings.SplitN(v, ".", 2)[0]
+		if !seen[major] && strings.Trim(major, "0123456789") == "" {
+			seen[major] = true
+			versions = append(versions, major)
 		}
 	}
 	writeJSON(w, versions)
@@ -663,6 +780,109 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, SiteActionResponse{OK: true})
 }
 
+func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
+	// path: /api/php-versions/{version}/{remove|set-default}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/php-versions/"), "/")
+	if len(parts) != 2 || r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	version, action := parts[0], parts[1]
+	if !validVersion.MatchString(version) {
+		http.NotFound(w, r)
+		return
+	}
+	switch action {
+	case "set-default":
+		cfg, err := config.LoadGlobal()
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		cfg.PHP.DefaultVersion = version
+		if err := config.SaveGlobal(cfg); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "php_default": version})
+	case "remove":
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		_ = podman.StopUnit(unit)
+		if err := podman.RemoveQuadlet(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		_ = podman.DaemonReload()
+		writeJSON(w, map[string]any{"ok": true})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func handleNodeVersionAction(w http.ResponseWriter, r *http.Request) {
+	// path: /api/node-versions/{version}/{remove|set-default}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/node-versions/"), "/")
+	if len(parts) != 2 || r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	version, action := parts[0], parts[1]
+	if !validVersion.MatchString(version) {
+		http.NotFound(w, r)
+		return
+	}
+	switch action {
+	case "set-default":
+		fnmPath := config.BinDir() + "/fnm"
+		if out, err := exec.Command(fnmPath, "default", version).CombinedOutput(); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": strings.TrimSpace(string(out))})
+			return
+		}
+		cfg, err := config.LoadGlobal()
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		cfg.Node.DefaultVersion = version
+		if err := config.SaveGlobal(cfg); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "node_default": version})
+	case "remove":
+		fnmPath := config.BinDir() + "/fnm"
+		// Collect all full versions that belong to this major
+		listOut, _ := exec.Command(fnmPath, "list").Output()
+		var toRemove []string
+		for _, line := range strings.Split(strings.TrimSpace(string(listOut)), "\n") {
+			line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "* "))
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			v := strings.TrimPrefix(fields[0], "v")
+			if strings.SplitN(v, ".", 2)[0] == version {
+				toRemove = append(toRemove, v)
+			}
+		}
+		var lastErr error
+		for _, v := range toRemove {
+			out, err := exec.Command(fnmPath, "uninstall", v).CombinedOutput()
+			if err != nil {
+				lastErr = fmt.Errorf("fnm uninstall %s: %s", v, strings.TrimSpace(string(out)))
+			}
+		}
+		if lastErr != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": lastErr.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
 var validVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 
 func handleInstallNodeVersion(w http.ResponseWriter, r *http.Request) {
@@ -675,8 +895,9 @@ func handleInstallNodeVersion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": false, "error": "invalid version"})
 		return
 	}
+	major := strings.SplitN(version, ".", 2)[0]
 	fnmPath := config.BinDir() + "/fnm"
-	cmd := exec.Command(fnmPath, "install", version)
+	cmd := exec.Command(fnmPath, "install", major)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": strings.TrimSpace(string(out))})

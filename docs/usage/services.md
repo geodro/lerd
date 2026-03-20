@@ -161,6 +161,39 @@ redis                [builtin]  inactive
 mongodb              [custom]   active
 ```
 
+### Example: Stripe (Laravel Cashier)
+
+Two services cover the typical Cashier local dev workflow:
+
+**stripe-mock** — a local Stripe API mock. No Stripe account needed. Use this for feature tests that exercise Cashier without hitting the real API.
+
+```yaml
+# ~/.config/lerd/services/stripe-mock.yaml
+name: stripe-mock
+image: docker.io/stripemock/stripe-mock:latest
+description: "Local Stripe API mock for Cashier testing"
+ports:
+  - 12111:12111
+```
+
+```bash
+lerd service add ~/.config/lerd/services/stripe-mock.yaml
+lerd service start stripe-mock
+```
+
+Point the Stripe PHP SDK at the mock in your `AppServiceProvider` or test bootstrap:
+
+```php
+\Stripe\Stripe::$apiBase = 'http://lerd-stripe-mock:12111';
+```
+
+**stripe:listen** — forwards live/test webhook events from Stripe to your local app via the Stripe CLI. Requires a real Stripe API key.
+
+```bash
+lerd stripe:listen                        # forwards to https://myapp.test/stripe/webhook
+lerd stripe:listen --path /webhooks/stripe
+```
+
 ### Flag reference
 
 | Flag | Description |

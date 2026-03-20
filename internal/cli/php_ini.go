@@ -59,7 +59,18 @@ func runPhpIni(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("editor exited: %w", err)
 	}
 
-	fmt.Printf("Saved. Restart FPM to apply: systemctl --user restart lerd-php%s-fpm\n",
-		strings.ReplaceAll(version, ".", ""))
+	// Ensure the quadlet has the user ini volume mount (may be missing on
+	// installations predating the user ini feature).
+	if err := podman.WriteFPMQuadlet(version); err != nil {
+		return fmt.Errorf("updating quadlet: %w", err)
+	}
+
+	short := strings.ReplaceAll(version, ".", "")
+	unit := "lerd-php" + short + "-fpm"
+	fmt.Printf("Saved. Restarting %s...\n", unit)
+	if err := podman.RestartUnit(unit); err != nil {
+		return fmt.Errorf("restarting %s: %w", unit, err)
+	}
+	fmt.Println("Done.")
 	return nil
 }

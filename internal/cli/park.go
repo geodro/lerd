@@ -141,6 +141,26 @@ func isReservedDomain(domain string) bool {
 	return false
 }
 
+// freeSiteName returns the first available site name for the given path.
+// If the desired name is unused, it is returned as-is.
+// If it is already taken by the same path, it is returned as-is (re-link).
+// If it is taken by a different path, "-2", "-3", … suffixes are tried until one is free.
+func freeSiteName(desired, path string) string {
+	for i := 0; ; i++ {
+		candidate := desired
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%d", desired, i+1)
+		}
+		existing, err := config.FindSite(candidate)
+		if err != nil || existing == nil {
+			return candidate // name is free
+		}
+		if existing.Path == path {
+			return candidate // same site being re-registered
+		}
+	}
+}
+
 // siteNameAndDomain converts a directory name into a clean site name and .test domain.
 // Strips well-known TLDs (e.g. .com, .ltd) and replaces remaining dots with dashes.
 // Examples:
@@ -170,10 +190,13 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		return false, nil
 	}
 
-	name, domain := siteNameAndDomain(filepath.Base(projectDir), cfg.DNS.TLD)
+	baseName, domain := siteNameAndDomain(filepath.Base(projectDir), cfg.DNS.TLD)
 	if isReservedDomain(domain) {
 		return false, nil
 	}
+
+	name := freeSiteName(baseName, projectDir)
+	domain = name + "." + cfg.DNS.TLD
 
 	phpVersion, err := phpDet.DetectVersion(projectDir)
 	if err != nil {
@@ -187,8 +210,8 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 
 	warnMissingExtensions(projectDir, name, phpVersion, cfg)
 
-	// Skip already-registered sites to avoid overwriting settings like Secured.
-	if existing, err := config.FindSite(name); err == nil && existing != nil {
+	// Skip if already registered at this path.
+	if existing, err := config.FindSite(name); err == nil && existing != nil && existing.Path == projectDir {
 		return false, nil
 	}
 

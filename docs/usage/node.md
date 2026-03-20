@@ -6,6 +6,7 @@
 |---|---|
 | `lerd node:install <version>` | Install a Node.js version globally via fnm |
 | `lerd node:uninstall <version>` | Uninstall a Node.js version via fnm |
+| `lerd node:use <version>` | Set the global default Node.js version |
 | `lerd isolate:node <version>` | Pin Node version for cwd — writes `.node-version`, runs `fnm install` |
 
 ---
@@ -42,6 +43,18 @@ To install a version without pinning a project:
 ```bash
 lerd node:install 22
 ```
+
+---
+
+## Default version
+
+`lerd node:use <version>` sets the global default and stores it in `~/.config/lerd/config.yaml`. Sites without a pinned version use this default.
+
+```bash
+lerd node:use 22
+```
+
+Version numbers are normalised to the major only — `22.11.0` and `22.14.1` are both treated as `22`, so only one entry per major appears in the UI and CLI.
 
 ---
 

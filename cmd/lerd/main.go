@@ -41,6 +41,7 @@ func main() {
 	root.AddCommand(cli.NewIsolateNodeCmd())
 	root.AddCommand(cli.NewNodeInstallCmd())
 	root.AddCommand(cli.NewNodeUninstallCmd())
+	root.AddCommand(cli.NewNodeUseCmd())
 	root.AddCommand(cli.NewPhpListCmd())
 	root.AddCommand(cli.NewPhpRebuildCmd())
 	root.AddCommand(cli.NewPhpCmd())
@@ -68,6 +69,9 @@ func main() {
 	root.AddCommand(cli.NewXdebugCmd())
 	root.AddCommand(cli.NewPhpExtCmd())
 	root.AddCommand(cli.NewPhpIniCmd())
+	for _, cmd := range cli.NewStripeCmds() {
+		root.AddCommand(cmd)
+	}
 	root.AddCommand(cli.NewShareCmd())
 	root.AddCommand(cli.NewSetupCmd())
 	root.AddCommand(cli.NewTrayCmd())

@@ -26,6 +26,15 @@ For example: `admin.astrolov.com` → `admin-astrolov.test`
 
 ---
 
+## Name collision handling
+
+When a directory is parked or linked and another site is already registered with the same name:
+
+- **Same path** — treated as a re-link of the same site. The existing registration is updated and the TLS state is preserved.
+- **Different path** — the new site is registered with a numeric suffix (`myapp-2`, `myapp-3`, …) so both sites can coexist.
+
+---
+
 ## Unlink behaviour for parked sites
 
 When you unlink a site that lives inside a parked directory, the vhost is removed but the registry entry is kept and marked as *ignored* — the watcher will not re-register it on its next scan. Running `lerd link` in that directory clears the ignored flag and restores the site.

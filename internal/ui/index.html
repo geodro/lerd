@@ -151,139 +151,214 @@
       </template>
 
       <template x-if="!sitesLoading && sites.length > 0">
-        <div class="rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-lerd-border bg-gray-50 dark:bg-transparent">
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Path</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">PHP</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Node</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">HTTPS</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Queue</th>
-                <th class="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-transparent">
-              <template x-for="site in sites" :key="site.domain">
-                <tr
-                  class="border-b border-gray-100 dark:border-lerd-border last:border-0 transition-colors cursor-pointer"
-                  :class="logs.container === fpmContainer(site) && logs.open ? 'bg-red-50 dark:bg-lerd-red/5' : 'hover:bg-gray-50 dark:hover:bg-white/[0.02]'"
-                  @click="openLogs(site)"
-                  title="Click to view live PHP-FPM logs"
-                >
-                  <td class="px-5 py-3.5">
-                    <a
-                      :href="(site.tls ? 'https://' : 'http://') + site.domain"
-                      @click.prevent.stop="openSite(site)"
-                      class="text-lerd-red hover:text-lerd-redhov font-medium transition-colors"
-                      x-text="site.domain"
-                    ></a>
-                  </td>
-                  <td class="px-5 py-3.5 text-gray-500 font-mono text-xs truncate max-w-xs" x-text="site.path"></td>
-                  <td class="px-5 py-3.5" @click.stop>
+        <div class="flex flex-col sm:flex-row gap-4 items-start">
+
+          <!-- Left: site list -->
+          <div class="w-full sm:w-64 shrink-0 bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+            <template x-for="site in sites" :key="site.domain">
+              <button
+                @click="selectSite(site)"
+                class="w-full flex items-center gap-2.5 px-4 py-3 text-left transition-colors border-b border-gray-100 dark:border-lerd-border last:border-0"
+                :class="selectedSiteDomain === site.domain
+                  ? 'bg-lerd-red/10 text-lerd-red'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+              >
+                <span class="w-2 h-2 rounded-full shrink-0"
+                  :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                <span class="flex-1 text-sm font-medium truncate" x-text="site.domain"></span>
+                <svg x-show="site.tls" class="w-3.5 h-3.5 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+                <span x-show="site.queue_running" class="w-2 h-2 rounded-full shrink-0 bg-amber-400" title="Queue running"></span>
+              </button>
+            </template>
+          </div>
+
+          <!-- Right: detail panel -->
+          <div class="flex-1 min-w-0">
+            <template x-if="!selectedSite">
+              <div class="border border-gray-200 dark:border-lerd-border rounded-xl p-10 text-center text-sm text-gray-400">
+                Select a site to view details
+              </div>
+            </template>
+
+            <template x-if="selectedSite">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+
+                <!-- Header -->
+                <div class="px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <div class="flex items-start justify-between gap-4">
+                    <div>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <a
+                          :href="(selectedSite.tls ? 'https://' : 'http://') + selectedSite.domain"
+                          @click.prevent="openSite(selectedSite)"
+                          class="font-semibold text-lerd-red hover:text-lerd-redhov transition-colors"
+                          x-text="selectedSite.domain"
+                        ></a>
+                        <template x-if="selectedSite.fpm_running">
+                          <span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>running
+                          </span>
+                        </template>
+                        <template x-if="!selectedSite.fpm_running">
+                          <span class="inline-flex items-center gap-1 text-xs font-medium text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>stopped
+                          </span>
+                        </template>
+                      </div>
+                      <div class="text-xs text-gray-400 font-mono mt-1" x-text="selectedSite.path"></div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <button
+                        @click="unlinkSite(selectedSite)"
+                        :disabled="selectedSite.unlinkLoading"
+                        class="text-xs border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded px-2 py-1 transition-colors disabled:opacity-50"
+                      >
+                        <span x-show="!selectedSite.unlinkLoading">Unlink</span>
+                        <span x-show="selectedSite.unlinkLoading">...</span>
+                      </button>
+                      <button
+                        @click="openSite(selectedSite)"
+                        class="flex items-center gap-1.5 text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-2 py-1 transition-colors"
+                        title="Open in browser"
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        Open
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="px-5 py-4 border-b border-gray-100 dark:border-lerd-border grid grid-cols-2 sm:grid-cols-4 gap-5">
+
+                  <!-- PHP version -->
+                  <div>
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">PHP</div>
                     <select
-                      x-model="site.php_version"
-                      @change="setSiteVersion(site, 'php', site.php_version)"
-                      class="text-xs bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
-                      :disabled="site.versionLoading"
+                      x-model="selectedSite.php_version"
+                      @change="setSiteVersion(selectedSite, 'php', selectedSite.php_version)"
+                      class="w-full text-xs bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                      :disabled="selectedSite.versionLoading"
                     >
                       <option value="" disabled>—</option>
                       <template x-for="v in phpVersions" :key="v">
                         <option :value="v" x-text="'PHP ' + v"></option>
                       </template>
                     </select>
-                  </td>
-                  <td class="px-5 py-3.5" @click.stop>
+                  </div>
+
+                  <!-- Node version -->
+                  <div>
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Node</div>
                     <select
-                      x-model="site.node_version"
-                      @change="setSiteVersion(site, 'node', site.node_version)"
-                      class="text-xs bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
-                      :disabled="site.versionLoading"
+                      x-model="selectedSite.node_version"
+                      @change="setSiteVersion(selectedSite, 'node', selectedSite.node_version)"
+                      class="w-full text-xs bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                      :disabled="selectedSite.versionLoading"
                     >
-                      <option value="" disabled>—</option>
+                      <option value="">Default</option>
                       <template x-for="v in nodeVersions" :key="v">
                         <option :value="v" x-text="'Node ' + v"></option>
                       </template>
                     </select>
-                  </td>
-                  <td class="px-5 py-3.5" @click.stop>
+                  </div>
+
+                  <!-- HTTPS -->
+                  <div>
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">HTTPS</div>
                     <div class="flex flex-col items-start gap-1">
                       <button
-                        @click="toggleTLS(site)"
-                        :disabled="site.tlsLoading"
-                        :title="site.tls ? 'Disable HTTPS' : 'Enable HTTPS'"
+                        @click="toggleTLS(selectedSite)"
+                        :disabled="selectedSite.tlsLoading"
+                        :title="selectedSite.tls ? 'Disable HTTPS' : 'Enable HTTPS'"
                         class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                        :class="site.tls ? 'bg-lerd-red' : 'bg-gray-300 dark:bg-lerd-muted'"
+                        :class="selectedSite.tls ? 'bg-lerd-red' : 'bg-gray-300 dark:bg-lerd-muted'"
                       >
                         <span
                           class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
-                          :class="site.tls ? 'translate-x-4' : 'translate-x-1'"
+                          :class="selectedSite.tls ? 'translate-x-4' : 'translate-x-1'"
                         ></span>
-                        <svg x-show="site.tlsLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
+                        <svg x-show="selectedSite.tlsLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
                           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                         </svg>
                       </button>
-                      <div x-show="site.tlsError" class="text-[10px] text-red-500" x-text="site.tlsError"></div>
+                      <div x-show="selectedSite.tlsError" class="text-[10px] text-red-500" x-text="selectedSite.tlsError"></div>
                     </div>
-                  </td>
-                  <td class="px-5 py-3.5">
-                    <template x-if="site.fpm_running">
-                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-500">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>running
-                      </span>
-                    </template>
-                    <template x-if="!site.fpm_running">
-                      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-red-500">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>stopped
-                      </span>
-                    </template>
-                  </td>
-                  <td class="px-5 py-3.5" @click.stop>
+                  </div>
+
+                  <!-- Queue -->
+                  <div>
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Queue</div>
                     <div class="flex flex-col items-start gap-1">
                       <div class="flex items-center gap-2">
                         <button
-                          @click="toggleQueue(site)"
-                          :disabled="site.queueLoading"
-                          :title="site.queue_running ? 'Stop queue worker' : 'Start queue worker'"
+                          @click="toggleQueue(selectedSite)"
+                          :disabled="selectedSite.queueLoading"
+                          :title="selectedSite.queue_running ? 'Stop queue worker' : 'Start queue worker'"
                           class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                          :class="site.queue_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'"
+                          :class="selectedSite.queue_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'"
                         >
                           <span
                             class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
-                            :class="site.queue_running ? 'translate-x-4' : 'translate-x-1'"
+                            :class="selectedSite.queue_running ? 'translate-x-4' : 'translate-x-1'"
                           ></span>
-                          <svg x-show="site.queueLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
+                          <svg x-show="selectedSite.queueLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                           </svg>
                         </button>
                         <button
-                          x-show="site.queue_running"
-                          @click="openQueueLogs(site)"
+                          x-show="selectedSite.queue_running"
+                          @click="openQueueLogs(selectedSite)"
                           class="text-xs text-amber-600 dark:text-amber-400 hover:underline"
                           title="View queue worker logs"
                         >logs</button>
                       </div>
-                      <div x-show="site.queueError" class="text-[10px] text-red-500" x-text="site.queueError"></div>
+                      <div x-show="selectedSite.queueError" class="text-[10px] text-red-500" x-text="selectedSite.queueError"></div>
                     </div>
-                  </td>
-                  <td class="px-5 py-3.5" @click.stop>
-                    <button
-                      @click="unlinkSite(site)"
-                      :disabled="site.unlinkLoading"
-                      class="text-xs border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded px-2 py-1 transition-colors disabled:opacity-50"
-                    >
-                      <span x-show="!site.unlinkLoading">Unlink</span>
-                      <span x-show="site.unlinkLoading">...</span>
-                    </button>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
+                  </div>
+
+                </div>
+
+                <!-- PHP-FPM logs -->
+                <div class="px-5 py-4">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="text-xs font-medium text-gray-500">PHP-FPM Logs</span>
+                    <span class="flex items-center gap-1 text-[10px]"
+                      :class="siteLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                      <span class="w-1.5 h-1.5 rounded-full"
+                        :class="siteLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                      <span x-text="siteLogs.connected ? 'live' : 'connecting...'"></span>
+                    </span>
+                  </div>
+                  <div
+                    x-ref="siteLogScroll"
+                    class="max-h-80 overflow-y-auto rounded-lg bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border px-4 py-3 font-mono text-[11px] leading-relaxed space-y-0.5"
+                  >
+                    <template x-if="siteLogs.lines.length === 0">
+                      <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                    </template>
+                    <template x-for="(line, i) in siteLogs.lines" :key="i">
+                      <div
+                        class="whitespace-pre-wrap break-all"
+                        :class="{
+                          'text-red-500':    line.includes('ERROR') || line.includes('Error') || line.includes('PHP Fatal') || line.includes('PHP Warning'),
+                          'text-yellow-600 dark:text-yellow-400': line.includes('WARNING') || line.includes('Warning') || line.includes('PHP Notice'),
+                          'text-gray-600 dark:text-gray-400':   !line.includes('ERROR') && !line.includes('Error') && !line.includes('WARNING') && !line.includes('Warning')
+                        }"
+                        x-text="line"
+                      ></div>
+                    </template>
+                  </div>
+                </div>
+
+              </div>
+            </template>
+          </div>
+
         </div>
       </template>
     </div>
@@ -302,105 +377,220 @@
       </template>
 
       <template x-if="!servicesLoading">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <template x-for="svc in services" :key="svc.name">
-            <div
-              class="bg-white dark:bg-lerd-card rounded-xl border p-5 flex flex-col gap-4 transition-colors"
-              :class="svc.error ? 'border-red-300 dark:border-red-500/30' : 'border-gray-200 dark:border-lerd-border'"
-            >
-              <!-- Name + status -->
-              <div class="flex items-center justify-between">
-                <span class="font-semibold text-gray-900 dark:text-white" x-text="capitalize(svc.name)"></span>
+        <div class="flex flex-col sm:flex-row gap-4 items-start">
+
+          <!-- Service list -->
+          <div class="w-full sm:w-56 shrink-0 bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+            <template x-for="svc in services" :key="svc.name">
+              <button
+                @click="selectService(svc)"
+                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border last:border-0"
+                :class="selectedSvc === svc.name
+                  ? 'bg-lerd-red/10 text-lerd-red'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+              >
                 <span
-                  class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
-                  :class="svc.status === 'active'
-                    ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500'
-                    : 'bg-gray-100 dark:bg-white/5 text-gray-500'"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full" :class="svc.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
-                  <span x-text="svc.status"></span>
-                </span>
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :class="svc.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"
+                ></span>
+                <span class="font-medium truncate flex-1"
+                  x-text="svc.queue_site ? svc.queue_site : capitalize(svc.name)"></span>
+                <template x-if="svc.queue_site">
+                  <span class="text-[10px] font-medium shrink-0 px-1 py-0.5 rounded"
+                    :class="selectedSvc === svc.name ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'"
+                  >queue</span>
+                </template>
+                <template x-if="!svc.queue_site && svc.site_count > 0">
+                  <span class="text-[10px] font-medium tabular-nums shrink-0"
+                    :class="selectedSvc === svc.name ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'"
+                    x-text="svc.site_count"
+                  ></span>
+                </template>
+              </button>
+            </template>
+          </div>
+
+          <!-- Detail panel -->
+          <div class="flex-1 min-w-0">
+
+            <!-- Empty state -->
+            <template x-if="!selectedService">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-10 text-center">
+                <p class="text-sm text-gray-400">Select a service to view details</p>
               </div>
+            </template>
 
-              <!-- Action buttons -->
-              <div class="flex gap-2 mt-auto">
-                <template x-if="svc.status !== 'active'">
-                  <button
-                    @click="toggleService(svc, 'start')"
-                    :disabled="svc.loading"
-                    class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium bg-lerd-red hover:bg-lerd-redhov text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
-                  >
-                    <svg x-show="svc.loading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                    </svg>
-                    <span x-show="!svc.loading">Start</span>
-                  </button>
-                </template>
-                <template x-if="svc.status === 'active'">
-                  <button
-                    @click="toggleService(svc, 'stop')"
-                    :disabled="svc.loading"
-                    class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
-                  >
-                    <svg x-show="svc.loading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                    </svg>
-                    <span x-show="!svc.loading">Stop</span>
-                  </button>
-                </template>
+            <!-- Detail content -->
+            <template x-if="selectedService">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
 
-                <button
-                  @click="svc.showEnv = !svc.showEnv"
-                  class="text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors"
-                  :title="'Toggle .env vars for ' + svc.name"
-                  x-text="svc.showEnv ? 'Hide' : '.env'"
-                ></button>
+                <!-- Header -->
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <div class="flex items-center gap-3">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="font-semibold text-gray-900 dark:text-white text-base"
+                          x-text="selectedService.queue_site ? 'Queue worker' : capitalize(selectedService.name)"></span>
+                        <span
+                          class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
+                          :class="selectedService.status === 'active'
+                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500'
+                            : 'bg-gray-100 dark:bg-white/5 text-gray-500'"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full" :class="selectedService.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                          <span x-text="selectedService.status"></span>
+                        </span>
+                      </div>
+                      <template x-if="selectedService.queue_site">
+                        <div class="text-xs text-gray-400 mt-0.5" x-text="selectedService.queue_site + '.test'"></div>
+                      </template>
+                      <template x-if="!selectedService.queue_site && selectedService.site_count > 0">
+                        <div class="text-xs text-gray-400 mt-0.5" x-text="selectedService.site_count + (selectedService.site_count === 1 ? ' site' : ' sites')"></div>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <!-- Start button (not for queue workers) -->
+                    <template x-if="!selectedService.queue_site && selectedService.status !== 'active'">
+                      <button
+                        @click="toggleService(selectedService, 'start')"
+                        :disabled="selectedService.loading"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-lerd-red hover:bg-lerd-redhov text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="selectedService.loading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        <span x-show="!selectedService.loading">Start</span>
+                      </button>
+                    </template>
+                    <template x-if="selectedService.status === 'active'">
+                      <button
+                        @click="toggleService(selectedService, 'stop')"
+                        :disabled="selectedService.loading"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="selectedService.loading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        <span x-show="!selectedService.loading">Stop</span>
+                      </button>
+                    </template>
 
-                <template x-if="svc.status === 'active' && svc.dashboard">
-                  <a
-                    :href="svc.dashboard"
-                    target="_blank"
-                    class="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors"
-                    title="Open dashboard"
-                  >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                  </a>
-                </template>
-              </div>
+                    <!-- Delete (custom + inactive only, not queue workers) -->
+                    <template x-if="!selectedService.queue_site && selectedService.custom && selectedService.status !== 'active'">
+                      <button
+                        @click="removeService(selectedService)"
+                        :disabled="selectedService.loading"
+                        class="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-500/30 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                        title="Remove this custom service"
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      </button>
+                    </template>
 
-              <!-- Env vars preview -->
-              <div x-show="svc.showEnv" class="rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden">
-                <div class="flex items-center justify-between bg-gray-50 dark:bg-white/[0.03] px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border">
-                  <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">.env</span>
-                  <button
-                    @click="copyEnvVars(svc)"
-                    class="text-[10px] font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                  >
-                    <span x-show="!svc.copied">Copy</span>
-                    <span x-show="svc.copied" class="text-emerald-600 dark:text-emerald-500">Copied!</span>
-                  </button>
+                    <!-- Dashboard link (active only) -->
+                    <template x-if="selectedService.status === 'active' && selectedService.dashboard">
+                      <a
+                        :href="selectedService.dashboard"
+                        target="_blank"
+                        class="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors"
+                        title="Open dashboard"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        Dashboard
+                      </a>
+                    </template>
+                  </div>
                 </div>
-                <pre class="bg-gray-50 dark:bg-black/40 text-gray-600 dark:text-gray-400 px-3 py-2.5 text-[10px] leading-relaxed overflow-x-auto whitespace-pre" x-text="envPreview(svc)"></pre>
-              </div>
 
-              <!-- Flash / error -->
-              <div x-show="svc.flash" class="text-xs text-center text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg px-2 py-1.5" x-text="svc.flash"></div>
+                <!-- Flash / error messages -->
+                <div x-show="selectedService.flash" class="mx-5 mt-4 text-xs text-center text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg px-2 py-1.5" x-text="selectedService.flash"></div>
+                <template x-if="selectedService.error">
+                  <div class="mx-5 mt-4 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5" x-text="selectedService.error"></div>
+                </template>
 
-              <template x-if="svc.error">
-                <div class="space-y-1.5">
-                  <div class="text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5" x-text="svc.error"></div>
-                  <template x-if="svc.logs">
-                    <details class="text-xs">
-                      <summary class="cursor-pointer text-gray-500 hover:text-gray-700 dark:hover:text-gray-400 px-1">Show logs</summary>
-                      <pre class="mt-1.5 bg-gray-100 dark:bg-black/60 text-gray-600 dark:text-gray-400 rounded-lg p-3 overflow-x-auto text-[10px] leading-relaxed whitespace-pre-wrap" x-text="svc.logs"></pre>
-                    </details>
+                <!-- Tab bar -->
+                <div class="flex gap-0 border-b border-gray-100 dark:border-lerd-border mt-4 px-5">
+                  <button
+                    @click="svcDetailTab = 'logs'"
+                    class="pb-2 mr-5 text-sm font-medium transition-colors border-b-2"
+                    :class="svcDetailTab === 'logs'
+                      ? 'border-lerd-red text-lerd-red'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                  >Logs</button>
+                  <template x-if="selectedService.env_vars && Object.keys(selectedService.env_vars).length > 0">
+                    <button
+                      @click="svcDetailTab = 'env'"
+                      class="pb-2 text-sm font-medium transition-colors border-b-2"
+                      :class="svcDetailTab === 'env'
+                        ? 'border-lerd-red text-lerd-red'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                    >.env</button>
                   </template>
                 </div>
-              </template>
-            </div>
-          </template>
+
+                <!-- Logs tab -->
+                <div x-show="svcDetailTab === 'logs'" class="p-5">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2.5">
+                      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Logs</span>
+                      <span class="flex items-center gap-1.5 text-[10px]" :class="svcLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="svcLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                        <span x-text="svcLogs.connected ? 'live' : 'disconnected'"></span>
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button
+                        @click="svcLogs.lines = []"
+                        class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
+                      >Clear</button>
+                      <button
+                        @click="openServiceLogs(selectedService)"
+                        class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors"
+                      >Reconnect</button>
+                    </div>
+                  </div>
+                  <div class="bg-gray-50 dark:bg-black/40 rounded-lg max-h-80 overflow-y-auto px-3 py-2.5 font-mono text-[11px] leading-relaxed space-y-0.5" x-ref="svcLogScroll">
+                    <template x-if="svcLogs.lines.length === 0">
+                      <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                    </template>
+                    <template x-for="(line, i) in svcLogs.lines" :key="i">
+                      <div
+                        class="whitespace-pre-wrap break-all"
+                        :class="{
+                          'text-red-500':    line.includes('ERROR') || line.includes('Error'),
+                          'text-yellow-600 dark:text-yellow-400': !line.includes('ERROR') && !line.includes('Error') && (line.includes('WARNING') || line.includes('Warning')),
+                          'text-gray-600 dark:text-gray-400':   !line.includes('ERROR') && !line.includes('Error') && !line.includes('WARNING') && !line.includes('Warning')
+                        }"
+                        x-text="line"
+                      ></div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- .env tab -->
+                <div x-show="svcDetailTab === 'env'" class="p-5">
+                  <div class="rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden">
+                    <div class="flex items-center justify-between bg-gray-50 dark:bg-white/[0.03] px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border">
+                      <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">.env</span>
+                      <button
+                        @click="copyEnvVars(selectedService)"
+                        class="text-[10px] font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                      >
+                        <span x-show="!selectedService.copied">Copy</span>
+                        <span x-show="selectedService.copied" class="text-emerald-600 dark:text-emerald-500">Copied!</span>
+                      </button>
+                    </div>
+                    <pre class="bg-gray-50 dark:bg-black/40 text-gray-600 dark:text-gray-400 px-3 py-2.5 text-[10px] leading-relaxed overflow-x-auto whitespace-pre" x-text="envPreview(selectedService)"></pre>
+                  </div>
+                </div>
+
+              </div>
+            </template>
+
+          </div>
         </div>
       </template>
 
@@ -420,181 +610,494 @@
       </template>
 
       <template x-if="!statusLoading">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="flex flex-col sm:flex-row gap-4 items-start">
 
-          <!-- DNS card -->
-          <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-5">
-            <div class="flex items-center justify-between mb-4">
-              <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                  <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/></svg>
-                </div>
-                <h3 class="font-semibold text-gray-900 dark:text-white">DNS</h3>
+          <!-- System items list -->
+          <div class="w-full sm:w-56 shrink-0 bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+
+            <!-- DNS -->
+            <button
+              @click="selectSystem('dns')"
+              class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
+              :class="selectedSystem === 'dns' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+            >
+              <span class="w-2 h-2 rounded-full shrink-0" :class="systemStatus.dns && systemStatus.dns.ok ? 'bg-emerald-500' : 'bg-red-500'"></span>
+              <span class="font-medium">DNS</span>
+            </button>
+
+            <!-- Nginx -->
+            <button
+              @click="selectSystem('nginx')"
+              class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
+              :class="selectedSystem === 'nginx' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+            >
+              <span class="w-2 h-2 rounded-full shrink-0" :class="systemStatus.nginx && systemStatus.nginx.running ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+              <span class="font-medium">Nginx</span>
+            </button>
+
+            <!-- PHP section -->
+            <template x-if="phpVersions.length > 0">
+              <div class="px-3 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border">
+                <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">PHP-FPM</span>
               </div>
-              <template x-if="systemStatus.dns && systemStatus.dns.ok">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 px-2.5 py-1 rounded-full">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>OK
-                </span>
-              </template>
-              <template x-if="!systemStatus.dns || !systemStatus.dns.ok">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full">
-                  <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Failed
-                </span>
-              </template>
-            </div>
-            <p class="text-sm text-gray-500">
-              TLD: <code class="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-lerd-border px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 text-xs" x-text="'.' + (systemStatus.dns ? systemStatus.dns.tld : 'test')"></code>
-            </p>
-            <template x-if="!systemStatus.dns || !systemStatus.dns.ok">
-              <p class="text-xs text-gray-400 mt-2">Run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded text-gray-500">lerd install</code> to fix DNS.</p>
             </template>
+            <template x-for="v in phpVersions" :key="'php-'+v">
+              <button
+                @click="selectSystem('php-' + v)"
+                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
+                :class="selectedSystem === 'php-' + v ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+              >
+                <span class="w-2 h-2 rounded-full shrink-0" :class="fpmRunning(v) ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                <span class="font-medium flex-1" x-text="'PHP ' + v"></span>
+                <template x-if="systemStatus.php_default === v">
+                  <span class="text-[10px] font-medium shrink-0"
+                    :class="selectedSystem === 'php-' + v ? 'text-lerd-red/60' : 'text-gray-400 dark:text-gray-600'"
+                  >default</span>
+                </template>
+                <template x-if="phpSiteCount(v) > 0">
+                  <span class="text-[10px] font-medium tabular-nums shrink-0 ml-1"
+                    :class="selectedSystem === 'php-' + v ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'"
+                    x-text="phpSiteCount(v)"></span>
+                </template>
+              </button>
+            </template>
+
+            <!-- Node section -->
+            <div class="px-3 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border">
+              <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Node.js</span>
+            </div>
+            <template x-for="v in nodeVersions" :key="'node-'+v">
+              <button
+                @click="selectSystem('node-' + v)"
+                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
+                :class="selectedSystem === 'node-' + v ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+              >
+                <span class="w-2 h-2 rounded-full shrink-0 bg-gray-400 dark:bg-gray-600"></span>
+                <span class="font-medium flex-1" x-text="'Node ' + v"></span>
+                <template x-if="systemStatus.node_default === v">
+                  <span class="text-[10px] font-medium shrink-0"
+                    :class="selectedSystem === 'node-' + v ? 'text-lerd-red/60' : 'text-gray-400 dark:text-gray-600'"
+                  >default</span>
+                </template>
+                <template x-if="nodeSiteCount(v) > 0">
+                  <span class="text-[10px] font-medium tabular-nums shrink-0 ml-1"
+                    :class="selectedSystem === 'node-' + v ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'"
+                    x-text="nodeSiteCount(v)"></span>
+                </template>
+              </button>
+            </template>
+            <button
+              @click="selectSystem('node-install')"
+              class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
+              :class="selectedSystem === 'node-install' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+            >
+              <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+              <span class="font-medium">Install version</span>
+            </button>
+
+            <!-- Autostart -->
+            <button
+              @click="selectSystem('autostart')"
+              class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border"
+              :class="selectedSystem === 'autostart' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+            >
+              <span class="w-2 h-2 rounded-full shrink-0" :class="autostartEnabled ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+              <span class="font-medium">Autostart</span>
+            </button>
+
           </div>
 
-          <!-- Nginx card -->
-          <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-5">
-            <div class="flex items-center justify-between mb-4">
-              <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                  <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+          <!-- Detail panel -->
+          <div class="flex-1 min-w-0">
+
+            <!-- Empty state -->
+            <template x-if="!selectedSystem">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-10 text-center">
+                <p class="text-sm text-gray-400">Select an item to view details</p>
+              </div>
+            </template>
+
+            <!-- DNS -->
+            <template x-if="selectedSystem === 'dns'">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <span class="font-semibold text-gray-900 dark:text-white text-base">DNS</span>
+                  <template x-if="systemStatus.dns && systemStatus.dns.ok">
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 px-2.5 py-1 rounded-full">
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>OK
+                    </span>
+                  </template>
+                  <template x-if="!systemStatus.dns || !systemStatus.dns.ok">
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full">
+                      <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Failed
+                    </span>
+                  </template>
                 </div>
-                <h3 class="font-semibold text-gray-900 dark:text-white">Nginx</h3>
+                <div class="px-5 py-4 space-y-4">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">TLD</span>
+                    <code class="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-lerd-border px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 text-xs" x-text="'.' + (systemStatus.dns ? systemStatus.dns.tld : 'test')"></code>
+                  </div>
+                  <template x-if="!systemStatus.dns || !systemStatus.dns.ok">
+                    <p class="text-xs text-gray-400">Run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded text-gray-500">lerd install</code> to fix DNS.</p>
+                  </template>
+                  <!-- Live logs -->
+                  <div>
+                    <div class="flex items-center justify-between mb-3">
+                      <div class="flex items-center gap-2.5">
+                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Logs</span>
+                        <span class="flex items-center gap-1.5 text-[10px]" :class="systemLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                          <span class="w-1.5 h-1.5 rounded-full" :class="systemLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                          <span x-text="systemLogs.connected ? 'live' : 'disconnected'"></span>
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button @click="systemLogs.lines = []" class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">Clear</button>
+                        <button @click="openSystemLogs('lerd-dns')" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors">Reconnect</button>
+                      </div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-black/40 rounded-lg max-h-80 overflow-y-auto px-3 py-2.5 font-mono text-[11px] leading-relaxed space-y-0.5" x-ref="nginxLogScroll">
+                      <template x-if="systemLogs.lines.length === 0">
+                        <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                      </template>
+                      <template x-for="(line, i) in systemLogs.lines" :key="i">
+                        <div
+                          class="whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400"
+                          x-text="line"
+                        ></div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <template x-if="systemStatus.nginx && systemStatus.nginx.running">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 px-2.5 py-1 rounded-full">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Running
-                </span>
-              </template>
-              <template x-if="!systemStatus.nginx || !systemStatus.nginx.running">
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full">
-                  <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Stopped
-                </span>
-              </template>
-            </div>
-            <p class="text-sm text-gray-500">Container: <code class="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-lerd-border px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 text-xs">lerd-nginx</code></p>
-          </div>
+            </template>
 
-          <!-- PHP FPM card -->
-          <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-5">
-            <div class="flex items-center gap-2.5 mb-4">
-              <div class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+            <!-- Nginx -->
+            <template x-if="selectedSystem === 'nginx'">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <span class="font-semibold text-gray-900 dark:text-white text-base">Nginx</span>
+                  <template x-if="systemStatus.nginx && systemStatus.nginx.running">
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 px-2.5 py-1 rounded-full">
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Running
+                    </span>
+                  </template>
+                  <template x-if="!systemStatus.nginx || !systemStatus.nginx.running">
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1 rounded-full">
+                      <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Stopped
+                    </span>
+                  </template>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">Container</span>
+                    <code class="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-lerd-border px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 text-xs">lerd-nginx</code>
+                  </div>
+                  <!-- Live logs -->
+                  <div>
+                    <div class="flex items-center justify-between mb-3">
+                      <div class="flex items-center gap-2.5">
+                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Logs</span>
+                        <span class="flex items-center gap-1.5 text-[10px]" :class="systemLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                          <span class="w-1.5 h-1.5 rounded-full" :class="systemLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                          <span x-text="systemLogs.connected ? 'live' : 'disconnected'"></span>
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button @click="systemLogs.lines = []" class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">Clear</button>
+                        <button @click="openSystemLogs('lerd-nginx')" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors">Reconnect</button>
+                      </div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-black/40 rounded-lg max-h-80 overflow-y-auto px-3 py-2.5 font-mono text-[11px] leading-relaxed space-y-0.5" x-ref="nginxLogScroll">
+                      <template x-if="systemLogs.lines.length === 0">
+                        <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                      </template>
+                      <template x-for="(line, i) in systemLogs.lines" :key="i">
+                        <div
+                          class="whitespace-pre-wrap break-all"
+                          :class="{
+                            'text-red-500':    line.includes('error') || line.includes('Error') || line.includes('crit'),
+                            'text-yellow-600 dark:text-yellow-400': !line.includes('error') && !line.includes('Error') && !line.includes('crit') && line.includes('warn'),
+                            'text-gray-600 dark:text-gray-400':   !line.includes('error') && !line.includes('Error') && !line.includes('crit') && !line.includes('warn')
+                          }"
+                          x-text="line"
+                        ></div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 class="font-semibold text-gray-900 dark:text-white">PHP-FPM</h3>
-            </div>
-            <div x-show="phpVersions.length === 0">
-              <p class="text-sm text-gray-500">No PHP versions installed.</p>
-              <p class="text-xs text-gray-400 mt-1">Run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded text-gray-500">lerd use 8.4</code> to install.</p>
-            </div>
-            <div x-show="phpVersions.length > 0" class="space-y-2.5">
-              <template x-for="v in phpVersions" :key="v">
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-sm text-gray-500 shrink-0">PHP <span x-text="v" class="text-gray-700 dark:text-gray-300 font-medium"></span></span>
-                  <div class="flex items-center gap-3 ml-auto">
-                    <!-- Xdebug toggle -->
-                    <div class="flex items-center gap-1.5">
-                      <span class="text-[10px] text-gray-400">Xdebug</span>
+            </template>
+
+            <!-- PHP version detail -->
+            <template x-if="selectedPHPVersion">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <div class="flex items-center gap-3">
+                    <span class="font-semibold text-gray-900 dark:text-white text-base" x-text="'PHP ' + selectedPHPVersion"></span>
+                    <template x-if="fpmRunning(selectedPHPVersion)">
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 px-2.5 py-1 rounded-full">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Running
+                      </span>
+                    </template>
+                    <template x-if="!fpmRunning(selectedPHPVersion)">
+                      <span class="inline-flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 text-gray-500 px-2.5 py-1 rounded-full">
+                        <span class="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-600"></span>Stopped
+                      </span>
+                    </template>
+                    <template x-if="phpSiteCount(selectedPHPVersion) > 0">
+                      <span class="text-xs text-gray-400 dark:text-gray-500" x-text="phpSiteCount(selectedPHPVersion) + (phpSiteCount(selectedPHPVersion) === 1 ? ' site' : ' sites')"></span>
+                    </template>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <template x-if="systemStatus.php_default !== selectedPHPVersion">
+                      <button
+                        @click="setPHPDefault(selectedPHPVersion)"
+                        :disabled="phpDefaultLoading"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="phpDefaultLoading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span x-show="!phpDefaultLoading">Set as default</span>
+                      </button>
+                    </template>
+                    <template x-if="phpSiteCount(selectedPHPVersion) === 0">
+                      <button
+                        @click="removePHPVersion(selectedPHPVersion)"
+                        :disabled="phpRemoveLoading[selectedPHPVersion]"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-500/30 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="phpRemoveLoading[selectedPHPVersion]" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span x-show="!phpRemoveLoading[selectedPHPVersion]">Remove</span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <div class="px-5 py-4 space-y-5">
+                  <!-- Xdebug -->
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Xdebug</p>
+                      <p class="text-xs text-gray-400 mt-0.5">Restarts FPM on toggle</p>
+                    </div>
+                    <div class="flex items-center gap-2">
                       <button
                         type="button"
-                        @click.prevent="toggleXdebug(v)"
+                        @click.prevent="toggleXdebug(selectedPHPVersion)"
                         class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 focus:outline-none"
-                        :class="xdebugEnabled[v] ? 'bg-purple-500' : 'bg-gray-300 dark:bg-lerd-muted'"
-                        :title="xdebugEnabled[v] ? 'Disable Xdebug' : 'Enable Xdebug (rebuilds image)'"
+                        :class="xdebugEnabled[selectedPHPVersion] ? 'bg-purple-500' : 'bg-gray-300 dark:bg-lerd-muted'"
+                        :title="xdebugEnabled[selectedPHPVersion] ? 'Disable Xdebug' : 'Enable Xdebug'"
                       >
                         <span
                           class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
-                          :class="xdebugEnabled[v] ? 'translate-x-4' : 'translate-x-1'"
+                          :class="xdebugEnabled[selectedPHPVersion] ? 'translate-x-4' : 'translate-x-1'"
                         ></span>
                       </button>
-                      <svg x-show="xdebugLoading[v]" style="display:none" class="animate-spin w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
+                      <svg x-show="xdebugLoading[selectedPHPVersion]" style="display:none" class="animate-spin w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                       </svg>
                     </div>
-                    <!-- Running status -->
-                    <span x-show="fpmRunning(v)" class="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-500" style="display:none">
-                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>running
-                    </span>
-                    <span x-show="!fpmRunning(v)" class="inline-flex items-center gap-1.5 text-xs text-red-500">
-                      <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>stopped
-                    </span>
+                  </div>
+                  <!-- Container -->
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">Container</span>
+                    <code class="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-lerd-border px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 text-xs" x-text="'lerd-php' + selectedPHPVersion.replace('.','') + '-fpm'"></code>
+                  </div>
+                  <!-- Sites using this PHP version -->
+                  <div>
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sites</p>
+                    <template x-if="phpSiteCount(selectedPHPVersion) === 0">
+                      <p class="text-sm text-gray-400">No sites are using PHP <span x-text="selectedPHPVersion"></span>.</p>
+                    </template>
+                    <div class="flex flex-wrap gap-2">
+                      <template x-for="site in sites.filter(s => s.php_version === selectedPHPVersion)" :key="site.domain">
+                        <a
+                          :href="(site.tls ? 'https://' : 'http://') + site.domain"
+                          @click.prevent="openSite(site)"
+                          class="inline-flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 border border-gray-200 dark:border-lerd-border text-gray-700 dark:text-gray-300 rounded-full px-2.5 py-1 transition-colors"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-400'"></span>
+                          <span x-text="site.domain"></span>
+                        </a>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Live logs -->
+                  <div>
+                    <div class="flex items-center justify-between mb-3">
+                      <div class="flex items-center gap-2.5">
+                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Logs</span>
+                        <span class="flex items-center gap-1.5 text-[10px]" :class="systemLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                          <span class="w-1.5 h-1.5 rounded-full" :class="systemLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                          <span x-text="systemLogs.connected ? 'live' : 'disconnected'"></span>
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button @click="systemLogs.lines = []" class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">Clear</button>
+                        <button
+                          @click="openSystemLogs('lerd-php' + selectedPHPVersion.replace('.','') + '-fpm')"
+                          class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors"
+                        >Reconnect</button>
+                      </div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-black/40 rounded-lg max-h-80 overflow-y-auto px-3 py-2.5 font-mono text-[11px] leading-relaxed space-y-0.5" x-ref="nginxLogScroll">
+                      <template x-if="systemLogs.lines.length === 0">
+                        <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                      </template>
+                      <template x-for="(line, i) in systemLogs.lines" :key="i">
+                        <div
+                          class="whitespace-pre-wrap break-all"
+                          :class="{
+                            'text-red-500':    line.includes('ERROR') || line.includes('Error') || line.includes('PHP Fatal') || line.includes('PHP Warning'),
+                            'text-yellow-600 dark:text-yellow-400': !line.includes('ERROR') && !line.includes('Error') && (line.includes('WARNING') || line.includes('Warning') || line.includes('PHP Notice')),
+                            'text-gray-600 dark:text-gray-400':   !line.includes('ERROR') && !line.includes('Error') && !line.includes('WARNING') && !line.includes('Warning')
+                          }"
+                          x-text="line"
+                        ></div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Error -->
+                  <template x-if="phpRemoveError[selectedPHPVersion]">
+                    <div class="text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5" x-text="phpRemoveError[selectedPHPVersion]"></div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <!-- Node version detail -->
+            <template x-if="selectedNodeVersion">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <div class="flex items-center gap-3">
+                    <span class="font-semibold text-gray-900 dark:text-white text-base" x-text="'Node ' + selectedNodeVersion"></span>
+                    <template x-if="nodeSiteCount(selectedNodeVersion) > 0">
+                      <span class="text-xs text-gray-400 dark:text-gray-500" x-text="nodeSiteCount(selectedNodeVersion) + (nodeSiteCount(selectedNodeVersion) === 1 ? ' site' : ' sites')"></span>
+                    </template>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <template x-if="systemStatus.node_default !== selectedNodeVersion">
+                      <button
+                        @click="setNodeDefault(selectedNodeVersion)"
+                        :disabled="nodeDefaultLoading"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="nodeDefaultLoading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span x-show="!nodeDefaultLoading">Set as default</span>
+                      </button>
+                    </template>
+                    <template x-if="nodeSiteCount(selectedNodeVersion) === 0">
+                      <button
+                        @click="removeNodeVersion(selectedNodeVersion)"
+                        :disabled="nodeRemoveLoading[selectedNodeVersion]"
+                        class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-500/30 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <svg x-show="nodeRemoveLoading[selectedNodeVersion]" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                        <span x-show="!nodeRemoveLoading[selectedNodeVersion]">Remove</span>
+                      </button>
+                    </template>
                   </div>
                 </div>
-              </template>
-            </div>
-          </div>
-
-          <!-- Node.js card -->
-          <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-5">
-            <div class="flex items-center gap-2.5 mb-4">
-              <div class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l14 9-14 9V3z"/></svg>
-              </div>
-              <h3 class="font-semibold text-gray-900 dark:text-white">Node.js</h3>
-            </div>
-            <div x-show="nodeVersions.length === 0" class="mb-4">
-              <p class="text-sm text-gray-500">No Node versions installed.</p>
-            </div>
-            <div x-show="nodeVersions.length > 0" class="space-y-2.5 mb-4">
-              <template x-for="v in nodeVersions" :key="v">
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-sm text-gray-500 shrink-0">Node <span x-text="v" class="text-gray-700 dark:text-gray-300 font-medium"></span></span>
+                <div class="px-5 py-4 space-y-4">
+                  <!-- Sites -->
+                  <div>
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sites</p>
+                    <template x-if="nodeSiteCount(selectedNodeVersion) === 0">
+                      <p class="text-sm text-gray-400">No sites are using Node <span x-text="selectedNodeVersion"></span>.</p>
+                    </template>
+                    <div class="flex flex-wrap gap-2">
+                      <template x-for="site in sites.filter(s => s.node_version === selectedNodeVersion || (!s.node_version && selectedNodeVersion === systemStatus.node_default))" :key="site.domain">
+                        <a
+                          :href="(site.tls ? 'https://' : 'http://') + site.domain"
+                          @click.prevent="openSite(site)"
+                          class="inline-flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 border border-gray-200 dark:border-lerd-border text-gray-700 dark:text-gray-300 rounded-full px-2.5 py-1 transition-colors"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-gray-400"></span>
+                          <span x-text="site.domain"></span>
+                        </a>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Error -->
+                  <template x-if="nodeRemoveError[selectedNodeVersion]">
+                    <div class="text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5" x-text="nodeRemoveError[selectedNodeVersion]"></div>
+                  </template>
                 </div>
-              </template>
-            </div>
-            <div class="pt-3 border-t border-gray-100 dark:border-lerd-border">
-              <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Install version</p>
-              <div class="flex items-center gap-2">
-                <input
-                  type="text"
-                  x-model="nodeInstall.version"
-                  @keydown.enter="installNodeVersion()"
-                  placeholder="e.g. 22"
-                  class="text-sm bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 w-24 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-lerd-red/50 transition-colors"
-                  :disabled="nodeInstall.installing"
-                >
-                <button
-                  @click="installNodeVersion()"
-                  :disabled="nodeInstall.installing || !nodeInstall.version.trim()"
-                  class="text-sm bg-lerd-red hover:bg-lerd-redhov text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 flex items-center gap-1.5 font-medium"
-                >
-                  <svg x-show="nodeInstall.installing" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                  </svg>
-                  <span x-text="nodeInstall.installing ? 'Installing...' : 'Install'"></span>
-                </button>
-                <span x-show="nodeInstall.done" class="text-xs text-emerald-600 dark:text-emerald-500">Installed!</span>
-                <span x-show="nodeInstall.error" class="text-xs text-red-500" x-text="nodeInstall.error"></span>
               </div>
-            </div>
-          </div>
+            </template>
 
-          <!-- Autostart card -->
-          <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border p-5">
-            <div class="flex items-center gap-2.5 mb-4">
-              <div class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-                <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <!-- Node install -->
+            <template x-if="selectedSystem === 'node-install'">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <span class="font-semibold text-gray-900 dark:text-white text-base">Install Node.js version</span>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                  <p class="text-sm text-gray-500">Install a new Node.js version using fnm.</p>
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="text"
+                      x-model="nodeInstall.version"
+                      @keydown.enter="installNodeVersion()"
+                      placeholder="e.g. 22"
+                      class="text-sm bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 w-28 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-lerd-red/50 transition-colors"
+                      :disabled="nodeInstall.installing"
+                    >
+                    <button
+                      @click="installNodeVersion()"
+                      :disabled="nodeInstall.installing || !nodeInstall.version.trim()"
+                      class="text-sm bg-lerd-red hover:bg-lerd-redhov text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 flex items-center gap-1.5 font-medium"
+                    >
+                      <svg x-show="nodeInstall.installing" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                      </svg>
+                      <span x-text="nodeInstall.installing ? 'Installing...' : 'Install'"></span>
+                    </button>
+                    <span x-show="nodeInstall.done" class="text-xs text-emerald-600 dark:text-emerald-500">Installed!</span>
+                    <span x-show="nodeInstall.error" class="text-xs text-red-500" x-text="nodeInstall.error"></span>
+                  </div>
+                </div>
               </div>
-              <h3 class="font-semibold text-gray-900 dark:text-white">Autostart</h3>
-            </div>
-            <div class="flex items-center justify-between">
-              <p class="text-sm text-gray-500">Start on login</p>
-              <button
-                @click="toggleAutostart()"
-                :disabled="autostartLoading"
-                :title="autostartEnabled ? 'Disable autostart' : 'Enable autostart'"
-                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                :class="autostartEnabled ? 'bg-lerd-red' : 'bg-gray-300 dark:bg-lerd-muted'"
-              >
-                <span
-                  class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
-                  :class="autostartEnabled ? 'translate-x-4' : 'translate-x-1'"
-                ></span>
-              </button>
-            </div>
-            <p class="text-xs text-gray-400 mt-2">When enabled, lerd starts automatically on every login.</p>
-          </div>
+            </template>
 
+            <!-- Autostart -->
+            <template x-if="selectedSystem === 'autostart'">
+              <div class="bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                  <span class="font-semibold text-gray-900 dark:text-white text-base">Autostart</span>
+                  <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                    :class="autostartEnabled ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500' : 'bg-gray-100 dark:bg-white/5 text-gray-500'"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full" :class="autostartEnabled ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                    <span x-text="autostartEnabled ? 'Enabled' : 'Disabled'"></span>
+                  </span>
+                </div>
+                <div class="px-5 py-4">
+                  <div class="flex items-center justify-between gap-4">
+                    <div>
+                      <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Start on login</p>
+                      <p class="text-xs text-gray-400 mt-0.5">When enabled, lerd starts automatically on every login.</p>
+                    </div>
+                    <button
+                      @click="toggleAutostart()"
+                      :disabled="autostartLoading"
+                      :title="autostartEnabled ? 'Disable autostart' : 'Enable autostart'"
+                      class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
+                      :class="autostartEnabled ? 'bg-lerd-red' : 'bg-gray-300 dark:bg-lerd-muted'"
+                    >
+                      <span
+                        class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
+                        :class="autostartEnabled ? 'translate-x-4' : 'translate-x-1'"
+                      ></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+          </div>
         </div>
       </template>
     </div>
@@ -657,10 +1160,13 @@ function lerdApp() {
     tab: ['sites','services','system'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'sites',
     sites: [],
     sitesLoading: false,
+    selectedSiteDomain: null,
     phpVersions: [],
     nodeVersions: [],
     services: [],
     servicesLoading: false,
+    selectedSvc: null,
+    svcDetailTab: 'logs',
     systemStatus: {},
     statusLoading: false,
     version: {
@@ -678,9 +1184,31 @@ function lerdApp() {
     autostartLoading: false,
     xdebugEnabled: {},
     xdebugLoading: {},
+    selectedSystem: null,
+    phpRemoveLoading: {},
+    phpRemoveError: {},
+    nodeRemoveLoading: {},
+    nodeRemoveError: {},
+    phpDefaultLoading: false,
+    nodeDefaultLoading: false,
     logs: {
       open: false,
       container: '',
+      lines: [],
+      connected: false,
+      _source: null,
+    },
+    svcLogs: {
+      lines: [],
+      connected: false,
+      _source: null,
+    },
+    systemLogs: {
+      lines: [],
+      connected: false,
+      _source: null,
+    },
+    siteLogs: {
       lines: [],
       connected: false,
       _source: null,
@@ -723,7 +1251,7 @@ function lerdApp() {
       }, 5000);
     },
 
-    capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); },
+    capitalize(s) { return s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); },
     async loadVersion() {
       try {
         const res = await fetch('/api/version');
@@ -780,12 +1308,40 @@ function lerdApp() {
       }
     },
 
+    selectSite(site) {
+      this.selectedSiteDomain = site.domain;
+      this.openSiteLogs(site);
+    },
+
+    openSiteLogs(site) {
+      if (this.siteLogs._source) {
+        this.siteLogs._source.close();
+        this.siteLogs._source = null;
+      }
+      this.siteLogs.lines = [];
+      this.siteLogs.connected = false;
+      const container = this.fpmContainer(site);
+      if (!container) return;
+      const src = new EventSource(`/api/logs/${container}`);
+      this.siteLogs._source = src;
+      src.onopen = () => { this.siteLogs.connected = true; };
+      src.onerror = () => { this.siteLogs.connected = false; };
+      src.onmessage = (e) => {
+        this.siteLogs.lines.push(e.data);
+        if (this.siteLogs.lines.length > 500) this.siteLogs.lines.splice(0, this.siteLogs.lines.length - 500);
+        this.$nextTick(() => {
+          const el = this.$refs.siteLogScroll;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      };
+    },
+
     async loadServices() {
       this.servicesLoading = true;
       try {
         const res = await fetch('/api/services');
         const data = await res.json();
-        this.services = data.map(s => ({ ...s, loading: false, copied: false, flash: '', error: '', logs: '', showEnv: false }));
+        this.services = data.map(s => ({ ...s, loading: false, copied: false, flash: '', error: '' }));
       } catch (_) {
         this.services = [];
       } finally {
@@ -793,10 +1349,76 @@ function lerdApp() {
       }
     },
 
+    selectService(svc) {
+      this.selectedSvc = svc.name;
+      this.svcDetailTab = 'logs';
+      this.openServiceLogs(svc);
+    },
+
+    openServiceLogs(svc) {
+      if (this.svcLogs._source) {
+        this.svcLogs._source.close();
+        this.svcLogs._source = null;
+      }
+      this.svcLogs.lines = [];
+      this.svcLogs.connected = false;
+      const url = svc.queue_site
+        ? `/api/queue/${svc.queue_site}/logs`
+        : `/api/logs/lerd-${svc.name}`;
+      const src = new EventSource(url);
+      this.svcLogs._source = src;
+      src.onopen = () => { this.svcLogs.connected = true; };
+      src.onerror = () => { this.svcLogs.connected = false; };
+      src.onmessage = (e) => {
+        this.svcLogs.lines.push(e.data);
+        if (this.svcLogs.lines.length > 500) this.svcLogs.lines.splice(0, this.svcLogs.lines.length - 500);
+        this.$nextTick(() => {
+          const el = this.$refs.svcLogScroll;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      };
+    },
+
+    selectSystem(item) {
+      if (this.systemLogs._source) {
+        this.systemLogs._source.close();
+        this.systemLogs._source = null;
+      }
+      this.systemLogs.lines = [];
+      this.systemLogs.connected = false;
+      this.selectedSystem = item;
+      if (item === 'dns') this.openSystemLogs('lerd-dns');
+      if (item === 'nginx') this.openSystemLogs('lerd-nginx');
+      if (item.startsWith('php-')) {
+        const v = item.slice(4);
+        this.openSystemLogs('lerd-php' + v.replace('.', '') + '-fpm');
+      }
+    },
+
+    openSystemLogs(container) {
+      if (this.systemLogs._source) {
+        this.systemLogs._source.close();
+        this.systemLogs._source = null;
+      }
+      this.systemLogs.lines = [];
+      this.systemLogs.connected = false;
+      const src = new EventSource(`/api/logs/${container}`);
+      this.systemLogs._source = src;
+      src.onopen = () => { this.systemLogs.connected = true; };
+      src.onerror = () => { this.systemLogs.connected = false; };
+      src.onmessage = (e) => {
+        this.systemLogs.lines.push(e.data);
+        if (this.systemLogs.lines.length > 500) this.systemLogs.lines.splice(0, this.systemLogs.lines.length - 500);
+        this.$nextTick(() => {
+          const el = this.$refs.nginxLogScroll;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      };
+    },
+
     async toggleService(svc, action) {
       svc.loading = true;
       svc.error = '';
-      svc.logs = '';
       svc.flash = '';
       try {
         const res = await fetch(`/api/services/${svc.name}/${action}`, { method: 'POST' });
@@ -804,17 +1426,72 @@ function lerdApp() {
         svc.status = data.status;
         svc.env_vars = data.env_vars;
         if (data.ok) {
+          // Queue workers disappear after stop — remove from list
+          if (svc.queue_site && action === 'stop') {
+            if (this.svcLogs._source) { this.svcLogs._source.close(); this.svcLogs._source = null; }
+            this.svcLogs.lines = [];
+            this.svcLogs.connected = false;
+            this.selectedSvc = null;
+            this.services = this.services.filter(s => s.name !== svc.name);
+            return;
+          }
           svc.flash = action === 'start' ? 'Started successfully' : 'Stopped';
           setTimeout(() => { svc.flash = ''; }, 3000);
         } else {
           svc.error = data.error || 'Unknown error';
-          svc.logs = data.logs || '';
+        }
+      } catch (e) {
+        svc.error = e.message || 'Request failed';
+      } finally {
+        svc.loading = false;
+        if (this.selectedSvc === svc.name) this.openServiceLogs(svc);
+      }
+    },
+
+    async removeService(svc) {
+      if (!confirm(`Remove custom service "${svc.name}"?`)) return;
+      svc.loading = true;
+      try {
+        const res = await fetch(`/api/services/${svc.name}/remove`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          if (this.selectedSvc === svc.name) {
+            if (this.svcLogs._source) { this.svcLogs._source.close(); this.svcLogs._source = null; }
+            this.svcLogs.lines = [];
+            this.svcLogs.connected = false;
+            this.selectedSvc = null;
+          }
+          this.services = this.services.filter(s => s.name !== svc.name);
+        } else {
+          svc.error = data.error || 'Remove failed';
         }
       } catch (e) {
         svc.error = e.message || 'Request failed';
       } finally {
         svc.loading = false;
       }
+    },
+
+    get selectedSite() {
+      if (!this.selectedSiteDomain) return null;
+      return this.sites.find(s => s.domain === this.selectedSiteDomain) || null;
+    },
+
+    get selectedService() {
+      if (!this.selectedSvc) return null;
+      return this.services.find(s => s.name === this.selectedSvc) || null;
+    },
+
+    get selectedPHPVersion() {
+      if (!this.selectedSystem || !this.selectedSystem.startsWith('php-')) return null;
+      const v = this.selectedSystem.slice(4);
+      return this.phpVersions.includes(v) ? v : null;
+    },
+
+    get selectedNodeVersion() {
+      if (!this.selectedSystem || !this.selectedSystem.startsWith('node-')) return null;
+      const v = this.selectedSystem.slice(5);
+      return this.nodeVersions.includes(v) ? v : null;
     },
 
     envPreview(svc) {
@@ -945,6 +1622,10 @@ function lerdApp() {
         const res = await fetch(`/api/sites/${site.domain}/unlink`, { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
+          if (this.selectedSiteDomain === site.domain) {
+            this.selectedSiteDomain = null;
+            if (this.siteLogs._source) { this.siteLogs._source.close(); this.siteLogs._source = null; }
+          }
           this.sites = this.sites.filter(s => s.domain !== site.domain);
         } else {
           alert('Unlink failed: ' + (data.error || 'Unknown error'));
@@ -1021,6 +1702,78 @@ function lerdApp() {
     },
 
     clearLogs() { this.logs.lines = []; },
+
+    async setPHPDefault(version) {
+      this.phpDefaultLoading = true;
+      try {
+        const res = await fetch(`/api/php-versions/${version}/set-default`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) this.systemStatus = { ...this.systemStatus, php_default: data.php_default };
+      } catch (_) {}
+      finally { this.phpDefaultLoading = false; }
+    },
+
+    async setNodeDefault(version) {
+      this.nodeDefaultLoading = true;
+      try {
+        const res = await fetch(`/api/node-versions/${version}/set-default`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) this.systemStatus = { ...this.systemStatus, node_default: data.node_default };
+      } catch (_) {}
+      finally { this.nodeDefaultLoading = false; }
+    },
+
+    phpSiteCount(v) {
+      return this.sites.filter(s => s.php_version === v).length;
+    },
+
+    nodeSiteCount(v) {
+      const nodeDefault = this.systemStatus && this.systemStatus.node_default;
+      return this.sites.filter(s => {
+        if (s.node_version === v) return true;
+        if (!s.node_version && v === nodeDefault) return true;
+        return false;
+      }).length;
+    },
+
+    async removePHPVersion(version) {
+      this.phpRemoveLoading = { ...this.phpRemoveLoading, [version]: true };
+      this.phpRemoveError = { ...this.phpRemoveError, [version]: '' };
+      try {
+        const res = await fetch(`/api/php-versions/${version}/remove`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          this.phpVersions = this.phpVersions.filter(v => v !== version);
+          this.selectedSystem = null;
+          await this.loadStatus();
+        } else {
+          this.phpRemoveError = { ...this.phpRemoveError, [version]: data.error || 'Remove failed' };
+        }
+      } catch (e) {
+        this.phpRemoveError = { ...this.phpRemoveError, [version]: e.message || 'Request failed' };
+      } finally {
+        this.phpRemoveLoading = { ...this.phpRemoveLoading, [version]: false };
+      }
+    },
+
+    async removeNodeVersion(version) {
+      this.nodeRemoveLoading = { ...this.nodeRemoveLoading, [version]: true };
+      this.nodeRemoveError = { ...this.nodeRemoveError, [version]: '' };
+      try {
+        const res = await fetch(`/api/node-versions/${version}/remove`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          this.nodeVersions = this.nodeVersions.filter(v => v !== version);
+          this.selectedSystem = null;
+        } else {
+          this.nodeRemoveError = { ...this.nodeRemoveError, [version]: data.error || 'Remove failed' };
+        }
+      } catch (e) {
+        this.nodeRemoveError = { ...this.nodeRemoveError, [version]: e.message || 'Request failed' };
+      } finally {
+        this.nodeRemoveLoading = { ...this.nodeRemoveLoading, [version]: false };
+      }
+    },
 
     fpmRunning(v) {
       const fpms = (this.systemStatus && this.systemStatus.php_fpms) || [];

@@ -45,7 +45,9 @@ func runLink(args []string, customDomain string) error {
 		rawName = args[0]
 	}
 
-	name, domain := siteNameAndDomain(rawName, cfg.DNS.TLD)
+	baseName, _ := siteNameAndDomain(rawName, cfg.DNS.TLD)
+	name := freeSiteName(baseName, cwd)
+	domain := name + "." + cfg.DNS.TLD
 	if customDomain != "" {
 		domain = strings.ToLower(customDomain)
 	}
@@ -64,9 +66,9 @@ func runLink(args []string, customDomain string) error {
 		nodeVersion = cfg.Node.DefaultVersion
 	}
 
-	// Preserve Secured state if the site is already registered.
+	// Preserve Secured state if the same site is being re-linked.
 	secured := false
-	if existing, err := config.FindSite(name); err == nil {
+	if existing, err := config.FindSite(name); err == nil && existing != nil && existing.Path == cwd {
 		secured = existing.Secured
 	}
 
