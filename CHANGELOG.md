@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.10] — 2026-03-20
+
+### Fixed
+
+- **DNS race on install/update** — `lerd install` (and by extension `lerd update`) now waits up to 15 seconds for the `lerd-dns` container to be ready before calling `ConfigureResolver()`. Previously, `resolvectl` was called immediately after the container restart, causing systemd-resolved to mark `127.0.0.1:5300` as failed and fall back to the DHCP DNS server, breaking `.test` resolution until `lerd install` was run again manually.
+
+---
+
 ## [0.5.8] — 2026-03-20
 
 ### Fixed

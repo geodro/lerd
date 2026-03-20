@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
@@ -198,6 +199,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Starting lerd-dns")
 	if err := podman.RestartUnit("lerd-dns"); err != nil {
+		fmt.Printf("    WARN: %v\n", err)
+	}
+	ok()
+
+	step("Waiting for lerd-dns to be ready")
+	if err := dns.WaitReady(15 * time.Second); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
