@@ -34,7 +34,7 @@ var indexHTML []byte
 
 const listenAddr = "0.0.0.0:7073"
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"}
+var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"}
 
 var serviceEnvVars = map[string][]string{
 	"mysql": {
@@ -83,21 +83,6 @@ var serviceEnvVars = map[string][]string{
 		"MAIL_PASSWORD=null",
 		"MAIL_ENCRYPTION=null",
 	},
-	"soketi": {
-		"BROADCAST_CONNECTION=pusher",
-		"PUSHER_APP_ID=lerd",
-		"PUSHER_APP_KEY=lerd-key",
-		"PUSHER_APP_SECRET=lerd-secret",
-		"PUSHER_HOST=lerd-soketi",
-		"PUSHER_PORT=6001",
-		"PUSHER_SCHEME=http",
-		"PUSHER_APP_CLUSTER=mt1",
-		`VITE_PUSHER_APP_KEY="${PUSHER_APP_KEY}"`,
-		`VITE_PUSHER_HOST="${PUSHER_HOST}"`,
-		`VITE_PUSHER_PORT="${PUSHER_PORT}"`,
-		`VITE_PUSHER_SCHEME="${PUSHER_SCHEME}"`,
-		`VITE_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"`,
-	},
 }
 
 // Start starts the HTTP server on listenAddr.
@@ -122,6 +107,8 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
 	mux.HandleFunc("/api/stripe/", withCORS(handleStripeLogs))
+	mux.HandleFunc("/api/schedule/", withCORS(handleScheduleLogs))
+	mux.HandleFunc("/api/reverb/", withCORS(handleReverbLogs))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
 	mux.HandleFunc("/api/xdebug/", withCORS(handleXdebugAction))
@@ -148,6 +135,51 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 		}
 		h(w, r)
 	}
+}
+
+// openTerminalAt opens the user's preferred terminal emulator in dir.
+// It checks $TERMINAL first, then falls back to a list of common emulators.
+func openTerminalAt(dir string) error {
+	type termCmd struct {
+		bin  string
+		args []string
+	}
+
+	candidates := []termCmd{}
+
+	if t := os.Getenv("TERMINAL"); t != "" {
+		candidates = append(candidates, termCmd{t, []string{}})
+	}
+
+	candidates = append(candidates,
+		termCmd{"kitty", []string{"--directory", dir}},
+		termCmd{"foot", []string{"--working-directory", dir}},
+		termCmd{"alacritty", []string{"--working-directory", dir}},
+		termCmd{"wezterm", []string{"start", "--cwd", dir}},
+		termCmd{"ghostty", []string{"--working-directory=" + dir}},
+		termCmd{"konsole", []string{"--workdir", dir}},
+		termCmd{"gnome-terminal", []string{"--working-directory", dir}},
+		termCmd{"xfce4-terminal", []string{"--working-directory", dir}},
+		termCmd{"tilix", []string{"--working-directory", dir}},
+		termCmd{"terminator", []string{"--working-directory", dir}},
+		termCmd{"xterm", []string{"-e", "cd " + dir + " && exec $SHELL"}},
+	)
+
+	for _, t := range candidates {
+		bin, err := exec.LookPath(t.bin)
+		if err != nil {
+			continue
+		}
+		args := t.args
+		// For $TERMINAL with no preset args, just pass the dir via cd wrapper
+		if t.bin == os.Getenv("TERMINAL") && len(args) == 0 {
+			args = []string{"-e", "sh", "-c", "cd " + dir + " && exec $SHELL"}
+		}
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		return cmd.Start()
+	}
+	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -232,6 +264,9 @@ type SiteResponse struct {
 	QueueRunning    bool               `json:"queue_running"`
 	StripeRunning   bool               `json:"stripe_running"`
 	StripeSecretSet bool               `json:"stripe_secret_set"`
+	ScheduleRunning bool               `json:"schedule_running"`
+	ReverbRunning   bool               `json:"reverb_running"`
+	HasReverb       bool               `json:"has_reverb"`
 	Branch          string             `json:"branch"`
 	Worktrees       []WorktreeResponse `json:"worktrees"`
 }
@@ -279,9 +314,12 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		queueStatus, _ := podman.UnitStatus("lerd-queue-" + s.Name)
 		stripeStatus, _ := podman.UnitStatus("lerd-stripe-" + s.Name)
 		stripeSecretSet := cli.StripeSecretSet(s.Path)
+		scheduleStatus, _ := podman.UnitStatus("lerd-schedule-" + s.Name)
+		reverbStatus, _ := podman.UnitStatus("lerd-reverb-" + s.Name)
+		hasReverb := cli.SiteUsesReverb(s.Path)
 
 		worktreeResponses := []WorktreeResponse{}
-		mainBranch := ""
+		mainBranch := gitpkg.MainBranch(s.Path)
 		if wts, err := gitpkg.DetectWorktrees(s.Path, s.Domain); err == nil {
 			for _, wt := range wts {
 				worktreeResponses = append(worktreeResponses, WorktreeResponse{
@@ -289,9 +327,6 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 					Domain: wt.Domain,
 					Path:   wt.Path,
 				})
-			}
-			if len(worktreeResponses) > 0 {
-				mainBranch = gitpkg.MainBranch(s.Path)
 			}
 		}
 
@@ -306,6 +341,9 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			QueueRunning:    queueStatus == "active",
 			StripeRunning:   stripeStatus == "active",
 			StripeSecretSet: stripeSecretSet,
+			ScheduleRunning: scheduleStatus == "active",
+			ReverbRunning:   reverbStatus == "active",
+			HasReverb:       hasReverb,
 			Branch:          mainBranch,
 			Worktrees:    worktreeResponses,
 		})
@@ -324,8 +362,10 @@ type ServiceResponse struct {
 	Dashboard        string            `json:"dashboard,omitempty"`
 	Custom           bool              `json:"custom,omitempty"`
 	SiteCount        int               `json:"site_count"`
-	QueueSite        string            `json:"queue_site,omitempty"`
-	StripeListenerSite string          `json:"stripe_listener_site,omitempty"`
+	QueueSite          string            `json:"queue_site,omitempty"`
+	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
+	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
+	ReverbSite         string            `json:"reverb_site,omitempty"`
 }
 
 // builtinDashboards maps built-in service names to their dashboard URLs.
@@ -362,6 +402,16 @@ func buildServiceResponse(name string) ServiceResponse {
 // listActiveQueueWorkers returns the site names of active lerd-queue-* systemd units.
 func listActiveQueueWorkers() []string {
 	return listActiveUnitsBySuffix("lerd-queue-*.service", "lerd-queue-")
+}
+
+// listActiveScheduleWorkers returns site names of active lerd-schedule-* units.
+func listActiveScheduleWorkers() []string {
+	return listActiveUnitsBySuffix("lerd-schedule-*.service", "lerd-schedule-")
+}
+
+// listActiveReverbServers returns site names of active lerd-reverb-* units.
+func listActiveReverbServers() []string {
+	return listActiveUnitsBySuffix("lerd-reverb-*.service", "lerd-reverb-")
 }
 
 // listActiveStripeListeners returns the site names of active lerd-stripe-* units
@@ -447,6 +497,22 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			StripeListenerSite: siteName,
 		})
 	}
+	for _, siteName := range listActiveScheduleWorkers() {
+		services = append(services, ServiceResponse{
+			Name:               "schedule-" + siteName,
+			Status:             "active",
+			EnvVars:            map[string]string{},
+			ScheduleWorkerSite: siteName,
+		})
+	}
+	for _, siteName := range listActiveReverbServers() {
+		services = append(services, ServiceResponse{
+			Name:       "reverb-" + siteName,
+			Status:     "active",
+			EnvVars:    map[string]string{},
+			ReverbSite: siteName,
+		})
+	}
 	writeJSON(w, services)
 }
 
@@ -494,6 +560,66 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, resp)
 		} else {
 			http.Error(w, "unsupported action for queue worker", http.StatusBadRequest)
+		}
+		return
+	}
+
+	// Handle stripe listener services (stripe-{sitename})
+	if strings.HasPrefix(name, "stripe-") {
+		siteName := strings.TrimPrefix(name, "stripe-")
+		if action == "stop" {
+			opErr := cli.StripeStopForSite(siteName)
+			resp := ServiceActionResponse{
+				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, StripeListenerSite: siteName},
+				OK:              opErr == nil,
+			}
+			if opErr != nil {
+				resp.Error = opErr.Error()
+				resp.Status = "active"
+			}
+			writeJSON(w, resp)
+		} else {
+			writeJSON(w, ServiceActionResponse{OK: false, Error: "unsupported action for stripe listener"})
+		}
+		return
+	}
+
+	// Handle schedule worker services (schedule-{sitename})
+	if strings.HasPrefix(name, "schedule-") {
+		siteName := strings.TrimPrefix(name, "schedule-")
+		if action == "stop" {
+			opErr := cli.ScheduleStopForSite(siteName)
+			resp := ServiceActionResponse{
+				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, ScheduleWorkerSite: siteName},
+				OK:              opErr == nil,
+			}
+			if opErr != nil {
+				resp.Error = opErr.Error()
+				resp.Status = "active"
+			}
+			writeJSON(w, resp)
+		} else {
+			writeJSON(w, ServiceActionResponse{OK: false, Error: "unsupported action for schedule worker"})
+		}
+		return
+	}
+
+	// Handle reverb server services (reverb-{sitename})
+	if strings.HasPrefix(name, "reverb-") {
+		siteName := strings.TrimPrefix(name, "reverb-")
+		if action == "stop" {
+			opErr := cli.ReverbStopForSite(siteName)
+			resp := ServiceActionResponse{
+				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, ReverbSite: siteName},
+				OK:              opErr == nil,
+			}
+			if opErr != nil {
+				resp.Error = opErr.Error()
+				resp.Status = "active"
+			}
+			writeJSON(w, resp)
+		} else {
+			writeJSON(w, ServiceActionResponse{OK: false, Error: "unsupported action for reverb server"})
 		}
 		return
 	}
@@ -826,10 +952,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
 			phpVersion = detected
 		}
-		if err := cli.QueueStartForSite(site.Name, site.Path, phpVersion); err != nil {
-			writeJSON(w, SiteActionResponse{Error: err.Error()})
-			return
-		}
+		go cli.QueueStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "queue:stop":
@@ -844,14 +967,48 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		if site.Secured {
 			scheme = "https"
 		}
-		if err := cli.StripeStartForSite(site.Name, site.Path, scheme+"://"+site.Domain); err != nil {
+		go cli.StripeStartForSite(site.Name, site.Path, scheme+"://"+site.Domain) //nolint:errcheck
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "stripe:stop":
+		if err := cli.StripeStopForSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
-	case "stripe:stop":
-		if err := cli.StripeStopForSite(site.Name); err != nil {
+	case "schedule:start":
+		phpVersion := site.PHPVersion
+		if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
+			phpVersion = detected
+		}
+		go cli.ScheduleStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "schedule:stop":
+		if err := cli.ScheduleStopForSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "reverb:start":
+		phpVersion := site.PHPVersion
+		if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
+			phpVersion = detected
+		}
+		go cli.ReverbStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "reverb:stop":
+		if err := cli.ReverbStopForSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "terminal":
+		if err := openTerminalAt(site.Path); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
@@ -1248,6 +1405,26 @@ func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
 }
 
 
+func handleScheduleLogs(w http.ResponseWriter, r *http.Request) {
+	// path: /api/schedule/<sitename>/logs
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/schedule/"), "/")
+	if len(parts) != 2 || parts[1] != "logs" || !allowedQueueUnit.MatchString(parts[0]) {
+		http.NotFound(w, r)
+		return
+	}
+	streamUnitLogs(w, r, "lerd-schedule-"+parts[0])
+}
+
+func handleReverbLogs(w http.ResponseWriter, r *http.Request) {
+	// path: /api/reverb/<sitename>/logs
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/reverb/"), "/")
+	if len(parts) != 2 || parts[1] != "logs" || !allowedQueueUnit.MatchString(parts[0]) {
+		http.NotFound(w, r)
+		return
+	}
+	streamUnitLogs(w, r, "lerd-reverb-"+parts[0])
+}
+
 func handleStripeLogs(w http.ResponseWriter, r *http.Request) {
 	// path: /api/stripe/<sitename>/logs
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/stripe/"), "/")
@@ -1255,7 +1432,10 @@ func handleStripeLogs(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	unit := "lerd-stripe-" + parts[0]
+	streamUnitLogs(w, r, "lerd-stripe-"+parts[0])
+}
+
+func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

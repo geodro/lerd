@@ -7,6 +7,36 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.0] — 2026-03-21
+
+### Added
+
+- **`lerd reverb:start` / `reverb:stop`** — runs the Laravel Reverb WebSocket server as a persistent systemd user service (`lerd-reverb-<site>.service`), executing `php artisan reverb:start` inside the PHP-FPM container. Survives terminal sessions and restarts on failure. Also available as `lerd reverb start` / `lerd reverb stop`.
+- **`lerd schedule:start` / `schedule:stop`** — runs the Laravel task scheduler as a persistent systemd user service (`lerd-schedule-<site>.service`), executing `php artisan schedule:work`. Also available as `lerd schedule start` / `lerd schedule stop`.
+- **`lerd dashboard`** — opens the Lerd dashboard (`http://127.0.0.1:7073`) in the default browser via `xdg-open`.
+- **Auto-configure `REVERB_*` env vars** — `lerd env` now generates `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET`, and `REVERB_HOST`/`PORT`/`SCHEME` values when `BROADCAST_CONNECTION=reverb` is detected, using random secure values for secrets.
+- **`lerd setup` runs `storage:link`** — setup now runs `php artisan storage:link` when the site's `storage/app/public` directory is not yet symlinked.
+- **`lerd setup` starts the queue worker** — setup now starts `queue:start` as a final step when `QUEUE_CONNECTION=redis` is set in `.env` or `.env.example`.
+- **Watcher triggers `queue:restart` on config changes** — the watcher daemon monitors `.env`, `composer.json`, `composer.lock`, and `.php-version` in every registered site and signals `php artisan queue:restart` when any of those files change (debounced). This ensures queue workers reload after deploys or PHP version changes.
+- **`lerd start` / `stop` manage schedule and reverb** — `lerd start` and `lerd stop` now include all `lerd-schedule-*` and `lerd-reverb-*` service units in their start/stop sequences alongside queue workers and stripe listeners.
+- **MCP tools for reverb, schedule, stripe** — new `reverb_start`, `reverb_stop`, `schedule_start`, `schedule_stop`, and `stripe_listen` tools exposed via the MCP server.
+- **Web UI: schedule and reverb per-site** — the site detail panel shows whether the schedule worker and Reverb server are running, with start/stop buttons and live log streaming.
+- **Web UI: `stripe:stop` action** — the dashboard now supports stopping a stripe listener from the site action menu (was start-only).
+- **`WriteServiceIfChanged`** — internal helper that skips writing and running `daemon-reload` when a service unit's content is unchanged, preventing unnecessary Podman quadlet regeneration.
+- **`QueueRestartForSite`** — internal function that signals a graceful queue worker restart via `php artisan queue:restart` inside the PHP-FPM container.
+
+### Changed
+
+- **Queue worker uses `Restart=always`** — the `lerd-queue-*` service unit now restarts unconditionally (was `Restart=on-failure`), matching the behaviour of schedule and reverb services.
+- **`lerd.test` dashboard vhost removed** — `lerd install` no longer generates an nginx proxy vhost for `lerd.test`. The dashboard is only accessible at `http://127.0.0.1:7073`. The `lerd.test` domain is no longer reserved and may be used for a regular site.
+- **Web UI queue/stripe start is non-blocking** — `queue:start` and `stripe:listen` site actions now run in a background goroutine so the HTTP response returns immediately rather than waiting for the service to start.
+
+### Removed
+
+- **Soketi service removed** — Soketi has been removed from Lerd's service list, config defaults, and env suggestions. Laravel Reverb (`lerd reverb:start`) is the recommended WebSocket solution.
+
+---
+
 ## [0.7.0] — 2026-03-21
 
 ### Added

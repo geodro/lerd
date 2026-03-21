@@ -62,6 +62,12 @@ Once the MCP server is connected, your AI assistant has access to:
 | `db_export` | Export the project database to a SQL dump file |
 | `queue_start` | Start a queue worker for a site |
 | `queue_stop` | Stop a queue worker |
+| `reverb_start` | Start the Laravel Reverb WebSocket server for a site |
+| `reverb_stop` | Stop the Reverb server |
+| `schedule_start` | Start the Laravel task scheduler for a site |
+| `schedule_stop` | Stop the task scheduler |
+| `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |
+| `stripe_listen_stop` | Stop the Stripe webhook listener |
 | `logs` | Fetch recent container logs (nginx, any service, PHP version, or site name) |
 
 ---

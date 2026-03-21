@@ -10,7 +10,7 @@
 | `lerd service status <name>` | Show systemd unit status |
 | `lerd service list` | Show all services and their current state |
 
-Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`, `mailpit`, `soketi`.
+Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`, `mailpit`.
 
 ---
 
@@ -32,13 +32,11 @@ Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `minio`, `mailp
 | Meilisearch | 127.0.0.1 | lerd-meilisearch | 7700 | — | — | — |
 | MinIO | 127.0.0.1 | lerd-minio | 9000 | `lerd` | `lerdpassword` | — |
 | Mailpit SMTP | 127.0.0.1 | lerd-mailpit | 1025 | — | — | — |
-| Soketi | 127.0.0.1 | lerd-soketi | 6001 | — | — | — |
 
 Additional UIs:
 
 - MinIO console: `http://127.0.0.1:9001`
 - Mailpit web UI: `http://127.0.0.1:8025`
-- Soketi metrics: `http://127.0.0.1:9601`
 
 ---
 
@@ -166,6 +164,51 @@ redis                [builtin]  inactive
 ...
 mongodb              [custom]   active
 ```
+
+### Example: Soketi (Pusher-compatible WebSocket server)
+
+Soketi is a self-hosted Pusher-compatible WebSocket server. Use this if you prefer a standalone container over Laravel Reverb.
+
+```yaml
+# ~/.config/lerd/services/soketi.yaml
+name: soketi
+image: quay.io/soketi/soketi:latest-16-alpine
+description: "Pusher-compatible WebSocket server"
+ports:
+  - 6001:6001
+  - 9601:9601
+environment:
+  SOKETI_DEFAULT_APP_ID: lerd
+  SOKETI_DEFAULT_APP_KEY: lerd-key
+  SOKETI_DEFAULT_APP_SECRET: lerd-secret
+env_vars:
+  - BROADCAST_CONNECTION=pusher
+  - PUSHER_APP_ID=lerd
+  - PUSHER_APP_KEY=lerd-key
+  - PUSHER_APP_SECRET=lerd-secret
+  - PUSHER_HOST=lerd-soketi
+  - PUSHER_PORT=6001
+  - PUSHER_SCHEME=http
+  - PUSHER_APP_CLUSTER=mt1
+  - VITE_PUSHER_APP_KEY="${PUSHER_APP_KEY}"
+  - VITE_PUSHER_HOST="${PUSHER_HOST}"
+  - VITE_PUSHER_PORT="${PUSHER_PORT}"
+  - VITE_PUSHER_SCHEME="${PUSHER_SCHEME}"
+  - VITE_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+env_detect:
+  key: PUSHER_HOST
+  value_prefix: "lerd-soketi"
+dashboard: http://127.0.0.1:9601
+```
+
+```bash
+lerd service add ~/.config/lerd/services/soketi.yaml
+lerd service start soketi
+```
+
+Soketi metrics UI: `http://127.0.0.1:9601`
+
+---
 
 ### Example: Stripe (Laravel Cashier)
 

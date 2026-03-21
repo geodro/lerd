@@ -57,9 +57,16 @@ func main() {
 	root.AddCommand(cli.NewStatusCmd())
 	root.AddCommand(cli.NewLogsCmd())
 	root.AddCommand(cli.NewOpenCmd())
+	root.AddCommand(cli.NewDashboardCmd())
 	root.AddCommand(cli.NewQueueCmd())
 	root.AddCommand(cli.NewQueueStartCmd())
 	root.AddCommand(cli.NewQueueStopCmd())
+	root.AddCommand(cli.NewScheduleCmd())
+	root.AddCommand(cli.NewScheduleStartCmd())
+	root.AddCommand(cli.NewScheduleStopCmd())
+	root.AddCommand(cli.NewReverbCmd())
+	root.AddCommand(cli.NewReverbStartCmd())
+	root.AddCommand(cli.NewReverbStopCmd())
 	root.AddCommand(cli.NewAutostartCmd())
 	root.AddCommand(cli.NewMCPCmd())
 	root.AddCommand(cli.NewMCPInjectCmd())
@@ -243,6 +250,38 @@ func newWatchCmd() *cobra.Command {
 				)
 				if err != nil {
 					fmt.Printf("[WARN] worktree watcher: %v\n", err)
+				}
+			}()
+
+			// Watch key site config files and signal queue:restart on change.
+			go func() {
+				err := watcher.WatchSiteFiles(
+					func() []string {
+						reg, err := config.LoadSites()
+						if err != nil {
+							return nil
+						}
+						paths := make([]string, 0, len(reg.Sites))
+						for _, s := range reg.Sites {
+							if !s.Ignored {
+								paths = append(paths, s.Path)
+							}
+						}
+						return paths
+					},
+					2*time.Second,
+					func(sitePath string) {
+						site, err := config.FindSiteByPath(sitePath)
+						if err != nil {
+							return
+						}
+						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
+							fmt.Printf("[WARN] queue restart for %s: %v\n", site.Name, err)
+						}
+					},
+				)
+				if err != nil {
+					fmt.Printf("[WARN] site file watcher: %v\n", err)
 				}
 			}()
 

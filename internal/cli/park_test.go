@@ -35,20 +35,6 @@ func TestSiteNameAndDomain(t *testing.T) {
 	}
 }
 
-// ── isReservedDomain ─────────────────────────────────────────────────────────
-
-func TestIsReservedDomain(t *testing.T) {
-	if !isReservedDomain("lerd.test") {
-		t.Error("lerd.test should be reserved")
-	}
-	if isReservedDomain("myapp.test") {
-		t.Error("myapp.test should not be reserved")
-	}
-	if isReservedDomain("") {
-		t.Error("empty string should not be reserved")
-	}
-}
-
 // ── freeSiteName ─────────────────────────────────────────────────────────────
 
 // setupSitesYAML writes a sites.yaml into a temp XDG_DATA_HOME so that

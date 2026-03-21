@@ -77,11 +77,6 @@ func defaultConfig() *GlobalConfig {
 			Image:   "axllent/mailpit:latest",
 			Port:    1025,
 		},
-		"soketi": {
-			Enabled: false,
-			Image:   "quay.io/soketi/soketi:latest-16-alpine",
-			Port:    6001,
-		},
 	}
 	return cfg
 }

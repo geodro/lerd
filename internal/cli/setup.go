@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/envfile"
+	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/spf13/cobra"
 )
 
@@ -99,6 +103,13 @@ func runSetup(allSteps, skipOpen bool) error {
 			},
 		},
 		{
+			label:   "php artisan storage:link",
+			enabled: siteNeedsStorageLink(cwd),
+			run: func() error {
+				return artisanIn(cwd, "storage:link")
+			},
+		},
+		{
 			label:   "lerd mcp:inject",
 			enabled: false,
 			run: func() error {
@@ -133,6 +144,85 @@ func runSetup(allSteps, skipOpen bool) error {
 		enabled: false,
 		run: func() error {
 			return runSecure(nil, nil)
+		},
+	})
+
+	steps = append(steps, setupStep{
+		label:   "queue:start",
+		enabled: siteUsesRedisQueue(cwd),
+		run: func() error {
+			site, err := config.FindSiteByPath(cwd)
+			if err != nil {
+				return fmt.Errorf("site not registered: %w", err)
+			}
+			phpVersion := site.PHPVersion
+			if phpVersion == "" {
+				if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+					phpVersion = detected
+				} else {
+					cfg, _ := config.LoadGlobal()
+					phpVersion = cfg.PHP.DefaultVersion
+				}
+			}
+			return QueueStartForSite(site.Name, cwd, phpVersion)
+		},
+	})
+
+	steps = append(steps, setupStep{
+		label:   "stripe:listen",
+		enabled: siteHasStripeSecret(cwd),
+		run: func() error {
+			site, err := config.FindSiteByPath(cwd)
+			if err != nil {
+				return fmt.Errorf("site not registered: %w", err)
+			}
+			base := siteURL(cwd)
+			if base == "" {
+				return fmt.Errorf("could not resolve site URL — run 'lerd link' first")
+			}
+			return StripeStartForSite(site.Name, cwd, base)
+		},
+	})
+
+	steps = append(steps, setupStep{
+		label:   "schedule:start",
+		enabled: true,
+		run: func() error {
+			site, err := config.FindSiteByPath(cwd)
+			if err != nil {
+				return fmt.Errorf("site not registered: %w", err)
+			}
+			phpVersion := site.PHPVersion
+			if phpVersion == "" {
+				if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+					phpVersion = detected
+				} else {
+					cfg, _ := config.LoadGlobal()
+					phpVersion = cfg.PHP.DefaultVersion
+				}
+			}
+			return ScheduleStartForSite(site.Name, cwd, phpVersion)
+		},
+	})
+
+	steps = append(steps, setupStep{
+		label:   "reverb:start",
+		enabled: SiteUsesReverb(cwd),
+		run: func() error {
+			site, err := config.FindSiteByPath(cwd)
+			if err != nil {
+				return fmt.Errorf("site not registered: %w", err)
+			}
+			phpVersion := site.PHPVersion
+			if phpVersion == "" {
+				if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+					phpVersion = detected
+				} else {
+					cfg, _ := config.LoadGlobal()
+					phpVersion = cfg.PHP.DefaultVersion
+				}
+			}
+			return ReverbStartForSite(site.Name, cwd, phpVersion)
 		},
 	})
 
@@ -220,6 +310,43 @@ func detectBuildScript(pkgJSONPath string) string {
 		}
 	}
 	return ""
+}
+
+// siteUsesRedisQueue returns true if the site at cwd has QUEUE_CONNECTION=redis.
+// Checks .env first, falls back to .env.example (for projects not yet configured).
+func siteUsesRedisQueue(cwd string) bool {
+	for _, name := range []string{".env", ".env.example"} {
+		v := envfile.ReadKey(filepath.Join(cwd, name), "QUEUE_CONNECTION")
+		if v != "" {
+			return v == "redis"
+		}
+	}
+	return false
+}
+
+// siteNeedsStorageLink returns true when storage:link has not been run yet and
+// the site uses the local filesystem disk (the default).
+func siteNeedsStorageLink(cwd string) bool {
+	if _, err := os.Lstat(filepath.Join(cwd, "public", "storage")); err == nil {
+		return false // symlink already exists
+	}
+	for _, name := range []string{".env", ".env.example"} {
+		v := envfile.ReadKey(filepath.Join(cwd, name), "FILESYSTEM_DISK")
+		if v != "" {
+			return v == "local"
+		}
+	}
+	return true // FILESYSTEM_DISK unset → defaults to local
+}
+
+// siteHasStripeSecret returns true if STRIPE_SECRET is present in .env or .env.example.
+func siteHasStripeSecret(cwd string) bool {
+	for _, name := range []string{".env", ".env.example"} {
+		if envfile.ReadKey(filepath.Join(cwd, name), "STRIPE_SECRET") != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // promptContinue asks the user whether to continue after a step failure.

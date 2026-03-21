@@ -129,7 +129,7 @@ func runPark(_ *cobra.Command, args []string) error {
 }
 
 // reservedDomains are domains used by Lerd itself that cannot be assigned to user sites.
-var reservedDomains = []string{"lerd.test"}
+var reservedDomains = []string{}
 
 // isReservedDomain returns true if the domain is reserved for internal Lerd use.
 func isReservedDomain(domain string) bool {

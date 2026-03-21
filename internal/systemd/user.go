@@ -20,6 +20,21 @@ func WriteService(name, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+// WriteServiceIfChanged writes the unit file only when the content differs from
+// what is already on disk. Returns true if the file was written (caller should
+// run daemon-reload), false if it was unchanged (daemon-reload not needed).
+func WriteServiceIfChanged(name, content string) (bool, error) {
+	dir := config.SystemdUserDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false, err
+	}
+	path := filepath.Join(dir, name+".service")
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
+		return false, nil
+	}
+	return true, os.WriteFile(path, []byte(content), 0644)
+}
+
 // EnableService enables a systemd user service.
 func EnableService(name string) error {
 	cmd := exec.Command("systemctl", "--user", "enable", name)

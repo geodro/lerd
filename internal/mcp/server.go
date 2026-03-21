@@ -22,7 +22,7 @@ import (
 
 const protocolVersion = "2024-11-05"
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"}
+var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"}
 
 // defaultSitePath is set at startup from LERD_SITE_PATH, injected by mcp:inject.
 // Tools that accept a "path" argument use this as a fallback when none is provided.
@@ -488,6 +488,98 @@ func toolList() []mcpTool {
 				},
 			},
 		},
+		{
+			Name:        "reverb_start",
+			Description: "Start the Laravel Reverb WebSocket server for a registered site as a systemd user service. The server runs php artisan reverb:start inside the PHP-FPM container.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "reverb_stop",
+			Description: "Stop the Laravel Reverb WebSocket server for a registered site.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "schedule_start",
+			Description: "Start the Laravel task scheduler (php artisan schedule:work) for a registered site as a systemd user service.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "schedule_stop",
+			Description: "Stop the Laravel task scheduler for a registered site.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "stripe_listen",
+			Description: "Start a Stripe webhook listener for a registered site using the Stripe CLI container. Reads STRIPE_SECRET from the site's .env. Forwards webhooks to the site's /stripe/webhook route by default.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+					"api_key": {
+						Type:        "string",
+						Description: "Stripe secret key (defaults to STRIPE_SECRET in the site's .env)",
+					},
+					"webhook_path": {
+						Type:        "string",
+						Description: `Webhook route path on the app (default: "/stripe/webhook")`,
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "stripe_listen_stop",
+			Description: "Stop the Stripe webhook listener for a registered site.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
 	}
 }
 
@@ -525,6 +617,18 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execQueueStart(args)
 	case "queue_stop":
 		return execQueueStop(args)
+	case "reverb_start":
+		return execReverbStart(args)
+	case "reverb_stop":
+		return execReverbStop(args)
+	case "schedule_start":
+		return execScheduleStart(args)
+	case "schedule_stop":
+		return execScheduleStop(args)
+	case "stripe_listen":
+		return execStripeListen(args)
+	case "stripe_listen_stop":
+		return execStripeListenStop(args)
 	case "logs":
 		return execLogs(args)
 	case "composer":
@@ -822,6 +926,201 @@ func execQueueStop(args map[string]any) (any, *rpcError) {
 	}
 	_ = podman.DaemonReload()
 	return toolOK("Queue worker stopped for " + siteName), nil
+}
+
+func execReverbStart(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
+	}
+	phpVersion := site.PHPVersion
+	if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
+		phpVersion = detected
+	}
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := "lerd-php" + versionShort + "-fpm"
+	unitName := "lerd-reverb-" + siteName
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd Reverb (%s)
+After=network.target %s.service
+BindsTo=%s.service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=podman exec -w %s %s php artisan reverb:start
+
+[Install]
+WantedBy=default.target
+`, siteName, fpmUnit, fpmUnit, site.Path, container)
+
+	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+		return toolErr("writing service unit: " + err.Error()), nil
+	}
+	if err := podman.DaemonReload(); err != nil {
+		return toolErr("daemon-reload: " + err.Error()), nil
+	}
+	_ = lerdSystemd.EnableService(unitName)
+	if err := lerdSystemd.StartService(unitName); err != nil {
+		return toolErr("starting reverb: " + err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Reverb started for %s\nLogs: journalctl --user -u %s -f", siteName, unitName)), nil
+}
+
+func execReverbStop(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	unitName := "lerd-reverb-" + siteName
+	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+	_ = lerdSystemd.DisableService(unitName)
+	_ = podman.StopUnit(unitName)
+	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+		return toolErr("removing unit file: " + err.Error()), nil
+	}
+	_ = podman.DaemonReload()
+	return toolOK("Reverb stopped for " + siteName), nil
+}
+
+func execScheduleStart(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
+	}
+	phpVersion := site.PHPVersion
+	if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
+		phpVersion = detected
+	}
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := "lerd-php" + versionShort + "-fpm"
+	unitName := "lerd-schedule-" + siteName
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd Scheduler (%s)
+After=network.target %s.service
+BindsTo=%s.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=podman exec -w %s %s php artisan schedule:work
+
+[Install]
+WantedBy=default.target
+`, siteName, fpmUnit, fpmUnit, site.Path, container)
+
+	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+		return toolErr("writing service unit: " + err.Error()), nil
+	}
+	if err := podman.DaemonReload(); err != nil {
+		return toolErr("daemon-reload: " + err.Error()), nil
+	}
+	_ = lerdSystemd.EnableService(unitName)
+	if err := lerdSystemd.StartService(unitName); err != nil {
+		return toolErr("starting scheduler: " + err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Scheduler started for %s\nLogs: journalctl --user -u %s -f", siteName, unitName)), nil
+}
+
+func execScheduleStop(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	unitName := "lerd-schedule-" + siteName
+	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+	_ = lerdSystemd.DisableService(unitName)
+	_ = podman.StopUnit(unitName)
+	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+		return toolErr("removing unit file: " + err.Error()), nil
+	}
+	_ = podman.DaemonReload()
+	return toolOK("Scheduler stopped for " + siteName), nil
+}
+
+func execStripeListen(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
+	}
+	apiKey := strArg(args, "api_key")
+	if apiKey == "" {
+		apiKey = envfile.ReadKey(filepath.Join(site.Path, ".env"), "STRIPE_SECRET")
+	}
+	if apiKey == "" {
+		return toolErr("Stripe API key required: pass api_key or set STRIPE_SECRET in the site's .env"), nil
+	}
+	webhookPath := strArg(args, "webhook_path")
+	if webhookPath == "" {
+		webhookPath = "/stripe/webhook"
+	}
+	scheme := "http"
+	if site.Secured {
+		scheme = "https"
+	}
+	forwardTo := scheme + "://" + site.Domain + webhookPath
+	unitName := "lerd-stripe-" + siteName
+	containerName := unitName
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd Stripe Listener (%s)
+After=network.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=podman run --rm --replace --name %s --network host docker.io/stripe/stripe-cli:latest listen --api-key %s --forward-to %s --skip-verify
+
+[Install]
+WantedBy=default.target
+`, siteName, containerName, apiKey, forwardTo)
+
+	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+		return toolErr("writing service unit: " + err.Error()), nil
+	}
+	if err := podman.DaemonReload(); err != nil {
+		return toolErr("daemon-reload: " + err.Error()), nil
+	}
+	_ = lerdSystemd.EnableService(unitName)
+	if err := lerdSystemd.StartService(unitName); err != nil {
+		return toolErr("starting stripe listener: " + err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Stripe listener started for %s\nForwarding to: %s\nLogs: journalctl --user -u %s -f", siteName, forwardTo, unitName)), nil
+}
+
+func execStripeListenStop(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	unitName := "lerd-stripe-" + siteName
+	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+	_ = lerdSystemd.DisableService(unitName)
+	_ = podman.StopUnit(unitName)
+	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+		return toolErr("removing unit file: " + err.Error()), nil
+	}
+	_ = podman.DaemonReload()
+	return toolOK("Stripe listener stopped for " + siteName), nil
 }
 
 func execLogs(args map[string]any) (any, *rpcError) {

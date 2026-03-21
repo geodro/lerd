@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"}
+var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"}
 
 // serviceInfo holds the quadlet name and Laravel .env hints for a service.
 type serviceInfo struct {
@@ -65,21 +65,6 @@ var serviceEnvVars = map[string]serviceInfo{
 		"MAIL_PASSWORD=null",
 		"MAIL_ENCRYPTION=null",
 	}},
-	"soketi": {envVars: []string{
-		"BROADCAST_CONNECTION=pusher",
-		"PUSHER_APP_ID=lerd",
-		"PUSHER_APP_KEY=lerd-key",
-		"PUSHER_APP_SECRET=lerd-secret",
-		"PUSHER_HOST=lerd-soketi",
-		"PUSHER_PORT=6001",
-		"PUSHER_SCHEME=http",
-		"PUSHER_APP_CLUSTER=mt1",
-		"VITE_PUSHER_APP_KEY=\"${PUSHER_APP_KEY}\"",
-		"VITE_PUSHER_HOST=\"${PUSHER_HOST}\"",
-		"VITE_PUSHER_PORT=\"${PUSHER_PORT}\"",
-		"VITE_PUSHER_SCHEME=\"${PUSHER_SCHEME}\"",
-		"VITE_PUSHER_APP_CLUSTER=\"${PUSHER_APP_CLUSTER}\"",
-	}},
 }
 
 // isKnownService returns true if name is a built-in service.
@@ -96,7 +81,7 @@ func isKnownService(name string) bool {
 func NewServiceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
-		Short: "Manage Lerd services (mysql, redis, postgres, meilisearch, minio, mailpit, soketi)",
+		Short: "Manage Lerd services (mysql, redis, postgres, meilisearch, minio, mailpit)",
 	}
 
 	cmd.AddCommand(newServiceStartCmd())

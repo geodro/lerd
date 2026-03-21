@@ -187,6 +187,8 @@
                 </svg>
                 <span x-show="site.queue_running" class="w-2 h-2 rounded-full shrink-0 bg-amber-400" title="Queue running"></span>
                 <span x-show="site.stripe_running" class="w-2 h-2 rounded-full shrink-0 bg-violet-400" title="Stripe listener running"></span>
+                <span x-show="site.schedule_running" class="w-2 h-2 rounded-full shrink-0 bg-emerald-400" title="Scheduler running"></span>
+                <span x-show="site.reverb_running" class="w-2 h-2 rounded-full shrink-0 bg-sky-400" title="Reverb running"></span>
               </button>
             </template>
           </div>
@@ -224,7 +226,12 @@
                           </span>
                         </template>
                       </div>
-                      <div class="text-xs text-gray-400 font-mono mt-1" x-text="selectedSite.path"></div>
+                      <div class="text-xs text-gray-400 font-mono mt-1 flex items-center gap-2">
+                        <span x-text="selectedSite.path"></span>
+                        <template x-if="selectedSite.branch">
+                          <span class="text-violet-500 dark:text-violet-400 shrink-0">git:(<span x-text="selectedSite.branch"></span>)</span>
+                        </template>
+                      </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <button
@@ -242,6 +249,14 @@
                       >
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                         Open
+                      </button>
+                      <button
+                        @click="openTerminal(selectedSite)"
+                        class="flex items-center gap-1.5 text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-2 py-1 transition-colors"
+                        title="Open in terminal"
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Terminal
                       </button>
                     </div>
                   </div>
@@ -358,6 +373,58 @@
                     </div>
                   </div>
 
+                  <!-- Schedule -->
+                  <div>
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Schedule</div>
+                    <div class="flex flex-col items-start gap-1">
+                      <div class="flex items-center gap-2">
+                        <button
+                          @click="toggleSchedule(selectedSite)"
+                          :disabled="selectedSite.scheduleLoading"
+                          :title="selectedSite.schedule_running ? 'Stop scheduler' : 'Start scheduler'"
+                          class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
+                          :class="selectedSite.schedule_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-lerd-muted'"
+                        >
+                          <span
+                            class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
+                            :class="selectedSite.schedule_running ? 'translate-x-4' : 'translate-x-1'"
+                          ></span>
+                          <svg x-show="selectedSite.scheduleLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      <div x-show="selectedSite.scheduleError" class="text-[10px] text-red-500" x-text="selectedSite.scheduleError"></div>
+                    </div>
+                  </div>
+
+                  <!-- Reverb -->
+                  <div x-show="selectedSite.has_reverb">
+                    <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Reverb</div>
+                    <div class="flex flex-col items-start gap-1">
+                      <div class="flex items-center gap-2">
+                        <button
+                          @click="toggleReverb(selectedSite)"
+                          :disabled="selectedSite.reverbLoading"
+                          :title="selectedSite.reverb_running ? 'Stop Reverb' : 'Start Reverb WebSocket server'"
+                          class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
+                          :class="selectedSite.reverb_running ? 'bg-sky-500' : 'bg-gray-300 dark:bg-lerd-muted'"
+                        >
+                          <span
+                            class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200"
+                            :class="selectedSite.reverb_running ? 'translate-x-4' : 'translate-x-1'"
+                          ></span>
+                          <svg x-show="selectedSite.reverbLoading" class="animate-spin absolute right-[-18px] w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      <div x-show="selectedSite.reverbError" class="text-[10px] text-red-500" x-text="selectedSite.reverbError"></div>
+                    </div>
+                  </div>
+
                 </div>
 
                 <!-- Git Worktrees -->
@@ -434,9 +501,23 @@
                     <template x-if="selectedSite && selectedSite.stripe_running">
                       <button
                         @click="setSiteLogsTab('stripe')"
-                        class="pb-2 text-xs font-medium transition-colors border-b-2"
+                        class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2"
                         :class="siteLogsTab === 'stripe' ? 'border-violet-500 text-violet-600 dark:text-violet-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                       >Stripe</button>
+                    </template>
+                    <template x-if="selectedSite && selectedSite.schedule_running">
+                      <button
+                        @click="setSiteLogsTab('schedule')"
+                        class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2"
+                        :class="siteLogsTab === 'schedule' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                      >Schedule</button>
+                    </template>
+                    <template x-if="selectedSite && selectedSite.reverb_running">
+                      <button
+                        @click="setSiteLogsTab('reverb')"
+                        class="pb-2 text-xs font-medium transition-colors border-b-2"
+                        :class="siteLogsTab === 'reverb' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                      >Reverb</button>
                     </template>
                   </div>
 
@@ -510,6 +591,48 @@
                       </template>
                     </div>
                   </div>
+
+                  <!-- Schedule log content -->
+                  <div x-show="siteLogsTab === 'schedule'">
+                    <div class="flex items-center gap-1 text-[10px] mb-2"
+                      :class="siteScheduleLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
+                      <span class="w-1.5 h-1.5 rounded-full"
+                        :class="siteScheduleLogs.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                      <span x-text="siteScheduleLogs.connected ? 'live' : 'connecting...'"></span>
+                    </div>
+                    <div
+                      x-ref="siteScheduleLogScroll"
+                      class="max-h-80 overflow-y-auto rounded-lg bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border px-4 py-3 font-mono text-[11px] leading-relaxed space-y-0.5"
+                    >
+                      <template x-if="siteScheduleLogs.lines.length === 0">
+                        <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                      </template>
+                      <template x-for="(line, i) in siteScheduleLogs.lines" :key="i">
+                        <div class="whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400" x-text="line"></div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Reverb log content -->
+                  <div x-show="siteLogsTab === 'reverb'">
+                    <div class="flex items-center gap-1 text-[10px] mb-2"
+                      :class="siteReverbLogs.connected ? 'text-sky-600 dark:text-sky-500' : 'text-gray-400 dark:text-gray-600'">
+                      <span class="w-1.5 h-1.5 rounded-full"
+                        :class="siteReverbLogs.connected ? 'bg-sky-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                      <span x-text="siteReverbLogs.connected ? 'live' : 'connecting...'"></span>
+                    </div>
+                    <div
+                      x-ref="siteReverbLogScroll"
+                      class="max-h-80 overflow-y-auto rounded-lg bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border px-4 py-3 font-mono text-[11px] leading-relaxed space-y-0.5"
+                    >
+                      <template x-if="siteReverbLogs.lines.length === 0">
+                        <div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div>
+                      </template>
+                      <template x-for="(line, i) in siteReverbLogs.lines" :key="i">
+                        <div class="whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400" x-text="line"></div>
+                      </template>
+                    </div>
+                  </div>
                 </div>
 
               </div>
@@ -547,7 +670,7 @@
                   : 'bg-white dark:bg-lerd-card border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400'"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="svc.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
-                <span x-text="svc.queue_site ? svc.queue_site + ' queue' : svc.stripe_listener_site ? svc.stripe_listener_site + ' stripe' : capitalize(svc.name)"></span>
+                <span x-text="svc.queue_site ? svc.queue_site : svc.stripe_listener_site ? svc.stripe_listener_site : svc.schedule_worker_site ? svc.schedule_worker_site : svc.reverb_site ? svc.reverb_site : capitalize(svc.name)"></span>
               </button>
             </template>
           </div>
@@ -567,7 +690,7 @@
                   :class="svc.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"
                 ></span>
                 <span class="font-medium truncate flex-1"
-                  x-text="svc.queue_site ? svc.queue_site : svc.stripe_listener_site ? svc.stripe_listener_site : capitalize(svc.name)"></span>
+                  x-text="svc.queue_site ? svc.queue_site : svc.stripe_listener_site ? svc.stripe_listener_site : svc.schedule_worker_site ? svc.schedule_worker_site : svc.reverb_site ? svc.reverb_site : capitalize(svc.name)"></span>
                 <template x-if="svc.queue_site">
                   <span class="text-[10px] font-medium shrink-0 px-1 py-0.5 rounded"
                     :class="selectedSvc === svc.name ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'"
@@ -578,7 +701,17 @@
                     :class="selectedSvc === svc.name ? 'bg-violet-500/20 text-violet-600 dark:text-violet-400' : 'bg-violet-100 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400'"
                   >stripe</span>
                 </template>
-                <template x-if="!svc.queue_site && !svc.stripe_listener_site && svc.site_count > 0">
+                <template x-if="svc.schedule_worker_site">
+                  <span class="text-[10px] font-medium shrink-0 px-1 py-0.5 rounded"
+                    :class="selectedSvc === svc.name ? 'bg-teal-500/20 text-teal-600 dark:text-teal-400' : 'bg-teal-100 dark:bg-teal-500/10 text-teal-600 dark:text-teal-400'"
+                  >schedule</span>
+                </template>
+                <template x-if="svc.reverb_site">
+                  <span class="text-[10px] font-medium shrink-0 px-1 py-0.5 rounded"
+                    :class="selectedSvc === svc.name ? 'bg-sky-500/20 text-sky-600 dark:text-sky-400' : 'bg-sky-100 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400'"
+                  >reverb</span>
+                </template>
+                <template x-if="!svc.queue_site && !svc.stripe_listener_site && !svc.schedule_worker_site && !svc.reverb_site && svc.site_count > 0">
                   <span class="text-[10px] font-medium tabular-nums shrink-0"
                     :class="selectedSvc === svc.name ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'"
                     x-text="svc.site_count"
@@ -1455,6 +1588,16 @@ function lerdApp() {
       connected: false,
       _source: null,
     },
+    siteScheduleLogs: {
+      lines: [],
+      connected: false,
+      _source: null,
+    },
+    siteReverbLogs: {
+      lines: [],
+      connected: false,
+      _source: null,
+    },
     siteLogsTab: 'fpm',
 
     applyTheme(t) {
@@ -1481,14 +1624,10 @@ function lerdApp() {
       this.loadServices();
       this.loadStatus();
       this._statusInterval = setInterval(() => {
+        this.loadSites();
+        this.loadServices();
         if (this.tab === 'system') {
           this.loadStatus();
-          this.loadNodeVersions();
-        }
-      }, 10000);
-      this._sitesInterval = setInterval(() => {
-        if (this.tab === 'sites') {
-          this.loadSites();
           this.loadNodeVersions();
         }
       }, 5000);
@@ -1528,7 +1667,7 @@ function lerdApp() {
         const raw = await res.json();
         this._sitesLoaded = true;
         if (firstLoad) {
-          this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', unlinkLoading: false }));
+          this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false }));
         } else {
           raw.forEach(s => {
             const e = this.sites.find(x => x.domain === s.domain);
@@ -1540,8 +1679,12 @@ function lerdApp() {
               e.queue_running = s.queue_running;
               e.stripe_running = s.stripe_running;
               e.stripe_secret_set = s.stripe_secret_set;
+              e.schedule_running = s.schedule_running;
+              e.reverb_running = s.reverb_running;
+              e.has_reverb = s.has_reverb;
+              e.branch = s.branch;
             } else {
-              this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', unlinkLoading: false });
+              this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false });
             }
           });
           this.sites = this.sites.filter(e => raw.some(s => s.domain === e.domain));
@@ -1558,6 +1701,8 @@ function lerdApp() {
       this.siteLogsTab = 'fpm';
       this.closeSiteQueueLogs();
       this.closeSiteStripeLogs();
+      this.closeSiteScheduleLogs();
+      this.closeSiteReverbLogs();
       this.openSiteLogs(site);
     },
 
@@ -1629,6 +1774,50 @@ function lerdApp() {
       this.siteStripeLogs.connected = false;
     },
 
+    openSiteScheduleLogs(site) {
+      this.closeSiteScheduleLogs();
+      this.siteScheduleLogs.lines = [];
+      const src = new EventSource(`/api/schedule/${site.name}/logs`);
+      this.siteScheduleLogs._source = src;
+      src.onopen = () => { this.siteScheduleLogs.connected = true; };
+      src.onerror = () => { this.siteScheduleLogs.connected = false; };
+      src.onmessage = (e) => {
+        this.siteScheduleLogs.lines.push(e.data);
+        if (this.siteScheduleLogs.lines.length > 500) this.siteScheduleLogs.lines.splice(0, this.siteScheduleLogs.lines.length - 500);
+        this.$nextTick(() => {
+          const el = this.$refs.siteScheduleLogScroll;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      };
+    },
+
+    closeSiteScheduleLogs() {
+      if (this.siteScheduleLogs._source) { this.siteScheduleLogs._source.close(); this.siteScheduleLogs._source = null; }
+      this.siteScheduleLogs.connected = false;
+    },
+
+    openSiteReverbLogs(site) {
+      this.closeSiteReverbLogs();
+      this.siteReverbLogs.lines = [];
+      const src = new EventSource(`/api/reverb/${site.name}/logs`);
+      this.siteReverbLogs._source = src;
+      src.onopen = () => { this.siteReverbLogs.connected = true; };
+      src.onerror = () => { this.siteReverbLogs.connected = false; };
+      src.onmessage = (e) => {
+        this.siteReverbLogs.lines.push(e.data);
+        if (this.siteReverbLogs.lines.length > 500) this.siteReverbLogs.lines.splice(0, this.siteReverbLogs.lines.length - 500);
+        this.$nextTick(() => {
+          const el = this.$refs.siteReverbLogScroll;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      };
+    },
+
+    closeSiteReverbLogs() {
+      if (this.siteReverbLogs._source) { this.siteReverbLogs._source.close(); this.siteReverbLogs._source = null; }
+      this.siteReverbLogs.connected = false;
+    },
+
     async toggleStripe(site) {
       site.stripeLoading = true;
       site.stripeError = '';
@@ -1657,18 +1846,73 @@ function lerdApp() {
       }
     },
 
+    async toggleSchedule(site) {
+      site.scheduleLoading = true;
+      site.scheduleError = '';
+      const stopping = site.schedule_running;
+      const action = stopping ? 'schedule:stop' : 'schedule:start';
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          site.schedule_running = !stopping;
+          if (stopping) {
+            this.closeSiteScheduleLogs();
+            if (this.siteLogsTab === 'schedule') this.siteLogsTab = 'fpm';
+          } else {
+            this.siteLogsTab = 'schedule';
+            this.openSiteScheduleLogs(site);
+          }
+          await this.loadServices();
+        } else {
+          site.scheduleError = data.error || 'Failed';
+        }
+      } catch (e) {
+        site.scheduleError = e.message || 'Request failed';
+      } finally {
+        site.scheduleLoading = false;
+      }
+    },
+
+    async toggleReverb(site) {
+      site.reverbLoading = true;
+      site.reverbError = '';
+      const stopping = site.reverb_running;
+      const action = stopping ? 'reverb:stop' : 'reverb:start';
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          site.reverb_running = !stopping;
+          if (stopping) {
+            this.closeSiteReverbLogs();
+            if (this.siteLogsTab === 'reverb') this.siteLogsTab = 'fpm';
+          } else {
+            this.siteLogsTab = 'reverb';
+            this.openSiteReverbLogs(site);
+          }
+          await this.loadServices();
+        } else {
+          site.reverbError = data.error || 'Failed';
+        }
+      } catch (e) {
+        site.reverbError = e.message || 'Request failed';
+      } finally {
+        site.reverbLoading = false;
+      }
+    },
+
     setSiteLogsTab(tab) {
       this.siteLogsTab = tab;
-      if (tab === 'queue' && this.selectedSite) {
-        this.openSiteQueueLogs(this.selectedSite);
-        this.closeSiteStripeLogs();
-      } else if (tab === 'stripe' && this.selectedSite) {
-        this.openSiteStripeLogs(this.selectedSite);
-        this.closeSiteQueueLogs();
-      } else {
-        this.closeSiteQueueLogs();
-        this.closeSiteStripeLogs();
-      }
+      const s = this.selectedSite;
+      this.closeSiteQueueLogs();
+      this.closeSiteStripeLogs();
+      this.closeSiteScheduleLogs();
+      this.closeSiteReverbLogs();
+      if (tab === 'queue' && s) this.openSiteQueueLogs(s);
+      else if (tab === 'stripe' && s) this.openSiteStripeLogs(s);
+      else if (tab === 'schedule' && s) this.openSiteScheduleLogs(s);
+      else if (tab === 'reverb' && s) this.openSiteReverbLogs(s);
     },
 
     async loadServices() {
@@ -1702,7 +1946,11 @@ function lerdApp() {
         ? `/api/queue/${svc.queue_site}/logs`
         : svc.stripe_listener_site
           ? `/api/stripe/${svc.stripe_listener_site}/logs`
-          : `/api/logs/lerd-${svc.name}`;
+          : svc.schedule_worker_site
+            ? `/api/schedule/${svc.schedule_worker_site}/logs`
+            : svc.reverb_site
+              ? `/api/reverb/${svc.reverb_site}/logs`
+              : `/api/logs/lerd-${svc.name}`;
       const src = new EventSource(url);
       this.svcLogs._source = src;
       src.onopen = () => { this.svcLogs.connected = true; };
@@ -1764,8 +2012,8 @@ function lerdApp() {
         svc.status = data.status;
         svc.env_vars = data.env_vars;
         if (data.ok) {
-          // Queue workers disappear after stop — remove from list
-          if (svc.queue_site && action === 'stop') {
+          // Queue/stripe/schedule/reverb workers disappear after stop — remove from list
+          if ((svc.queue_site || svc.stripe_listener_site || svc.schedule_worker_site || svc.reverb_site) && action === 'stop') {
             if (this.svcLogs._source) { this.svcLogs._source.close(); this.svcLogs._source = null; }
             this.svcLogs.lines = [];
             this.svcLogs.connected = false;
@@ -1985,6 +2233,8 @@ function lerdApp() {
             if (this.siteLogs._source) { this.siteLogs._source.close(); this.siteLogs._source = null; }
             this.closeSiteQueueLogs();
             this.closeSiteStripeLogs();
+            this.closeSiteScheduleLogs();
+            this.closeSiteReverbLogs();
             this.siteLogsTab = 'fpm';
           }
           this.sites = this.sites.filter(s => s.domain !== site.domain);
@@ -1995,6 +2245,16 @@ function lerdApp() {
         alert('Unlink failed: ' + (e.message || 'Request failed'));
       } finally {
         site.unlinkLoading = false;
+      }
+    },
+
+    async openTerminal(site) {
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/terminal`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) alert('Could not open terminal: ' + (data.error || 'Unknown error'));
+      } catch (e) {
+        alert('Could not open terminal: ' + (e.message || 'Request failed'));
       }
     },
 

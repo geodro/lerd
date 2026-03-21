@@ -144,7 +144,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	ok()
 
 	step("Refreshing service quadlets")
-	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit", "soketi"} {
+	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"} {
 		if !podman.QuadletInstalled("lerd-" + svc) {
 			continue
 		}
@@ -218,12 +218,6 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing UI vhost")
-	if err := nginx.GenerateProxyVhost("lerd.test", "host.containers.internal", 7073); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
-	}
-	ok()
-
 	step("Starting lerd-nginx")
 	if err := podman.RestartUnit("lerd-nginx"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
@@ -281,7 +275,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	ok()
 
 	fmt.Println("\nLerd installation complete!")
-	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.test\033[0m  \033[2m(or \033[0m\033[96mhttp://127.0.0.1:7073\033[0m\033[2m)\033[0m")
+	fmt.Println("\n  Dashboard: \033[96mhttp://127.0.0.1:7073\033[0m")
 	return nil
 }
 

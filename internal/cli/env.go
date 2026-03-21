@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	crand "crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,10 +73,6 @@ var serviceDetectors = map[string]func(map[string]string) bool{
 	"mailpit": func(env map[string]string) bool {
 		_, hasHost := env["MAIL_HOST"]
 		return hasHost
-	},
-	"soketi": func(env map[string]string) bool {
-		_, hasPusherHost := env["PUSHER_HOST"]
-		return strings.ToLower(env["BROADCAST_CONNECTION"]) == "pusher" || hasPusherHost
 	},
 }
 
@@ -178,6 +175,14 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 		if svc.SiteInit != nil && svc.SiteInit.Exec != "" {
 			runSiteInit(svc, dbName)
+		}
+	}
+
+	// 3c. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb
+	if strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
+		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
+		for k, v := range reverbEnvUpdates(envMap) {
+			updates[k] = v
 		}
 	}
 
@@ -352,4 +357,52 @@ func copyEnvFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// reverbEnvUpdates returns REVERB_ env key→value pairs for any keys missing or empty in envMap.
+func reverbEnvUpdates(envMap map[string]string) map[string]string {
+	updates := map[string]string{}
+	missing := func(key string) bool {
+		return strings.TrimSpace(envMap[key]) == ""
+	}
+	if missing("REVERB_APP_ID") {
+		updates["REVERB_APP_ID"] = randNumeric(6)
+	}
+	if missing("REVERB_APP_KEY") {
+		updates["REVERB_APP_KEY"] = randAlphanumeric(20)
+	}
+	if missing("REVERB_APP_SECRET") {
+		updates["REVERB_APP_SECRET"] = randAlphanumeric(20)
+	}
+	if missing("REVERB_HOST") {
+		updates["REVERB_HOST"] = "localhost"
+	}
+	if missing("REVERB_PORT") {
+		updates["REVERB_PORT"] = "8080"
+	}
+	if missing("REVERB_SCHEME") {
+		updates["REVERB_SCHEME"] = "http"
+	}
+	return updates
+}
+
+const alphanumChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+func randAlphanumeric(n int) string {
+	b := make([]byte, n)
+	_, _ = crand.Read(b)
+	for i, c := range b {
+		b[i] = alphanumChars[int(c)%len(alphanumChars)]
+	}
+	return string(b)
+}
+
+func randNumeric(n int) string {
+	const digits = "0123456789"
+	b := make([]byte, n)
+	_, _ = crand.Read(b)
+	for i, c := range b {
+		b[i] = digits[int(c)%len(digits)]
+	}
+	return string(b)
 }

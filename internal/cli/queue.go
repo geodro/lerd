@@ -131,7 +131,7 @@ BindsTo=%s.service
 
 [Service]
 Type=simple
-Restart=on-failure
+Restart=always
 RestartSec=5
 ExecStart=podman exec -w %s %s php artisan %s
 
@@ -139,16 +139,17 @@ ExecStart=podman exec -w %s %s php artisan %s
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, sitePath, container, artisanArgs)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
-
-	if err := podman.DaemonReload(); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-
-	if err := lerdSystemd.EnableService(unitName); err != nil {
-		fmt.Printf("[WARN] enable: %v\n", err)
+	if changed {
+		if err := podman.DaemonReload(); err != nil {
+			return fmt.Errorf("daemon-reload: %w", err)
+		}
+		if err := lerdSystemd.EnableService(unitName); err != nil {
+			fmt.Printf("[WARN] enable: %v\n", err)
+		}
 	}
 
 	if err := lerdSystemd.StartService(unitName); err != nil {
@@ -163,6 +164,46 @@ WantedBy=default.target
 // QueueStartForSite starts a queue worker for the given site with default settings.
 func QueueStartForSite(siteName, sitePath, phpVersion string) error {
 	return queueStartExplicit(siteName, sitePath, phpVersion, "default", 3, 60)
+}
+
+// QueueRestartForSite signals the Laravel queue worker to gracefully restart by
+// running php artisan queue:restart inside the PHP-FPM container. It is a no-op
+// when no queue unit exists for the site. systemd restarts the worker after the
+// graceful exit because the unit uses Restart=always.
+func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
+	if phpVersion == "" {
+		cfg, _ := config.LoadGlobal()
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+
+	unitName := "lerd-queue-" + siteName
+	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+	if _, err := os.Stat(unitFile); os.IsNotExist(err) {
+		return nil // no queue worker for this site
+	}
+
+	// Upgrade legacy units that used Restart=on-failure — queue:restart causes a
+	// clean exit (code 0) which on-failure does not restart.
+	if data, err := os.ReadFile(unitFile); err == nil {
+		if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
+			if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
+				_ = podman.DaemonReload()
+			}
+		}
+	}
+
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	container := "lerd-php" + versionShort + "-fpm"
+
+	if running, _ := podman.ContainerRunning(container); !running {
+		return nil
+	}
+
+	if _, err := podman.Run("exec", "-w", sitePath, container, "php", "artisan", "queue:restart"); err != nil {
+		return fmt.Errorf("queue:restart for %s: %w", siteName, err)
+	}
+	fmt.Printf("Queue worker signaled to restart for %s\n", siteName)
+	return nil
 }
 
 // QueueStopForSite stops and removes the queue worker for the named site.

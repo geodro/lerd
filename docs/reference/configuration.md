@@ -23,7 +23,6 @@ services:
   meilisearch: { enabled: false, image: "getmeili/meilisearch:v1.7",    port: 7700 }
   minio:       { enabled: false, image: "minio/minio:latest",           port: 9000 }
   mailpit:     { enabled: false, image: "axllent/mailpit:latest",       port: 1025 }
-  soketi:      { enabled: false, image: "quay.io/soketi/soketi:latest-16-alpine", port: 6001 }
 ```
 
 ---

@@ -100,16 +100,17 @@ ExecStart=podman run --rm --replace --name %s --network host docker.io/stripe/st
 WantedBy=default.target
 `, siteName, containerName, apiKey, forwardTo)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
-
-	if err := podman.DaemonReload(); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-
-	if err := lerdSystemd.EnableService(unitName); err != nil {
-		fmt.Printf("[WARN] enable: %v\n", err)
+	if changed {
+		if err := podman.DaemonReload(); err != nil {
+			return fmt.Errorf("daemon-reload: %w", err)
+		}
+		if err := lerdSystemd.EnableService(unitName); err != nil {
+			fmt.Printf("[WARN] enable: %v\n", err)
+		}
 	}
 
 	if err := lerdSystemd.StartService(unitName); err != nil {

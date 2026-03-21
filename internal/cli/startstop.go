@@ -121,6 +121,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	units = append(units, "lerd-ui")
 	units = append(units, registeredQueueUnits()...)
 	units = append(units, registeredStripeUnits()...)
+	units = append(units, registeredScheduleUnits()...)
+	units = append(units, registeredReverbUnits()...)
 	fmt.Println("Starting Lerd...")
 
 	results := make([]startResult, len(units))
@@ -212,6 +214,26 @@ func registeredQueueUnits() []string {
 	return units
 }
 
+// registeredScheduleUnits returns unit names for all lerd-schedule-* service files.
+func registeredScheduleUnits() []string {
+	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-schedule-*.service"))
+	units := make([]string, 0, len(entries))
+	for _, e := range entries {
+		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
+	}
+	return units
+}
+
+// registeredReverbUnits returns unit names for all lerd-reverb-* service files.
+func registeredReverbUnits() []string {
+	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-reverb-*.service"))
+	units := make([]string, 0, len(entries))
+	for _, e := range entries {
+		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
+	}
+	return units
+}
+
 // RunStart starts all lerd services (exported for use by the UI server).
 func RunStart() error { return runStart(nil, nil) }
 
@@ -225,6 +247,8 @@ func runStop(_ *cobra.Command, _ []string) error {
 	units := append(coreUnits(), allInstalledServiceUnits()...)
 	units = append(units, registeredQueueUnits()...)
 	units = append(units, registeredStripeUnits()...)
+	units = append(units, registeredScheduleUnits()...)
+	units = append(units, registeredReverbUnits()...)
 	fmt.Println("Stopping Lerd...")
 
 	results := make([]startResult, len(units))

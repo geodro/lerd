@@ -339,6 +339,20 @@ Arguments for ` + bt + `queue_start` + bt + `:
 - ` + bt + `tries` + bt + ` (optional): max job attempts, default ` + bt + `3` + bt + `
 - ` + bt + `timeout` + bt + ` (optional): job timeout in seconds, default ` + bt + `60` + bt + `
 
+### ` + bt + `reverb_start` + bt + ` / ` + bt + `reverb_stop` + bt + `
+Start or stop the Laravel Reverb WebSocket server for a site. The server runs ` + bt + `php artisan reverb:start` + bt + ` inside the FPM container as a systemd service. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
+
+### ` + bt + `schedule_start` + bt + ` / ` + bt + `schedule_stop` + bt + `
+Start or stop the Laravel task scheduler for a site. Runs ` + bt + `php artisan schedule:work` + bt + ` inside the FPM container as a systemd service. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
+
+### ` + bt + `stripe_listen` + bt + ` / ` + bt + `stripe_listen_stop` + bt + `
+Start or stop a Stripe webhook listener for a site using the Stripe CLI container. Reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
+
+Arguments for ` + bt + `stripe_listen` + bt + `:
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `api_key` + bt + ` (optional): Stripe secret key (defaults to ` + bt + `STRIPE_SECRET` + bt + ` in the site's ` + bt + `.env` + bt + `)
+- ` + bt + `webhook_path` + bt + ` (optional): webhook route path (default: ` + bt + `"/stripe/webhook"` + bt + `)
+
 ### ` + bt + `db_export` + bt + `
 Export the project's database to a SQL dump file. Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
@@ -481,6 +495,12 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `db_export` + bt + ` | Export the project database to a SQL dump file |
 | ` + bt + `queue_start` + bt + ` | Start a queue worker for a site |
 | ` + bt + `queue_stop` + bt + ` | Stop a queue worker |
+| ` + bt + `reverb_start` + bt + ` | Start the Laravel Reverb WebSocket server for a site |
+| ` + bt + `reverb_stop` + bt + ` | Stop the Reverb server |
+| ` + bt + `schedule_start` + bt + ` | Start the Laravel task scheduler for a site |
+| ` + bt + `schedule_stop` + bt + ` | Stop the task scheduler |
+| ` + bt + `stripe_listen` + bt + ` | Start a Stripe webhook listener for a site |
+| ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
 | ` + bt + `logs` + bt + ` | Fetch container logs (nginx, service name, PHP version, or site name) |
 
 ### Key conventions
