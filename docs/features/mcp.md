@@ -55,8 +55,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `xdebug_on` | Enable Xdebug for a PHP version and restart the FPM container |
 | `xdebug_off` | Disable Xdebug for a PHP version |
 | `xdebug_status` | Show Xdebug enabled/disabled state for all PHP versions |
-| `service_start` | Start a built-in or custom service |
-| `service_stop` | Stop a service |
+| `service_start` | Start a built-in or custom service (pass the service name from `service_add` for custom ones) |
+| `service_stop` | Stop a built-in or custom service |
 | `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, …) |
 | `service_remove` | Stop and deregister a custom service |
 | `db_export` | Export the project database to a SQL dump file |

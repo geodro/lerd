@@ -165,14 +165,13 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_start",
-			Description: "Start a lerd infrastructure service. Ensures the quadlet is written and the systemd unit is running.",
+			Description: "Start a lerd infrastructure service (built-in or custom). Ensures the quadlet is written and the systemd unit is running.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"name": {
 						Type:        "string",
-						Description: "Service to start",
-						Enum:        knownServices,
+						Description: "Service to start (built-in: mysql, redis, postgres, meilisearch, minio, mailpit — or any custom service name registered with service_add)",
 					},
 				},
 				Required: []string{"name"},
@@ -180,14 +179,13 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_stop",
-			Description: "Stop a running lerd infrastructure service.",
+			Description: "Stop a running lerd infrastructure service (built-in or custom).",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"name": {
 						Type:        "string",
-						Description: "Service to stop",
-						Enum:        knownServices,
+						Description: "Service to stop (built-in: mysql, redis, postgres, meilisearch, minio, mailpit — or any custom service name registered with service_add)",
 					},
 				},
 				Required: []string{"name"},

@@ -7,6 +7,18 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.1] — 2026-03-21
+
+### Fixed
+
+- **MCP `service_start` / `service_stop` accept custom services** — the MCP tool schema previously restricted the `name` field to an enum of built-in services, causing AI assistants to refuse to call these tools for custom services added via `service_add`. The enum constraint has been removed; any registered service name is now valid.
+
+### Changed
+
+- **MCP SKILL and guidelines updated** — `soketi` removed from the built-in service list (dropped in v0.8.0); `service_start`/`service_stop` descriptions clarified to explicitly mention custom service support.
+
+---
+
 ## [0.8.0] — 2026-03-21
 
 ### Added
