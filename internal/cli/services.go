@@ -53,7 +53,7 @@ var serviceEnvVars = map[string]serviceInfo{
 		"AWS_SECRET_ACCESS_KEY=lerdpassword",
 		"AWS_DEFAULT_REGION=us-east-1",
 		"AWS_BUCKET=lerd",
-		"AWS_URL=http://lerd-minio:9000",
+		"AWS_URL=http://localhost:9000",
 		"AWS_ENDPOINT=http://lerd-minio:9000",
 		"AWS_USE_PATH_STYLE_ENDPOINT=true",
 	}},

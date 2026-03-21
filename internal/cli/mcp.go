@@ -361,11 +361,11 @@ Export the project's database to a SQL dump file. Arguments:
 - ` + bt + `output` + bt + ` (optional): output file path (defaults to ` + bt + `<database>.sql` + bt + ` in the project root)
 
 ### ` + bt + `logs` + bt + `
-Fetch recent container logs. Target can be:
+Fetch recent container logs. ` + bt + `target` + bt + ` is optional — when omitted, returns logs for the current site's PHP-FPM container (resolved from ` + bt + `LERD_SITE_PATH` + bt + `). Specify ` + bt + `target` + bt + ` only when you want a different container:
 - ` + bt + `"nginx"` + bt + ` — nginx proxy logs
 - Service name: ` + bt + `"mysql"` + bt + `, ` + bt + `"redis"` + bt + `, or any custom service name
 - PHP version: ` + bt + `"8.4"` + bt + ` — logs for that PHP-FPM container
-- Site name — logs for the site's PHP-FPM container
+- Site name — logs for a different site's PHP-FPM container
 
 Optional ` + bt + `lines` + bt + ` parameter (default: 50).
 
@@ -438,7 +438,7 @@ artisan(args: ["migrate"])
 
 **Diagnose PHP errors:**
 ` + "```" + `
-logs(target: "8.4")     // PHP-FPM errors
+logs()                  // current site's PHP-FPM errors (no target needed)
 logs(target: "nginx")   // nginx errors
 ` + "```" + `
 
@@ -503,7 +503,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `schedule_stop` + bt + ` | Stop the task scheduler |
 | ` + bt + `stripe_listen` + bt + ` | Start a Stripe webhook listener for a site |
 | ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
-| ` + bt + `logs` + bt + ` | Fetch container logs (nginx, service name, PHP version, or site name) |
+| ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 
 ### Key conventions
 

@@ -253,6 +253,9 @@ func newWatchCmd() *cobra.Command {
 				}
 			}()
 
+			// Watch DNS health and re-apply resolver config if .test breaks.
+			go watcher.WatchDNS(30*time.Second, cfg.DNS.TLD)
+
 			// Watch key site config files and signal queue:restart on change.
 			go func() {
 				err := watcher.WatchSiteFiles(

@@ -11,6 +11,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
+	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
@@ -116,6 +117,11 @@ type startResult struct {
 func runStart(_ *cobra.Command, _ []string) error {
 	// Rebuild missing FPM images in the background so they don't delay startup.
 	go ensureFPMImages()
+
+	// Rewrite nginx.conf so any config changes in new binary versions take effect.
+	if err := nginx.EnsureNginxConfig(); err != nil {
+		fmt.Printf("  WARN: nginx config: %v\n", err)
+	}
 
 	units := append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui")

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/geodro/lerd/internal/certs"
@@ -23,6 +24,9 @@ import (
 const protocolVersion = "2024-11-05"
 
 var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"}
+
+// phpVersionRe matches PHP version strings like "8.4" or "8.3" — digits only, no domain names.
+var phpVersionRe = regexp.MustCompile(`^\d+\.\d+$`)
 
 // defaultSitePath is set at startup from LERD_SITE_PATH, injected by mcp:inject.
 // Tools that accept a "path" argument use this as a fallback when none is provided.
@@ -233,20 +237,20 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "logs",
-			Description: `Fetch recent container logs for a lerd service or PHP-FPM container. Valid targets: "nginx", a service name (mysql, redis, etc.), a PHP version (8.4, 8.5), or a site name for its FPM logs.`,
+			Description: `Fetch recent container logs for a lerd service or PHP-FPM container. When target is omitted, logs for the current site's FPM container are returned. Valid targets: "nginx", a service name (mysql, redis, etc.), a PHP version (8.4, 8.5), or a site name.`,
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"target": {
 						Type:        "string",
-						Description: `Container target: "nginx", service name like "mysql", PHP version like "8.4", or site name`,
+						Description: `Optional. "nginx", service name like "mysql", PHP version like "8.4", or site name. Defaults to the current site's FPM container.`,
 					},
 					"lines": {
 						Type:        "integer",
 						Description: "Number of lines to return from the tail (default: 50)",
 					},
 				},
-				Required: []string{"target"},
+				Required: []string{},
 			},
 		},
 		{
@@ -1123,10 +1127,20 @@ func execStripeListenStop(args map[string]any) (any, *rpcError) {
 
 func execLogs(args map[string]any) (any, *rpcError) {
 	target := strArg(args, "target")
-	if target == "" {
-		return toolErr("target is required"), nil
-	}
 	lines := intArg(args, "lines", 50)
+
+	// When no target is given, derive the FPM container from the current site path.
+	if target == "" {
+		projectPath := resolvedPath(args)
+		if projectPath == "" {
+			return toolErr("target is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		}
+		site, err := config.FindSiteByPath(projectPath)
+		if err != nil {
+			return toolErr("could not find site for path: " + projectPath), nil
+		}
+		target = site.Name
+	}
 
 	container, err := resolveLogsContainer(target)
 	if err != nil {
@@ -1149,8 +1163,8 @@ func resolveLogsContainer(target string) (string, error) {
 	if isKnownService(target) {
 		return "lerd-" + target, nil
 	}
-	// PHP version like "8.4"
-	if strings.Contains(target, ".") {
+	// PHP version like "8.4" — match digits.digits only, not domain names
+	if phpVersionRe.MatchString(target) {
 		short := strings.ReplaceAll(target, ".", "")
 		return "lerd-php" + short + "-fpm", nil
 	}

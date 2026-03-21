@@ -23,8 +23,8 @@ install: build build-tray
 	install -Dm755 $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	install -Dm755 $(BUILD_DIR)/lerd-tray $(INSTALL_DIR)/lerd-tray
 	@echo "Installed $(INSTALL_DIR)/$(BINARY) and $(INSTALL_DIR)/lerd-tray"
-	@systemctl --user restart lerd-ui 2>/dev/null && echo "Restarted lerd-ui" || true
-	@systemctl --user restart lerd-watcher 2>/dev/null && echo "Restarted lerd-watcher" || true
+	@systemctl --user is-active --quiet lerd-ui 2>/dev/null && systemctl --user restart lerd-ui && echo "Restarted lerd-ui" || true
+	@systemctl --user is-active --quiet lerd-watcher 2>/dev/null && systemctl --user restart lerd-watcher && echo "Restarted lerd-watcher" || true
 	@systemctl --user is-active --quiet lerd-tray 2>/dev/null && systemctl --user restart lerd-tray || true
 
 # Install the installer script as 'lerd-installer' so users can run

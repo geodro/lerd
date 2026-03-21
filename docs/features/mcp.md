@@ -68,7 +68,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `schedule_stop` | Stop the task scheduler |
 | `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |
 | `stripe_listen_stop` | Stop the Stripe webhook listener |
-| `logs` | Fetch recent container logs (nginx, any service, PHP version, or site name) |
+| `logs` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 
 ---
 

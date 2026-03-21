@@ -1625,7 +1625,9 @@ function lerdApp() {
       this.loadStatus();
       this._statusInterval = setInterval(() => {
         this.loadSites();
-        this.loadServices();
+        if (this.tab === 'services') {
+          this.loadServices();
+        }
         if (this.tab === 'system') {
           this.loadStatus();
           this.loadNodeVersions();
@@ -1916,7 +1918,7 @@ function lerdApp() {
     },
 
     async loadServices() {
-      this.servicesLoading = true;
+      if (this.services.length === 0) this.servicesLoading = true;
       try {
         const res = await fetch('/api/services');
         const data = await res.json();

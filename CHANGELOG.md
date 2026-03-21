@@ -7,6 +7,26 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.2] — 2026-03-21
+
+### Fixed
+
+- **413 Request Entity Too Large on file uploads** — nginx now sets `client_max_body_size 0` (unlimited) in the `http` block, applied to all vhosts. `lerd start` also rewrites `nginx.conf` on every start so future config changes take effect without running `lerd install`.
+- **MCP `logs` target accepts site domains** — site names containing dots (e.g. `astrolov.com`) were incorrectly matched as PHP version strings, producing invalid container names. The PHP version check now requires the strict pattern `\d+\.\d+`.
+- **MinIO `AWS_URL` set to public endpoint** — `AWS_URL` is now `http://localhost:9000` (browser-reachable) instead of `http://lerd-minio:9000` (internal container hostname). `AWS_ENDPOINT` is unchanged and remains the internal address used by PHP.
+- **Services page no longer blinks** — the services list was polling every 5 seconds regardless of which tab was active, and showed a loading spinner on each poll. Polling now only runs while the services tab is visible, and the spinner only shows on the initial load.
+
+### Added
+
+- **DNS health watcher** — the `lerd-watcher` daemon now polls `.test` DNS resolution every 30 seconds. When resolution breaks, it waits for `lerd-dns` to be ready and re-applies the resolver configuration, replicating the repair performed by `lerd start`. Uses the configured TLD (`dns.tld` in global config, default `test`).
+- **MCP `logs` target is optional** — when `target` is omitted, logs for the current site's PHP-FPM container are returned (resolved from `LERD_SITE_PATH`). Specify `target` only to view a different service or site.
+
+### Changed
+
+- **`make install` respects manually-stopped services** — `lerd-ui`, `lerd-watcher`, and `lerd-tray` are only restarted after install if they were already running. Services stopped via `lerd quit` are left stopped.
+
+---
+
 ## [0.8.1] — 2026-03-21
 
 ### Fixed
