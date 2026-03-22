@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +20,6 @@ const githubRepo = "geodro/lerd"
 
 // These vars are overridden in tests to point at an httptest server.
 var (
-	githubReleasesBase = "https://github.com/" + githubRepo + "/releases"
 	githubDownloadBase = "https://github.com/" + githubRepo + "/releases/download"
 )
 
@@ -39,12 +37,17 @@ func NewUpdateCmd(currentVersion string) *cobra.Command {
 func runUpdate(currentVersion string) error {
 	fmt.Println("==> Checking for updates")
 
-	latest, err := fetchLatestVersion()
+	latest, err := lerdUpdate.FetchLatestVersion()
 	if err != nil {
 		return fmt.Errorf("could not fetch latest version: %w", err)
 	}
 
+	// Strip "v" prefix and any git-describe suffix (e.g. "-dirty", "-5-gabcdef")
+	// so local dev builds compare cleanly against release tags.
 	cur := lerdUpdate.StripV(currentVersion)
+	if i := strings.IndexByte(cur, '-'); i != -1 {
+		cur = cur[:i]
+	}
 	lat := lerdUpdate.StripV(latest)
 
 	if cur == lat {
@@ -108,6 +111,9 @@ func runUpdate(currentVersion string) error {
 		}
 	}
 
+	// Update the cache so lerd status / doctor stop showing a stale notice.
+	lerdUpdate.WriteUpdateCache(lat)
+
 	fmt.Printf("\nLerd updated to v%s — applying infrastructure changes...\n\n", lat)
 
 	// Re-exec the new binary with `install` to reapply quadlet files,
@@ -145,37 +151,6 @@ func runUpdate(currentVersion string) error {
 		}
 	}
 	return nil
-}
-
-func fetchLatestVersion() (string, error) {
-	url := githubReleasesBase + "/latest"
-	client := &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "lerd-cli")
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusMovedPermanently {
-		return "", fmt.Errorf("unexpected status from %s: HTTP %d", url, resp.StatusCode)
-	}
-	location := resp.Header.Get("Location")
-	if location == "" {
-		return "", fmt.Errorf("no Location header in redirect from %s", url)
-	}
-	parts := strings.Split(location, "/tag/")
-	if len(parts) != 2 || parts[1] == "" {
-		return "", fmt.Errorf("unexpected release URL format: %s", location)
-	}
-	return parts[1], nil
 }
 
 // downloadReleaseBinary downloads and extracts the release archive for the

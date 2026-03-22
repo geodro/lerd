@@ -26,6 +26,57 @@ const protocolVersion = "2024-11-05"
 
 var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "minio", "mailpit"}
 
+// builtinServiceEnv mirrors the serviceEnvVars map in internal/cli/services.go.
+// Returns the recommended Laravel .env KEY=VALUE pairs for each built-in service.
+var builtinServiceEnv = map[string][]string{
+	"mysql": {
+		"DB_CONNECTION=mysql",
+		"DB_HOST=lerd-mysql",
+		"DB_PORT=3306",
+		"DB_DATABASE=lerd",
+		"DB_USERNAME=root",
+		"DB_PASSWORD=lerd",
+	},
+	"postgres": {
+		"DB_CONNECTION=pgsql",
+		"DB_HOST=lerd-postgres",
+		"DB_PORT=5432",
+		"DB_DATABASE=lerd",
+		"DB_USERNAME=postgres",
+		"DB_PASSWORD=lerd",
+	},
+	"redis": {
+		"REDIS_HOST=lerd-redis",
+		"REDIS_PORT=6379",
+		"REDIS_PASSWORD=null",
+		"CACHE_STORE=redis",
+		"SESSION_DRIVER=redis",
+		"QUEUE_CONNECTION=redis",
+	},
+	"meilisearch": {
+		"SCOUT_DRIVER=meilisearch",
+		"MEILISEARCH_HOST=http://lerd-meilisearch:7700",
+	},
+	"minio": {
+		"FILESYSTEM_DISK=s3",
+		"AWS_ACCESS_KEY_ID=lerd",
+		"AWS_SECRET_ACCESS_KEY=lerdpassword",
+		"AWS_DEFAULT_REGION=us-east-1",
+		"AWS_BUCKET=lerd",
+		"AWS_URL=http://localhost:9000",
+		"AWS_ENDPOINT=http://lerd-minio:9000",
+		"AWS_USE_PATH_STYLE_ENDPOINT=true",
+	},
+	"mailpit": {
+		"MAIL_MAILER=smtp",
+		"MAIL_HOST=lerd-mailpit",
+		"MAIL_PORT=1025",
+		"MAIL_USERNAME=null",
+		"MAIL_PASSWORD=null",
+		"MAIL_ENCRYPTION=null",
+	},
+}
+
 // phpVersionRe matches PHP version strings like "8.4" or "8.3" — digits only, no domain names.
 var phpVersionRe = regexp.MustCompile(`^\d+\.\d+$`)
 
@@ -381,6 +432,20 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "service_env",
+			Description: "Return the recommended Laravel .env connection variables for a lerd service (built-in or custom). Use this to see what keys a service needs before calling env_setup or editing .env manually.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {
+						Type:        "string",
+						Description: "Service name (e.g. \"mysql\", \"redis\", \"mongodb\")",
+					},
+				},
+				Required: []string{"name"},
+			},
+		},
+		{
 			Name:        "env_setup",
 			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY, and sets APP_URL. Run this once after cloning a project.",
 			InputSchema: mcpSchema{
@@ -662,6 +727,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execStatus()
 	case "doctor":
 		return execDoctor()
+	case "service_env":
+		return execServiceEnv(args)
 	case "service_add":
 		return execServiceAdd(args)
 	case "service_remove":
@@ -1460,6 +1527,35 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 	}
 
 	return toolOK(fmt.Sprintf("Service %q removed. Persistent data was NOT deleted.", name)), nil
+}
+
+func execServiceEnv(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+
+	// Check built-in services first.
+	if pairs, ok := builtinServiceEnv[name]; ok {
+		vars := make(map[string]string, len(pairs))
+		for _, kv := range pairs {
+			k, v, _ := strings.Cut(kv, "=")
+			vars[k] = v
+		}
+		return map[string]any{"service": name, "vars": vars}, nil
+	}
+
+	// Fall back to custom service env_vars.
+	svc, err := config.LoadCustomService(name)
+	if err != nil {
+		return toolErr(fmt.Sprintf("unknown service %q — not a built-in and no custom service registered with that name", name)), nil
+	}
+	vars := make(map[string]string, len(svc.EnvVars))
+	for _, kv := range svc.EnvVars {
+		k, v, _ := strings.Cut(kv, "=")
+		vars[k] = v
+	}
+	return map[string]any{"service": name, "vars": vars}, nil
 }
 
 func execEnvSetup(args map[string]any) (any, *rpcError) {

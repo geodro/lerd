@@ -7,6 +7,19 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.9.1] — 2026-03-22
+
+### Added
+
+- **MCP `service_env` tool** — returns the recommended Laravel `.env` connection variables for any service (built-in or custom) as a key/value map. Agents can call `service_env(name: "mysql")` to inspect connection settings without running `env_setup` or modifying `.env`. Works for all six built-in services and any custom service registered via `service_add`.
+
+### Changed
+
+- **`lerd update` does a fresh version check** — bypasses the 24-hour update cache and always fetches the latest release tag from GitHub directly. After a successful update the cache is refreshed so `lerd status` and `lerd doctor` stop showing a stale "update available" notice.
+- **`lerd update` ignores git-describe suffixes** — dev/dirty builds (e.g. `v0.9.0-dirty`) are now treated as equal to the corresponding release when comparing versions, so locally-built binaries no longer trigger a spurious update prompt.
+
+---
+
 ## [0.9.0] — 2026-03-22
 
 ### Added

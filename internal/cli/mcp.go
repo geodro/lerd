@@ -300,6 +300,9 @@ service_start(name: "mongodb")
 
 ` + bt + `service_remove` + bt + ` stops and deregisters a custom service. Persistent data is NOT deleted.
 
+### ` + bt + `service_env` + bt + `
+Return the recommended Laravel ` + bt + `.env` + bt + ` connection variables for a service — built-in or custom — as a key/value map. Use this when you need to inspect or manually apply connection settings without running ` + bt + `env_setup` + bt + `.
+
 ### ` + bt + `env_setup` + bt + `
 Configure the project's ` + bt + `.env` + bt + ` for lerd in one call:
 - Creates ` + bt + `.env` + bt + ` from ` + bt + `.env.example` + bt + ` if it doesn't exist
@@ -510,6 +513,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `service_stop` + bt + ` | Stop a service |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …) |
 | ` + bt + `service_remove` + bt + ` | Stop and deregister a custom service |
+| ` + bt + `service_env` + bt + ` | Return the recommended ` + bt + `.env` + bt + ` connection variables for a built-in or custom service |
 | ` + bt + `db_export` + bt + ` | Export the project database to a SQL dump file |
 | ` + bt + `queue_start` + bt + ` | Start a queue worker for a site |
 | ` + bt + `queue_stop` + bt + ` | Stop a queue worker |

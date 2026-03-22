@@ -9,7 +9,7 @@ import "fmt"
 //	-X github.com/geodro/lerd/internal/version.Commit=<sha>
 //	-X github.com/geodro/lerd/internal/version.Date=<iso8601>
 var (
-	Version = "0.9.0"
+	Version = "0.9.1"
 	Commit  = "none"
 	Date    = "unknown"
 )

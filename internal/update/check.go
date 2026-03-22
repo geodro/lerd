@@ -78,6 +78,16 @@ func writeCache(path string, state updateCheckState) {
 	os.WriteFile(path, data, 0o644) //nolint:errcheck
 }
 
+// WriteUpdateCache records version as the known latest in the on-disk cache,
+// resetting the 24-hour TTL. Call this after a successful update so that
+// lerd status / doctor stop showing a stale "update available" notice.
+func WriteUpdateCache(version string) {
+	writeCache(config.UpdateCheckFile(), updateCheckState{
+		LatestVersion: version,
+		CheckedAt:     time.Now(),
+	})
+}
+
 // FetchChangelog downloads CHANGELOG.md from GitHub and returns the sections
 // for versions strictly greater than currentVersion and <= latestVersion.
 func FetchChangelog(currentVersion, latestVersion string) string {
