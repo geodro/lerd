@@ -7,6 +7,36 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Framework definitions** — user-defined PHP framework YAML files at `~/.config/lerd/frameworks/<name>.yaml`. Each definition describes detection rules, the document root, env file format, per-service env detection/variable injection, and background workers. `lerd framework list/add/remove` manage definitions from the CLI.
+- **Framework workers** — frameworks can define named background workers (e.g. `messenger` for Symfony, `horizon` or `pulse` for Laravel) that run as systemd user services inside the PHP-FPM container. `lerd worker start <name>` / `lerd worker stop <name>` / `lerd worker list` manage them.
+- **Custom workers for Laravel** — the built-in Laravel definition now has built-in `queue`, `schedule`, and `reverb` workers. Additional workers (e.g. Horizon, Pulse) can be added via `lerd framework add laravel --from-file ...`; they are merged on top of the built-in definition.
+- **Generic `lerd worker` command** — `lerd worker start/stop/list` works for any framework-defined worker. `lerd queue:start`, `lerd schedule:start`, and `lerd reverb:start` are now aliases for `lerd worker start queue/schedule/reverb` and work on any framework with those workers, not just Laravel.
+- **Web UI: framework worker toggles** — custom framework workers appear as indigo toggles in the Sites panel alongside queue/schedule/reverb. Each running worker shows a log tab in the site detail drawer and an indicator dot in the site list.
+- **MCP `worker_start` / `worker_stop` / `worker_list`** — start, stop, or list framework-defined workers for a site via the MCP server.
+- **MCP `framework_list` / `framework_add` / `framework_remove`** — manage framework definitions from an AI assistant. `framework_add` with `name: "laravel"` adds custom workers to the built-in Laravel definition.
+- **MCP `sites` now includes framework and workers** — each site entry now includes its `framework` name and a `workers` array with running status per worker.
+- **Docs: `Frameworks & Workers` page** — full documentation of the YAML schema, detection rules, worker definitions, and complete Symfony and WordPress examples.
+
+### Changed
+
+- **`queue_start` / `schedule_start` / `reverb_start` are no longer Laravel-only** — these CLI commands and MCP tools now work for any framework that defines a worker with that name.
+- **`lerd env` respects framework env configuration** — uses the framework's configured env file, example file, format, `url_key`, and per-service detection rules instead of hardcoded Laravel paths.
+- **`lerd link` / `lerd park` detect and record the framework** — the detected framework name is stored in the site registry and shown in `lerd sites`.
+
+### Fixed
+
+- **Reverb toggle no longer appears on projects that don't use Reverb** — the UI previously showed the Reverb toggle for all Laravel sites because the built-in worker map always included `reverb`. It now gates on `cli.SiteUsesReverb()` (checks for `laravel/reverb` in composer.json or `BROADCAST_CONNECTION=reverb` in `.env`).
+
+### Removed
+
+- **`internal/laravel/detector.go`** — replaced by the generic `config.DetectFramework` / `config.GetFramework` system.
+
+---
+
 ## [0.9.1] — 2026-03-22
 
 ### Added
