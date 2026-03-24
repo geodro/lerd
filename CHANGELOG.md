@@ -25,6 +25,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **MCP `framework_list` / `framework_add` / `framework_remove`** — manage framework definitions from an AI assistant. `framework_add` with `name: "laravel"` adds custom workers to the built-in Laravel definition.
 - **MCP `sites` now includes framework and workers** — each site entry now includes its `framework` name and a `workers` array with running status per worker.
 - **Docs: `Frameworks & Workers` page** — full documentation of the YAML schema, detection rules, worker definitions, and complete Symfony and WordPress examples.
+- **Web UI: docs link** — a "Docs" link in the dashboard navbar opens the documentation site.
 
 ### Changed
 
