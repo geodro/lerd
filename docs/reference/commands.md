@@ -18,6 +18,7 @@
 | `lerd autostart tray disable` | Disable tray autostart |
 | `lerd dns:check` | Verify that `*.test` resolves to `127.0.0.1` |
 | `lerd status` | Health summary: DNS, nginx, PHP-FPM containers, watcher, services, cert expiry |
+| `lerd about` | Show version, build info, and project URL |
 | `lerd doctor` | Full environment diagnostic — podman, systemd, DNS, ports, PHP images, config validity |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 
