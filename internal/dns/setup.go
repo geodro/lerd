@@ -1,13 +1,12 @@
+//go:build linux
+
 package dns
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/geodro/lerd/internal/config"
 )
@@ -41,15 +40,6 @@ if [ "$ACTION" = "up" ] || [ "$ACTION" = "dhcp4-change" ] || [ "$ACTION" = "dhcp
     resolvectl domain "$IFACE" ~test ~. 2>/dev/null || true
 fi
 `
-
-// isFileContent returns true if the file at path already contains exactly content.
-func isFileContent(path string, content []byte) bool {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	return string(existing) == string(content)
-}
 
 // isSystemdResolvedActive returns true if systemd-resolved is the active DNS resolver.
 func isSystemdResolvedActive() bool {
@@ -146,47 +136,7 @@ func parseNmcliLines(output string) []string {
 	return servers
 }
 
-func parseNameservers(path string) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var servers []string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "nameserver ") {
-			continue
-		}
-		ip := strings.TrimSpace(strings.TrimPrefix(line, "nameserver "))
-		// Skip loopback / stub resolver addresses
-		if ip == "" || ip == "127.0.0.1" || ip == "127.0.0.53" || ip == "::1" {
-			continue
-		}
-		servers = append(servers, ip)
-	}
-	return servers
-}
-
-// WaitReady blocks until lerd-dns is accepting TCP connections on port 5300
-// (dnsmasq supports DNS over TCP), or until the timeout elapses.
-// Returns nil when ready, error on timeout.
-func WaitReady(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", "127.0.0.1:5300", 200*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("lerd-dns not ready after %s", timeout)
-}
-
 // Setup writes DNS configuration for .test resolution and restarts the resolver.
-// On systemd-resolved + NetworkManager systems (Ubuntu etc.) it uses an NM dispatcher script.
-// On pure systemd-resolved systems it uses a resolved drop-in.
-// On NetworkManager-only systems it uses NM's embedded dnsmasq.
 //
 // Deprecated: prefer calling WriteDnsmasqConfig then ConfigureResolver separately so
 // that the dnsmasq container can be started between the two steps.
@@ -211,9 +161,6 @@ func ConfigureResolver() error {
 }
 
 // setupNMWithResolved handles Ubuntu-style: NM manages systemd-resolved via DBUS.
-// NM overrides global DNS set in resolved.conf drop-ins, so we use an NM dispatcher
-// script that applies per-interface DNS via resolvectl on each "up" event, then
-// applies it immediately to the current default interface.
 func setupNMWithResolved() error {
 	dispatcherScript := "/etc/NetworkManager/dispatcher.d/99-lerd-dns"
 
@@ -244,18 +191,12 @@ func setupNMWithResolved() error {
 	}
 
 	// Apply immediately to the current default interface.
-	// Include DHCP-assigned upstream DNS servers alongside lerd's so internet
-	// continues to work even when lerd-dns is not running.
 	iface := defaultInterface()
 	if iface == "" {
 		return nil
 	}
 
 	// Revert the interface to clear any stale DNS server failure state from boot.
-	// At boot, the NM dispatcher sets 127.0.0.1:5300 before lerd-dns starts; resolved
-	// marks it failed and promotes the fallback to "current". Calling resolvectl with
-	// the same list later does not reset the current server. Reverting first forces a
-	// clean slate so our subsequent dns call starts with 127.0.0.1:5300 as current.
 	revertCmd := exec.Command("sudo", "resolvectl", "revert", iface)
 	revertCmd.Stdin = os.Stdin
 	revertCmd.Stdout = os.Stdout
@@ -284,7 +225,6 @@ func setupNMWithResolved() error {
 }
 
 // setupSystemdResolved configures systemd-resolved to forward .test to port 5300.
-// Used only when systemd-resolved is active without NetworkManager managing it.
 func setupSystemdResolved() error {
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
 
@@ -390,34 +330,9 @@ func Teardown() {
 	}
 }
 
-// WriteDnsmasqConfig writes the lerd dnsmasq config to the given directory.
-// Upstream DNS servers are detected from the running system (DHCP / systemd-resolved).
-// If no upstreams are detected, no-resolv is omitted so dnsmasq falls back to the
-// container's /etc/resolv.conf (populated by Podman from the host's DNS config).
-func WriteDnsmasqConfig(dir string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	upstreams := readUpstreamDNS()
-
-	var sb strings.Builder
-	sb.WriteString("# Lerd DNS configuration\n")
-	sb.WriteString("port=5300\n")
-	if len(upstreams) > 0 {
-		sb.WriteString("no-resolv\n")
-		for _, ip := range upstreams {
-			fmt.Fprintf(&sb, "server=%s\n", ip)
-		}
-	}
-	sb.WriteString("address=/.test/127.0.0.1\n")
-
-	return os.WriteFile(filepath.Join(dir, "lerd.conf"), []byte(sb.String()), 0644)
-}
-
 // InstallSudoers writes a sudoers drop-in granting the current user passwordless
-// access to resolvectl commands. This is required for the autostart service which
-// runs non-interactively and cannot prompt for a sudo password.
+// access to resolvectl commands. Required for the autostart service which runs
+// non-interactively and cannot prompt for a sudo password.
 func InstallSudoers() error {
 	user := os.Getenv("USER")
 	if user == "" {
@@ -449,39 +364,6 @@ func InstallSudoers() error {
 	chmodCmd.Stderr = os.Stderr
 	if err := chmodCmd.Run(); err != nil {
 		return fmt.Errorf("chmod sudoers: %w", err)
-	}
-	return nil
-}
-
-// sudoWriteFile writes content to a system path by writing to a temp file
-// then using sudo cp, so sudo can prompt for a password on the terminal.
-func sudoWriteFile(path string, content []byte) error {
-	tmp, err := os.CreateTemp("", "lerd-sudo-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		return err
-	}
-	tmp.Close()
-
-	dir := filepath.Dir(path)
-	mkdirCmd := exec.Command("sudo", "mkdir", "-p", dir)
-	mkdirCmd.Stdin = os.Stdin
-	mkdirCmd.Stdout = os.Stdout
-	mkdirCmd.Stderr = os.Stderr
-	if err := mkdirCmd.Run(); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	cpCmd := exec.Command("sudo", "cp", tmp.Name(), path)
-	cpCmd.Stdin = os.Stdin
-	cpCmd.Stdout = os.Stdout
-	cpCmd.Stderr = os.Stderr
-	if err := cpCmd.Run(); err != nil {
-		return fmt.Errorf("cp to %s: %w", path, err)
 	}
 	return nil
 }
