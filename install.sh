@@ -33,10 +33,18 @@ header()  { echo -e "\n${BOLD}$*${RESET}"; }
 ask()     { echo -en "  ${BOLD}?${RESET}  $* [y/N] "; read -r _ans </dev/tty 2>/dev/null || true; [[ "$_ans" =~ ^[Yy]$ ]]; }
 
 # ── Platform detection ───────────────────────────────────────────────────────
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) echo "darwin" ;;
+    Linux)  echo "linux"  ;;
+    *) die "Unsupported OS: $(uname -s)" ;;
+  esac
+}
+
 detect_arch() {
   case "$(uname -m)" in
-    x86_64)  echo "amd64" ;;
-    aarch64) echo "arm64" ;;
+    x86_64)          echo "amd64" ;;
+    aarch64|arm64)   echo "arm64" ;;
     *) die "Unsupported architecture: $(uname -m)" ;;
   esac
 }
@@ -95,6 +103,22 @@ check_nm() {
   fi
 }
 
+check_podman_machine() {
+  if ! command -v podman &>/dev/null; then
+    return  # already flagged by check_cmd
+  fi
+  # Check if a machine exists and is running
+  if podman machine list --format '{{.Running}}' 2>/dev/null | grep -q true; then
+    success "Podman Machine running"
+  elif podman machine list 2>/dev/null | grep -q .; then
+    warn "Podman Machine exists but is not running — run: podman machine start"
+    MISSING_PKGS+=("_podman_machine_start")
+  else
+    warn "No Podman Machine found — run: podman machine init && podman machine start"
+    MISSING_PKGS+=("_podman_machine_init")
+  fi
+}
+
 check_certutil() {
   if command -v certutil &>/dev/null; then
     success "certutil found (needed for mkcert CA trust in browsers)"
@@ -128,11 +152,17 @@ check_prerequisites() {
   header "Checking prerequisites"
 
   check_cmd podman podman "container runtime"
-  check_cmd unzip unzip "needed to extract fnm"
-  check_nm
-  check_systemd_user
-  check_podman_rootless
-  check_certutil
+  check_cmd unzip unzip "needed to extract binaries"
+
+  if [ "$(detect_os)" = "darwin" ]; then
+    check_podman_machine
+    check_certutil
+  else
+    check_nm
+    check_systemd_user
+    check_podman_rootless
+    check_certutil
+  fi
 
   if [ ${#MISSING_PKGS[@]} -eq 0 ]; then
     success "All prerequisites met"
@@ -147,7 +177,7 @@ check_prerequisites() {
     [[ "$p" != _* ]] && installable+=("$p")
   done
 
-  if [ ${#installable[@]} -gt 0 ] && ask "Install missing packages now?"; then
+  if [ ${#installable[@]} -gt 0 ] && [ "$(detect_os)" != "darwin" ] && ask "Install missing packages now?"; then
     install_packages "${installable[@]}"
   fi
 
@@ -158,6 +188,16 @@ check_prerequisites() {
         if ask "Enable systemd linger for $USER now?"; then
           loginctl enable-linger "$USER"
           success "Linger enabled — please log out and back in before running 'lerd install'"
+        fi
+        ;;
+      _podman_machine_start)
+        if ask "Start Podman Machine now?"; then
+          podman machine start
+        fi
+        ;;
+      _podman_machine_init)
+        if ask "Initialize and start Podman Machine now?"; then
+          podman machine init && podman machine start
         fi
         ;;
     esac
@@ -253,12 +293,13 @@ latest_version() {
 # All output goes to stderr — nothing is printed to stdout.
 download_binary() {
   local version="$1" arch="$2" destdir="$3"
-  local filename="lerd_${version}_linux_${arch}.tar.gz"
+  local os; os="$(detect_os)"
+  local filename="lerd_${version}_${os}_${arch}.tar.gz"
   local url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
 
   info "Downloading lerd v${version} (${arch}) via $(_download_tool) ..."
   if ! fetch "$url" "${destdir}/${filename}"; then
-    die "Download failed (HTTP 404).\nNo release v${version} found at:\n  ${url}\n\nIf you built lerd locally, use:\n  bash install.sh --local ./build/lerd"
+    die "Download failed.\nNo release v${version} found at:\n  ${url}\n\nIf you built lerd locally, use:\n  bash install.sh --local ./path/to/lerd"
   fi
 
   if ! tar -xzf "${destdir}/${filename}" -C "$destdir" 2>&1; then
@@ -404,34 +445,51 @@ cmd_update() {
 cmd_uninstall() {
   header "Uninstalling Lerd"
 
-  # Stop and remove systemd units — discover from quadlet files on disk
-  local quadlet_dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
-  local systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-
-  if [ -d "$quadlet_dir" ]; then
-    for f in "$quadlet_dir"/lerd-*.container; do
-      [ -f "$f" ] || continue
-      local unit; unit="$(basename "$f" .container)"
-      if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
-        info "Stopping $unit ..."
-        systemctl --user stop "$unit" 2>/dev/null || true
-      fi
-      systemctl --user disable "$unit" 2>/dev/null || true
-    done
-    rm -f "$quadlet_dir"/lerd-*.container
-    info "Removed Quadlet units from $quadlet_dir"
-  fi
-
-  # Stop and remove user service unit files
-  for svc in lerd-watcher lerd-ui; do
-    if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-      systemctl --user stop "$svc" 2>/dev/null || true
+  if [ "$(detect_os)" = "darwin" ]; then
+    # ── macOS: stop and remove launchd plists ──────────────────────────────
+    local launch_agents="$HOME/Library/LaunchAgents"
+    if [ -d "$launch_agents" ]; then
+      for f in "$launch_agents"/lerd-*.plist; do
+        [ -f "$f" ] || continue
+        info "Unloading $(basename "$f") ..."
+        launchctl unload -w "$f" 2>/dev/null || true
+        rm -f "$f"
+      done
     fi
-    systemctl --user disable "$svc" 2>/dev/null || true
-    rm -f "$systemd_user_dir/${svc}.service"
-  done
+    # Remove pf helper LaunchDaemon if present
+    if [ -f "/Library/LaunchDaemons/com.lerd.pf.plist" ]; then
+      sudo launchctl unload "/Library/LaunchDaemons/com.lerd.pf.plist" 2>/dev/null || true
+      sudo rm -f "/Library/LaunchDaemons/com.lerd.pf.plist"
+    fi
+  else
+    # ── Linux: stop and remove systemd units ──────────────────────────────
+    local quadlet_dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+    local systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-  systemctl --user daemon-reload 2>/dev/null || true
+    if [ -d "$quadlet_dir" ]; then
+      for f in "$quadlet_dir"/lerd-*.container; do
+        [ -f "$f" ] || continue
+        local unit; unit="$(basename "$f" .container)"
+        if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+          info "Stopping $unit ..."
+          systemctl --user stop "$unit" 2>/dev/null || true
+        fi
+        systemctl --user disable "$unit" 2>/dev/null || true
+      done
+      rm -f "$quadlet_dir"/lerd-*.container
+      info "Removed Quadlet units from $quadlet_dir"
+    fi
+
+    for svc in lerd-watcher lerd-ui; do
+      if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+        systemctl --user stop "$svc" 2>/dev/null || true
+      fi
+      systemctl --user disable "$svc" 2>/dev/null || true
+      rm -f "$systemd_user_dir/${svc}.service"
+    done
+
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
 
   # Remove binary
   if [ -f "${INSTALL_DIR}/${BINARY}" ]; then
@@ -465,7 +523,7 @@ main() {
   echo "  ███████╗███████╗██║  ██║██████╔╝"
   echo "  ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ "
   echo -e "${RESET}"
-  echo "  Laravel Herd for Linux — Podman-native dev environment"
+  echo "  Herd-like Podman dev environment for Linux and macOS"
   echo "  https://github.com/${REPO}"
   echo ""
 

@@ -41,6 +41,40 @@ builds:
       - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
       - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
 
+  - id: lerd-darwin-amd64
+    main: ./cmd/lerd
+    binary: lerd
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=nogui
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X github.com/geodro/lerd/internal/version.Version={{.Version}}
+      - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
+      - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
+
+  - id: lerd-darwin-arm64
+    main: ./cmd/lerd
+    binary: lerd
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=nogui
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/geodro/lerd/internal/version.Version={{.Version}}
+      - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
+      - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
+
   # lerd-tray is a separate CGO binary that links libappindicator3.
   # lerd (nogui) execs it at runtime; if the library is missing the tray
   # is silently skipped and everything else continues to work.
@@ -72,6 +106,22 @@ archives:
 
   - id: lerd-arm64
     ids: [lerd-arm64]
+    name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - install.sh
+
+  - id: lerd-darwin-amd64
+    ids: [lerd-darwin-amd64]
+    name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - install.sh
+
+  - id: lerd-darwin-arm64
+    ids: [lerd-darwin-arm64]
     name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
     files:
