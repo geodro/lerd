@@ -74,6 +74,10 @@ Once the MCP server is connected, your AI assistant has access to:
 | `framework_list` | List all framework definitions including their workers |
 | `framework_add` | Add or update a framework definition; use `name: "laravel"` to add custom workers to Laravel |
 | `framework_remove` | Remove a user-defined framework; for `laravel` removes only custom worker additions |
+| `site_pause` | Pause a site: stop all its workers and replace its vhost with a landing page |
+| `site_unpause` | Resume a paused site: restore its vhost and restart previously running workers |
+| `service_pin` | Pin a service so it is never auto-stopped even when no sites reference it |
+| `service_unpin` | Unpin a service so it can be auto-stopped when unused |
 | `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |
 | `stripe_listen_stop` | Stop the Stripe webhook listener |
 | `logs` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |

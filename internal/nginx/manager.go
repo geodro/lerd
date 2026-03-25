@@ -209,6 +209,62 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 	return os.WriteFile(confPath, buf.Bytes(), 0644)
 }
 
+// GeneratePausedVhost writes a minimal nginx vhost that serves the static paused
+// landing page for the given site. For secured sites it also adds the HTTPS block
+// so the redirect and TLS still work while the site is paused.
+func GeneratePausedVhost(site config.Site) error {
+	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
+		return err
+	}
+
+	pausedDir := config.PausedDir()
+	htmlFile := "/" + site.Domain + ".html"
+
+	var conf string
+	if site.Secured {
+		conf = fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+    return 302 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name %s;
+    ssl_certificate /etc/nginx/certs/%s.crt;
+    ssl_certificate_key /etc/nginx/certs/%s.key;
+    root %s;
+    location / {
+        try_files %s =503;
+        default_type text/html;
+    }
+}
+`, site.Domain, site.Domain, site.Domain, site.Domain, pausedDir, htmlFile)
+	} else {
+		conf = fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+    root %s;
+    location / {
+        try_files %s =503;
+        default_type text/html;
+    }
+}
+`, site.Domain, pausedDir, htmlFile)
+	}
+
+	confPath := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
+		return err
+	}
+	// For secured sites the SSL vhost lives in a separate file; remove it so
+	// nginx doesn't still route HTTPS requests to PHP-FPM while the site is paused.
+	if site.Secured {
+		_ = os.Remove(filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf"))
+	}
+	return nil
+}
+
 // RemoveVhost deletes the vhost config files for the given domain.
 func RemoveVhost(domain string) error {
 	confD := config.NginxConfD()

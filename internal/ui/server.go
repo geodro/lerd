@@ -288,6 +288,7 @@ type SiteResponse struct {
 	HasQueueWorker    bool               `json:"has_queue_worker"`
 	HasScheduleWorker bool               `json:"has_schedule_worker"`
 	FrameworkWorkers  []WorkerStatus     `json:"framework_workers,omitempty"`
+	Paused            bool               `json:"paused"`
 	Branch            string             `json:"branch"`
 	Worktrees         []WorktreeResponse `json:"worktrees"`
 }
@@ -436,6 +437,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			HasQueueWorker:    hasQueueWorker,
 			HasScheduleWorker: hasScheduleWorker,
 			FrameworkWorkers:  fwWorkers,
+			Paused:            s.Paused,
 			Branch:            mainBranch,
 			Worktrees:         worktreeResponses,
 		})
@@ -454,6 +456,7 @@ type ServiceResponse struct {
 	Dashboard        string            `json:"dashboard,omitempty"`
 	Custom           bool              `json:"custom,omitempty"`
 	SiteCount        int               `json:"site_count"`
+	Pinned           bool              `json:"pinned"`
 	QueueSite          string            `json:"queue_site,omitempty"`
 	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
 	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
@@ -490,6 +493,7 @@ func buildServiceResponse(name string) ServiceResponse {
 		EnvVars:   envMap,
 		Dashboard: builtinDashboards[name],
 		SiteCount: countSitesUsingService(name),
+		Pinned:    config.ServiceIsPinned(name),
 	}
 }
 
@@ -585,6 +589,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			Dashboard: svc.Dashboard,
 			Custom:    true,
 			SiteCount: countSitesUsingService(svc.Name),
+			Pinned:    config.ServiceIsPinned(svc.Name),
 		})
 	}
 	for _, siteName := range listActiveQueueWorkers() {
@@ -855,11 +860,13 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if opErr == nil {
 			_ = config.SetServicePaused(name, false)
+			_ = config.SetServiceManuallyStarted(name, true)
 		}
 	case "stop":
 		opErr = podman.StopUnit(unit)
 		if opErr == nil {
 			_ = config.SetServicePaused(name, true)
+			_ = config.SetServiceManuallyStarted(name, false)
 		}
 	case "remove":
 		if isBuiltin {
@@ -877,6 +884,29 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"ok": true})
 		return
+	case "pin":
+		if opErr = config.SetServicePinned(name, true); opErr == nil {
+			status, _ := podman.UnitStatus(unit)
+			if status != "active" {
+				if isBuiltin {
+					_ = ensureServiceQuadlet(name)
+				} else {
+					_ = ensureCustomServiceQuadlet(customSvc)
+				}
+				for attempt := range 5 {
+					opErr = podman.StartUnit(unit)
+					if opErr == nil || !strings.Contains(opErr.Error(), "not found") {
+						break
+					}
+					time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+				}
+				if opErr == nil {
+					_ = config.SetServicePaused(name, false)
+				}
+			}
+		}
+	case "unpin":
+		opErr = config.SetServicePinned(name, false)
 	default:
 		http.NotFound(w, r)
 		return
@@ -926,27 +956,9 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 	return podman.DaemonReload()
 }
 
-// countSitesUsingService counts how many site .env files reference lerd-{name}.
+// countSitesUsingService counts how many active site .env files reference lerd-{name}.
 func countSitesUsingService(name string) int {
-	reg, err := config.LoadSites()
-	if err != nil {
-		return 0
-	}
-	needle := "lerd-" + name
-	count := 0
-	for _, s := range reg.Sites {
-		if s.Ignored {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
-		if err != nil {
-			continue
-		}
-		if strings.Contains(string(data), needle) {
-			count++
-		}
-	}
-	return count
+	return config.CountSitesUsingService(name)
 }
 
 // serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
@@ -1092,6 +1104,20 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		site.NodeVersion = version
 	case "unlink":
 		if err := cli.UnlinkSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "pause":
+		if err := cli.PauseSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "unpause":
+		if err := cli.UnpauseSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}

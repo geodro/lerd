@@ -417,6 +417,22 @@ framework_add(
 ### ` + bt + `framework_remove` + bt + `
 Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only the custom worker additions (built-in queue/schedule/reverb remain). Takes ` + bt + `name` + bt + ` (required).
 
+### ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + `
+Pause or resume a site. Both take ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
+
+` + bt + `site_pause` + bt + ` stops all running workers for the site (queue, schedule, reverb, stripe, custom) and replaces its nginx vhost with a landing page that includes a **Resume** button. Services no longer needed by any active site are auto-stopped. The paused state is persisted — the site stays paused across lerd restarts.
+
+` + bt + `site_unpause` + bt + ` restores the nginx vhost, ensures any services referenced in the site's ` + bt + `.env` + bt + ` are running, and restarts any workers that were running when the site was paused.
+
+Use this to free up resources for sites you're not actively working on without fully unlinking them.
+
+### ` + bt + `service_pin` + bt + ` / ` + bt + `service_unpin` + bt + `
+Pin or unpin a service. Both take ` + bt + `name` + bt + ` (required).
+
+` + bt + `service_pin` + bt + ` marks a service so it is **never auto-stopped**, even when no active sites reference it in their ` + bt + `.env` + bt + `. Starts the service if it isn't already running. Use this for services you want always available regardless of which site is active (e.g. a shared Redis or MySQL).
+
+` + bt + `service_unpin` + bt + ` removes the pin so the service can be auto-stopped when no sites use it.
+
 ### ` + bt + `stripe_listen` + bt + ` / ` + bt + `stripe_listen_stop` + bt + `
 Start or stop a Stripe webhook listener for a site using the Stripe CLI container. Reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
 
@@ -524,6 +540,20 @@ logs(target: "nginx")   // nginx errors
 status()    // see which of DNS / nginx / PHP-FPM / watcher is down
 ` + "```" + `
 
+**Free up resources — pause sites you're not using:**
+` + "```" + `
+sites()                          // see all sites
+site_pause(site: "old-project")  // stop workers + replace vhost with landing page
+// ... later ...
+site_unpause(site: "old-project")  // restore and restart
+` + "```" + `
+
+**Keep a service always running regardless of active site:**
+` + "```" + `
+service_pin(name: "mysql")    // never auto-stopped
+service_pin(name: "redis")
+` + "```" + `
+
 **User reports setup issues or something unexpected:**
 ` + "```" + `
 doctor()    // full diagnostic: podman, systemd, DNS, ports, images, config
@@ -611,6 +641,10 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers |
 | ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers to Laravel |
 | ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker additions |
+| ` + bt + `site_pause` + bt + ` | Pause a site: stop all its workers and replace its vhost with a landing page |
+| ` + bt + `site_unpause` + bt + ` | Resume a paused site: restore its vhost and restart previously running workers |
+| ` + bt + `service_pin` + bt + ` | Pin a service so it is never auto-stopped even when no sites reference it |
+| ` + bt + `service_unpin` + bt + ` | Unpin a service so it can be auto-stopped when unused |
 | ` + bt + `stripe_listen` + bt + ` | Start a Stripe webhook listener for a site |
 | ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
@@ -627,4 +661,6 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `queue_start` + bt + ` requires Redis to be running when ` + bt + `QUEUE_CONNECTION=redis` + bt + `; call ` + bt + `service_start(name: "redis")` + bt + ` first
 - Use ` + bt + `worker_list` + bt + ` first to discover what workers are available for a site before calling ` + bt + `worker_start` + bt + `
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `)
+- ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
+- ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 `

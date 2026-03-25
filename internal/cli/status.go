@@ -124,7 +124,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		case "active":
 			ok2(svc)
 		case "inactive":
-			warn2(svc, "inactive — start with: lerd service start "+svc)
+			if config.CountSitesUsingService(svc) == 0 {
+				warn2(svc, "no sites using this service")
+			} else {
+				warn2(svc, "inactive — start with: lerd service start "+svc)
+			}
 		default:
 			fail2(svc, status, "systemctl --user status "+unit)
 		}
@@ -142,7 +146,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		case "active":
 			ok2(label)
 		case "inactive":
-			warn2(label, "inactive — start with: lerd service start "+svc.Name)
+			if config.CountSitesUsingService(svc.Name) == 0 {
+				warn2(label, "no sites using this service")
+			} else {
+				warn2(label, "inactive — start with: lerd service start "+svc.Name)
+			}
 		default:
 			fail2(label, status, "systemctl --user status "+unit)
 		}

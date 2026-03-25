@@ -110,3 +110,8 @@ func FrameworksDir() string {
 func UpdateCheckFile() string {
 	return filepath.Join(DataDir(), "update-check.json")
 }
+
+// PausedDir returns the directory where paused-site landing page HTML files are stored.
+func PausedDir() string {
+	return filepath.Join(DataDir(), "paused")
+}

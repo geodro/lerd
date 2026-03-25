@@ -848,6 +848,62 @@ func toolList() []mcpTool {
 				Required: []string{"name"},
 			},
 		},
+		mcpTool{
+			Name:        "site_pause",
+			Description: "Pause a site: stop all its running workers (queue, schedule, reverb, stripe, custom) and replace its nginx vhost with a landing page. Auto-stops services no longer needed by any active site.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		mcpTool{
+			Name:        "site_unpause",
+			Description: "Resume a paused site: restore its nginx vhost, restart any workers that were running when it was paused, and ensure required services are running.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		mcpTool{
+			Name:        "service_pin",
+			Description: "Pin a service so it is never auto-stopped, even when no sites reference it. Starts the service if it is not already running.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {
+						Type:        "string",
+						Description: "Service name to pin (built-in: mysql, redis, postgres, meilisearch, minio, mailpit — or any custom service name)",
+					},
+				},
+				Required: []string{"name"},
+			},
+		},
+		mcpTool{
+			Name:        "service_unpin",
+			Description: "Unpin a service so it can be auto-stopped when no active sites reference it.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {
+						Type:        "string",
+						Description: "Service name to unpin",
+					},
+				},
+				Required: []string{"name"},
+			},
+		},
 	)
 
 	return tools
@@ -964,6 +1020,14 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execFrameworkAdd(args)
 	case "framework_remove":
 		return execFrameworkRemove(args)
+	case "site_pause":
+		return execSitePause(args)
+	case "site_unpause":
+		return execSiteUnpause(args)
+	case "service_pin":
+		return execServicePin(args)
+	case "service_unpin":
+		return execServiceUnpin(args)
 	default:
 		return toolErr("unknown tool: " + p.Name), nil
 	}
@@ -2576,4 +2640,53 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
 	}
 	return toolOK(fmt.Sprintf("Framework %q removed.", name)), nil
+}
+
+func execSitePause(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	return runLerdCmd("pause", siteName)
+}
+
+func execSiteUnpause(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	return runLerdCmd("unpause", siteName)
+}
+
+func execServicePin(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	return runLerdCmd("service", "pin", name)
+}
+
+func execServiceUnpin(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	return runLerdCmd("service", "unpin", name)
+}
+
+// runLerdCmd runs the lerd binary with the given arguments and returns its
+// combined stdout+stderr output as a tool result.
+func runLerdCmd(cmdArgs ...string) (any, *rpcError) {
+	self, err := os.Executable()
+	if err != nil {
+		return toolErr("could not resolve lerd executable: " + err.Error()), nil
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(self, cmdArgs...)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("command failed (%v):\n%s", err, out.String())), nil
+	}
+	return toolOK(strings.TrimSpace(out.String())), nil
 }

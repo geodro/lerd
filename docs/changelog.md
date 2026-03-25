@@ -7,6 +7,52 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`lerd man` — terminal documentation browser** — browse and search the built-in docs without leaving the terminal. Opens an interactive TUI with arrow-key navigation, live filtering by title or content, and a scrollable markdown pager. Pass a page name to jump directly (e.g. `lerd man sites`). Set `GLAMOUR_STYLE=light` to override the default dark theme. Works in non-TTY mode too: `lerd man | cat` prints a table of contents and `lerd man sites | cat` prints raw markdown.
+- **`lerd about`** — prints the version, build info, project URL, and copyright.
+- **CLI commands auto-start services on paused sites** — running `php artisan`, `composer`, `lerd db:export`, `lerd db:import`, or `lerd db:shell` in a paused site's directory automatically starts any services the site needs (MySQL, Redis, etc.) before executing. A notice is printed only when a service actually needs starting; if services are already running the command executes silently. The site stays paused — no vhost restore or worker restart.
+
+- **`lerd pause` / `lerd unpause`** — pause a site without unlinking it. `lerd pause` stops all running workers (queue, schedule, reverb, stripe, and any custom workers), replaces the nginx vhost with a static landing page, and auto-stops any services no longer needed by other active sites. The paused state persists across `lerd start` / `lerd stop` cycles. `lerd unpause` restores the vhost, restarts any services the site's `.env` references, and resumes all workers that were running before the pause. The landing page includes a **Resume** button that calls the lerd API directly so you can unpause from the browser.
+- **`lerd service pin` / `lerd service unpin`** — pin a service so it is never auto-stopped, even when no active sites reference it in their `.env`. Pinning immediately starts the service if it isn't already running. Unpin to restore normal auto-stop behaviour.
+- **Extra ports on built-in services** — `lerd service expose <service> <host:container>` publishes an additional host port on any built-in service (mysql, redis, postgres, meilisearch, minio, mailpit). Mappings are persisted in `~/.config/lerd/config.yaml` under `services.<name>.extra_ports` and applied on every start. The service is restarted automatically if running. Use `--remove` to delete a mapping.
+- **Reverb nginx WebSocket proxy** — when a site uses Laravel Reverb (detected via `composer.json` or `BROADCAST_CONNECTION=reverb` in `.env`), lerd adds a `/app` location block to the nginx vhost that proxies WebSocket upgrade requests to the Reverb server running on port 8080 inside the PHP-FPM container. The block is added automatically on `lerd link` and on `reverb:start`.
+- **Framework definitions** — user-defined PHP framework YAML files at `~/.config/lerd/frameworks/<name>.yaml`. Each definition describes detection rules, the document root, env file format, per-service env detection/variable injection, and background workers. `lerd framework list/add/remove` manage definitions from the CLI.
+- **Framework workers** — frameworks can define named background workers (e.g. `messenger` for Symfony, `horizon` or `pulse` for Laravel) that run as systemd user services inside the PHP-FPM container. `lerd worker start <name>` / `lerd worker stop <name>` / `lerd worker list` manage them.
+- **Custom workers for Laravel** — the built-in Laravel definition includes `queue`, `schedule`, and `reverb` workers. Additional workers (e.g. Horizon, Pulse) can be added via `lerd framework add laravel`.
+- **Generic `lerd worker` command** — `lerd worker start/stop/list` works for any framework-defined worker. `lerd queue:start`, `lerd schedule:start`, and `lerd reverb:start` are now aliases for `lerd worker start queue/schedule/reverb` and work on any framework with those workers, not just Laravel.
+- **Web UI: framework worker toggles** — custom framework workers appear as indigo toggles in the Sites panel alongside queue/schedule/reverb. Each running worker shows a log tab in the site detail drawer and an indicator dot in the site list.
+- **Web UI: docs link** — a "Docs" link in the dashboard navbar opens the documentation site.
+- **MCP `worker_start` / `worker_stop` / `worker_list`** — start, stop, or list framework-defined workers for a site via the MCP server.
+- **MCP `framework_list` / `framework_add` / `framework_remove`** — manage framework definitions from an AI assistant. `framework_add` with `name: "laravel"` adds custom workers to the built-in Laravel definition.
+- **MCP `service_expose`** — publish or remove an extra host port on a built-in service via the MCP server.
+- **MCP `site_pause` / `site_unpause` tools** — AI agents can pause and resume sites directly.
+- **MCP `service_pin` / `service_unpin` tools** — AI agents can pin services to keep them always available.
+- **MCP `sites` now includes framework and workers** — each site entry includes its `framework` name and a `workers` array with running status per worker.
+
+### Changed
+
+- **`lerd service list` / `lerd service status` shows inactive reason** — when a service is inactive, the output now includes a short note: `(no sites using this service)` for auto-stopped services, or `(start with: lerd service start <name>)` for manually stopped ones.
+- **`lerd logs` accepts a site name as target** — pass a registered site name to get logs for that site's PHP-FPM container (e.g. `lerd logs my-project`). Previously only nginx, service names, and PHP version strings were accepted.
+- **`lerd unlink` auto-stops unused services** — after unlinking a site, any services that were only needed by that site are automatically stopped (respecting pin and manually-started flags).
+- **`db:import` and `db:export` accept a `-d`/`--database` flag** — both commands now accept an optional `--database` / `-d` flag to target a specific database. When omitted the database name falls back to `DB_DATABASE` from the project's `.env`. The MCP `db_export` tool gains the same optional `database` argument.
+- **`lerd secure` / `lerd unsecure` restart the Stripe listener** — if a `lerd stripe:listen` service is active when HTTPS is toggled, it is automatically restarted with the updated forwarding URL so `--forward-to` stays in sync with the site's scheme.
+- **MinIO: per-site bucket created by `lerd env`** — when MinIO is detected, `lerd env` creates a bucket named after the site handle (e.g. `my_project`), sets it to public access, and writes `AWS_BUCKET=<site>` and `AWS_URL=http://localhost:9000/<site>` into `.env`.
+- **`reverb:start` regenerates the nginx vhost** — running `lerd reverb:start` (or toggling Reverb in the web UI) now regenerates the site's nginx config and reloads nginx, ensuring the `/app` WebSocket proxy block is added to existing sites without requiring `lerd link` to be re-run.
+- **`lerd env` sets correct Reverb connection values** — `REVERB_HOST`, `REVERB_PORT`, and `REVERB_SCHEME` are now derived from the site's domain and TLS state instead of hardcoded `localhost:8080`. `VITE_REVERB_*` vars are also written to match.
+- **`queue_start` / `schedule_start` / `reverb_start` are no longer Laravel-only** — these CLI commands and MCP tools now work for any framework that defines a worker with that name.
+- **`lerd env` respects framework env configuration** — uses the framework's configured env file, example file, format, `url_key`, and per-service detection rules instead of hardcoded Laravel paths.
+- **`lerd link` / `lerd park` detect and record the framework** — the detected framework name is stored in the site registry and shown in `lerd sites`.
+
+### Fixed
+
+- **`lerd php` and `lerd artisan` no longer break MCP stdio transport** — both commands now allocate a TTY (`-t`) only when stdin is a real terminal. When invoked by MCP or any other pipe-based tool, the TTY flag is omitted so stdin/stdout remain clean byte streams.
+- **Reverb toggle no longer appears on projects that don't use Reverb** — the UI previously showed the Reverb toggle for all Laravel sites. It now gates on whether `laravel/reverb` is in `composer.json` or `BROADCAST_CONNECTION=reverb` is in `.env`.
+
+---
+
 ## [0.9.1] — 2026-03-22
 
 ### Added

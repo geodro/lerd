@@ -45,6 +45,8 @@
 | `lerd share [name]` | Expose the site publicly via ngrok or Expose (auto-detected) |
 | `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS — updates `APP_URL` in `.env` |
 | `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
+| `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
+| `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings |
 
 ## PHP
@@ -87,6 +89,8 @@
 | `lerd service list` | Show all services and their current state |
 | `lerd service expose <name> <host:container>` | Publish an extra port on a built-in service (persisted, auto-restarts if running) |
 | `lerd service expose <name> <host:container> --remove` | Remove a previously exposed port |
+| `lerd service pin <name>` | Pin a service so it is never auto-stopped when no sites use it |
+| `lerd service unpin <name>` | Unpin a service so it can be auto-stopped when unused |
 | `lerd service add [file.yaml]` | Register a new custom service (from a YAML file or flags) |
 | `lerd service remove <name>` | Stop and remove a custom service |
 

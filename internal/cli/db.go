@@ -122,6 +122,8 @@ func runDbImport(file, database string) error {
 		env.database = database
 	}
 
+	ensureServicesForCwd(cwd)
+
 	f, err := os.Open(file)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", file, err)
@@ -169,6 +171,8 @@ func runDbExport(output, database string) error {
 	if database != "" {
 		env.database = database
 	}
+
+	ensureServicesForCwd(cwd)
 
 	if output == "" {
 		output = env.database + ".sql"
@@ -285,6 +289,8 @@ func runDbShell() error {
 		conn = env.connection
 		dbName = env.database
 	}
+
+	ensureServicesForCwd(cwd)
 
 	var cmd *exec.Cmd
 	switch conn {

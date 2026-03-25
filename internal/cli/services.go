@@ -92,6 +92,8 @@ func NewServiceCmd() *cobra.Command {
 	cmd.AddCommand(newServiceAddCmd())
 	cmd.AddCommand(newServiceRemoveCmd())
 	cmd.AddCommand(newServiceExposeCmd())
+	cmd.AddCommand(newServicePinCmd())
+	cmd.AddCommand(newServiceUnpinCmd())
 
 	return cmd
 }
@@ -137,6 +139,7 @@ func newServiceStartCmd() *cobra.Command {
 				return err
 			}
 			_ = config.SetServicePaused(name, false)
+			_ = config.SetServiceManuallyStarted(name, true)
 
 			printEnvVars(name)
 			return nil
@@ -157,6 +160,7 @@ func newServiceStopCmd() *cobra.Command {
 				return err
 			}
 			_ = config.SetServicePaused(name, true)
+			_ = config.SetServiceManuallyStarted(name, false)
 			return nil
 		},
 	}
@@ -191,7 +195,11 @@ func newServiceStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%s: %s\n", unit, colorStatus(status))
+			note := ""
+			if status == "inactive" {
+				note = serviceInactiveReason(args[0])
+			}
+			fmt.Printf("%s: %s%s\n", unit, colorStatus(status), note)
 			return nil
 		},
 	}
@@ -210,7 +218,11 @@ func newServiceListCmd() *cobra.Command {
 				if err != nil {
 					status = "unknown"
 				}
-				fmt.Printf("%-20s %-10s %s\n", svc, "[builtin]", colorStatus(status))
+				note := ""
+				if status == "inactive" {
+					note = serviceInactiveReason(svc)
+				}
+				fmt.Printf("%-20s %-10s %s%s\n", svc, "[builtin]", colorStatus(status), note)
 			}
 			customs, _ := config.ListCustomServices()
 			for _, svc := range customs {
@@ -219,7 +231,11 @@ func newServiceListCmd() *cobra.Command {
 				if err != nil {
 					status = "unknown"
 				}
-				fmt.Printf("%-20s %-10s %s\n", svc.Name, "[custom]", colorStatus(status))
+				note := ""
+				if status == "inactive" {
+					note = serviceInactiveReason(svc.Name)
+				}
+				fmt.Printf("%-20s %-10s %s%s\n", svc.Name, "[custom]", colorStatus(status), note)
 			}
 			return nil
 		},
@@ -502,6 +518,71 @@ func printEnvVars(name string) {
 		fmt.Println(v)
 	}
 	fmt.Println()
+}
+
+func newServicePinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "pin <service>",
+		Short: "Pin a service so it is never auto-stopped",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			if err := config.SetServicePinned(name, true); err != nil {
+				return err
+			}
+			fmt.Printf("Pinned %s — it will not be auto-stopped when no sites use it.\n", name)
+			if err := ensureServiceRunning(name); err != nil {
+				fmt.Printf("  [WARN] could not start %s: %v\n", name, err)
+			}
+			return nil
+		},
+	}
+}
+
+func newServiceUnpinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unpin <service>",
+		Short: "Unpin a service so it can be auto-stopped when unused",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			if err := config.SetServicePinned(name, false); err != nil {
+				return err
+			}
+			fmt.Printf("Unpinned %s — it will be auto-stopped when no sites use it.\n", name)
+			return nil
+		},
+	}
+}
+
+// autoStopUnusedServices stops any running service that has no active sites
+// referencing it and was not manually started by the user.
+func autoStopUnusedServices() {
+	candidates := make([]string, len(knownServices))
+	copy(candidates, knownServices)
+	if customs, err := config.ListCustomServices(); err == nil {
+		for _, c := range customs {
+			candidates = append(candidates, c.Name)
+		}
+	}
+	for _, name := range candidates {
+		if config.CountSitesUsingService(name) == 0 && !config.ServiceIsManuallyStarted(name) && !config.ServiceIsPinned(name) {
+			unit := "lerd-" + name
+			status, _ := podman.UnitStatus(unit)
+			if status == "active" || status == "activating" {
+				_ = podman.StopUnit(unit)
+			}
+		}
+	}
+}
+
+// serviceInactiveReason returns an extra note for an inactive service explaining
+// why it is stopped, if the reason is that no sites are using it.
+func serviceInactiveReason(name string) string {
+	if config.CountSitesUsingService(name) == 0 {
+		return " (no sites using this service)"
+	}
+	return ""
 }
 
 // colorStatus returns an ANSI-colored status string.

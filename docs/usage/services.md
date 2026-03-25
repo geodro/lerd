@@ -9,6 +9,8 @@
 | `lerd service restart <name>` | Restart a service container |
 | `lerd service status <name>` | Show systemd unit status |
 | `lerd service list` | Show all services and their current state |
+| `lerd service pin <name>` | Pin a service so it is never auto-stopped |
+| `lerd service unpin <name>` | Unpin a service so it can be auto-stopped when unused |
 | `lerd service expose <name> <host:container>` | Publish an extra port on a built-in service |
 | `lerd service expose <name> <host:container> --remove` | Remove a previously exposed port |
 
@@ -194,6 +196,23 @@ When `lerd env` runs in a project directory, it checks each custom service's `en
 
 `lerd start` and `lerd stop` include any custom service that has a quadlet file installed (i.e. has been started at least once via `lerd service start`). They are started and stopped alongside the built-in services.
 
+### Pinning services
+
+By default, lerd can auto-stop services that no active site references in its `.env`. Use `pin` to keep a service running regardless of which sites are active:
+
+```bash
+lerd service pin mysql    # always keep MySQL running
+lerd service pin redis
+```
+
+Pinning a service also starts it immediately if it is not already running. Unpin to restore normal auto-stop behaviour:
+
+```bash
+lerd service unpin mysql
+```
+
+Pinned services are shown with a `[pinned]` note in `lerd service list` and the web UI.
+
 ### Manually stopped services
 
 If you stop a service with `lerd service stop` (or via the web UI), lerd records it as **manually paused**. `lerd start` and autostart on login will skip it — the service stays stopped until you explicitly start it again.
@@ -202,16 +221,20 @@ If you stop a service with `lerd service stop` (or via the web UI), lerd records
 
 ### `lerd service list` output
 
-Custom services appear after built-in services with a `[custom]` type marker:
+Custom services appear after built-in services with a `[custom]` type marker. Inactive services show a short reason explaining why:
 
 ```
 Service              Type       Status
 ──────────────────── ────────── ──────────
-mysql                [builtin]  inactive
-redis                [builtin]  inactive
+mysql                [builtin]  active
+redis                [builtin]  inactive   (no sites using this service)
+postgres             [builtin]  inactive   (start with: lerd service start postgres)
 ...
 mongodb              [custom]   active
 ```
+
+- **no sites using this service** — the service was auto-stopped because no active site's `.env` references it
+- **start with: lerd service start \<name\>** — the service was manually stopped or has never been started
 
 ### Example: Soketi (Pusher-compatible WebSocket server)
 

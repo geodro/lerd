@@ -80,7 +80,13 @@ func resolveLogsTarget(args []string) (string, error) {
 		return "lerd-php" + short + "-fpm", nil
 	}
 
-	return "", fmt.Errorf("unknown log target %q — use nginx, a service name, a PHP version (e.g. 8.5), or omit for the current project's FPM container", target)
+	// registered site name — resolve to its PHP-FPM container
+	if site, err := config.FindSite(target); err == nil {
+		short := strings.ReplaceAll(site.PHPVersion, ".", "")
+		return "lerd-php" + short + "-fpm", nil
+	}
+
+	return "", fmt.Errorf("unknown log target %q — use nginx, a service name, a PHP version (e.g. 8.5), a site name, or omit for the current project's FPM container", target)
 }
 
 func phpFPMContainer() (string, error) {

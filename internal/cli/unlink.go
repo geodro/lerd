@@ -21,17 +21,19 @@ func NewUnlinkCmd() *cobra.Command {
 }
 
 func runUnlink(_ *cobra.Command, args []string) error {
-	name := ""
 	if len(args) > 0 {
-		name = args[0]
-	} else {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		name = filepath.Base(cwd)
+		return UnlinkSite(args[0])
 	}
-	return UnlinkSite(name)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	// Look up by path so directory names like "canavanbyrne.ie" resolve
+	// correctly to their registered site name (e.g. "canavanbyrne-ie").
+	if site, err := config.FindSiteByPath(cwd); err == nil {
+		return UnlinkSite(site.Name)
+	}
+	return UnlinkSite(filepath.Base(cwd))
 }
 
 // UnlinkSite removes the nginx vhost for the named site. For sites under a parked
@@ -73,6 +75,8 @@ func UnlinkSite(name string) error {
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
+
+	autoStopUnusedServices()
 
 	return nil
 }

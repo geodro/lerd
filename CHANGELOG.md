@@ -15,6 +15,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`lerd about`** — new command that prints the version, build info, project URL, and copyright.
 
+- **CLI commands auto-start services on paused sites** — running `php artisan`, `composer`, `lerd db:export`, `lerd db:import`, or `lerd db:shell` in a paused site's directory automatically starts any services the site needs (MySQL, Redis, etc.) before executing. A notice is printed only when a service actually needs starting; if services are already running the command executes silently. The site stays paused — no vhost restore or worker restart.
+
+- **`lerd pause` / `lerd unpause`** — pause a site without unlinking it. `lerd pause` stops all running workers (queue, schedule, reverb, stripe, and any custom workers), replaces the nginx vhost with a static landing page, and auto-stops any services no longer needed by other active sites. The paused state persists across `lerd start` / `lerd stop` cycles. `lerd unpause` restores the vhost, restarts any services the site's `.env` references, and resumes all workers that were running before the pause. The landing page includes a **Resume** button that calls the lerd API directly so you can unpause from the browser.
+
+- **`lerd service pin` / `lerd service unpin`** — pin a service so it is never auto-stopped, even when no active sites reference it in their `.env`. Pinning immediately starts the service if it isn't already running. Unpin to restore normal auto-stop behaviour.
+
+- **MCP `site_pause` / `site_unpause` tools** — AI agents can pause and resume sites directly, enabling workflows like "pause all sites except the one I'm working on".
+
+- **MCP `service_pin` / `service_unpin` tools** — AI agents can pin services to keep them always available.
+
 - **Extra ports on built-in services** — `lerd service expose <service> <host:container>` publishes an additional host port on any built-in service (mysql, redis, postgres, meilisearch, minio, mailpit). Mappings are persisted in `~/.config/lerd/config.yaml` under `services.<name>.extra_ports` and applied on every start. The service is restarted automatically if running. Use `--remove` to delete a mapping. MCP tool `service_expose` provides the same capability.
 
 - **Reverb nginx WebSocket proxy** — when a site uses Laravel Reverb (detected via `composer.json` or `BROADCAST_CONNECTION=reverb` in `.env`), lerd now adds a `/app` location block to the nginx vhost that proxies WebSocket upgrade requests to the Reverb server running on port 8080 inside the PHP-FPM container. The block is added automatically on `lerd link` and on `reverb:start`.
@@ -30,6 +40,12 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Web UI: docs link** — a "Docs" link in the dashboard navbar opens the documentation site.
 
 ### Changed
+
+- **`lerd service list` / `lerd service status` shows inactive reason** — when a service is inactive, the output now includes a short note explaining why: `(no sites using this service)` for auto-stopped services, or `(start with: lerd service start <name>)` for manually stopped ones.
+
+- **`lerd logs` accepts a site name as target** — pass a registered site name to get logs for that site's PHP-FPM container (e.g. `lerd logs my-project`). Previously only nginx, service names, and PHP version strings were accepted.
+
+- **`lerd unlink` auto-stops unused services** — after unlinking a site, any services that were only needed by that site are automatically stopped (respecting pin and manually-started flags).
 
 - **`db:import` and `db:export` accept a `-d`/`--database` flag** — both commands now accept an optional `--database` / `-d` flag to target a specific database. When omitted the database name falls back to `DB_DATABASE` from the project's `.env` as before. The MCP `db_export` tool gains the same optional `database` argument.
 

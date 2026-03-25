@@ -59,6 +59,8 @@ func runPhp(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
 	}
 
+	ensureServicesForCwd(cwd)
+
 	execFlags := []string{"exec", "-i"}
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		execFlags = append(execFlags, "-t")

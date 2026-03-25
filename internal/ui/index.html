@@ -135,9 +135,16 @@
                 class="flex-none flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors"
                 :class="selectedSiteDomain === site.domain
                   ? 'bg-lerd-red/10 border-lerd-red/30 text-lerd-red'
-                  : 'bg-white dark:bg-lerd-card border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400'"
+                  : site.paused
+                    ? 'bg-white dark:bg-lerd-card border-amber-200 dark:border-amber-900/50 text-amber-500 dark:text-amber-400'
+                    : 'bg-white dark:bg-lerd-card border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400'"
               >
-                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                <template x-if="site.paused">
+                  <svg class="w-2.5 h-2.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                </template>
+                <template x-if="!site.paused">
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                </template>
                 <span x-text="site.domain"></span>
               </button>
             </template>
@@ -145,7 +152,8 @@
 
           <!-- Left: site list (desktop only) -->
           <div class="hidden sm:block sm:w-64 sm:shrink-0 bg-white dark:bg-lerd-card rounded-xl border border-gray-200 dark:border-lerd-border overflow-hidden">
-            <template x-for="site in sites" :key="site.domain">
+            <!-- Active sites -->
+            <template x-for="site in sites.filter(s => !s.paused)" :key="site.domain">
               <button
                 @click="selectSite(site)"
                 class="w-full flex items-center gap-2.5 px-4 py-3 text-left transition-colors border-b border-gray-100 dark:border-lerd-border last:border-0"
@@ -171,6 +179,35 @@
                 </template>
               </button>
             </template>
+            <!-- Paused sites collapsible section -->
+            <template x-if="sites.some(s => s.paused)">
+              <div class="border-t border-gray-100 dark:border-lerd-border">
+                <button
+                  @click="pausedSectionOpen = !pausedSectionOpen"
+                  class="w-full flex items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  <svg class="w-3 h-3 shrink-0 transition-transform" :class="pausedSectionOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                  <span>Paused</span>
+                  <span class="ml-auto bg-gray-100 dark:bg-lerd-border text-gray-500 dark:text-gray-400 rounded-full px-1.5 py-0.5 text-[10px] font-medium" x-text="sites.filter(s => s.paused).length"></span>
+                </button>
+                <template x-if="pausedSectionOpen">
+                  <div>
+                    <template x-for="site in sites.filter(s => s.paused)" :key="'paused-'+site.domain">
+                      <button
+                        @click="selectSite(site)"
+                        class="w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors border-t border-gray-100 dark:border-lerd-border"
+                        :class="selectedSiteDomain === site.domain
+                          ? 'bg-lerd-red/10 text-lerd-red'
+                          : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+                      >
+                        <svg class="w-3 h-3 shrink-0 opacity-60" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                        <span class="flex-1 text-sm truncate" x-text="site.domain"></span>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
           </div>
 
           <!-- Right: detail panel -->
@@ -195,18 +232,24 @@
                           class="font-semibold text-lerd-red hover:text-lerd-redhov transition-colors"
                           x-text="selectedSite.domain"
                         ></a>
-                        <template x-if="selectedSite.fpm_running">
+                        <template x-if="!selectedSite.paused && selectedSite.fpm_running">
                           <span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>running
                           </span>
                         </template>
-                        <template x-if="!selectedSite.fpm_running">
+                        <template x-if="!selectedSite.paused && !selectedSite.fpm_running">
                           <span class="inline-flex items-center gap-1 text-xs font-medium text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full">
                             <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>stopped
                           </span>
                         </template>
                         <template x-if="selectedSite.framework_label">
                           <span class="inline-flex items-center text-xs font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full" x-text="selectedSite.framework_label"></span>
+                        </template>
+                        <template x-if="selectedSite.paused">
+                          <span class="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full">
+                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                            paused
+                          </span>
                         </template>
                       </div>
                       <div class="text-xs text-gray-400 font-mono mt-1 flex items-center gap-2">
@@ -217,6 +260,17 @@
                       </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
+                      <button
+                        @click="selectedSite.paused ? resumeSite(selectedSite) : pauseSite(selectedSite)"
+                        :disabled="selectedSite.pauseLoading"
+                        class="text-xs border rounded px-2 py-1 transition-colors disabled:opacity-50"
+                        :class="selectedSite.paused
+                          ? 'border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                          : 'border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20'"
+                      >
+                        <span x-show="!selectedSite.pauseLoading" x-text="selectedSite.paused ? 'Resume' : 'Pause'"></span>
+                        <span x-show="selectedSite.pauseLoading">...</span>
+                      </button>
                       <button
                         @click="unlinkSite(selectedSite)"
                         :disabled="selectedSite.unlinkLoading"
@@ -862,6 +916,23 @@
                           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                         </svg>
                         <span x-show="!selectedService.loading">Stop</span>
+                      </button>
+                    </template>
+
+                    <!-- Pin toggle (core + custom services only, not queue/stripe workers) -->
+                    <template x-if="!selectedService.queue_site && !selectedService.stripe_listener_site && !selectedService.schedule_worker_site && !selectedService.reverb_site && !selectedService.worker_site">
+                      <button
+                        @click="toggleServicePin(selectedService)"
+                        :disabled="selectedService.loading"
+                        :title="selectedService.pinned ? 'Unpin — allow auto-stop when unused' : 'Pin — prevent auto-stop when unused'"
+                        class="flex items-center gap-1 text-xs font-medium border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                        :class="selectedService.pinned
+                          ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'
+                          : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-lerd-border text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/10'"
+                      >
+                        <svg x-show="selectedService.pinned" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76z"/></svg>
+                        <svg x-show="!selectedService.pinned" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76z"/></svg>
+                        <span x-text="selectedService.pinned ? 'Pinned' : 'Pin'"></span>
                       </button>
                     </template>
 
@@ -1774,6 +1845,7 @@ function lerdApp() {
     lerdStarting: false,
     lerdStopping: false,
     watcherStarting: false,
+    pausedSectionOpen: false,
     logs: {
       open: false,
       container: '',
@@ -1917,7 +1989,7 @@ function lerdApp() {
         const raw = await res.json();
         this._sitesLoaded = true;
         if (firstLoad) {
-          this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) }));
+          this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) }));
         } else {
           raw.forEach(s => {
             const e = this.sites.find(x => x.domain === s.domain);
@@ -1935,6 +2007,7 @@ function lerdApp() {
               e.has_queue_worker = s.has_queue_worker;
               e.has_schedule_worker = s.has_schedule_worker;
               e.branch = s.branch;
+              e.paused = s.paused;
               // Merge framework_workers running state, preserving UI state
               if (s.framework_workers) {
                 if (e.framework_workers) {
@@ -1949,7 +2022,7 @@ function lerdApp() {
                 }
               }
             } else {
-              this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) });
+              this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) });
             }
           });
           this.sites = this.sites.filter(e => raw.some(s => s.domain === e.domain));
@@ -2378,6 +2451,22 @@ function lerdApp() {
       }
     },
 
+    async toggleServicePin(svc) {
+      const action = svc.pinned ? 'unpin' : 'pin';
+      svc.loading = true;
+      try {
+        const res = await fetch(`/api/services/${svc.name}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          svc.pinned = !svc.pinned;
+        }
+      } catch (e) {
+        svc.error = e.message || 'Request failed';
+      } finally {
+        svc.loading = false;
+      }
+    },
+
     async removeService(svc) {
       if (!confirm(`Remove custom service "${svc.name}"?`)) return;
       svc.loading = true;
@@ -2589,6 +2678,40 @@ function lerdApp() {
         alert('Unlink failed: ' + (e.message || 'Request failed'));
       } finally {
         site.unlinkLoading = false;
+      }
+    },
+
+    async pauseSite(site) {
+      site.pauseLoading = true;
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/pause`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          site.paused = true;
+        } else {
+          alert('Pause failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Pause failed: ' + (e.message || 'Request failed'));
+      } finally {
+        site.pauseLoading = false;
+      }
+    },
+
+    async resumeSite(site) {
+      site.pauseLoading = true;
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/unpause`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          site.paused = false;
+        } else {
+          alert('Resume failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Resume failed: ' + (e.message || 'Request failed'));
+      } finally {
+        site.pauseLoading = false;
       }
     },
 

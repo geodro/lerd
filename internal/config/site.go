@@ -9,15 +9,17 @@ import (
 
 // Site represents a single registered Lerd site.
 type Site struct {
-	Name        string `yaml:"name"`
-	Domain      string `yaml:"domain"`
-	Path        string `yaml:"path"`
-	PHPVersion  string `yaml:"php_version"`
-	NodeVersion string `yaml:"node_version"`
-	Secured     bool   `yaml:"secured"`
-	Ignored     bool   `yaml:"ignored,omitempty"`
-	Framework   string `yaml:"framework,omitempty"`
-	PublicDir   string `yaml:"public_dir,omitempty"`
+	Name          string   `yaml:"name"`
+	Domain        string   `yaml:"domain"`
+	Path          string   `yaml:"path"`
+	PHPVersion    string   `yaml:"php_version"`
+	NodeVersion   string   `yaml:"node_version"`
+	Secured       bool     `yaml:"secured"`
+	Ignored       bool     `yaml:"ignored,omitempty"`
+	Paused        bool     `yaml:"paused,omitempty"`
+	PausedWorkers []string `yaml:"paused_workers,omitempty"`
+	Framework     string   `yaml:"framework,omitempty"`
+	PublicDir     string   `yaml:"public_dir,omitempty"`
 }
 
 // IsLaravel returns true if this site uses the Laravel framework.
