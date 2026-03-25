@@ -103,19 +103,33 @@ check_nm() {
   fi
 }
 
-check_podman_machine() {
+ensure_podman_macos() {
+  # Install Podman via Homebrew if missing.
   if ! command -v podman &>/dev/null; then
-    return  # already flagged by check_cmd
-  fi
-  # Check if a machine exists and is running
-  if podman machine list --format '{{.Running}}' 2>/dev/null | grep -q true; then
-    success "Podman Machine running"
-  elif podman machine list 2>/dev/null | grep -q .; then
-    warn "Podman Machine exists but is not running — run: podman machine start"
-    MISSING_PKGS+=("_podman_machine_start")
+    if ! command -v brew &>/dev/null; then
+      die "Homebrew is required to install Podman on macOS.\nInstall it from https://brew.sh then re-run this script."
+    fi
+    info "Installing Podman via Homebrew ..."
+    brew install podman
+    success "Podman installed"
   else
-    warn "No Podman Machine found — run: podman machine init && podman machine start"
-    MISSING_PKGS+=("_podman_machine_init")
+    success "podman found ($(command -v podman))"
+  fi
+
+  # Initialise the machine if it doesn't exist yet.
+  if ! podman machine list 2>/dev/null | grep -q .; then
+    info "Initialising Podman Machine (one-time setup) ..."
+    podman machine init
+    success "Podman Machine initialised"
+  fi
+
+  # Start the machine if it isn't running.
+  if ! podman machine list --format '{{.Running}}' 2>/dev/null | grep -q true; then
+    info "Starting Podman Machine ..."
+    podman machine start
+    success "Podman Machine running"
+  else
+    success "Podman Machine running"
   fi
 }
 
@@ -151,13 +165,14 @@ check_podman_rootless() {
 check_prerequisites() {
   header "Checking prerequisites"
 
-  check_cmd podman podman "container runtime"
-  check_cmd unzip unzip "needed to extract binaries"
-
   if [ "$(detect_os)" = "darwin" ]; then
-    check_podman_machine
+    # On macOS: install Podman + start Machine automatically.
+    ensure_podman_macos
+    check_cmd unzip unzip "needed to extract binaries"
     check_certutil
   else
+    check_cmd podman podman "container runtime"
+    check_cmd unzip unzip "needed to extract binaries"
     check_nm
     check_systemd_user
     check_podman_rootless
@@ -177,27 +192,17 @@ check_prerequisites() {
     [[ "$p" != _* ]] && installable+=("$p")
   done
 
-  if [ ${#installable[@]} -gt 0 ] && [ "$(detect_os)" != "darwin" ] && ask "Install missing packages now?"; then
+  if [ ${#installable[@]} -gt 0 ] && ask "Install missing packages now?"; then
     install_packages "${installable[@]}"
   fi
 
-  # Handle special cases
+  # Handle special cases (Linux only at this point)
   for p in "${MISSING_PKGS[@]}"; do
     case "$p" in
       _systemd_linger)
         if ask "Enable systemd linger for $USER now?"; then
           loginctl enable-linger "$USER"
           success "Linger enabled — please log out and back in before running 'lerd install'"
-        fi
-        ;;
-      _podman_machine_start)
-        if ask "Start Podman Machine now?"; then
-          podman machine start
-        fi
-        ;;
-      _podman_machine_init)
-        if ask "Initialize and start Podman Machine now?"; then
-          podman machine init && podman machine start
         fi
         ;;
     esac
@@ -374,10 +379,6 @@ cmd_install() {
   fi
 
   check_prerequisites
-
-  if ! command -v podman &>/dev/null; then
-    die "podman is required but not installed. Install it and re-run this script."
-  fi
 
   mkdir -p "$INSTALL_DIR"
 
