@@ -274,8 +274,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 	dnsOK, _ := dns.Check(tld)
 	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	watcherRunning := watcherCmd.Run() == nil
+	watcherRunning := svcpkg.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpPkg.ListInstalled()
 	var phpStatuses []PHPStatus
@@ -574,50 +573,35 @@ func frameworkLabel(name string) string {
 }
 
 func listActiveQueueWorkers() []string {
-	return listActiveUnitsBySuffix("lerd-queue-*.service", "lerd-queue-")
+	return listActiveUnitsBySuffix("lerd-queue-*", "lerd-queue-")
 }
 
 // listActiveScheduleWorkers returns site names of active lerd-schedule-* units.
 func listActiveScheduleWorkers() []string {
-	return listActiveUnitsBySuffix("lerd-schedule-*.service", "lerd-schedule-")
+	return listActiveUnitsBySuffix("lerd-schedule-*", "lerd-schedule-")
 }
 
 // listActiveReverbServers returns site names of active lerd-reverb-* units.
 func listActiveReverbServers() []string {
-	return listActiveUnitsBySuffix("lerd-reverb-*.service", "lerd-reverb-")
+	return listActiveUnitsBySuffix("lerd-reverb-*", "lerd-reverb-")
 }
 
-// listActiveStripeListeners returns the site names of active lerd-stripe-* units
-// that were started by `lerd stripe:listen` (i.e. have a .service file in the
-// systemd user dir, as opposed to quadlet-based services like stripe-mock).
+// listActiveStripeListeners returns the site names of active lerd-stripe-* service units
+// started by `lerd stripe:listen`. Container-based units (e.g. stripe-mock) live in
+// ListContainerUnits and are not included here.
 func listActiveStripeListeners() []string {
-	all := listActiveUnitsBySuffix("lerd-stripe-*.service", "lerd-stripe-")
-	var result []string
-	for _, name := range all {
-		unitFile := filepath.Join(config.SystemdUserDir(), "lerd-stripe-"+name+".service")
-		if _, err := os.Stat(unitFile); err == nil {
-			result = append(result, name)
-		}
-	}
-	return result
+	return listActiveUnitsBySuffix("lerd-stripe-*", "lerd-stripe-")
 }
 
-func listActiveUnitsBySuffix(pattern, prefix string) []string {
-	out, err := exec.Command("systemctl", "--user", "list-units", "--state=active",
-		"--no-legend", "--plain", pattern).Output()
-	if err != nil {
-		return nil
-	}
+func listActiveUnitsBySuffix(nameGlob, prefix string) []string {
+	units := svcpkg.Mgr.ListServiceUnits(nameGlob)
 	var sites []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		unit := strings.TrimSuffix(fields[0], ".service")
-		siteName := strings.TrimPrefix(unit, prefix)
-		if siteName != unit && siteName != "" {
-			sites = append(sites, siteName)
+	for _, unit := range units {
+		if svcpkg.Mgr.IsActive(unit) {
+			siteName := strings.TrimPrefix(unit, prefix)
+			if siteName != unit && siteName != "" {
+				sites = append(sites, siteName)
+			}
 		}
 	}
 	return sites

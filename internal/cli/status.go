@@ -5,7 +5,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -104,8 +103,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 
 	// Watcher
 	fmt.Println("\n[Watcher]")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	if watcherCmd.Run() == nil {
+	if services.Mgr.IsActive("lerd-watcher") {
 		ok2("lerd-watcher")
 	} else {
 		fail2("lerd-watcher", "not running", "systemctl --user start lerd-watcher")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -57,16 +58,18 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		ok("podman")
 	}
 
-	if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
-		// exit non-zero but "degraded" is acceptable
-		state := strings.TrimSpace(string(out))
-		if state == "degraded" {
-			warn("systemd user session", "degraded — some units have failed")
+	if runtime.GOOS == "linux" {
+		if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
+			// exit non-zero but "degraded" is acceptable
+			state := strings.TrimSpace(string(out))
+			if state == "degraded" {
+				warn("systemd user session", "degraded — some units have failed")
+			} else {
+				fail("systemd user session", fmt.Sprintf("state=%q", state), "log in as a real user (not su); run: systemctl --user status")
+			}
 		} else {
-			fail("systemd user session", fmt.Sprintf("state=%q", state), "log in as a real user (not su); run: systemctl --user status")
+			ok("systemd user session")
 		}
-	} else {
-		ok("systemd user session")
 	}
 
 	currentUser := os.Getenv("USER")
