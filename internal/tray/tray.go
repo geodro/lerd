@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/getlantern/systray"
@@ -199,7 +199,7 @@ func fetchSnapshot() *Snapshot {
 		return snap
 	}
 
-	snap.AutostartEnabled = lerdSystemd.IsServiceEnabled("lerd-autostart")
+	snap.AutostartEnabled = services.Mgr.IsEnabled("lerd-autostart")
 
 	// /api/services — only real services (exclude queue/schedule/stripe per-site workers)
 	if r, err := client.Get(apiBase + "/api/services"); err == nil {
@@ -291,7 +291,7 @@ func handlePHP(menu *menuState) {
 
 func handleAutostart(item *systray.MenuItem) {
 	for range item.ClickedCh {
-		if lerdSystemd.IsServiceEnabled("lerd-autostart") {
+		if services.Mgr.IsEnabled("lerd-autostart") {
 			_ = exec.Command("lerd", "autostart", "disable").Start()
 		} else {
 			_ = exec.Command("lerd", "autostart", "enable").Start()

@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -158,7 +159,7 @@ func runUpdate(currentVersion string) error {
 		for _, v := range versions {
 			unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
 			fmt.Printf("  --> %s ... ", unit)
-			if err := podman.StartUnit(unit); err != nil {
+			if err := services.Mgr.Start(unit); err != nil {
 				fmt.Printf("WARN (%v)\n", err)
 			} else {
 				fmt.Println("OK")

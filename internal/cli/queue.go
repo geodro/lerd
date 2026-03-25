@@ -9,8 +9,8 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -148,20 +148,20 @@ ExecStart=podman exec -w %s %s php artisan %s
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, sitePath, container, artisanArgs)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
+		if err := services.Mgr.DaemonReload(); err != nil {
 			return fmt.Errorf("daemon-reload: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
 
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting queue worker: %w", err)
 	}
 
@@ -196,7 +196,7 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 	if data, err := os.ReadFile(unitFile); err == nil {
 		if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
 			if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
-				_ = podman.DaemonReload()
+				_ = services.Mgr.DaemonReload()
 			}
 		}
 	}
@@ -218,17 +218,16 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 // QueueStopForSite stops and removes the queue worker for the named site.
 func QueueStopForSite(siteName string) error {
 	unitName := "lerd-queue-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
 	// Stop and disable — ignore errors if already stopped.
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
 
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/spf13/cobra"
@@ -185,7 +186,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	// ── Containers & Images ──────────────────────────────────────────────────
 	fmt.Println("\n[Containers & Images]")
 
-	if !podman.QuadletInstalled("lerd-nginx") {
+	if !services.Mgr.ContainerUnitInstalled("lerd-nginx") {
 		fail("lerd-nginx quadlet", "not installed", "run: lerd install")
 	} else {
 		ok("lerd-nginx quadlet installed")

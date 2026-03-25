@@ -14,6 +14,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/spf13/cobra"
@@ -115,11 +116,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	installedCount := 0
 	for _, svc := range knownServices {
 		unit := "lerd-" + svc
-		if !podman.QuadletInstalled(unit) {
+		if !services.Mgr.ContainerUnitInstalled(unit) {
 			continue
 		}
 		installedCount++
-		status, _ := podman.UnitStatus(unit)
+		status, _ := services.Mgr.UnitStatus(unit)
 		switch status {
 		case "active":
 			ok2(svc)
@@ -136,11 +137,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
 		unit := "lerd-" + svc.Name
-		if !podman.QuadletInstalled(unit) {
+		if !services.Mgr.ContainerUnitInstalled(unit) {
 			continue
 		}
 		installedCount++
-		status, _ := podman.UnitStatus(unit)
+		status, _ := services.Mgr.UnitStatus(unit)
 		label := svc.Name + " [custom]"
 		switch status {
 		case "active":

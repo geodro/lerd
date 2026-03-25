@@ -7,6 +7,7 @@ import (
 
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +50,7 @@ func runPhpRebuild(_ *cobra.Command, _ []string) error {
 	fmt.Println("\nAll PHP-FPM images rebuilt. Restarting containers...")
 	for _, v := range versions {
 		unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
-		if err := podman.RestartUnit(unit); err != nil {
+		if err := services.Mgr.Restart(unit); err != nil {
 			fmt.Printf("  [WARN] restart %s: %v\n", unit, err)
 		} else {
 			fmt.Printf("  restarted %s\n", unit)

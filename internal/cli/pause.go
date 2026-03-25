@@ -13,7 +13,7 @@ import (
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -199,7 +199,7 @@ func startServicesForSiteNoticed(sitePath, siteName string) {
 		if !strings.Contains(envContent, "lerd-"+name) {
 			continue
 		}
-		if siteName != "" && !headerPrinted && !lerdSystemd.IsServiceActive("lerd-"+name) {
+		if siteName != "" && !headerPrinted && !services.Mgr.IsActive("lerd-"+name) {
 			fmt.Printf("[lerd] site %q is paused — starting required services...\n", siteName)
 			headerPrinted = true
 		}
@@ -214,11 +214,11 @@ func collectRunningWorkers(site *config.Site) []string {
 	var active []string
 
 	for _, w := range []string{"queue", "schedule", "reverb", "horizon"} {
-		if lerdSystemd.IsServiceActive("lerd-" + w + "-" + site.Name) {
+		if services.Mgr.IsActive("lerd-" + w + "-" + site.Name) {
 			active = append(active, w)
 		}
 	}
-	if lerdSystemd.IsServiceActive("lerd-stripe-" + site.Name) {
+	if services.Mgr.IsActive("lerd-stripe-" + site.Name) {
 		active = append(active, "stripe")
 	}
 
@@ -234,7 +234,7 @@ func collectRunningWorkers(site *config.Site) []string {
 		}
 		sort.Strings(names)
 		for _, wName := range names {
-			if lerdSystemd.IsServiceActive("lerd-" + wName + "-" + site.Name) {
+			if services.Mgr.IsActive("lerd-" + wName + "-" + site.Name) {
 				active = append(active, wName)
 			}
 		}

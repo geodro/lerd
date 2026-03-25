@@ -12,7 +12,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -389,7 +389,7 @@ func createS3Bucket(name string) (bool, error) {
 // ensureServiceRunning starts the service if it is not already active.
 func ensureServiceRunning(name string) error {
 	unit := "lerd-" + name
-	status, _ := podman.UnitStatus(unit)
+	status, _ := services.Mgr.UnitStatus(unit)
 	if status == "active" {
 		return nil
 	}
@@ -413,7 +413,7 @@ func ensureServiceRunning(name string) error {
 			return err
 		}
 	}
-	return podman.StartUnit(unit)
+	return services.Mgr.Start(unit)
 }
 
 // siteURL returns the APP_URL for the project registered at path, or "".

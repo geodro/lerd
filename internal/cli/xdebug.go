@@ -8,6 +8,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -109,7 +110,7 @@ func runXdebugToggle(args []string, enable bool) error {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := services.Mgr.Restart(unit); err != nil {
 		fmt.Printf("[WARN] restart %s: %v\n", unit, err)
 		fmt.Printf("Run: systemctl --user restart %s\n", unit)
 	} else {

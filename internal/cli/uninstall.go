@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -42,49 +42,40 @@ func runUninstall(force bool) error {
 
 	r := NewStepRunner()
 
-	quadletDir := config.QuadletDir()
-
 	r.Run("Removing DNS configuration", func(_ io.Writer) error { //nolint:errcheck
 		dns.Teardown()
 		return nil
 	})
 
 	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
-		var units []string
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				units = append(units, strings.TrimSuffix(filepath.Base(f), ".container"))
-			}
-		}
+		units := services.Mgr.ListContainerUnits("lerd-*")
 		units = append(units, "lerd-watcher", "lerd-ui")
 		for _, unit := range units {
-			status, _ := podman.UnitStatus(unit)
+			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" {
-				_ = podman.StopUnit(unit)
+				_ = services.Mgr.Stop(unit)
 			}
-			_ = disableUnit(unit)
+			_ = services.Mgr.Disable(unit)
 		}
 		return nil
 	})
 
 	r.Run("Removing quadlet units", func(_ io.Writer) error { //nolint:errcheck
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				os.Remove(f) //nolint:errcheck
-			}
+		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
+			services.Mgr.RemoveContainerUnit(unit) //nolint:errcheck
 		}
 		return nil
 	})
 
-	r.Run("Removing systemd user services", func(_ io.Writer) error { //nolint:errcheck
-		for _, svc := range []string{"lerd-watcher.service", "lerd-ui.service"} {
-			os.Remove(filepath.Join(config.SystemdUserDir(), svc)) //nolint:errcheck
+	r.Run("Removing service unit files", func(_ io.Writer) error { //nolint:errcheck
+		for _, name := range []string{"lerd-watcher", "lerd-ui"} {
+			services.Mgr.RemoveServiceUnit(name) //nolint:errcheck
 		}
 		return nil
 	})
 
 	r.Run("Reloading systemd daemon", func(_ io.Writer) error { //nolint:errcheck
-		_ = podman.DaemonReload()
+		_ = services.Mgr.DaemonReload()
 		return nil
 	})
 
@@ -134,10 +125,6 @@ func readYes() bool {
 	return strings.EqualFold(ans, "y") || strings.EqualFold(ans, "yes")
 }
 
-func disableUnit(name string) error {
-	return runSystemctlUser("disable", name)
-}
-
 func removeShellEntry() {
 	const marker = "# Added by Lerd installer"
 	home, _ := os.UserHomeDir()
@@ -151,11 +138,6 @@ func removeShellEntry() {
 	for _, rc := range candidates {
 		removeMarkedBlock(rc, marker)
 	}
-}
-
-func runSystemctlUser(args ...string) error {
-	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
-	return cmd.Run()
 }
 
 // removeMarkedBlock removes the marker line and the line immediately after it.

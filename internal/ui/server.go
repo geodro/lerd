@@ -26,6 +26,7 @@ import (
 	nodePkg "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	svcpkg "github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 )
@@ -395,7 +396,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 		// Stripe is Laravel-only
 		if isLaravel {
-			stripeStatus, _ = podman.UnitStatus("lerd-stripe-" + s.Name)
+			stripeStatus, _ = svcpkg.Mgr.UnitStatus("lerd-stripe-" + s.Name)
 			stripeSecretSet = cli.StripeSecretSet(s.Path)
 		}
 
@@ -403,11 +404,11 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		if hasFw && fw.Workers != nil {
 			if _, ok := fw.Workers["queue"]; ok {
 				hasQueueWorker = true
-				queueStatus, _ = podman.UnitStatus("lerd-queue-" + s.Name)
+				queueStatus, _ = svcpkg.Mgr.UnitStatus("lerd-queue-" + s.Name)
 			}
 			if _, ok := fw.Workers["schedule"]; ok {
 				hasScheduleWorker = true
-				scheduleStatus, _ = podman.UnitStatus("lerd-schedule-" + s.Name)
+				scheduleStatus, _ = svcpkg.Mgr.UnitStatus("lerd-schedule-" + s.Name)
 			}
 			if _, ok := fw.Workers["reverb"]; ok {
 				// For Laravel, reverb toggle still requires the package/env to be present.
@@ -418,13 +419,13 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 					hasReverb = true
 				}
 				if hasReverb {
-					reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
+					reverbStatus, _ = svcpkg.Mgr.UnitStatus("lerd-reverb-" + s.Name)
 				}
 			}
 		}
 		// For Laravel without reverb in workers map (shouldn't happen with built-in, but guard anyway)
 		if isLaravel && !hasReverb {
-			reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
+			reverbStatus, _ = svcpkg.Mgr.UnitStatus("lerd-reverb-" + s.Name)
 			hasReverb = cli.SiteUsesReverb(s.Path)
 		}
 
@@ -433,7 +434,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		var hasHorizon bool
 		if isLaravel && cli.SiteHasHorizon(s.Path) {
 			hasHorizon = true
-			horizonStatus, _ = podman.UnitStatus("lerd-horizon-" + s.Name)
+			horizonStatus, _ = svcpkg.Mgr.UnitStatus("lerd-horizon-" + s.Name)
 			hasQueueWorker = false // Horizon manages queues; suppress the plain queue toggle
 		}
 
@@ -451,7 +452,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			sort.Strings(names)
 			for _, wname := range names {
 				w := fw.Workers[wname]
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
+				unitStatus, _ := svcpkg.Mgr.UnitStatus("lerd-" + wname + "-" + s.Name)
 				label := w.Label
 				if label == "" {
 					label = wname
@@ -536,7 +537,7 @@ var builtinDashboards = map[string]string{
 
 func buildServiceResponse(name string) ServiceResponse {
 	unit := "lerd-" + name
-	status, _ := podman.UnitStatus(unit)
+	status, _ := svcpkg.Mgr.UnitStatus(unit)
 	if status == "" {
 		status = "inactive"
 	}
@@ -630,7 +631,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
 		unit := "lerd-" + svc.Name
-		status, _ := podman.UnitStatus(unit)
+		status, _ := svcpkg.Mgr.UnitStatus(unit)
 		if status == "" {
 			status = "inactive"
 		}
@@ -706,7 +707,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 				case "queue", "schedule", "reverb":
 					continue
 				}
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
+				unitStatus, _ := svcpkg.Mgr.UnitStatus("lerd-" + wname + "-" + s.Name)
 				if unitStatus == "active" {
 					label := w.Label
 					if label == "" {
@@ -758,7 +759,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(name, "queue-") {
 		siteName := strings.TrimPrefix(name, "queue-")
 		if action == "stop" {
-			opErr := podman.StopUnit("lerd-queue-" + siteName)
+			opErr := svcpkg.Mgr.Stop("lerd-queue-" + siteName)
 			resp := ServiceActionResponse{
 				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, QueueSite: siteName},
 				OK:              opErr == nil,
@@ -915,7 +916,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Retry to handle Quadlet generator latency after daemon-reload.
 		for attempt := range 5 {
-			opErr = podman.StartUnit(unit)
+			opErr = svcpkg.Mgr.Start(unit)
 			if opErr == nil || !strings.Contains(opErr.Error(), "not found") {
 				break
 			}
@@ -926,7 +927,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			_ = config.SetServiceManuallyStarted(name, true)
 		}
 	case "stop":
-		opErr = podman.StopUnit(unit)
+		opErr = svcpkg.Mgr.Stop(unit)
 		if opErr == nil {
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
@@ -936,11 +937,11 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot remove built-in service", http.StatusForbidden)
 			return
 		}
-		if err := podman.RemoveQuadlet(unit); err != nil {
+		if err := svcpkg.Mgr.RemoveContainerUnit(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = svcpkg.Mgr.DaemonReload()
 		if err := config.RemoveCustomService(name); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
@@ -949,7 +950,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	case "pin":
 		if opErr = config.SetServicePinned(name, true); opErr == nil {
-			status, _ := podman.UnitStatus(unit)
+			status, _ := svcpkg.Mgr.UnitStatus(unit)
 			if status != "active" {
 				if isBuiltin {
 					_ = ensureServiceQuadlet(name)
@@ -957,7 +958,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 					_ = ensureCustomServiceQuadlet(customSvc)
 				}
 				for attempt := range 5 {
-					opErr = podman.StartUnit(unit)
+					opErr = svcpkg.Mgr.Start(unit)
 					if opErr == nil || !strings.Contains(opErr.Error(), "not found") {
 						break
 					}
@@ -998,10 +999,10 @@ func ensureServiceQuadlet(name string) error {
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+	if err := svcpkg.Mgr.WriteContainerUnit(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return svcpkg.Mgr.DaemonReload()
 }
 
 // ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
@@ -1013,10 +1014,10 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 	}
 	content := podman.GenerateCustomQuadlet(svc)
 	quadletName := "lerd-" + svc.Name
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+	if err := svcpkg.Mgr.WriteContainerUnit(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
 	}
-	return podman.DaemonReload()
+	return svcpkg.Mgr.DaemonReload()
 }
 
 // countSitesUsingService counts how many active site .env files reference lerd-{name}.
@@ -1349,12 +1350,12 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "remove":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		_ = podman.StopUnit(unit)
-		if err := podman.RemoveQuadlet(unit); err != nil {
+		_ = svcpkg.Mgr.Stop(unit)
+		if err := svcpkg.Mgr.RemoveContainerUnit(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = svcpkg.Mgr.DaemonReload()
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)
@@ -1576,7 +1577,7 @@ type SettingsResponse struct {
 
 func handleSettings(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, SettingsResponse{
-		AutostartOnLogin: lerdSystemd.IsServiceEnabled("lerd-autostart"),
+		AutostartOnLogin: svcpkg.Mgr.IsEnabled("lerd-autostart"),
 	})
 }
 
@@ -1599,16 +1600,16 @@ func handleSettingsAutostart(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		if err := lerdSystemd.WriteService("lerd-autostart", content); err != nil {
+		if err := svcpkg.Mgr.WriteServiceUnit("lerd-autostart", content); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		if err := lerdSystemd.EnableService("lerd-autostart"); err != nil {
+		if err := svcpkg.Mgr.Enable("lerd-autostart"); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
 	} else {
-		if err := lerdSystemd.DisableService("lerd-autostart"); err != nil {
+		if err := svcpkg.Mgr.Disable("lerd-autostart"); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -1696,7 +1697,7 @@ func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := svcpkg.Mgr.Restart(unit); err != nil {
 		fmt.Printf("[WARN] restart %s: %v\n", unit, err)
 	}
 
@@ -1750,7 +1751,7 @@ func handleWatcherStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := lerdSystemd.StartService("lerd-watcher"); err != nil {
+	if err := svcpkg.Mgr.Start("lerd-watcher"); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}

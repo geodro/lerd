@@ -9,7 +9,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -117,7 +117,7 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 // so that --forward-to picks up the new http/https scheme.
 func restartStripeIfActive(site *config.Site) {
 	unitName := "lerd-stripe-" + site.Name
-	if !lerdSystemd.IsServiceActive(unitName) {
+	if !services.Mgr.IsActive(unitName) {
 		return
 	}
 	scheme := "http"
@@ -129,7 +129,7 @@ func restartStripeIfActive(site *config.Site) {
 		fmt.Printf("[WARN] updating stripe listener unit: %v\n", err)
 		return
 	}
-	if err := lerdSystemd.RestartService(unitName); err != nil {
+	if err := services.Mgr.Restart(unitName); err != nil {
 		fmt.Printf("[WARN] restarting stripe listener: %v\n", err)
 		return
 	}

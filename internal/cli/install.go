@@ -16,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -132,7 +133,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing nginx quadlet")
 	if content, err := podman.GetQuadletTemplate("lerd-nginx.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-nginx", content); err != nil {
+		if err := services.Mgr.WriteContainerUnit("lerd-nginx", content); err != nil {
 			return err
 		}
 	}
@@ -140,7 +141,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing DNS quadlet")
 	if content, err := podman.GetQuadletTemplate("lerd-dns.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-dns", content); err != nil {
+		if err := services.Mgr.WriteContainerUnit("lerd-dns", content); err != nil {
 			return err
 		}
 	}
@@ -148,11 +149,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Refreshing service quadlets")
 	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"} {
-		if !podman.QuadletInstalled("lerd-" + svc) {
+		if !services.Mgr.ContainerUnitInstalled("lerd-" + svc) {
 			continue
 		}
 		if content, err := podman.GetQuadletTemplate("lerd-" + svc + ".container"); err == nil {
-			podman.WriteQuadlet("lerd-"+svc, content) //nolint:errcheck
+			services.Mgr.WriteContainerUnit("lerd-"+svc, content) //nolint:errcheck
 		}
 	}
 	ok()
@@ -198,13 +199,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	// 8. Systemd / services
 	step("Reloading systemd daemon")
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return err
 	}
 	ok()
 
 	step("Starting lerd-dns")
-	if err := podman.RestartUnit("lerd-dns"); err != nil {
+	if err := services.Mgr.Restart("lerd-dns"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
@@ -222,48 +223,48 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	ok()
 
 	step("Starting lerd-nginx")
-	if err := podman.RestartUnit("lerd-nginx"); err != nil {
+	if err := services.Mgr.Restart("lerd-nginx"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-watcher", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
 			return err
 		}
-		if err := lerdSystemd.EnableService("lerd-watcher"); err != nil {
+		if err := services.Mgr.Enable("lerd-watcher"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 	}
 	ok()
 
 	step("Restarting watcher service")
-	if err := podman.RestartUnit("lerd-watcher"); err != nil {
+	if err := services.Mgr.Restart("lerd-watcher"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-ui", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
 			return err
 		}
-		if err := lerdSystemd.EnableService("lerd-ui"); err != nil {
+		if err := services.Mgr.Enable("lerd-ui"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 	}
 	ok()
 
 	step("Starting lerd-ui")
-	if err := podman.RestartUnit("lerd-ui"); err != nil {
+	if err := services.Mgr.Restart("lerd-ui"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
 	// Restart tray if running.
-	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		_ = lerdSystemd.RestartService("lerd-tray")
+	if services.Mgr.IsEnabled("lerd-tray") {
+		_ = services.Mgr.Restart("lerd-tray")
 	} else {
 		killTray()
 		if exe, err := os.Executable(); err == nil {
