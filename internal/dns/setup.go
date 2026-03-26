@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -103,6 +104,26 @@ var nmcliDNSFunc = func() []string {
 		return nil
 	}
 	return parseNmcliLines(string(out))
+}
+
+// ReadContainerDNS returns the DNS servers to configure as aardvark-dns upstreams
+// for the lerd Podman bridge network. It reads DnsForwardIps from the pasta rootless-netns
+// info.json (typically 169.254.1.1), which chains through systemd-resolved and therefore
+// resolves both .test domains (via lerd-dns) and internet domains. Falls back to
+// ReadUpstreamDNS if the file is unavailable (e.g. before Podman initialises the netns).
+func ReadContainerDNS() []string {
+	path := fmt.Sprintf("/run/user/%d/containers/networks/rootless-netns/info.json", os.Getuid())
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return readUpstreamDNS()
+	}
+	var info struct {
+		DnsForwardIps []string `json:"DnsForwardIps"`
+	}
+	if err := json.Unmarshal(data, &info); err != nil || len(info.DnsForwardIps) == 0 {
+		return readUpstreamDNS()
+	}
+	return info.DnsForwardIps
 }
 
 // ReadUpstreamDNS returns upstream DNS server IPs from the running system.

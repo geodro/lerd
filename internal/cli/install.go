@@ -62,7 +62,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if err := podman.EnsureNetwork("lerd"); err != nil {
 		return err
 	}
-	if err := podman.EnsureNetworkDNS("lerd", dns.ReadUpstreamDNS()); err != nil {
+	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
 		return err
 	}
 	ok()

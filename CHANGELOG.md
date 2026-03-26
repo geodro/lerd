@@ -11,6 +11,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.4] — 2026-03-26
+
+### Fixed
+
+- **`.test` domains unavailable from PHP-FPM containers** — v1.0.3 fixed internet access by setting real upstream DNS servers (e.g. `192.168.0.x`) on the `lerd` Podman network, but this caused aardvark-dns to skip systemd-resolved, breaking `.test` resolution from inside containers. `lerd start` and `lerd install` now use pasta's built-in DNS proxy at `169.254.1.1` (read from the rootless-netns `info.json`) as the aardvark-dns upstream. This address chains through systemd-resolved, which routes `.test` queries to lerd-dns and forwards all other queries to real upstream servers — giving containers both `.test` resolution and full internet access.
+- **HTTPS to `.test` sites fails from inside PHP-FPM containers (`cURL error 60`)** — PHP code making outbound HTTPS requests to local `.test` domains (e.g. Reverb broadcasting, internal API calls) received SSL certificate errors because the mkcert root CA was not trusted inside the container. The PHP-FPM image build now copies the mkcert root CA into the Alpine trust store (`update-ca-certificates`), so all `.test` HTTPS certificates are trusted. Existing images are automatically rebuilt on `lerd update`.
+- **Reverb / queue / schedule workers not restarted after `php:rebuild`** — when `php:rebuild` replaced and restarted the PHP-FPM containers, workers running inside those containers via `podman exec` (Reverb, queue, schedule) were killed by the `BindsTo` systemd dependency but not brought back up automatically. `php:rebuild` now explicitly restarts all such workers after the containers are back online.
+
+---
+
 ## [1.0.3] — 2026-03-26
 
 ### Fixed

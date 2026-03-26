@@ -78,3 +78,4 @@ RUN pecl install xdebug && docker-php-ext-enable xdebug \
     && rm -rf /tmp/pear /var/cache/apk/*
 
 {{.CustomExtensions}}
+{{.MkcertCA}}

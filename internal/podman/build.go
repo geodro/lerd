@@ -12,6 +12,33 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// mkcertPath returns the path to the mkcert binary managed by lerd.
+func mkcertPath() string {
+	return filepath.Join(config.BinDir(), "mkcert")
+}
+
+// mkcertCABlock copies the mkcert rootCA.pem into tmpDir and returns the
+// Containerfile snippet that installs it into the Alpine trust store.
+// Returns empty string if mkcert is not installed or the CA does not exist.
+func mkcertCABlock(tmpDir string) string {
+	out, err := exec.Command(mkcertPath(), "-CAROOT").Output()
+	if err != nil {
+		return ""
+	}
+	rootCA := filepath.Join(strings.TrimSpace(string(out)), "rootCA.pem")
+	src, err := os.ReadFile(rootCA)
+	if err != nil {
+		return ""
+	}
+	dest := filepath.Join(tmpDir, "mkcert-ca.crt")
+	if err := os.WriteFile(dest, src, 0644); err != nil {
+		return ""
+	}
+	return "# Lerd mkcert CA — trust local .test HTTPS inside the container\n" +
+		"COPY mkcert-ca.crt /usr/local/share/ca-certificates/mkcert-ca.crt\n" +
+		"RUN update-ca-certificates\n"
+}
+
 // ContainerfileHash returns the SHA-256 hash of the embedded PHP-FPM Containerfile.
 // This is used to detect when images need to be rebuilt after a lerd update.
 func ContainerfileHash() (string, error) {
@@ -101,14 +128,16 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 	if err != nil {
 		return err
 	}
-	containerfile := strings.ReplaceAll(containerfileTmpl, "{{.Version}}", version)
-	containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts))
 
 	tmp, err := os.MkdirTemp("", "lerd-php-build-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+
+	containerfile := strings.ReplaceAll(containerfileTmpl, "{{.Version}}", version)
+	containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts))
+	containerfile = strings.ReplaceAll(containerfile, "{{.MkcertCA}}", mkcertCABlock(tmp))
 
 	cfPath := tmp + "/Containerfile"
 	if err := os.WriteFile(cfPath, []byte(containerfile), 0644); err != nil {
