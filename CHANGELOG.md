@@ -18,6 +18,9 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`lerd setup` npm step fails without a lockfile** — the npm install step now runs `npm ci` when `package-lock.json` or `yarn.lock` is present, and falls back to `npm install` otherwise. Previously `npm ci` was always used, causing the step to fail on projects without a lockfile. (PR [#5](https://github.com/geodro/lerd/pull/5) by @voronkovich)
+- **Duplicate `PATH` entry on `lerd install`** — `add_to_path` in `install.sh` now checks the live `$PATH` before modifying shell rc files. If the install directory is already present, the function returns early and skips rc modification. (PR [#7](https://github.com/geodro/lerd/pull/7) by @voronkovich)
+- **zsh completions moved to XDG directory** — zsh completions are written to `~/.local/share/zsh/site-functions/_lerd` instead of `~/.zfunc/_lerd`, aligning with the XDG base directory convention. (PR [#8](https://github.com/geodro/lerd/pull/8) by @voronkovich)
 - **`.php-version` changes not reflected in nginx** — writing a `.php-version` file (via `lerd isolate` or directly) updated the queue worker but left the nginx vhost pointing at the old FPM socket. The watcher daemon now detects when the resolved PHP version changes, updates the site registry, regenerates the vhost, and reloads nginx automatically (debounced to 2 seconds).
 - **PHP version resolution order** — `.php-version` now takes priority over `composer.json`'s `require.php` constraint, matching the documented and intuitive precedence (explicit pin beats inferred constraint).
 
