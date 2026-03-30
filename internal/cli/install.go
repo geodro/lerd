@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
@@ -285,11 +287,16 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if _, err := exec.LookPath("claude"); err == nil {
 		if !IsMCPGloballyRegistered() {
 			fmt.Print("\n  --> Claude Code detected. Register lerd MCP globally? [Y/n] ")
+			var reader *bufio.Reader
+			if term.IsTerminal(int(os.Stdin.Fd())) {
+				reader = bufio.NewReader(os.Stdin)
+			} else if tty, err := os.Open("/dev/tty"); err == nil {
+				defer tty.Close()
+				reader = bufio.NewReader(tty)
+			}
 			answer := ""
-			if tty, err := os.Open("/dev/tty"); err == nil {
-				reader := bufio.NewReader(tty)
+			if reader != nil {
 				line, _ := reader.ReadString('\n')
-				tty.Close()
 				answer = strings.TrimSpace(line)
 			}
 			if answer == "" || strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes") {
