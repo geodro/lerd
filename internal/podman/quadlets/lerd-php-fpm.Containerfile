@@ -11,6 +11,7 @@ RUN apk update && apk add --no-cache \
         libpng-dev \
         libjpeg-turbo-dev \
         freetype-dev \
+        libwebp-dev \
         icu-dev \
         oniguruma-dev \
         libxml2-dev \
@@ -23,7 +24,7 @@ RUN apk update && apk add --no-cache \
         openldap-dev \
         sqlite-dev \
         libxslt-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) \
         curl \
         pdo_mysql \
