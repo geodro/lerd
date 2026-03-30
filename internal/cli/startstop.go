@@ -162,6 +162,14 @@ func runStart(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Sync the pasta DNS proxy (169.254.1.1) as the aardvark-dns upstream for the lerd
+	// network. This address chains through systemd-resolved, which resolves both .test
+	// domains (via lerd-dns) and internet domains. Using 169.254.1.1 instead of the
+	// host's real upstream avoids NXDOMAIN for .test while retaining internet access.
+	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
+		fmt.Printf("  WARN: network DNS: %v\n", err)
+	}
+
 	// Wait for lerd-dns to be ready before configuring the resolver.
 	// systemctl start returns when the unit is active, but dnsmasq inside the
 	// container may not be listening yet. If we set resolvectl to use port 5300

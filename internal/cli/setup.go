@@ -36,7 +36,7 @@ step-selector so you can toggle which steps to execute before they run.
 
 Steps for all frameworks:
   1. composer install        — skipped if vendor/ already exists
-  2. npm ci                  — skipped if node_modules/ already exists
+  2. npm install/ci          — skipped if node_modules/ already exists (uses ci if lockfile exists)
   3. lerd env                — configure env file with lerd service settings
   4. lerd mcp:inject         — inject MCP config (off by default)
   5. npm run <build|production|prod> — build front-end assets (detected from package.json scripts)
@@ -84,6 +84,9 @@ func runSetup(allSteps, skipOpen bool) error {
 	_, nodeModulesMissing := os.Stat(cwd + "/node_modules")
 	_, pkgJSONErr := os.Stat(cwd + "/package.json")
 	hasPackageJSON := pkgJSONErr == nil
+	_, lockMissing := os.Stat(cwd + "/package-lock.json")
+	_, shrinkMissing := os.Stat(cwd + "/npm-shrinkwrap.json")
+	hasLockFile := lockMissing == nil || shrinkMissing == nil
 	buildScript := detectBuildScript(cwd + "/package.json")
 
 	steps := []setupStep{
@@ -98,10 +101,13 @@ func runSetup(allSteps, skipOpen bool) error {
 			},
 		},
 		{
-			label:   "npm ci",
+			label:   "npm install/ci",
 			enabled: os.IsNotExist(nodeModulesMissing) && hasPackageJSON,
 			run: func() error {
-				return runWithFnm("npm", []string{"ci"})
+				if hasLockFile {
+					return runWithFnm("npm", []string{"ci"})
+				}
+				return runWithFnm("npm", []string{"install"})
 			},
 		},
 		{

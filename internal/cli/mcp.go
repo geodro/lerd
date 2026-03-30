@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -119,6 +120,89 @@ func runMCPInject(targetPath string) error {
 	return nil
 }
 
+// NewMCPEnableGlobalCmd returns the mcp:enable-global command.
+func NewMCPEnableGlobalCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp:enable-global",
+		Short: "Register lerd MCP globally for all AI assistant sessions",
+		Long: `Registers the lerd MCP server at user scope so it is available
+in every Claude Code session, regardless of the current project directory.
+
+The server uses the directory Claude is opened in as the site context —
+no LERD_SITE_PATH configuration needed.
+
+This command updates:
+  claude mcp add --scope user   Claude Code user-scope MCP registration
+  ~/.ai/mcp/mcp.json            Windsurf global MCP config
+  ~/.junie/mcp/mcp.json         JetBrains Junie global MCP config`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return RunMCPEnableGlobal()
+		},
+	}
+}
+
+// RunMCPEnableGlobal registers lerd MCP at user scope for all supported AI tools.
+// It is exported so the install command can call it directly.
+func RunMCPEnableGlobal() error {
+	// Entry without LERD_SITE_PATH — server falls back to cwd at runtime.
+	lerdEntry := map[string]any{
+		"command": "lerd",
+		"args":    []string{"mcp"},
+	}
+
+	fmt.Println("Registering lerd MCP globally...")
+
+	// Claude Code — user scope via CLI.
+	// Try remove first (idempotent re-registration), then add.
+	_ = exec.Command("claude", "mcp", "remove", "--scope", "user", "lerd").Run()
+	out, err := exec.Command("claude", "mcp", "add", "--scope", "user", "lerd", "--", "lerd", "mcp").CombinedOutput()
+	if err != nil {
+		fmt.Printf("  warning: could not register with Claude Code (%v): %s\n", err, strings.TrimSpace(string(out)))
+		fmt.Printf("  Run manually: claude mcp add --scope user lerd -- lerd mcp\n")
+	} else {
+		fmt.Println("  registered in Claude Code (user scope)")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Windsurf global.
+	aiPath := filepath.Join(home, ".ai", "mcp", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(aiPath), 0755); err != nil {
+		return fmt.Errorf("creating ~/.ai/mcp: %w", err)
+	}
+	if err := mergeMCPServersJSON(aiPath, lerdEntry); err != nil {
+		return err
+	}
+	fmt.Println("  updated ~/.ai/mcp/mcp.json")
+
+	// JetBrains Junie global.
+	juniePath := filepath.Join(home, ".junie", "mcp", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(juniePath), 0755); err != nil {
+		return fmt.Errorf("creating ~/.junie/mcp: %w", err)
+	}
+	if err := mergeMCPServersJSON(juniePath, lerdEntry); err != nil {
+		return err
+	}
+	fmt.Println("  updated ~/.junie/mcp/mcp.json")
+
+	fmt.Println("\nDone! Restart your AI assistant for changes to take effect.")
+	fmt.Println("lerd will use the directory you open Claude in as the site context.")
+	return nil
+}
+
+// IsMCPGloballyRegistered reports whether lerd is already registered at user scope
+// in Claude Code. Used by the install command to skip the prompt if already set up.
+func IsMCPGloballyRegistered() bool {
+	out, err := exec.Command("claude", "mcp", "list", "--scope", "user").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "lerd")
+}
+
 // mergeJunieGuidelines upserts the lerd section inside .junie/guidelines.md.
 // If the file does not exist it is created. If a lerd section already exists
 // (delimited by the sentinel comments) it is replaced; otherwise the section
@@ -187,7 +271,6 @@ func mergeMCPServersJSON(path string, lerdEntry map[string]any) error {
 	return os.WriteFile(path, append(data, '\n'), 0644)
 }
 
-
 // bt is a backtick character for use inside raw string literals.
 const bt = "`"
 
@@ -198,6 +281,15 @@ description: Manage the lerd local Laravel development environment — run artis
 # Lerd — Laravel Local Dev Environment
 
 This project runs on **lerd**, a Podman-based Laravel development environment for Linux (similar to Laravel Herd). The ` + bt + `lerd` + bt + ` MCP server exposes tools to manage it directly from your AI assistant.
+
+## Path resolution
+
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `db_export` + bt + `, etc.) resolve it in this order:
+1. Explicit ` + bt + `path` + bt + ` argument
+2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
+3. **Current working directory** — the directory Claude was opened in
+
+In practice, you can almost always omit ` + bt + `path` + bt + ` — just open Claude in the project directory.
 
 ## Architecture
 
@@ -222,7 +314,7 @@ List all installed PHP and Node.js versions and the configured defaults. Call th
 
 ### ` + bt + `artisan` + bt + `
 Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container for the project. Arguments:
-- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 - ` + bt + `args` + bt + ` (required): artisan arguments as an array
 
 Examples:
@@ -238,7 +330,7 @@ artisan(args: ["tinker", "--execute=echo App\\Models\\User::count();"])
 
 ### ` + bt + `composer` + bt + `
 Run ` + bt + `composer` + bt + ` inside the PHP-FPM container for the project. Arguments:
-- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 - ` + bt + `args` + bt + ` (required): composer arguments as an array
 
 Examples:
@@ -348,7 +440,7 @@ Configure the project's ` + bt + `.env` + bt + ` for lerd in one call:
 - Sets ` + bt + `APP_URL` + bt + ` to the registered ` + bt + `.test` + bt + ` domain
 
 Arguments:
-- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 
 > Run this right after ` + bt + `site_link` + bt + ` when setting up a fresh project.
 
@@ -403,6 +495,27 @@ List all workers defined for a site's framework, with their running status, comm
 Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 
+### ` + bt + `project_new` + bt + `
+Scaffold a new PHP project using a framework's create command. For Laravel, runs ` + bt + `composer create-project laravel/laravel <path>` + bt + `. Other frameworks must have a ` + bt + `create` + bt + ` field in their YAML definition.
+
+Arguments:
+- ` + bt + `path` + bt + ` (required): absolute path for the new project directory (e.g. ` + bt + `/home/user/code/myapp` + bt + `)
+- ` + bt + `framework` + bt + ` (optional): framework name (default: ` + bt + `"laravel"` + bt + `)
+- ` + bt + `args` + bt + ` (optional): extra arguments passed to the scaffold command
+
+After creation, register and configure the project:
+` + "```" + `
+project_new(path: "/home/user/code/myapp")
+site_link(path: "/home/user/code/myapp")
+env_setup(path: "/home/user/code/myapp")
+` + "```" + `
+
+From the terminal you can also run:
+` + "```" + `
+lerd new myapp
+cd myapp && lerd link && lerd setup
+` + "```" + `
+
 ### ` + bt + `framework_list` + bt + `
 List all available framework definitions (Laravel built-in plus any user-defined YAMLs at ` + bt + `~/.config/lerd/frameworks/` + bt + `), including their defined workers. Call this before ` + bt + `framework_add` + bt + ` to see what already exists.
 
@@ -442,6 +555,13 @@ framework_add(
 ### ` + bt + `framework_remove` + bt + `
 Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only the custom worker additions (built-in queue/schedule/reverb remain). Takes ` + bt + `name` + bt + ` (required).
 
+### ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + `
+Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required) and ` + bt + `version` + bt + ` (required).
+
+` + bt + `site_php` + bt + ` writes a ` + bt + `.php-version` + bt + ` pin file to the project root, updates the site registry, and regenerates the nginx vhost. The FPM container for the target PHP version must be running — start it with ` + bt + `service_start(name: "php<version>")` + bt + ` if needed.
+
+` + bt + `site_node` + bt + ` writes a ` + bt + `.node-version` + bt + ` pin file and installs the version via fnm if it isn't already installed. Run ` + bt + `npm install` + bt + ` inside the project if dependencies need rebuilding against the new version.
+
 ### ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + `
 Pause or resume a site. Both take ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
 
@@ -468,7 +588,7 @@ Arguments for ` + bt + `stripe_listen` + bt + `:
 
 ### ` + bt + `db_export` + bt + `
 Export a database to a SQL dump file. Arguments:
-- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 - ` + bt + `database` + bt + ` (optional): database name to export (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
 - ` + bt + `output` + bt + ` (optional): output file path (defaults to ` + bt + `<database>.sql` + bt + ` in the project root)
 
@@ -494,9 +614,17 @@ Run a full environment diagnostic. Checks podman availability, systemd user sess
 runtime_versions()   // see PHP and Node.js versions available
 ` + "```" + `
 
-**Set up a brand-new cloned project (full flow):**
+**Create a new Laravel project from scratch (global session, empty directory):**
 ` + "```" + `
-site_link()                          // registers LERD_SITE_PATH as a lerd site
+composer(args: ["create-project", "laravel/laravel", "."])
+site_link()           // registers the cwd as a lerd site
+env_setup()           // configures .env, starts services, creates DB, generates APP_KEY
+artisan(args: ["migrate"])
+` + "```" + `
+
+**Set up a cloned project (full flow):**
+` + "```" + `
+site_link()                          // registers the cwd as a lerd site
 env_setup()                          // auto-configures .env, starts services, creates DB
 composer(args: ["install"])
 artisan(args: ["migrate", "--seed"])
@@ -665,9 +793,12 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `worker_start` + bt + ` | Start any named framework worker (e.g. messenger, pulse) |
 | ` + bt + `worker_stop` + bt + ` | Stop a named framework worker |
 | ` + bt + `worker_list` + bt + ` | List all workers defined for a site's framework with running status |
+| ` + bt + `project_new` + bt + ` | Scaffold a new PHP project (runs the framework's create command); follow with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` |
 | ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers |
 | ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers to Laravel |
 | ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker additions |
+| ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost |
+| ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed |
 | ` + bt + `site_pause` + bt + ` | Pause a site: stop all its workers and replace its vhost with a landing page |
 | ` + bt + `site_unpause` + bt + ` | Resume a paused site: restore its vhost and restart previously running workers |
 | ` + bt + `service_pin` + bt + ` | Pin a service so it is never auto-stopped even when no sites reference it |
@@ -680,6 +811,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 
 ### Key conventions
 
+- ` + bt + `path` + bt + ` argument is optional on most tools — defaults to the directory the AI assistant was opened in (cwd), then ` + bt + `LERD_SITE_PATH` + bt + ` if set; you can almost always omit it
 - ` + bt + `artisan` + bt + ` and ` + bt + `composer` + bt + ` take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
 - ` + bt + `tinker` + bt + ` must use ` + bt + `--execute=<code>` + bt + ` for non-interactive use
 - Built-in service hosts follow the pattern ` + bt + `lerd-<name>` + bt + ` (e.g. ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `)
@@ -689,7 +821,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - If ` + bt + `sites` + bt + ` returns ` + bt + `has_horizon: true` + bt + ` for a site, use ` + bt + `horizon_start` + bt + ` / ` + bt + `horizon_stop` + bt + ` instead of ` + bt + `queue_start` + bt + ` / ` + bt + `queue_stop` + bt + ` — Horizon manages queues and they are mutually exclusive
 - Use ` + bt + `worker_list` + bt + ` first to discover what workers are available for a site before calling ` + bt + `worker_start` + bt + `
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `, ` + bt + `lerd-horizon-myapp` + bt + `)
+- ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + ` change the PHP/Node version for a site; the FPM container for the new PHP version must be running after calling ` + bt + `site_php` + bt + `
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
+- ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
 `

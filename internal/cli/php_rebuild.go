@@ -8,6 +8,7 @@ import (
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +55,19 @@ func runPhpRebuild(_ *cobra.Command, _ []string) error {
 			fmt.Printf("  [WARN] restart %s: %v\n", unit, err)
 		} else {
 			fmt.Printf("  restarted %s\n", unit)
+		}
+	}
+
+	// Restart workers that run inside FPM containers via podman exec.
+	// BindsTo stops them when the FPM container stops but does not restart
+	// them when it comes back up, so we do it explicitly here.
+	for _, unit := range append(append(registeredReverbUnits(), registeredQueueUnits()...), registeredScheduleUnits()...) {
+		if lerdSystemd.IsServiceActive(unit) || lerdSystemd.IsServiceEnabled(unit) {
+			if err := lerdSystemd.RestartService(unit); err != nil {
+				fmt.Printf("  [WARN] restart %s: %v\n", unit, err)
+			} else {
+				fmt.Printf("  restarted %s\n", unit)
+			}
 		}
 	}
 

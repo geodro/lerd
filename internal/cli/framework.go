@@ -64,6 +64,7 @@ func newFrameworkAddCmd() *cobra.Command {
 		envFormat      string
 		composer       string
 		npm            string
+		create         string
 	)
 
 	cmd := &cobra.Command{
@@ -88,7 +89,8 @@ YAML file format:
     example_file: .env.example
     format: dotenv
   composer: auto
-  npm: auto`,
+  npm: auto
+  create: composer create-project myvendor/myfw`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			var fw config.Framework
@@ -113,6 +115,7 @@ YAML file format:
 				fw.PublicDir = publicDir
 				fw.Composer = composer
 				fw.NPM = npm
+				fw.Create = create
 
 				for _, f := range detectFiles {
 					fw.Detect = append(fw.Detect, config.FrameworkRule{File: f})
@@ -158,6 +161,7 @@ YAML file format:
 	cmd.Flags().StringVar(&envFormat, "env-format", "", "Env file format: dotenv or php-const")
 	cmd.Flags().StringVar(&composer, "composer", "", "Run composer install: auto, true, or false")
 	cmd.Flags().StringVar(&npm, "npm", "", "Run npm install: auto, true, or false")
+	cmd.Flags().StringVar(&create, "create", "", "Scaffold command for 'lerd new' (target dir is appended automatically, e.g. \"composer create-project myvendor/myfw\")")
 
 	return cmd
 }

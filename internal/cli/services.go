@@ -254,19 +254,19 @@ func newServiceListCmd() *cobra.Command {
 // newServiceAddCmd returns the `service add` command.
 func newServiceAddCmd() *cobra.Command {
 	var (
-		name            string
-		image           string
-		ports           []string
-		envVars         []string
-		containerEnv    []string
-		dataDir         string
-		detectKey       string
-		detectPrefix    string
-		description     string
-		initExec        string
-		initContainer   string
-		dashboard       string
-		dependsOn       []string
+		name          string
+		image         string
+		ports         []string
+		envVars       []string
+		containerEnv  []string
+		dataDir       string
+		detectKey     string
+		detectPrefix  string
+		description   string
+		initExec      string
+		initContainer string
+		dashboard     string
+		dependsOn     []string
 	)
 
 	cmd := &cobra.Command{

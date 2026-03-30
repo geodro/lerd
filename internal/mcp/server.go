@@ -81,9 +81,18 @@ var builtinServiceEnv = map[string][]string{
 // phpVersionRe matches PHP version strings like "8.4" or "8.3" — digits only, no domain names.
 var phpVersionRe = regexp.MustCompile(`^\d+\.\d+$`)
 
-// defaultSitePath is set at startup from LERD_SITE_PATH, injected by mcp:inject.
-// Tools that accept a "path" argument use this as a fallback when none is provided.
-var defaultSitePath = os.Getenv("LERD_SITE_PATH")
+// defaultSitePath is resolved at startup: LERD_SITE_PATH takes precedence (injected by
+// mcp:inject for project-scoped use); if not set, the working directory is used so that
+// global MCP sessions (registered via mcp:enable-global) are automatically context-aware.
+var defaultSitePath = func() string {
+	if p := os.Getenv("LERD_SITE_PATH"); p != "" {
+		return p
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return ""
+}()
 
 // resolvedPath returns the "path" argument from args, falling back to defaultSitePath.
 func resolvedPath(args map[string]any) string {
@@ -640,16 +649,16 @@ func toolList() []mcpTool {
 			mcpTool{
 				Name:        "reverb_start",
 				Description: "Start the Laravel Reverb WebSocket server for a registered site as a systemd user service. The server runs php artisan reverb:start inside the PHP-FPM container.",
-			InputSchema: mcpSchema{
-				Type: "object",
-				Properties: map[string]mcpProp{
-					"site": {
-						Type:        "string",
-						Description: "Site name as shown by the sites tool",
+				InputSchema: mcpSchema{
+					Type: "object",
+					Properties: map[string]mcpProp{
+						"site": {
+							Type:        "string",
+							Description: "Site name as shown by the sites tool",
+						},
 					},
+					Required: []string{"site"},
 				},
-				Required: []string{"site"},
-			},
 			},
 			mcpTool{
 				Name:        "reverb_stop",
@@ -881,6 +890,64 @@ func toolList() []mcpTool {
 			},
 		},
 		mcpTool{
+			Name:        "project_new",
+			Description: "Scaffold a new PHP project using a framework's create command. For Laravel this runs `composer create-project laravel/laravel <path>`. Other frameworks must have a `create` field in their YAML definition. After creation, use site_link to register the site.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path for the new project directory (e.g. /home/user/code/myapp)",
+					},
+					"framework": {
+						Type:        "string",
+						Description: `Framework to use (default: "laravel"). Must have a 'create' field defined.`,
+					},
+					"args": {
+						Type:        "array",
+						Description: `Extra arguments to pass to the scaffold command, e.g. ["--no-interaction"]`,
+					},
+				},
+				Required: []string{"path"},
+			},
+		},
+		mcpTool{
+			Name:        "site_php",
+			Description: "Change the PHP version for a registered lerd site. Writes a .php-version file, updates the site registry, and regenerates the nginx vhost.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+					"version": {
+						Type:        "string",
+						Description: "PHP version to use, e.g. \"8.4\", \"8.3\"",
+					},
+				},
+				Required: []string{"site", "version"},
+			},
+		},
+		mcpTool{
+			Name:        "site_node",
+			Description: "Change the Node.js version for a registered lerd site. Writes a .node-version file, installs the version via fnm if needed, and updates the site registry.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+					"version": {
+						Type:        "string",
+						Description: "Node.js version to use, e.g. \"22\", \"20\", \"lts\"",
+					},
+				},
+				Required: []string{"site", "version"},
+			},
+		},
+		mcpTool{
 			Name:        "site_pause",
 			Description: "Pause a site: stop all its running workers (queue, schedule, reverb, stripe, custom) and replace its nginx vhost with a landing page. Auto-stops services no longer needed by any active site.",
 			InputSchema: mcpSchema{
@@ -1056,6 +1123,12 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execFrameworkAdd(args)
 	case "framework_remove":
 		return execFrameworkRemove(args)
+	case "project_new":
+		return execProjectNew(args)
+	case "site_php":
+		return execSitePHP(args)
+	case "site_node":
+		return execSiteNode(args)
 	case "site_pause":
 		return execSitePause(args)
 	case "site_unpause":
@@ -1142,7 +1215,7 @@ func isKnownService(name string) bool {
 func execArtisan(args map[string]any) (any, *rpcError) {
 	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 	artisanArgs := strSliceArg(args, "args")
 	if len(artisanArgs) == 0 {
@@ -1683,7 +1756,7 @@ func resolveLogsContainer(target string) (string, error) {
 func execComposer(args map[string]any) (any, *rpcError) {
 	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 	composerArgs := strSliceArg(args, "args")
 	if len(composerArgs) == 0 {
@@ -1827,12 +1900,16 @@ func execStatus() (any, *rpcError) {
 		Running bool   `json:"running"`
 	}
 	type result struct {
-		DNS     struct {
+		DNS struct {
 			OK  bool   `json:"ok"`
 			TLD string `json:"tld"`
 		} `json:"dns"`
-		Nginx   struct{ Running bool `json:"running"` } `json:"nginx"`
-		Watcher struct{ Running bool `json:"running"` } `json:"watcher"`
+		Nginx struct {
+			Running bool `json:"running"`
+		} `json:"nginx"`
+		Watcher struct {
+			Running bool `json:"running"`
+		} `json:"watcher"`
 		PHPFPMs []phpStatus `json:"php_fpms"`
 	}
 
@@ -2045,7 +2122,7 @@ func execServiceEnv(args map[string]any) (any, *rpcError) {
 func execEnvSetup(args map[string]any) (any, *rpcError) {
 	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
 	self, err := os.Executable()
@@ -2067,7 +2144,7 @@ func execEnvSetup(args map[string]any) (any, *rpcError) {
 func execSiteLink(args map[string]any) (any, *rpcError) {
 	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
 	cfg, err := config.LoadGlobal()
@@ -2317,7 +2394,7 @@ func execXdebugStatus() (any, *rpcError) {
 func execDBExport(args map[string]any) (any, *rpcError) {
 	projectPath := resolvedPath(args)
 	if projectPath == "" {
-		return toolErr("path is required (or set LERD_SITE_PATH via mcp:inject)"), nil
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
 	env, err := readDBEnv(projectPath)
@@ -2744,6 +2821,131 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
 	}
 	return toolOK(fmt.Sprintf("Framework %q removed.", name)), nil
+}
+
+func execProjectNew(args map[string]any) (any, *rpcError) {
+	projectPath := strArg(args, "path")
+	if projectPath == "" {
+		return toolErr("path is required — provide an absolute path for the new project directory"), nil
+	}
+	frameworkName := strArg(args, "framework")
+	if frameworkName == "" {
+		frameworkName = "laravel"
+	}
+	extraArgs := strSliceArg(args, "args")
+
+	fw, ok := config.GetFramework(frameworkName)
+	if !ok {
+		return toolErr(fmt.Sprintf("unknown framework %q — use framework_list to see available frameworks", frameworkName)), nil
+	}
+	if fw.Create == "" {
+		return toolErr(fmt.Sprintf("framework %q has no create command — add a 'create' field to its YAML definition", frameworkName)), nil
+	}
+
+	parts := strings.Fields(fw.Create)
+	parts = append(parts, projectPath)
+	parts = append(parts, extraArgs...)
+
+	var out bytes.Buffer
+	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("scaffold command failed (%v):\n%s", err, out.String())), nil
+	}
+	return toolOK(fmt.Sprintf("Project created at %s\n\nNext steps:\n  site_link(path: %q)\n  env_setup(path: %q)\n\n%s",
+		projectPath, projectPath, projectPath, strings.TrimSpace(out.String()))), nil
+}
+
+func execSitePHP(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	version := strArg(args, "version")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	if version == "" {
+		return toolErr("version is required"), nil
+	}
+
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr(fmt.Sprintf("site %q not found — run sites to list registered sites", siteName)), nil
+	}
+
+	// Write .php-version pin file in the project.
+	phpVersionFile := filepath.Join(site.Path, ".php-version")
+	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
+		return toolErr("writing .php-version: " + err.Error()), nil
+	}
+
+	// Ensure the FPM quadlet and xdebug ini exist for this version.
+	if err := podman.WriteFPMQuadlet(version); err != nil {
+		return toolErr("writing FPM quadlet: " + err.Error()), nil
+	}
+	_ = podman.WriteXdebugIni(version, false) // non-fatal if version not yet built
+
+	// Update the site registry.
+	site.PHPVersion = version
+	if err := config.AddSite(*site); err != nil {
+		return toolErr("updating site registry: " + err.Error()), nil
+	}
+
+	// Regenerate the nginx vhost (SSL or plain).
+	if site.Secured {
+		if err := certs.SecureSite(*site); err != nil {
+			return toolErr("regenerating SSL vhost: " + err.Error()), nil
+		}
+	} else {
+		if err := nginx.GenerateVhost(*site, version); err != nil {
+			return toolErr("regenerating vhost: " + err.Error()), nil
+		}
+	}
+
+	if err := nginx.Reload(); err != nil {
+		return toolErr("reloading nginx: " + err.Error()), nil
+	}
+
+	return toolOK(fmt.Sprintf("PHP version for %s set to %s. The FPM container for PHP %s must be running — use service_start(name: \"php%s\") if it isn't.", siteName, version, version, version)), nil
+}
+
+func execSiteNode(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	version := strArg(args, "version")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	if version == "" {
+		return toolErr("version is required"), nil
+	}
+
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr(fmt.Sprintf("site %q not found — run sites to list registered sites", siteName)), nil
+	}
+
+	// Write .node-version pin file in the project.
+	nodeVersionFile := filepath.Join(site.Path, ".node-version")
+	if err := os.WriteFile(nodeVersionFile, []byte(version+"\n"), 0644); err != nil {
+		return toolErr("writing .node-version: " + err.Error()), nil
+	}
+
+	// Install the version via fnm (non-fatal if already installed or fnm unavailable).
+	fnmPath := filepath.Join(config.BinDir(), "fnm")
+	if _, statErr := os.Stat(fnmPath); statErr == nil {
+		var out bytes.Buffer
+		cmd := exec.Command(fnmPath, "install", version)
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		_ = cmd.Run()
+	}
+
+	// Update the site registry.
+	site.NodeVersion = version
+	if err := config.AddSite(*site); err != nil {
+		return toolErr("updating site registry: " + err.Error()), nil
+	}
+
+	return toolOK(fmt.Sprintf("Node.js version for %s set to %s. Run npm install inside the project if dependencies need rebuilding.", siteName, version)), nil
 }
 
 func execSitePause(args map[string]any) (any, *rpcError) {

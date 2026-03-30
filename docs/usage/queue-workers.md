@@ -91,7 +91,12 @@ lerd queue:start --queue=emails,default --tries=5 --timeout=120
 
 ## Auto-restart on config changes
 
-The lerd watcher daemon monitors `.env`, `composer.json`, `composer.lock`, and `.php-version` for every registered site. When any of those files change, it automatically signals `php artisan queue:restart` inside the PHP-FPM container (debounced). This ensures queue workers reload after deploys or PHP version changes without manual intervention.
+The lerd watcher daemon monitors `.env`, `composer.json`, `composer.lock`, and `.php-version` for every registered site. When any of those files change it:
+
+- Signals `php artisan queue:restart` inside the PHP-FPM container (debounced to 2 seconds)
+- If `.php-version` changed: updates the site registry and regenerates the nginx vhost automatically — no manual reload needed
+
+This ensures queue workers and nginx stay in sync after deploys or PHP version changes without manual intervention.
 
 ---
 

@@ -278,4 +278,3 @@ func checkDirWritable(dir string) error {
 }
 
 // portInUse is implemented per-platform in doctor_linux.go / doctor_darwin.go.
-

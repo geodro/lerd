@@ -35,6 +35,9 @@ jobs:
       - name: Vet
         run: CGO_ENABLED=1 go vet -tags legacy_appindicator ./...
 
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
   installer:
     name: Installer Tests
     runs-on: ubuntu-latest

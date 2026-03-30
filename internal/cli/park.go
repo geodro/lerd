@@ -46,7 +46,6 @@ func warnMissingExtensions(dir, name, phpVersion string, cfg *config.GlobalConfi
 	}
 }
 
-
 // NewParkCmd returns the park command.
 func NewParkCmd() *cobra.Command {
 	return &cobra.Command{

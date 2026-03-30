@@ -57,7 +57,6 @@ func newQueueStopCmd(use string) *cobra.Command {
 	}
 }
 
-
 func queueSiteName(cwd string) (string, error) {
 	reg, err := config.LoadSites()
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/geodro/lerd/internal/watcher"
@@ -78,6 +79,7 @@ func main() {
 	root.AddCommand(cli.NewAutostartCmd())
 	root.AddCommand(cli.NewMCPCmd())
 	root.AddCommand(cli.NewMCPInjectCmd())
+	root.AddCommand(cli.NewMCPEnableGlobalCmd())
 	root.AddCommand(cli.NewFetchCmd())
 	root.AddCommand(cli.NewDbCmd())
 	root.AddCommand(cli.NewDbImportCmd())
@@ -93,6 +95,7 @@ func main() {
 	root.AddCommand(cli.NewShareCmd())
 	root.AddCommand(cli.NewFrameworkCmd())
 	root.AddCommand(cli.NewWorkerCmd())
+	root.AddCommand(cli.NewNewCmd())
 	root.AddCommand(cli.NewSetupCmd())
 	root.AddCommand(cli.NewMinioMigrateCmd())
 	root.AddCommand(cli.NewPauseCmd())
@@ -296,6 +299,19 @@ func newWatchCmd() *cobra.Command {
 						site, err := config.FindSiteByPath(sitePath)
 						if err != nil {
 							return
+						}
+						// Re-detect PHP version in case .php-version changed.
+						if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != site.PHPVersion {
+							site.PHPVersion = detected
+							_ = config.AddSite(*site)
+							if site.Secured {
+								_ = nginx.GenerateSSLVhost(*site, detected)
+							} else {
+								_ = nginx.GenerateVhost(*site, detected)
+							}
+							if err := nginx.Reload(); err != nil {
+								fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+							}
 						}
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
 							fmt.Printf("[WARN] queue restart for %s: %v\n", site.Name, err)

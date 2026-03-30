@@ -279,9 +279,9 @@ type ServiceCheck struct {
 }
 
 type PHPStatus struct {
-	Version        string `json:"version"`
-	Running        bool   `json:"running"`
-	XdebugEnabled  bool   `json:"xdebug_enabled"`
+	Version       string `json:"version"`
+	Running       bool   `json:"running"`
+	XdebugEnabled bool   `json:"xdebug_enabled"`
 }
 
 func handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -530,14 +530,14 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 // ServiceResponse is the response for GET /api/services.
 type ServiceResponse struct {
-	Name             string            `json:"name"`
-	Status           string            `json:"status"`
-	EnvVars          map[string]string `json:"env_vars"`
-	Dashboard        string            `json:"dashboard,omitempty"`
-	Custom           bool              `json:"custom,omitempty"`
-	SiteCount        int               `json:"site_count"`
-	Pinned           bool              `json:"pinned"`
-	DependsOn        []string          `json:"depends_on,omitempty"`
+	Name               string            `json:"name"`
+	Status             string            `json:"status"`
+	EnvVars            map[string]string `json:"env_vars"`
+	Dashboard          string            `json:"dashboard,omitempty"`
+	Custom             bool              `json:"custom,omitempty"`
+	SiteCount          int               `json:"site_count"`
+	Pinned             bool              `json:"pinned"`
+	DependsOn          []string          `json:"depends_on,omitempty"`
 	QueueSite          string            `json:"queue_site,omitempty"`
 	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
 	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
@@ -1048,7 +1048,6 @@ func handleVersion(w http.ResponseWriter, _ *http.Request, currentVersion string
 	}
 	writeJSON(w, resp)
 }
-
 
 func handlePHPVersions(w http.ResponseWriter, _ *http.Request) {
 	versions, _ := phpPkg.ListInstalled()
@@ -1728,7 +1727,6 @@ func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]any{"ok": true, "xdebug_enabled": enable})
 }
-
 
 func handleScheduleLogs(w http.ResponseWriter, r *http.Request) {
 	// path: /api/schedule/<sitename>/logs

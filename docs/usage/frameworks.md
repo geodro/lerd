@@ -10,9 +10,59 @@ Laravel has a built-in definition. Any other PHP framework (Symfony, WordPress, 
 
 | Command | Description |
 |---|---|
+| `lerd new <name-or-path>` | Scaffold a new PHP project using a framework's create command |
 | `lerd framework list` | List all framework definitions including workers |
 | `lerd framework add <name>` | Add or update a framework definition (flags or `--from-file`) |
 | `lerd framework remove <name>` | Remove a user-defined framework definition |
+
+---
+
+## Creating new projects
+
+Use `lerd new` to scaffold a new PHP project from a framework's create command:
+
+```bash
+lerd new myapp                          # create ./myapp using Laravel (default)
+lerd new myapp --framework=symfony      # create using Symfony's create command
+lerd new /path/to/myapp                 # create at an absolute path
+lerd new myapp -- --no-interaction      # pass extra flags to the scaffold command
+```
+
+For Laravel, this runs:
+```bash
+composer create-project laravel/laravel /abs/path/to/myapp
+```
+
+After creation, register the site and bootstrap it:
+```bash
+cd myapp
+lerd link
+lerd setup
+```
+
+Or let your AI assistant do it via MCP:
+```
+project_new(path: "/home/user/code/myapp")
+site_link(path: "/home/user/code/myapp")
+env_setup(path: "/home/user/code/myapp")
+```
+
+### Defining a create command for custom frameworks
+
+Add a `create` field to a framework's YAML definition. The target directory is appended automatically when `lerd new` runs:
+
+```yaml
+# ~/.config/lerd/frameworks/symfony.yaml
+name: symfony
+create: composer create-project symfony/skeleton
+# ... rest of definition
+```
+
+Then:
+```bash
+lerd new myapp --framework=symfony
+# runs: composer create-project symfony/skeleton /abs/path/to/myapp
+```
 
 ---
 
@@ -165,6 +215,9 @@ env:
         - key: REDIS_DSN
       vars:
         - "REDIS_URL=redis://lerd-redis:6379"
+
+# Scaffold command for "lerd new" — target directory is appended automatically
+create: composer create-project myvendor/myframework
 
 # Dependency installation
 composer: auto                    # auto | true | false (auto = run if vendor/ missing)

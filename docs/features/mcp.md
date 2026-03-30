@@ -4,16 +4,34 @@ Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, 
 
 ---
 
-## Injecting the config
+## Setting up MCP
 
-Run this once from a Laravel project root:
+There are two ways to connect lerd to your AI assistant: globally (recommended) or per-project.
+
+### Global registration (recommended)
+
+Run once after installing lerd:
+
+```bash
+lerd mcp:enable-global
+```
+
+This registers the lerd MCP server at **user scope** — available in every Claude Code session, regardless of which directory you open. It also updates Windsurf and JetBrains Junie global configs.
+
+When running globally, the server uses the **directory Claude is opened in** as the site context. No further configuration is needed — just open your AI assistant in a project directory and lerd tools work immediately.
+
+> **During `lerd install`:** If Claude Code is detected, you'll be prompted to run this automatically.
+
+### Project-scoped registration
+
+To pin lerd to a specific project path (useful for teams or when sharing config via git):
 
 ```bash
 cd ~/Lerd/my-app
 lerd mcp:inject
 ```
 
-This writes five files:
+This writes five files into the project directory:
 
 | File | Purpose |
 |---|---|
@@ -23,7 +41,7 @@ This writes five files:
 | `.junie/mcp/mcp.json` | MCP server entry for JetBrains Junie |
 | `.junie/guidelines.md` | Lerd context section for JetBrains Junie (merged, not overwritten) |
 
-Each config includes a `LERD_SITE_PATH` environment variable pointing to the project root. This means tools like `artisan`, `composer`, `env_setup`, and `db_export` don't need an explicit `path` argument when called from within that project — the server uses `LERD_SITE_PATH` as the default.
+The config includes a `LERD_SITE_PATH` environment variable pointing to the project root, which takes precedence over the cwd fallback.
 
 The command **merges** into existing configs — other MCP servers (e.g. `laravel-boost`, `herd`) are left untouched. Re-running it is safe.
 
@@ -32,6 +50,14 @@ To target a different directory:
 ```bash
 lerd mcp:inject --path ~/Lerd/another-app
 ```
+
+### Path resolution
+
+Tools like `artisan`, `composer`, `env_setup`, and `db_export` accept an optional `path` argument. When omitted, the server resolves the path in this order:
+
+1. Explicit `path` argument (highest priority)
+2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
+3. Current working directory — the directory Claude was opened in (global sessions)
 
 ---
 
@@ -76,6 +102,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `framework_list` | List all framework definitions including their workers |
 | `framework_add` | Add or update a framework definition; use `name: "laravel"` to add custom workers to Laravel |
 | `framework_remove` | Remove a user-defined framework; for `laravel` removes only custom worker additions |
+| `site_php` | Change the PHP version for a registered site — writes `.php-version`, updates registry, regenerates nginx vhost |
+| `site_node` | Change the Node.js version for a registered site — writes `.node-version`, installs via fnm if needed |
 | `site_pause` | Pause a site: stop all its workers and replace its vhost with a landing page |
 | `site_unpause` | Resume a paused site: restore its vhost and restart previously running workers |
 | `service_pin` | Pin a service so it is never auto-stopped even when no sites reference it |
@@ -90,9 +118,17 @@ Once the MCP server is connected, your AI assistant has access to:
 
 ## Example interactions
 
-`LERD_SITE_PATH` is set automatically by `mcp:inject`, so `path` is omitted from most calls.
+The `path` argument is omitted from most calls — the server resolves it from the directory Claude was opened in (global sessions) or from `LERD_SITE_PATH` (project-scoped sessions).
 
 ```
+You: create a new Laravel project and get it running
+AI:  → composer(args: ["create-project", "laravel/laravel", "."])
+     → site_link()
+     → env_setup()
+       # detects MySQL + Redis, starts them, creates database, generates APP_KEY
+     → artisan(args: ["migrate"])
+     ✓  myapp -> myapp.test ready
+
 You: run migrations
 AI:  → artisan(args: ["migrate"])
      ✓  Ran 3 migrations in 42ms

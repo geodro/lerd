@@ -65,3 +65,7 @@ func Teardown() {
 func InstallSudoers() error {
 	return nil
 }
+
+// ReadContainerDNS returns nil on macOS — the Podman network does not need
+// container-side DNS servers because dnsmasq runs natively, not in a container.
+func ReadContainerDNS() []string { return nil }

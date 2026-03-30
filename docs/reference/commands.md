@@ -23,6 +23,14 @@
 | `lerd doctor` | Full environment diagnostic — podman, systemd, DNS, ports, PHP images, config validity |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 
+## Project creation
+
+| Command | Description |
+|---|---|
+| `lerd new <name-or-path>` | Scaffold a new PHP project using the framework's create command (default: Laravel) |
+| `lerd new <name> --framework=<name>` | Scaffold using a specific framework |
+| `lerd new <name> -- <extra args>` | Pass extra args to the scaffold command |
+
 ## Project setup
 
 | Command | Description |
@@ -168,6 +176,7 @@ For projects that use `laravel/horizon` — lerd detects it automatically from `
 
 | Command | Description |
 |---|---|
+| `lerd mcp:enable-global` | Register lerd MCP at user scope — available in every Claude Code session regardless of directory |
 | `lerd mcp:inject` | Inject the lerd MCP config and AI skill files into the current project |
 | `lerd mcp:inject --path <dir>` | Inject into a specific project directory |
 

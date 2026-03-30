@@ -10,14 +10,17 @@ import (
 
 // Framework describes a PHP project framework type.
 type Framework struct {
-	Name      string                      `yaml:"name"`
-	Label     string                      `yaml:"label"`
-	Detect    []FrameworkRule             `yaml:"detect,omitempty"`
-	PublicDir string                      `yaml:"public_dir"`
-	Env       FrameworkEnvConf            `yaml:"env,omitempty"`
-	Composer  string                      `yaml:"composer,omitempty"` // auto | true | false
-	NPM       string                      `yaml:"npm,omitempty"`      // auto | true | false
-	Workers   map[string]FrameworkWorker  `yaml:"workers,omitempty"`
+	Name      string                     `yaml:"name"`
+	Label     string                     `yaml:"label"`
+	Detect    []FrameworkRule            `yaml:"detect,omitempty"`
+	PublicDir string                     `yaml:"public_dir"`
+	Env       FrameworkEnvConf           `yaml:"env,omitempty"`
+	Composer  string                     `yaml:"composer,omitempty"` // auto | true | false
+	NPM       string                     `yaml:"npm,omitempty"`      // auto | true | false
+	Workers   map[string]FrameworkWorker `yaml:"workers,omitempty"`
+	// Create is the scaffold command used by "lerd new". The target directory is appended automatically.
+	// Example: "composer create-project laravel/laravel"
+	Create string `yaml:"create,omitempty"`
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.
@@ -107,6 +110,7 @@ var laravelFramework = &Framework{
 	Name:      "laravel",
 	Label:     "Laravel",
 	PublicDir: "public",
+	Create:    "composer create-project laravel/laravel",
 	Detect: []FrameworkRule{
 		{File: "artisan"},
 		{Composer: "laravel/framework"},

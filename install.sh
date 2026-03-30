@@ -336,7 +336,13 @@ add_to_path() {
   local shell; shell="$(basename "${SHELL:-bash}")"
   local rc; rc="$(detect_shell_rc)"
 
-  # Don't add if already present
+  # Check if already in current PATH
+  if [[ ":$PATH:" == *":$INSTALL_DIR:"* ]]; then
+    success "$INSTALL_DIR is already in PATH"
+    return
+  fi
+
+  # Don't add if already present in rc file
   if grep -q "$SHELL_MARKER" "$rc" 2>/dev/null; then
     success "PATH already configured in $rc"
     return

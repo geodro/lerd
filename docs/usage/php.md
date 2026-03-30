@@ -37,9 +37,11 @@ composer install
 When serving a request, Lerd picks the PHP version for a project in this order:
 
 1. `.lerd.yaml` in the project root — `php_version` field (explicit lerd override)
-2. `composer.json` — `require.php` constraint (e.g. `^8.4` → `8.4`)
-3. `.php-version` file in the project root (plain text, e.g. `8.2`)
+2. `.php-version` file in the project root (plain text, e.g. `8.2`)
+3. `composer.json` — `require.php` constraint (e.g. `^8.4` → `8.4`)
 4. Global default in `~/.config/lerd/config.yaml`
+
+When `.php-version` changes on disk, the lerd watcher automatically updates the site registry and regenerates the nginx vhost — no manual reload needed.
 
 To pin a project permanently:
 

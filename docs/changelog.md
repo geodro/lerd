@@ -7,6 +7,46 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-03-30
+
+### Added
+
+- **`lerd new <name-or-path>`** — scaffold a new PHP project using the framework's `create` command. Defaults to Laravel (`composer create-project laravel/laravel`). Pass `--framework=<name>` to use any framework that defines a `create` field. Extra args can be forwarded to the scaffold command after `--`. The `project_new` MCP tool provides the same functionality for AI assistants.
+- **`create` field in framework definitions** — framework YAML files now support a `create` property (e.g. `create: composer create-project symfony/skeleton`). The target directory is appended automatically by `lerd new`. The `--create` flag was also added to `lerd framework add`.
+- **`project_new` MCP tool** — scaffold a new project from an AI assistant session. Accepts `path` (required), `framework` (default: `laravel`), and `args` (extra scaffold flags). Follow with `site_link` and `env_setup` to register and configure the new site.
+- **`lerd mcp:enable-global`** — registers the lerd MCP server at Claude Code user scope (and Windsurf / JetBrains Junie global configs) so lerd tools are available in every AI session without per-project configuration. During `lerd install`, if Claude Code is detected and lerd is not yet registered, the installer prompts to run this automatically.
+- **`site_php` MCP tool** — change the PHP version for a registered site from your AI assistant. Writes `.php-version`, updates the site registry, regenerates the nginx vhost, and reloads nginx in one call. The target FPM container must be running.
+- **`site_node` MCP tool** — change the Node.js version for a registered site. Writes `.node-version` and installs the version via fnm if not already present.
+- **CWD fallback for MCP path resolution** — the MCP server now falls back to the working directory Claude was opened in when `LERD_SITE_PATH` is not set. This means `path` can be omitted from `artisan`, `composer`, `env_setup`, `site_link`, `db_export`, and other tools when running in a global MCP session — just open Claude in the project directory.
+
+### Fixed
+
+- **`lerd setup` npm step fails without a lockfile** — the npm install step now runs `npm ci` when `package-lock.json` or `yarn.lock` is present, and falls back to `npm install` otherwise. Previously `npm ci` was always used, causing the step to fail on projects without a lockfile. (PR [#5](https://github.com/geodro/lerd/pull/5) by @voronkovich)
+- **Duplicate `PATH` entry on `lerd install`** — `add_to_path` in `install.sh` now checks the live `$PATH` before modifying shell rc files. If the install directory is already present, the function returns early and skips rc modification. (PR [#7](https://github.com/geodro/lerd/pull/7) by @voronkovich)
+- **zsh completions moved to XDG directory** — zsh completions are written to `~/.local/share/zsh/site-functions/_lerd` instead of `~/.zfunc/_lerd`, aligning with the XDG base directory convention. (PR [#8](https://github.com/geodro/lerd/pull/8) by @voronkovich)
+- **`.php-version` changes not reflected in nginx** — writing a `.php-version` file (via `lerd isolate` or directly) updated the queue worker but left the nginx vhost pointing at the old FPM socket. The watcher daemon now detects when the resolved PHP version changes, updates the site registry, regenerates the vhost, and reloads nginx automatically (debounced to 2 seconds).
+- **PHP version resolution order** — `.php-version` now takes priority over `composer.json`'s `require.php` constraint, matching the documented and intuitive precedence (explicit pin beats inferred constraint).
+
+---
+
+## [1.0.4] — 2026-03-26
+
+### Fixed
+
+- **`.test` domains unavailable from PHP-FPM containers** — v1.0.3 fixed internet access by setting real upstream DNS servers (e.g. `192.168.0.x`) on the `lerd` Podman network, but this caused aardvark-dns to skip systemd-resolved, breaking `.test` resolution from inside containers. `lerd start` and `lerd install` now use pasta's built-in DNS proxy at `169.254.1.1` (read from the rootless-netns `info.json`) as the aardvark-dns upstream. This address chains through systemd-resolved, which routes `.test` queries to lerd-dns and forwards all other queries to real upstream servers — giving containers both `.test` resolution and full internet access.
+- **HTTPS to `.test` sites fails from inside PHP-FPM containers (`cURL error 60`)** — PHP code making outbound HTTPS requests to local `.test` domains (e.g. Reverb broadcasting, internal API calls) received SSL certificate errors because the mkcert root CA was not trusted inside the container. The PHP-FPM image build now copies the mkcert root CA into the Alpine trust store (`update-ca-certificates`), so all `.test` HTTPS certificates are trusted. Existing images are automatically rebuilt on `lerd update`.
+- **Reverb / queue / schedule workers not restarted after `php:rebuild`** — when `php:rebuild` replaced and restarted the PHP-FPM containers, workers running inside those containers via `podman exec` (Reverb, queue, schedule) were killed by the `BindsTo` systemd dependency but not brought back up automatically. `php:rebuild` now explicitly restarts all such workers after the containers are back online.
+
+---
+
+## [1.0.3] — 2026-03-26
+
+### Fixed
+
+- **No internet access from PHP-FPM containers** — on systems where `/etc/resolv.conf` points to a stub resolver (`127.0.0.53` via systemd-resolved), aardvark-dns could not forward external DNS queries because the stub address is only reachable on the host's loopback, not from inside the container network namespace. `lerd start` and `lerd install` now detect the real upstream DNS servers (reading `/run/systemd/resolve/resolv.conf` first) and set them on the `lerd` Podman network so aardvark-dns forwards correctly.
+
+---
+
 ## [1.0.2] — 2026-03-25
 
 ### Added

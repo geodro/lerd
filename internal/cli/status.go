@@ -26,9 +26,13 @@ const (
 	colorReset  = "\033[0m"
 )
 
-func ok2(label string)              { fmt.Printf("  %s%-30s%s OK\n", colorGreen, label, colorReset) }
-func fail2(label, msg, hint string) { fmt.Printf("  %s%-30s%s FAIL (%s)\n    hint: %s\n", colorRed, label, colorReset, msg, hint) }
-func warn2(label, msg string)       { fmt.Printf("  %s%-30s%s WARN (%s)\n", colorYellow, label, colorReset, msg) }
+func ok2(label string) { fmt.Printf("  %s%-30s%s OK\n", colorGreen, label, colorReset) }
+func fail2(label, msg, hint string) {
+	fmt.Printf("  %s%-30s%s FAIL (%s)\n    hint: %s\n", colorRed, label, colorReset, msg, hint)
+}
+func warn2(label, msg string) {
+	fmt.Printf("  %s%-30s%s WARN (%s)\n", colorYellow, label, colorReset, msg)
+}
 
 // NewStatusCmd returns the status command.
 func NewStatusCmd() *cobra.Command {

@@ -102,3 +102,17 @@ lerd status   # quick health snapshot of all running services
     - Fedora: `sudo dnf install nss-tools`
 
     After installing the package, run `lerd install` again to register the CA.
+
+??? bug "Error: NetworkUpdate is not supported for backend CNI: invalid argument"
+    Your system is likely configured to use the older CNI backend, which lacks support for the requested network operation. Edit or create the Podman configuration file at `/etc/containers/containers.conf` and add or modify the `network_backend` setting to `netavark`:
+
+    ```toml
+    [network]
+    network_backend = "netavark"
+    ```
+
+    To ensure a clean switch and recreate the networks with the new backend, reset the Podman storage. **Warning**: this will wipe all existing containers, pods, and networks:
+
+    ```bash
+    podman system reset
+    ```
