@@ -6,8 +6,40 @@ on:
       - "v*"
 
 jobs:
+  ci:
+    name: CI Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install tray build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --fix-missing libappindicator3-dev
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=1 go build -tags legacy_appindicator -o /dev/null ./cmd/lerd
+
+      - name: Test
+        run: CGO_ENABLED=1 go test -tags legacy_appindicator ./...
+
+      - name: Vet
+        run: CGO_ENABLED=1 go vet -tags legacy_appindicator ./...
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
   release:
     name: GoReleaser
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write

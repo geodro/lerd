@@ -3,6 +3,7 @@
 > The open-source Laravel Herd alternative for Linux —
 > Podman-native, rootless, with a built-in web UI.
 
+[![CI](https://github.com/geodro/lerd/actions/workflows/ci.yml/badge.svg)](https://github.com/geodro/lerd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/geodro/lerd)](https://github.com/geodro/lerd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)]()
