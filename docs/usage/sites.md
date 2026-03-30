@@ -110,13 +110,16 @@ Lerd automatically creates a subdomain for each `git worktree` checkout. See [Gi
 
 ## Sharing sites
 
-`lerd share` exposes the current site via a public tunnel. Requires [ngrok](https://ngrok.com/download) or [Expose](https://expose.dev) to be installed.
+`lerd share` exposes the current site via a public tunnel. Requires [ngrok](https://ngrok.com/download), [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), or [Expose](https://expose.dev) to be installed.
 
 | Command | Description |
 |---|---|
-| `lerd share` | Share the current site (auto-detects ngrok or Expose) |
+| `lerd share` | Share the current site (auto-detects ngrok, cloudflared, or Expose) |
 | `lerd share <name>` | Share a named site |
 | `lerd share --ngrok` | Force ngrok |
+| `lerd share --cloudflare` | Force Cloudflare Tunnel (cloudflared) |
 | `lerd share --expose` | Force Expose |
+| `lerd share --localhost-run` | Force localhost.run (SSH, no signup) |
+| `lerd share --serveo` | Force serveo.net (SSH, no signup) |
 
-The tunnel forwards to nginx's local port with the site's domain as the `Host` header, so nginx routes the request to the right vhost even though the incoming request has the public tunnel URL as its host.
+A local reverse proxy rewrites the `Host` header to the site's domain so nginx routes to the correct vhost. Response `Location` headers and HTML/CSS/JS/JSON body references to the local domain are also rewritten to the public tunnel URL, so redirects and asset links work correctly in the browser.

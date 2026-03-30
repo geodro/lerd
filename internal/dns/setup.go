@@ -32,15 +32,52 @@ Domains=~test
 // and ~. keeps the interface as the default route so all other DNS (internet) still works.
 // The DHCP-assigned DNS servers are preserved alongside lerd's so internet continues
 // to work even when lerd-dns is not yet running.
+// When the network changes (LAN↔WiFi, switching networks), the script also rewrites
+// the lerd dnsmasq config and restarts lerd-dns so the new upstream DNS is picked up
+// immediately without requiring a manual lerd restart.
 const nmDispatcherScript = `#!/bin/sh
 # Lerd DNS: route .test queries through local dnsmasq on port 5300
 IFACE="$1"
 ACTION="$2"
+LERD_DNS=""
+
 if [ "$ACTION" = "up" ] || [ "$ACTION" = "dhcp4-change" ] || [ "$ACTION" = "dhcp6-change" ]; then
-    DHCP_DNS=$(nmcli -g IP4.DNS device show "$IFACE" 2>/dev/null | tr '|' '\n' | grep -v '^$' | tr '\n' ' ')
-    resolvectl dns "$IFACE" 127.0.0.1:5300 $DHCP_DNS 2>/dev/null || true
+    LERD_DNS=$(nmcli -g IP4.DNS device show "$IFACE" 2>/dev/null | tr '|' '\n' | grep -v '^$' | tr '\n' ' ')
+    resolvectl dns "$IFACE" 127.0.0.1:5300 $LERD_DNS 2>/dev/null || true
     resolvectl domain "$IFACE" ~test ~. 2>/dev/null || true
+elif [ "$ACTION" = "down" ]; then
+    # Interface went down: switch lerd-dns to the remaining default interface's DNS
+    # so upstream resolution keeps working (e.g. closing wired while on WiFi).
+    DEFAULT_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1);exit}}')
+    [ -n "$DEFAULT_IFACE" ] && [ "$DEFAULT_IFACE" != "$IFACE" ] || exit 0
+    LERD_DNS=$(nmcli -g IP4.DNS device show "$DEFAULT_IFACE" 2>/dev/null | tr '|' '\n' | grep -v '^$' | tr '\n' ' ')
+else
+    exit 0
 fi
+
+[ -n "$LERD_DNS" ] || exit 0
+
+# Sync lerd-dns dnsmasq config and restart for any user running it.
+for uid_dir in /run/user/[0-9]*/; do
+    [ -d "$uid_dir" ] || continue
+    bus="${uid_dir}bus"
+    [ -S "$bus" ] || continue
+    XDG_RUNTIME_DIR="$uid_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+        systemctl --user is-active lerd-dns >/dev/null 2>&1 || continue
+    uid=$(basename "$uid_dir")
+    home=$(getent passwd "$uid" | cut -d: -f6)
+    config_file="$home/.local/share/lerd/dnsmasq/lerd.conf"
+    [ -f "$config_file" ] || continue
+    tld=$(grep 'tld:' "$home/.config/lerd/config.yaml" 2>/dev/null | sed 's/.*tld:[[:space:]]*//' | sed 's/[^a-zA-Z0-9._-]//g' | head -1)
+    tld=${tld:-test}
+    printf '# Lerd DNS configuration\nport=5300\nno-resolv\n' > "$config_file"
+    for dns_ip in $LERD_DNS; do
+        printf 'server=%s\n' "$dns_ip" >> "$config_file"
+    done
+    printf 'address=/.%s/127.0.0.1\n' "$tld" >> "$config_file"
+    XDG_RUNTIME_DIR="$uid_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+        systemctl --user restart lerd-dns 2>/dev/null || true
+done
 `
 
 // isFileContent returns true if the file at path already contains exactly content.
@@ -306,6 +343,19 @@ func setupNMWithResolved() error {
 		return fmt.Errorf("applying domain routing to %s: %w", iface, err)
 	}
 
+	// Keep dnsmasq config in sync with the upstream DNS servers now active on
+	// the interface. resolvectl has just updated systemd-resolved, so
+	// readUpstreamDNS() will return the current (post-change) upstreams.
+	// Restart lerd-dns only when the config actually changes to avoid
+	// unnecessary downtime on normal starts where nothing has changed.
+	existing, _ := os.ReadFile(filepath.Join(config.DnsmasqDir(), "lerd.conf"))
+	if err := WriteDnsmasqConfig(config.DnsmasqDir()); err == nil {
+		updated, _ := os.ReadFile(filepath.Join(config.DnsmasqDir(), "lerd.conf"))
+		if string(existing) != string(updated) {
+			exec.Command("systemctl", "--user", "restart", "lerd-dns").Run() //nolint:errcheck
+		}
+	}
+
 	return nil
 }
 
@@ -454,9 +504,12 @@ func InstallSudoers() error {
 	}
 
 	content := fmt.Sprintf(
-		"# Lerd: allow resolvectl without password for non-interactive DNS setup\n"+
-			"%s ALL=(root) NOPASSWD: /usr/bin/resolvectl dns *, /usr/bin/resolvectl domain *, /usr/bin/resolvectl revert *\n",
-		user,
+		"# Lerd: allow resolvectl and NM dispatcher script install without password\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/resolvectl dns *, /usr/bin/resolvectl domain *, /usr/bin/resolvectl revert *\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/NetworkManager/dispatcher.d\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/cp /tmp/lerd-sudo-* /etc/NetworkManager/dispatcher.d/99-lerd-dns\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/chmod 755 /etc/NetworkManager/dispatcher.d/99-lerd-dns\n",
+		user, user, user, user,
 	)
 
 	const sudoersPath = "/etc/sudoers.d/lerd"
