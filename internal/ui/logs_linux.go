@@ -17,3 +17,6 @@ func serviceRecentLogs(unit string) string {
 func logStreamCmd(ctx context.Context, unit string) *exec.Cmd {
 	return exec.CommandContext(ctx, "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
 }
+
+// isContainerUnit returns true on Linux — all lerd units run as Podman containers.
+func isContainerUnit(_ string) bool { return true }
