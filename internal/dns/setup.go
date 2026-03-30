@@ -1,29 +1,22 @@
 //go:build linux
-
 package dns
-
 import (
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-
 	"github.com/geodro/lerd/internal/config"
 )
-
 const nmDnsConf = `[main]
 dns=dnsmasq
 `
-
 const nmDnsmasqConf = `server=/test/127.0.0.1#5300
 `
-
 const resolvedDropin = `[Resolve]
 DNS=127.0.0.1:5300
 Domains=~test
 `
-
 // nmDispatcherScript is installed at /etc/NetworkManager/dispatcher.d/99-lerd-dns.
 // On systems with NetworkManager + systemd-resolved, NM manages resolved via DBus and
 // overrides global resolved.conf drop-ins. Per-interface DNS set via resolvectl is
@@ -41,7 +34,6 @@ if [ "$ACTION" = "up" ] || [ "$ACTION" = "dhcp4-change" ] || [ "$ACTION" = "dhcp
     resolvectl domain "$IFACE" ~test ~. 2>/dev/null || true
 fi
 `
-
 // isSystemdResolvedActive returns true if systemd-resolved is the active DNS resolver.
 func isSystemdResolvedActive() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "systemd-resolved")
@@ -55,13 +47,11 @@ func isSystemdResolvedActive() bool {
 	}
 	return strings.Contains(string(data), "127.0.0.53") || strings.Contains(string(data), "systemd-resolved")
 }
-
 // isNetworkManagerActive returns true if NetworkManager is running.
 func isNetworkManagerActive() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "NetworkManager")
 	return cmd.Run() == nil
 }
-
 // defaultInterface returns the name of the default network interface (e.g. "enp1s0").
 func defaultInterface() string {
 	out, err := exec.Command("ip", "route", "show", "default").Output()
@@ -70,7 +60,6 @@ func defaultInterface() string {
 	}
 	return parseDefaultIface(string(out))
 }
-
 // parseDefaultIface extracts the interface name from `ip route show default` output.
 func parseDefaultIface(output string) string {
 	// "default via 192.168.1.1 dev enp1s0 ..."
@@ -82,11 +71,9 @@ func parseDefaultIface(output string) string {
 	}
 	return ""
 }
-
 // resolvPaths is the ordered list of resolv.conf files to try for upstream DNS detection.
 // Overridable in tests.
 var resolvPaths = []string{"/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"}
-
 // nmcliDNSFunc is the function used to get DHCP DNS via nmcli. Overridable in tests.
 var nmcliDNSFunc = func() []string {
 	out, err := exec.Command("nmcli", "-g", "IP4.DNS", "device", "show").Output()
@@ -95,7 +82,6 @@ var nmcliDNSFunc = func() []string {
 	}
 	return parseNmcliLines(string(out))
 }
-
 // ReadContainerDNS returns the DNS servers to configure as aardvark-dns upstreams
 // for the lerd Podman bridge network. It reads DnsForwardIps from the pasta rootless-netns
 // info.json (typically 169.254.1.1), which chains through systemd-resolved and therefore
@@ -115,7 +101,6 @@ func ReadContainerDNS() []string {
 	}
 	return info.DnsForwardIps
 }
-
 // ReadUpstreamDNS returns upstream DNS server IPs from the running system.
 // Sources tried in order:
 //  1. /run/systemd/resolve/resolv.conf — real upstreams on systemd-resolved systems
@@ -126,7 +111,6 @@ func ReadContainerDNS() []string {
 func ReadUpstreamDNS() []string {
 	return readUpstreamDNS()
 }
-
 // readUpstreamDNS is the internal implementation.
 func readUpstreamDNS() []string {
 	for _, path := range resolvPaths {
@@ -136,12 +120,10 @@ func readUpstreamDNS() []string {
 	}
 	return nmcliDNSFunc()
 }
-
 // nmcliDNS reads DHCP-assigned DNS servers from NetworkManager via nmcli.
 func nmcliDNS() []string {
 	return nmcliDNSFunc()
 }
-
 // parseNmcliLines parses the output of `nmcli -g IP4.DNS device show`.
 func parseNmcliLines(output string) []string {
 	var servers []string
@@ -161,7 +143,6 @@ func parseNmcliLines(output string) []string {
 	}
 	return servers
 }
-
 // Setup writes DNS configuration for .test resolution and restarts the resolver.
 //
 // Deprecated: prefer calling WriteDnsmasqConfig then ConfigureResolver separately so
@@ -172,7 +153,6 @@ func Setup() error {
 	}
 	return ConfigureResolver()
 }
-
 // ConfigureResolver configures the system DNS resolver to forward .test to the
 // lerd-dns dnsmasq container on port 5300. Call this after lerd-dns is running so
 // that any immediate resolvectl changes don't break DNS before dnsmasq is up.
@@ -185,18 +165,14 @@ func ConfigureResolver() error {
 	}
 	return setupNetworkManager()
 }
-
 // setupNMWithResolved handles Ubuntu-style: NM manages systemd-resolved via DBUS.
 func setupNMWithResolved() error {
 	dispatcherScript := "/etc/NetworkManager/dispatcher.d/99-lerd-dns"
-
 	if !isFileContent(dispatcherScript, []byte(nmDispatcherScript)) {
 		fmt.Println("  [sudo required] Configuring NetworkManager dispatcher for .test DNS resolution")
-
 		if err := sudoWriteFile(dispatcherScript, []byte(nmDispatcherScript)); err != nil {
 			return fmt.Errorf("writing NM dispatcher script: %w", err)
 		}
-
 		chmodCmd := exec.Command("sudo", "chmod", "755", dispatcherScript)
 		chmodCmd.Stdin = os.Stdin
 		chmodCmd.Stdout = os.Stdout
@@ -205,7 +181,6 @@ func setupNMWithResolved() error {
 			return fmt.Errorf("chmod dispatcher script: %w", err)
 		}
 	}
-
 	// Remove stale resolved drop-in if present (it doesn't work with NM)
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
 	if _, err := os.Stat(dropin); err == nil {
@@ -215,20 +190,17 @@ func setupNMWithResolved() error {
 		rmCmd.Stderr = os.Stderr
 		rmCmd.Run() //nolint:errcheck
 	}
-
 	// Apply immediately to the current default interface.
 	iface := defaultInterface()
 	if iface == "" {
 		return nil
 	}
-
 	// Revert the interface to clear any stale DNS server failure state from boot.
 	revertCmd := exec.Command("sudo", "resolvectl", "revert", iface)
 	revertCmd.Stdin = os.Stdin
 	revertCmd.Stdout = os.Stdout
 	revertCmd.Stderr = os.Stderr
 	revertCmd.Run() //nolint:errcheck
-
 	dnsArgs := []string{"sudo", "resolvectl", "dns", iface, "127.0.0.1:5300"}
 	dnsArgs = append(dnsArgs, readUpstreamDNS()...)
 	dnsCmd := exec.Command(dnsArgs[0], dnsArgs[1:]...)
@@ -238,7 +210,6 @@ func setupNMWithResolved() error {
 	if err := dnsCmd.Run(); err != nil {
 		return fmt.Errorf("applying DNS to %s: %w", iface, err)
 	}
-
 	domainCmd := exec.Command("sudo", "resolvectl", "domain", iface, "~test", "~.")
 	domainCmd.Stdin = os.Stdin
 	domainCmd.Stdout = os.Stdout
@@ -246,24 +217,18 @@ func setupNMWithResolved() error {
 	if err := domainCmd.Run(); err != nil {
 		return fmt.Errorf("applying domain routing to %s: %w", iface, err)
 	}
-
 	return nil
 }
-
 // setupSystemdResolved configures systemd-resolved to forward .test to port 5300.
 func setupSystemdResolved() error {
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
-
 	if isFileContent(dropin, []byte(resolvedDropin)) {
 		return nil
 	}
-
 	fmt.Println("  [sudo required] Configuring systemd-resolved for .test DNS resolution")
-
 	if err := sudoWriteFile(dropin, []byte(resolvedDropin)); err != nil {
 		return fmt.Errorf("writing resolved drop-in: %w", err)
 	}
-
 	cmd := exec.Command("sudo", "systemctl", "restart", "systemd-resolved")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -273,26 +238,20 @@ func setupSystemdResolved() error {
 	}
 	return nil
 }
-
 // setupNetworkManager configures NetworkManager's embedded dnsmasq.
 func setupNetworkManager() error {
 	nmConfFile := "/etc/NetworkManager/conf.d/lerd.conf"
 	nmDnsmasqFile := "/etc/NetworkManager/dnsmasq.d/lerd.conf"
-
 	if isFileContent(nmConfFile, []byte(nmDnsConf)) && isFileContent(nmDnsmasqFile, []byte(nmDnsmasqConf)) {
 		return nil
 	}
-
 	fmt.Println("  [sudo required] Configuring NetworkManager for .test DNS resolution")
-
 	if err := sudoWriteFile(nmConfFile, []byte(nmDnsConf)); err != nil {
 		return fmt.Errorf("writing NetworkManager conf: %w", err)
 	}
-
 	if err := sudoWriteFile(nmDnsmasqFile, []byte(nmDnsmasqConf)); err != nil {
 		return fmt.Errorf("writing NetworkManager dnsmasq conf: %w", err)
 	}
-
 	cmd := exec.Command("sudo", "systemctl", "restart", "NetworkManager")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -302,7 +261,6 @@ func setupNetworkManager() error {
 	}
 	return nil
 }
-
 // Teardown removes all lerd DNS configuration from the system and restores normal resolution.
 func Teardown() {
 	// NM dispatcher script
@@ -314,7 +272,6 @@ func Teardown() {
 		rmCmd.Stderr = os.Stderr
 		rmCmd.Run() //nolint:errcheck
 	}
-
 	// systemd-resolved drop-in
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
 	if _, err := os.Stat(dropin); err == nil {
@@ -324,7 +281,6 @@ func Teardown() {
 		rmCmd.Stderr = os.Stderr
 		rmCmd.Run() //nolint:errcheck
 	}
-
 	// NetworkManager conf and dnsmasq conf
 	for _, f := range []string{
 		"/etc/NetworkManager/conf.d/lerd.conf",
@@ -338,7 +294,6 @@ func Teardown() {
 			rmCmd.Run() //nolint:errcheck
 		}
 	}
-
 	// Revert per-interface resolvectl settings so NM re-applies its own DNS.
 	if iface := defaultInterface(); iface != "" {
 		revertCmd := exec.Command("sudo", "resolvectl", "revert", iface)
@@ -347,7 +302,6 @@ func Teardown() {
 		revertCmd.Stderr = os.Stderr
 		revertCmd.Run() //nolint:errcheck
 	}
-
 	// Restart the resolver to apply the removal.
 	if isNetworkManagerActive() {
 		exec.Command("sudo", "systemctl", "restart", "NetworkManager").Run() //nolint:errcheck
@@ -355,7 +309,6 @@ func Teardown() {
 		exec.Command("sudo", "systemctl", "restart", "systemd-resolved").Run() //nolint:errcheck
 	}
 }
-
 // InstallSudoers writes a sudoers drop-in granting the current user passwordless
 // access to resolvectl commands. Required for the autostart service which runs
 // non-interactively and cannot prompt for a sudo password.
@@ -367,22 +320,18 @@ func InstallSudoers() error {
 	if user == "" {
 		return fmt.Errorf("cannot determine current user")
 	}
-
 	content := fmt.Sprintf(
 		"# Lerd: allow resolvectl without password for non-interactive DNS setup\n"+
 			"%s ALL=(root) NOPASSWD: /usr/bin/resolvectl dns *, /usr/bin/resolvectl domain *, /usr/bin/resolvectl revert *\n",
 		user,
 	)
-
 	const sudoersPath = "/etc/sudoers.d/lerd"
 	if isFileContent(sudoersPath, []byte(content)) {
 		return nil
 	}
-
 	if err := sudoWriteFile(sudoersPath, []byte(content)); err != nil {
 		return fmt.Errorf("writing sudoers drop-in: %w", err)
 	}
-
 	// sudoers files must not be world-writable or group-writable
 	chmodCmd := exec.Command("sudo", "chmod", "440", sudoersPath)
 	chmodCmd.Stdin = os.Stdin
