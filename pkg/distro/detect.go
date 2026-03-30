@@ -15,7 +15,11 @@ type Distro struct {
 
 // Detect parses /etc/os-release and returns the distro information.
 func Detect() (*Distro, error) {
-	f, err := os.Open("/etc/os-release")
+	return detectFromPath("/etc/os-release")
+}
+
+func detectFromPath(path string) (*Distro, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
