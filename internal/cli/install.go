@@ -526,13 +526,17 @@ fi
 }
 
 func appendShellRC(rcFile, binDir string) error {
-	line := fmt.Sprintf("\n# Lerd\nexport PATH=\"%s:$PATH\"\n", binDir)
+	data, _ := os.ReadFile(rcFile)
+	line := fmt.Sprintf("export PATH=\"%s:$PATH\"", binDir)
+	if strings.Contains(string(data), line) {
+		return nil
+	}
 	f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = f.WriteString(line)
+	_, err = f.WriteString(fmt.Sprintf("\n# Lerd\n%s\n", line))
 	return err
 }
 
