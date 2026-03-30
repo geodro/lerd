@@ -365,7 +365,7 @@ func (m *darwinServiceManager) Start(name string) error {
 // container keeps running independently of launchd after the plist is booted out.
 func (m *darwinServiceManager) Stop(name string) error {
 	// Derive the container name: plist name IS the container name (e.g. lerd-dns).
-	exec.Command(podmanBinPath(), "stop", name).Run()  //nolint:errcheck
+	exec.Command(podmanBinPath(), "stop", name).Run()     //nolint:errcheck
 	exec.Command(podmanBinPath(), "rm", "-f", name).Run() //nolint:errcheck
 
 	domain := uidDomain()

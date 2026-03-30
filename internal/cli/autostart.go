@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/geodro/lerd/internal/services"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 

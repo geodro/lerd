@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/geodro/lerd/internal/podman"
 	"fmt"
+	"github.com/geodro/lerd/internal/podman"
 	"os"
 	"strings"
 

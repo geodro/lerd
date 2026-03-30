@@ -93,11 +93,11 @@ func StoreFPMHash() error {
 // This image is small and fast to build (Alpine + dnsmasq).  It must be
 // re-built after a Podman Machine restart when the VM's image storage is reset.
 func EnsureDNSImage() error {
-	if exec.Command(podmanBin(),"image", "exists", "lerd-dnsmasq:local").Run() == nil {
+	if exec.Command(podmanBin(), "image", "exists", "lerd-dnsmasq:local").Run() == nil {
 		return nil // already present
 	}
 	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-	cmd := exec.Command(podmanBin(),"build", "-t", "lerd-dnsmasq:local", "-")
+	cmd := exec.Command(podmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
 	cmd.Stdin = strings.NewReader(containerfile)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
@@ -146,7 +146,7 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 
 	if !force {
 		// Skip if image already exists
-		checkCmd := exec.Command(podmanBin(),"image", "exists", imageName)
+		checkCmd := exec.Command(podmanBin(), "image", "exists", imageName)
 		if checkCmd.Run() == nil {
 			return nil
 		}
@@ -182,7 +182,7 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 		buildArgs = append(buildArgs, "--no-cache")
 	}
 	buildArgs = append(buildArgs, tmp)
-	cmd := exec.Command(podmanBin(),buildArgs...)
+	cmd := exec.Command(podmanBin(), buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

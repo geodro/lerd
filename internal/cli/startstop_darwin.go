@@ -4,8 +4,8 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 	"os/exec"
+	"strings"
 
 	"github.com/geodro/lerd/internal/podman"
 )

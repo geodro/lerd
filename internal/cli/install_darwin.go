@@ -117,4 +117,3 @@ func findPodmanMacHelper() (string, error) {
 	}
 	return "", fmt.Errorf("podman-mac-helper not found")
 }
-
