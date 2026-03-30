@@ -769,6 +769,27 @@ func toolList() []mcpTool {
 		)
 	}
 
+	if fw, ok := siteFramework(); ok && !siteIsLaravel() && fw.Console != "" {
+		tools = append(tools, mcpTool{
+			Name:        "console",
+			Description: fmt.Sprintf("Run a framework console command (php %s) inside the lerd PHP-FPM container for the project.", fw.Console),
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"args": {
+						Type:        "array",
+						Description: fmt.Sprintf(`Console arguments as an array, e.g. ["%s", "cache:clear"]`, fw.Console),
+					},
+				},
+				Required: []string{"args"},
+			},
+		})
+	}
+
 	tools = append(tools,
 		mcpTool{
 			Name:        "worker_start",
@@ -1039,6 +1060,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 			return laravelOnly()
 		}
 		return execArtisan(args)
+	case "console":
+		return execArtisan(args)
 	case "sites":
 		return execSites()
 	case "service_start":
@@ -1234,8 +1257,13 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	short := strings.ReplaceAll(phpVersion, ".", "")
 	container := "lerd-php" + short + "-fpm"
 
+	consoleCmd, err := config.GetConsoleCommand(projectPath)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+
 	// No -it flags — non-interactive, output captured to buffer.
-	cmdArgs := []string{"exec", "-w", projectPath, container, "php", "artisan"}
+	cmdArgs := []string{"exec", "-w", projectPath, container, "php", consoleCmd}
 	cmdArgs = append(cmdArgs, artisanArgs...)
 
 	var out bytes.Buffer

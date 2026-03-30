@@ -276,7 +276,7 @@ const bt = "`"
 
 const claudeSkillContent = `---
 name: lerd
-description: Manage the lerd local Laravel development environment — run artisan commands, manage services, start/stop queue workers, run composer, manage Node.js versions, and inspect site status via MCP tools.
+description: Manage the lerd local PHP development environment — run framework console commands (artisan, bin/console, etc.), manage services, start/stop queue workers, run composer, manage Node.js versions, and inspect site status via MCP tools.
 ---
 # Lerd — Laravel Local Dev Environment
 
@@ -312,8 +312,8 @@ List all registered lerd sites with domains, paths, PHP versions, Node versions,
 ### ` + bt + `runtime_versions` + bt + `
 List all installed PHP and Node.js versions and the configured defaults. Call this to check what runtimes are available before running commands.
 
-### ` + bt + `artisan` + bt + `
-Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container for the project. Arguments:
+### ` + bt + `artisan` + bt + ` (Laravel only)
+Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container for the project. Only available when the site is detected as Laravel. Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 - ` + bt + `args` + bt + ` (required): artisan arguments as an array
 
@@ -327,6 +327,18 @@ artisan(args: ["tinker", "--execute=echo App\\Models\\User::count();"])
 ` + "```" + `
 
 > **Note:** ` + bt + `tinker` + bt + ` requires ` + bt + `--execute=<code>` + bt + ` for non-interactive use.
+
+### ` + bt + `console` + bt + ` (non-Laravel frameworks)
+Run the framework's console command (e.g. ` + bt + `php bin/console` + bt + ` for Symfony) inside the PHP-FPM container. Only available for non-Laravel frameworks that define a ` + bt + `console` + bt + ` field in their YAML definition. Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+- ` + bt + `args` + bt + ` (required): console arguments as an array
+
+Example — Symfony:
+` + "```" + `
+console(args: ["cache:clear"])
+console(args: ["doctrine:migrations:migrate"])
+console(args: ["messenger:consume", "async", "--time-limit=60"])
+` + "```" + `
 
 ### ` + bt + `composer` + bt + `
 Run ` + bt + `composer` + bt + ` inside the PHP-FPM container for the project. Arguments:
@@ -763,7 +775,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 |------|-------------|
 | ` + bt + `sites` + bt + ` | List all registered sites with framework and worker status — call this first |
 | ` + bt + `runtime_versions` + bt + ` | List installed PHP and Node.js versions with defaults |
-| ` + bt + `artisan` + bt + ` | Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container |
+| ` + bt + `artisan` + bt + ` | Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container (Laravel only) |
+| ` + bt + `console` + bt + ` | Run the framework's console command (e.g. ` + bt + `php bin/console` + bt + ` for Symfony) — non-Laravel frameworks with a ` + bt + `console` + bt + ` field |
 | ` + bt + `composer` + bt + ` | Run ` + bt + `composer` + bt + ` inside the PHP-FPM container |
 | ` + bt + `node_install` + bt + ` | Install a Node.js version via fnm (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
@@ -812,7 +825,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 ### Key conventions
 
 - ` + bt + `path` + bt + ` argument is optional on most tools — defaults to the directory the AI assistant was opened in (cwd), then ` + bt + `LERD_SITE_PATH` + bt + ` if set; you can almost always omit it
-- ` + bt + `artisan` + bt + ` and ` + bt + `composer` + bt + ` take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
+- ` + bt + `artisan` + bt + ` is Laravel-only; ` + bt + `console` + bt + ` is the equivalent for non-Laravel frameworks — both take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
 - ` + bt + `tinker` + bt + ` must use ` + bt + `--execute=<code>` + bt + ` for non-interactive use
 - Built-in service hosts follow the pattern ` + bt + `lerd-<name>` + bt + ` (e.g. ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `)
 - Default DB credentials: username ` + bt + `root` + bt + `, password ` + bt + `lerd` + bt + `

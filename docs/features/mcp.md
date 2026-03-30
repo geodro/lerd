@@ -69,7 +69,8 @@ Once the MCP server is connected, your AI assistant has access to:
 |---|---|
 | `sites` | List all registered lerd sites (name, domain, path, PHP/Node version, framework, worker status) |
 | `runtime_versions` | List installed PHP and Node.js versions with configured defaults |
-| `artisan` | Run `php artisan` in the PHP-FPM container — migrations, generators, seeders, cache, tinker |
+| `artisan` | Run `php artisan` in the PHP-FPM container — migrations, generators, seeders, cache, tinker (Laravel only) |
+| `console` | Run the framework's console command (e.g. `php bin/console` for Symfony) — shown for non-Laravel frameworks that define a `console` field |
 | `composer` | Run `composer` in the PHP-FPM container — install, require, dump-autoload, etc. |
 | `node_install` | Install a Node.js version via fnm (e.g. `"20"`, `"lts"`) |
 | `node_uninstall` | Uninstall a Node.js version via fnm |
