@@ -103,10 +103,9 @@ jobs:
 
       - name: Stage macOS tray binaries for GoReleaser
         run: |
-          mkdir -p dist/lerd-tray_darwin_amd64 dist/lerd-tray_darwin_arm64
-          cp dist-tray/lerd-tray-darwin-amd64/lerd-tray dist/lerd-tray_darwin_amd64/lerd-tray
+          mkdir -p dist/lerd-tray_darwin_arm64
           cp dist-tray/lerd-tray-darwin-arm64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray
-          chmod +x dist/lerd-tray_darwin_amd64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray
+          chmod +x dist/lerd-tray_darwin_arm64/lerd-tray
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

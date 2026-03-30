@@ -98,14 +98,6 @@ builds:
   # lerd-tray (macOS): pre-built on macOS runners (CGO + Cocoa, no external deps).
   # Binaries are produced by the build-darwin-tray CI job and placed in dist/ before
   # GoReleaser runs. GoReleaser picks them up via the prebuilt builder.
-  - id: lerd-tray-darwin-amd64
-    builder: prebuilt
-    goos: [darwin]
-    goarch: [amd64]
-    binary: lerd-tray
-    prebuilt:
-      path: dist/lerd-tray_darwin_{{ .Arch }}/lerd-tray
-
   - id: lerd-tray-darwin-arm64
     builder: prebuilt
     goos: [darwin]
@@ -132,7 +124,7 @@ archives:
       - install.sh
 
   - id: lerd-darwin-amd64
-    ids: [lerd-darwin-amd64, lerd-tray-darwin-amd64]
+    ids: [lerd-darwin-amd64]
     name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
     files:
@@ -164,7 +156,7 @@ brews:
       - name: podman
     install: |
       bin.install "lerd"
-      bin.install "lerd-tray"
+      bin.install "lerd-tray" if File.exist?("lerd-tray")
     caveats: |
       Run `lerd install` to complete Lerd setup.
 
