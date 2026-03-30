@@ -7,6 +7,29 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.0] — 2026-03-30
+
+### Added
+
+- **`lerd init`** — interactive wizard that writes PHP version, HTTPS preference, and required services to `.lerd.yaml` for project portability. On a machine with an existing `.lerd.yaml`, `lerd init` applies the saved config non-interactively, making new-machine setup a single command. `lerd setup` now runs the wizard as its first step, `lerd link` auto-secures when `secured: true` is set, and `lerd env` / `lerd isolate` / `lerd secure` all keep the file in sync.
+- **`lerd console`** — run a framework's interactive console (e.g. `php artisan tinker` for Laravel, or the `console` field from the framework YAML) inside the project container. Arguments are forwarded as-is.
+- **`console` MCP tool** — execute framework console commands from an AI assistant session. Resolves the correct binary via `config.GetConsoleCommand` so it works for any framework that defines a `console` field.
+- **Cloudflare Tunnel backend for `lerd share`** — pass `--cloudflare` to tunnel a site via `cloudflared`. Without the flag, lerd auto-detects between ngrok and Expose as before. The tunnel is routed through the host proxy to fix Host header and TLS SNI for secured sites.
+- **pcov bundled in PHP-FPM images** — pcov is now pre-installed via PECL in all lerd PHP-FPM images; `lerd php:ext add pcov` is no longer needed to run `pest --coverage`.
+- **WebP support in PHP-FPM images** — gd and imagick now include WebP support out of the box (PR [#15](https://github.com/geodro/lerd/pull/15) by @ReyArlena).
+- **Connection URLs and hostname note in the dashboard** — database service cards now show ready-to-use connection URLs alongside a note about the internal container hostname.
+
+### Fixed
+
+- **Paused site vhosts overwritten on watcher restart** — `scanWorktrees()` now skips paused sites on startup; worktree vhost generation and nginx reloads triggered by `.php-version` changes are also skipped while a site is paused (registry is still updated for when the site is unpaused).
+- **`lerd console` falls back to `artisan` for Laravel** — when a Laravel project's framework YAML has no explicit `console` field, `lerd console` now correctly uses `php artisan`.
+
+### Internal
+
+- Unit tests for `config`, `php`, `distro`, and `envfile` packages.
+
+---
+
 ## [1.1.2] — 2026-03-30
 
 ### Fixed
