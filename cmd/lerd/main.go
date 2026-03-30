@@ -51,7 +51,7 @@ func main() {
 	root.AddCommand(cli.NewPhpRebuildCmd())
 	root.AddCommand(cli.NewPhpCmd())
 	root.AddCommand(cli.NewPhpShellCmd())
-	root.AddCommand(cli.NewArtisanCmd())
+	root.AddCommand(cli.NewConsoleCmd())
 	root.AddCommand(cli.NewEnvCmd())
 	root.AddCommand(cli.NewNodeCmd())
 	root.AddCommand(cli.NewNpmCmd())

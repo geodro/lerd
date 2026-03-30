@@ -165,11 +165,12 @@ For projects that use `laravel/horizon` — lerd detects it automatically from `
 | `lerd stripe:listen` | Start a Stripe webhook listener for the current project as a background service |
 | `lerd stripe:listen stop` | Stop the Stripe webhook listener |
 
-## Artisan & runtime passthrough
+## Console & runtime passthrough
 
 | Command | Description |
 |---|---|
-| `lerd artisan [args...]` | Run `php artisan` inside the project's PHP-FPM container |
+| `lerd console [args...]` | Run the framework's console command (e.g., `php artisan` for Laravel, `php bin/console` for Symfony) inside the project's PHP-FPM container |
+| `lerd artisan [args...]` | Alias for `lerd console` (Laravel-specific, kept for backward compatibility) |
 | `lerd shell` | Open an interactive shell inside the project's PHP-FPM container |
 
 ## AI integration
