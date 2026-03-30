@@ -7,6 +7,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.2] — 2026-03-30
+
+### Fixed
+
+- **`lerd install` no longer hangs after "Adding shell PATH configuration"** — the interactive MCP registration prompt has been removed. Run `lerd mcp:enable-global` manually after install to register the MCP server.
+- **Dashboard URL in install completion message** — now shows `http://lerd.localhost` instead of the raw `http://127.0.0.1:7073` address.
+
+---
+
 ## [1.1.1] — 2026-03-30
 
 ### Added
