@@ -32,6 +32,18 @@ func ensureFPMImages() {
 	}
 }
 
+// ensureFPMQuadlets writes the service unit (plist on macOS, quadlet on Linux)
+// for each installed PHP version if it is missing. This covers the case where
+// a clean reinstall left the .container tracking files but removed the plists.
+func ensureFPMQuadlets() {
+	versions, _ := phpPkg.ListInstalled()
+	for _, v := range versions {
+		if err := podman.WriteFPMQuadlet(v); err != nil {
+			fmt.Printf("  WARN: could not write FPM unit for PHP %s: %v\n", v, err)
+		}
+	}
+}
+
 // NewStartCmd returns the start command.
 func NewStartCmd() *cobra.Command {
 	return &cobra.Command{
@@ -116,6 +128,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// On macOS, Podman runs inside a Linux VM. Start it before any containers.
 	ensurePodmanMachineRunning()
 
+	// Ensure FPM service units exist for all installed PHP versions.
+	// Must run before coreUnits() so plists are present when Start() is called.
+	ensureFPMQuadlets()
+
 	// Rebuild missing FPM images in the background so they don't delay startup.
 	go ensureFPMImages()
 
@@ -175,8 +191,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// container may not be listening yet. If we set resolvectl to use port 5300
 	// before it's up, systemd-resolved marks it failed and falls back to the
 	// upstream DNS server, breaking .test resolution until manually fixed.
+	fmt.Print("  --> lerd-dns ready check ... ")
 	if err := dns.WaitReady(10 * time.Second); err != nil {
-		fmt.Printf("  WARN: %v\n", err)
+		fmt.Printf("WARN (%v)\n", err)
+	} else {
+		fmt.Println("OK")
 	}
 
 	// Re-apply DNS routing so .test resolves via lerd-dns on every start.

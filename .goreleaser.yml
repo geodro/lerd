@@ -143,11 +143,13 @@ brews:
     skip_upload: false
     dependencies:
       - name: podman
-      - name: dnsmasq
     install: |
       bin.install "lerd"
     caveats: |
       Run `lerd install` to complete Lerd setup.
+
+      To uninstall cleanly, run `lerd uninstall` before `brew uninstall lerd`.
+      If you already removed the binary, run `~/.local/bin/lerd-cleanup` instead.
 
 checksum:
   name_template: "checksums.txt"

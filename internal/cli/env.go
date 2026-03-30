@@ -395,7 +395,7 @@ func ensureServiceRunning(name string) error {
 	// podman run command; the container itself may still be starting. Use
 	// ContainerRunning as the authoritative check.
 	if running, _ := podman.ContainerRunning(unit); running {
-		return nil
+		return waitForServiceReady(name, unit)
 	}
 	if isKnownService(name) {
 		fmt.Printf("  Starting %s...\n", name)
@@ -424,10 +424,39 @@ func ensureServiceRunning(name string) error {
 	for range 30 {
 		time.Sleep(500 * time.Millisecond)
 		if running, _ := podman.ContainerRunning(unit); running {
-			return nil
+			return waitForServiceReady(name, unit)
 		}
 	}
 	return fmt.Errorf("timed out waiting for %s container to start", unit)
+}
+
+// waitForServiceReady waits for the service inside the container to be ready to
+// accept connections. For databases this is essential — the container may be
+// running but MySQL/Postgres can take additional seconds to initialise.
+func waitForServiceReady(name, container string) error {
+	var readyCmd func() *exec.Cmd
+	switch name {
+	case "mysql":
+		readyCmd = func() *exec.Cmd {
+			return exec.Command(podman.PodmanBin(), "exec", container,
+				"mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-plerd", "--silent")
+		}
+	case "postgres":
+		readyCmd = func() *exec.Cmd {
+			return exec.Command(podman.PodmanBin(), "exec", container,
+				"pg_isready", "-U", "postgres")
+		}
+	default:
+		return nil // no readiness probe for other services
+	}
+	// Poll up to 60s for the service to be ready.
+	for range 120 {
+		time.Sleep(500 * time.Millisecond)
+		if readyCmd().Run() == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s started but is not accepting connections after 60s", name)
 }
 
 // siteURL returns the APP_URL for the project registered at path, or "".

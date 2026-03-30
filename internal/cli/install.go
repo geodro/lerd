@@ -250,6 +250,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	installAutostart()
 	ok()
 
+	step("Installing cleanup script")
+	installCleanupScript()
+	ok()
+
 	// Restart tray if running.
 	if services.Mgr.IsEnabled("lerd-tray") {
 		_ = services.Mgr.Restart("lerd-tray")

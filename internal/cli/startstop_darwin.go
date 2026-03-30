@@ -4,6 +4,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -23,6 +24,8 @@ func ensurePodmanMachineRunning() {
 	}
 	fmt.Println("  --> Starting Podman Machine ...")
 	cmd := exec.Command(podman.PodmanBin(), "machine", "start")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("  WARN: podman machine start: %v\n", err)
 	}

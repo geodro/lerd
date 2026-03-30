@@ -4,15 +4,25 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/podman"
 )
+
+// launchctl runs a launchctl command with a 15-second timeout so a throttled
+// or unresponsive service can never hang lerd indefinitely.
+func launchctl(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
+}
 
 // uidDomain returns the launchd GUI domain for the current user, e.g. "gui/501".
 func uidDomain() string {
@@ -174,8 +184,9 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 	args := []string{podmanBinPath(), "run", "-d", "--restart=always"}
 
 	if names := c["ContainerName"]; len(names) > 0 {
-		// --replace removes any stale container with this name before starting
-		args = append(args, "--name", names[0], "--replace")
+		// --replace removes any stale container with this name before starting.
+		// -t 5 limits the stop grace period so restart isn't slow.
+		args = append(args, "--name", names[0], "--replace", "--stop-timeout=5")
 	}
 	for _, net := range c["Network"] {
 		args = append(args, "--network", net)
@@ -220,6 +231,16 @@ func (m *darwinServiceManager) WriteServiceUnit(name, content string) error {
 		return fmt.Errorf("empty ExecStart in service unit %s", name)
 	}
 
+	// On macOS the lerd binary is managed by Homebrew and lives at
+	// /opt/homebrew/bin/lerd, not at ~/.local/bin/lerd as on Linux.
+	// If the binary referenced in ExecStart doesn't exist, substitute
+	// the path of the currently running lerd executable.
+	if _, err := os.Stat(args[0]); err != nil {
+		if self, err := os.Executable(); err == nil {
+			args[0] = self
+		}
+	}
+
 	if err := ensurePlistDirs(name); err != nil {
 		return err
 	}
@@ -237,6 +258,11 @@ func (m *darwinServiceManager) WriteServiceUnitIfChanged(name, content string) (
 	args := strings.Fields(expandSpecifiers(execStarts[0]))
 	if len(args) == 0 {
 		return false, fmt.Errorf("empty ExecStart in service unit %s", name)
+	}
+	if _, err := os.Stat(args[0]); err != nil {
+		if self, err := os.Executable(); err == nil {
+			args[0] = self
+		}
 	}
 
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
@@ -330,31 +356,37 @@ func (m *darwinServiceManager) Start(name string) error {
 	domain := uidDomain()
 	label := plistLabel(name)
 
-	// Always enable before bootstrap — a prior Disable() marks the service
-	// disabled and launchctl bootstrap returns exit 5 for disabled services.
-	exec.Command("launchctl", "enable", domain+"/"+label).Run() //nolint:errcheck
-
-	// If the service is already in the domain, kickstart it instead of
-	// bootstrap. `launchctl print domain/label` exits 0 when loaded.
-	if exec.Command("launchctl", "print", domain+"/"+label).Run() == nil {
-		if kout, kerr := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput(); kerr != nil {
-			return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
-		}
-		return nil
+	// If the service is already in the domain, bootout first so the subsequent
+	// bootstrap always picks up the current plist on disk. kickstart -k would
+	// restart the job but launchd would use its cached plist, missing any
+	// changes written by WriteServiceUnit / WriteContainerUnit.
+	if _, err := launchctl("print", domain+"/"+label); err == nil {
+		launchctl("bootout", domain+"/"+label) //nolint:errcheck
 	}
 
-	out, err := exec.Command("launchctl", "bootstrap", domain, p).CombinedOutput()
+	// Enable AFTER bootout — on macOS Ventura+, bootout marks the service as
+	// disabled in launchd's persistent database, causing the next bootstrap to
+	// fail with exit 5. Re-enabling here ensures bootstrap always succeeds.
+	launchctl("enable", domain+"/"+label) //nolint:errcheck
+
+	out, err := launchctl("bootstrap", domain, p)
 	if err != nil {
 		s := string(out)
 		// 36 = already bootstrapped; kick it to (re)start
 		if strings.Contains(s, "36") || strings.Contains(s, "already bootstrapped") ||
 			strings.Contains(s, "service already loaded") {
-			if kout, kerr := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput(); kerr != nil {
+			if kout, kerr := launchctl("kickstart", "-k", domain+"/"+label); kerr != nil {
 				return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
 			}
 			return nil
 		}
 		return fmt.Errorf("launchctl bootstrap %s: %w\n%s", name, err, out)
+	}
+	// Container units use RunAtLoad=false so bootstrap alone doesn't start them.
+	// Service units use RunAtLoad=true so bootstrap already started them — no kick needed.
+	content, _ := os.ReadFile(p)
+	if !strings.Contains(string(content), "<key>RunAtLoad</key>") {
+		launchctl("kickstart", domain+"/"+label) //nolint:errcheck
 	}
 	return nil
 }
@@ -371,7 +403,7 @@ func (m *darwinServiceManager) Stop(name string) error {
 	domain := uidDomain()
 	label := plistLabel(name)
 
-	out, err := exec.Command("launchctl", "bootout", domain+"/"+label).CombinedOutput()
+	out, err := launchctl("bootout", domain+"/"+label)
 	if err != nil {
 		s := string(out)
 		// 36 = not loaded / already gone — treat as success
@@ -389,7 +421,7 @@ func (m *darwinServiceManager) Restart(name string) error {
 	domain := uidDomain()
 	label := plistLabel(name)
 
-	out, err := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput()
+	out, err := launchctl("kickstart", "-k", domain+"/"+label)
 	if err != nil {
 		s := string(out)
 		// Not loaded yet — fall back to a full bootstrap
@@ -408,7 +440,7 @@ func (m *darwinServiceManager) Enable(name string) error {
 	label := plistLabel(name)
 
 	// enable records the intent; bootstrap actually starts it now
-	exec.Command("launchctl", "enable", domain+"/"+label).Run() //nolint:errcheck
+	launchctl("enable", domain+"/"+label) //nolint:errcheck
 	return m.Start(name)
 }
 
@@ -418,7 +450,7 @@ func (m *darwinServiceManager) Disable(name string) error {
 	label := plistLabel(name)
 
 	_ = m.Stop(name)
-	exec.Command("launchctl", "disable", domain+"/"+label).Run() //nolint:errcheck
+	launchctl("disable", domain+"/"+label) //nolint:errcheck
 	return nil
 }
 
@@ -430,7 +462,7 @@ func (m *darwinServiceManager) IsActive(name string) bool {
 	}
 	domain := uidDomain()
 	label := plistLabel(name)
-	out, err := exec.Command("launchctl", "print", domain+"/"+label).Output()
+	out, err := launchctl("print", domain+"/"+label)
 	if err != nil {
 		return false
 	}
@@ -451,7 +483,7 @@ func (m *darwinServiceManager) IsEnabled(name string) bool {
 func (m *darwinServiceManager) UnitStatus(name string) (string, error) {
 	domain := uidDomain()
 	label := plistLabel(name)
-	out, err := exec.Command("launchctl", "print", domain+"/"+label).Output()
+	out, err := launchctl("print", domain+"/"+label)
 	if err != nil {
 		// Not loaded at all — check container directly before giving up.
 		if running, _ := podman.ContainerRunning(name); running {

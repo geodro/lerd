@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -84,17 +85,19 @@ func runUninstall(force bool) error {
 		return nil
 	})
 
-	r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
-		removeShellEntry()
-		return nil
-	})
+	if runtime.GOOS != "darwin" {
+		r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
+			removeShellEntry()
+			return nil
+		})
 
-	r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
-		if self, err := selfPath(); err == nil {
-			os.Remove(self) //nolint:errcheck
-		}
-		return nil
-	})
+		r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
+			if self, err := selfPath(); err == nil {
+				os.Remove(self) //nolint:errcheck
+			}
+			return nil
+		})
+	}
 
 	r.Close()
 
@@ -107,6 +110,14 @@ func runUninstall(force bool) error {
 	} else {
 		fmt.Printf("  Config kept at %s\n", config.ConfigDir())
 		fmt.Printf("  Data kept at   %s\n", config.DataDir())
+	}
+
+	if runtime.GOOS == "darwin" {
+		fmt.Println("\n  To remove the lerd binary, run:")
+		fmt.Println("    brew uninstall lerd")
+		fmt.Println()
+		fmt.Println("  Tip: if you ever run `brew uninstall` first, clean up with:")
+		fmt.Println("    ~/.local/bin/lerd-cleanup")
 	}
 
 	fmt.Println("\nLerd uninstalled.")
