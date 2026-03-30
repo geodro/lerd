@@ -223,6 +223,9 @@ create: composer create-project myvendor/myframework
 composer: auto                    # auto | true | false (auto = run if vendor/ missing)
 npm: auto                         # auto | true | false (auto = run if node_modules/ missing)
 
+# Console command (without 'php' prefix)
+console: artisan                  # artisan (Laravel), bin/console (Symfony), etc.
+
 # Background workers (systemd user services)
 workers:
   messenger:
