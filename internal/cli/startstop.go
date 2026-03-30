@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,18 +19,23 @@ import (
 )
 
 // ensureFPMImages rebuilds any PHP FPM images that have been removed.
-func ensureFPMImages() {
+// Returns the list of jobs that were queued so the caller can run them
+// via RunParallel for Ctrl+O-expandable output.
+func missingFPMImageJobs() []BuildJob {
 	versions, _ := phpPkg.ListInstalled()
+	var jobs []BuildJob
 	for _, v := range versions {
-		short := strings.ReplaceAll(v, ".", "")
+		ver := v
+		short := strings.ReplaceAll(ver, ".", "")
 		image := "lerd-php" + short + "-fpm:local"
 		if err := podman.RunSilent("image", "exists", image); err != nil {
-			fmt.Printf("  PHP %s image missing — rebuilding...\n", v)
-			if err := podman.BuildFPMImage(v); err != nil {
-				fmt.Printf("  WARN: could not rebuild PHP %s image: %v\n", v, err)
-			}
+			jobs = append(jobs, BuildJob{
+				Label: "Rebuilding PHP " + ver + " image",
+				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(ver, w) },
+			})
 		}
 	}
+	return jobs
 }
 
 // ensureFPMQuadlets writes the service unit (plist on macOS, quadlet on Linux)
@@ -132,8 +138,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// Must run before coreUnits() so plists are present when Start() is called.
 	ensureFPMQuadlets()
 
-	// Rebuild missing FPM images in the background so they don't delay startup.
-	go ensureFPMImages()
+	// Rebuild any missing FPM images before starting units. Uses RunParallel so
+	// build output is captured and expandable with Ctrl+O.
+	if jobs := missingFPMImageJobs(); len(jobs) > 0 {
+		RunParallel(jobs) //nolint:errcheck
+	}
 
 	// Ensure the lerd Podman network and DNS image exist — both can be lost
 	// after a Podman Machine restart when the VM's storage is reset.

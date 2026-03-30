@@ -16,28 +16,35 @@ import (
 // If an existing machine is rootless it is stopped, switched, and restarted.
 // On macOS all container operations require the VM to be up.
 func ensurePodmanMachineRunning() {
+	// machine list only exposes Name and Running; use inspect for Rootful.
+	listOut, _ := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
+
 	type machineInfo struct {
 		name    string
 		running bool
 		rootful bool
 	}
 
-	out, _ := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}\t{{.Rootful}}").Output()
-
 	var machines []machineInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(string(listOut)), "\n") {
 		if line == "" {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 3 {
+		if len(fields) < 2 {
 			continue
 		}
-		machines = append(machines, machineInfo{
-			name:    fields[0],
-			running: fields[1] == "true",
-			rootful: fields[2] == "true",
-		})
+		name := strings.TrimSuffix(fields[0], "*") // strip default-machine marker
+		running := fields[1] == "true"
+
+		// Inspect to get Rootful status.
+		rootful := false
+		inspectOut, err := exec.Command(podman.PodmanBin(), "machine", "inspect", "--format", "{{.Rootful}}", name).Output()
+		if err == nil {
+			rootful = strings.TrimSpace(string(inspectOut)) == "true"
+		}
+
+		machines = append(machines, machineInfo{name: name, running: running, rootful: rootful})
 	}
 
 	if len(machines) == 0 {
