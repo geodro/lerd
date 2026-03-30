@@ -10,10 +10,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/geodro/lerd/internal/podman"
 )
+
+// uidDomain returns the launchd GUI domain for the current user, e.g. "gui/501".
+func uidDomain() string {
+	return fmt.Sprintf("gui/%d", os.Getuid())
+}
 
 func init() {
 	Mgr = &darwinServiceManager{}
+	// Override WriteFPMQuadlet to use launchd plists instead of systemd quadlets.
+	podman.WriteContainerUnitFn = Mgr.WriteContainerUnit
+	podman.DaemonReloadFn = Mgr.DaemonReload
+	podman.SkipQuadletUpToDateCheck = true
 }
 
 type darwinServiceManager struct{}
@@ -133,9 +144,34 @@ func podmanBinPath() string {
 	return "podman"
 }
 
+// stripSELinuxVolOpts removes SELinux relabelling flags (:z, :Z) from a
+// volume mount spec. On macOS with Podman Machine the source path is a
+// virtiofs mount and SELinux relabelling is unsupported; passing :z causes
+// the container to fail to start.
+func stripSELinuxVolOpts(vol string) string {
+	// volume format: src:dst[:opts]
+	parts := strings.SplitN(vol, ":", 3)
+	if len(parts) < 3 {
+		return vol
+	}
+	opts := strings.Split(parts[2], ",")
+	filtered := opts[:0]
+	for _, o := range opts {
+		if o != "z" && o != "Z" {
+			filtered = append(filtered, o)
+		}
+	}
+	if len(filtered) == 0 {
+		return parts[0] + ":" + parts[1]
+	}
+	return parts[0] + ":" + parts[1] + ":" + strings.Join(filtered, ",")
+}
+
 // containerToPodmanArgs builds a podman run argument list from a parsed [Container] section.
+// On macOS we run detached (-d) so that launchctl bootstrap sees an immediate
+// exit 0 (success); podman's own --restart=always policy handles crash recovery.
 func containerToPodmanArgs(c map[string][]string) ([]string, error) {
-	args := []string{podmanBinPath(), "run", "--rm"}
+	args := []string{podmanBinPath(), "run", "-d", "--restart=always"}
 
 	if names := c["ContainerName"]; len(names) > 0 {
 		// --replace removes any stale container with this name before starting
@@ -148,7 +184,7 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 		args = append(args, "-p", port)
 	}
 	for _, vol := range c["Volume"] {
-		args = append(args, "-v", expandSpecifiers(vol))
+		args = append(args, "-v", stripSELinuxVolOpts(expandSpecifiers(vol)))
 	}
 	for _, env := range c["Environment"] {
 		args = append(args, "-e", env)
@@ -188,14 +224,11 @@ func (m *darwinServiceManager) WriteServiceUnit(name, content string) error {
 		return err
 	}
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	plist := buildPlist(plistLabel(name), args, false, false, logPath)
+	plist := buildPlist(plistLabel(name), args, true, false, logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 
 func (m *darwinServiceManager) WriteServiceUnitIfChanged(name, content string) (bool, error) {
-	// Derive what the plist content would be by writing to a temp path first.
-	// Simpler: just check if the source content would produce a different plist.
-	// We regenerate and compare against disk.
 	svc := parseSection(content, "Service")
 	execStarts := svc["ExecStart"]
 	if len(execStarts) == 0 {
@@ -207,7 +240,7 @@ func (m *darwinServiceManager) WriteServiceUnitIfChanged(name, content string) (
 	}
 
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	newPlist := buildPlist(plistLabel(name), args, false, false, logPath)
+	newPlist := buildPlist(plistLabel(name), args, true, false, logPath)
 
 	if existing, err := os.ReadFile(plistPath(name)); err == nil && string(existing) == newPlist {
 		return false, nil
@@ -244,11 +277,22 @@ func (m *darwinServiceManager) WriteContainerUnit(name, content string) error {
 		return fmt.Errorf("container unit %s: %w", name, err)
 	}
 
+	// Pre-create volume source directories so podman doesn't fail with statfs.
+	for _, vol := range c["Volume"] {
+		parts := strings.SplitN(expandSpecifiers(vol), ":", 3)
+		if len(parts) >= 2 {
+			os.MkdirAll(parts[0], 0755) //nolint:errcheck
+		}
+	}
+
 	if err := ensurePlistDirs(name); err != nil {
 		return err
 	}
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	plist := buildPlist(plistLabel(name), args, true, true, logPath)
+	// RunAtLoad=false: container units are started by `lerd start` (via lerd-autostart),
+	// which first ensures Podman Machine is running. Firing podman run at login before
+	// the machine is up causes silent failures, so we let lerd-autostart sequence it.
+	plist := buildPlist(plistLabel(name), args, false, false, logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 
@@ -273,77 +317,124 @@ func (m *darwinServiceManager) ListContainerUnits(nameGlob string) []string {
 
 // --- Service lifecycle ---
 
-// DaemonReload is a no-op on macOS; launchd picks up plist changes on load.
+// DaemonReload is a no-op on macOS; launchd picks up plist changes on bootstrap.
 func (m *darwinServiceManager) DaemonReload() error { return nil }
 
+// bootstrap registers and starts the service plist in the user's GUI domain.
+// If already bootstrapped, it kicks (restarts) the service instead.
 func (m *darwinServiceManager) Start(name string) error {
 	p := plistPath(name)
 	if _, err := os.Stat(p); err != nil {
 		return fmt.Errorf("plist not found for %s", name)
 	}
-	cmd := exec.Command("launchctl", "load", p)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl load %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
+	domain := uidDomain()
+	label := plistLabel(name)
 
-func (m *darwinServiceManager) Stop(name string) error {
-	p := plistPath(name)
-	cmd := exec.Command("launchctl", "unload", p)
-	out, err := cmd.CombinedOutput()
+	// Always enable before bootstrap — a prior Disable() marks the service
+	// disabled and launchctl bootstrap returns exit 5 for disabled services.
+	exec.Command("launchctl", "enable", domain+"/"+label).Run() //nolint:errcheck
+
+	// If the service is already in the domain, kickstart it instead of
+	// bootstrap. `launchctl print domain/label` exits 0 when loaded.
+	if exec.Command("launchctl", "print", domain+"/"+label).Run() == nil {
+		if kout, kerr := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput(); kerr != nil {
+			return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
+		}
+		return nil
+	}
+
+	out, err := exec.Command("launchctl", "bootstrap", domain, p).CombinedOutput()
 	if err != nil {
-		// unload returns an error if the service isn't loaded — treat as success
-		if strings.Contains(string(out), "Could not find specified") ||
-			strings.Contains(string(out), "No such process") {
+		s := string(out)
+		// 36 = already bootstrapped; kick it to (re)start
+		if strings.Contains(s, "36") || strings.Contains(s, "already bootstrapped") ||
+			strings.Contains(s, "service already loaded") {
+			if kout, kerr := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput(); kerr != nil {
+				return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
+			}
 			return nil
 		}
-		return fmt.Errorf("launchctl unload %s: %w\n%s", name, err, out)
+		return fmt.Errorf("launchctl bootstrap %s: %w\n%s", name, err, out)
 	}
 	return nil
 }
 
+// Stop removes the service from the user's GUI domain (bootout) and also stops
+// any detached podman container running under the same name. The podman stop is
+// needed because container units use -d (detached) + --restart=always, so the
+// container keeps running independently of launchd after the plist is booted out.
+func (m *darwinServiceManager) Stop(name string) error {
+	// Derive the container name: plist name IS the container name (e.g. lerd-dns).
+	exec.Command(podmanBinPath(), "stop", name).Run()  //nolint:errcheck
+	exec.Command(podmanBinPath(), "rm", "-f", name).Run() //nolint:errcheck
+
+	domain := uidDomain()
+	label := plistLabel(name)
+
+	out, err := exec.Command("launchctl", "bootout", domain+"/"+label).CombinedOutput()
+	if err != nil {
+		s := string(out)
+		// 36 = not loaded / already gone — treat as success
+		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
+			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
+			return nil
+		}
+		return fmt.Errorf("launchctl bootout %s: %w\n%s", name, err, out)
+	}
+	return nil
+}
+
+// Restart kicks the service if loaded, otherwise bootstraps it fresh.
 func (m *darwinServiceManager) Restart(name string) error {
-	_ = m.Stop(name)
+	domain := uidDomain()
+	label := plistLabel(name)
+
+	out, err := exec.Command("launchctl", "kickstart", "-k", domain+"/"+label).CombinedOutput()
+	if err != nil {
+		s := string(out)
+		// Not loaded yet — fall back to a full bootstrap
+		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
+			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
+			return m.Start(name)
+		}
+		return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, err, out)
+	}
+	return nil
+}
+
+// Enable marks the service as enabled (persists across logins) and bootstraps it.
+func (m *darwinServiceManager) Enable(name string) error {
+	domain := uidDomain()
+	label := plistLabel(name)
+
+	// enable records the intent; bootstrap actually starts it now
+	exec.Command("launchctl", "enable", domain+"/"+label).Run() //nolint:errcheck
 	return m.Start(name)
 }
 
-// Enable loads the plist with -w so it persists across reboots.
-func (m *darwinServiceManager) Enable(name string) error {
-	p := plistPath(name)
-	if _, err := os.Stat(p); err != nil {
-		return fmt.Errorf("plist not found for %s", name)
-	}
-	cmd := exec.Command("launchctl", "load", "-w", p)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl load -w %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
-
-// Disable unloads the plist with -w so it won't restart at login.
+// Disable stops the service and marks it disabled so it won't start at login.
 func (m *darwinServiceManager) Disable(name string) error {
-	p := plistPath(name)
-	cmd := exec.Command("launchctl", "unload", "-w", p)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(out), "Could not find specified") ||
-			strings.Contains(string(out), "No such process") {
-			return nil
-		}
-		return fmt.Errorf("launchctl unload -w %s: %w\n%s", name, err, out)
-	}
+	domain := uidDomain()
+	label := plistLabel(name)
+
+	_ = m.Stop(name)
+	exec.Command("launchctl", "disable", domain+"/"+label).Run() //nolint:errcheck
 	return nil
 }
 
-// IsActive returns true if the service is currently running (has a PID).
+// IsActive returns true if the service is currently running.
+// For container units we also check the container directly.
 func (m *darwinServiceManager) IsActive(name string) bool {
-	out, err := exec.Command("launchctl", "list", plistLabel(name)).Output()
+	if running, _ := podman.ContainerRunning(name); running {
+		return true
+	}
+	domain := uidDomain()
+	label := plistLabel(name)
+	out, err := exec.Command("launchctl", "print", domain+"/"+label).Output()
 	if err != nil {
 		return false
 	}
-	// Output contains `"PID" = <number>;` when running
-	return strings.Contains(string(out), `"PID"`)
+	return strings.Contains(string(out), "state = running")
 }
 
 // IsEnabled returns true if the plist exists in LaunchAgents.
@@ -354,21 +445,33 @@ func (m *darwinServiceManager) IsEnabled(name string) bool {
 }
 
 // UnitStatus returns a status string similar to systemd's active state.
+// Container units (podman run -d) exit immediately with code 0 once the
+// container is detached, so we fall back to checking whether the container
+// is actually running rather than trusting launchd's "state = waiting/exited".
 func (m *darwinServiceManager) UnitStatus(name string) (string, error) {
-	out, err := exec.Command("launchctl", "list", plistLabel(name)).Output()
+	domain := uidDomain()
+	label := plistLabel(name)
+	out, err := exec.Command("launchctl", "print", domain+"/"+label).Output()
 	if err != nil {
-		// Not loaded at all
+		// Not loaded at all — check container directly before giving up.
+		if running, _ := podman.ContainerRunning(name); running {
+			return "active", nil
+		}
 		if _, statErr := os.Stat(plistPath(name)); statErr == nil {
 			return "inactive", nil
 		}
 		return "unknown", nil
 	}
 	s := string(out)
-	if strings.Contains(s, `"PID"`) {
+	if strings.Contains(s, "state = running") {
 		return "active", nil
 	}
-	// Loaded but not running — check last exit status
-	if strings.Contains(s, `"LastExitStatus" = 0`) {
+	// For exited-0 or waiting: the job may be a container launcher that
+	// succeeded (-d detach). Check the actual container state.
+	if running, _ := podman.ContainerRunning(name); running {
+		return "active", nil
+	}
+	if strings.Contains(s, "state = waiting") || strings.Contains(s, "last exit code = 0") {
 		return "inactive", nil
 	}
 	return "failed", nil

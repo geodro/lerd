@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
+	"github.com/geodro/lerd/internal/podman"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
@@ -331,18 +333,18 @@ func createDatabase(svc, name string) (bool, error) {
 	switch svc {
 	case "mysql":
 		// Query row count before and after to detect whether the DB was created.
-		check := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		check := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 		out, err := check.Output()
 		if err == nil && strings.TrimSpace(string(out)) != "0" {
 			return false, nil
 		}
-		cmd := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 		cmd.Stderr = os.Stderr
 		return true, cmd.Run()
 	case "postgres":
-		cmd := exec.Command("podman", "exec", "lerd-postgres", "psql", "-U", "postgres",
+		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-postgres", "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -366,19 +368,19 @@ func createS3Bucket(name string) (bool, error) {
 		mcEnv   = "MC_HOST_lerd=http://lerd:lerdpassword@lerd-rustfs:9000"
 	)
 
-	lsCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	lsCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "ls", alias+"/"+name)
 	if err := lsCmd.Run(); err == nil {
 		return false, nil
 	}
 
-	mbCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	mbCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "mb", alias+"/"+name)
 	if out, err := mbCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
 	}
 
-	pubCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	pubCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "anonymous", "set", "public", alias+"/"+name)
 	if out, err := pubCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("mc anonymous set public: %s", strings.TrimSpace(string(out)))
@@ -389,8 +391,10 @@ func createS3Bucket(name string) (bool, error) {
 // ensureServiceRunning starts the service if it is not already active.
 func ensureServiceRunning(name string) error {
 	unit := "lerd-" + name
-	status, _ := services.Mgr.UnitStatus(unit)
-	if status == "active" {
+	// On macOS, UnitStatus returns "active" only after launchd has kicked the
+	// podman run command; the container itself may still be starting. Use
+	// ContainerRunning as the authoritative check.
+	if running, _ := podman.ContainerRunning(unit); running {
 		return nil
 	}
 	if isKnownService(name) {
@@ -413,7 +417,17 @@ func ensureServiceRunning(name string) error {
 			return err
 		}
 	}
-	return services.Mgr.Start(unit)
+	if err := services.Mgr.Start(unit); err != nil {
+		return err
+	}
+	// Wait up to 15s for the container to actually be running.
+	for range 30 {
+		time.Sleep(500 * time.Millisecond)
+		if running, _ := podman.ContainerRunning(unit); running {
+			return nil
+		}
+	}
+	return fmt.Errorf("timed out waiting for %s container to start", unit)
 }
 
 // siteURL returns the APP_URL for the project registered at path, or "".
@@ -471,7 +485,7 @@ func artisanIn(dir string, args ...string) error {
 	cmdArgs := []string{"exec", "-i", "-w", dir, container, "php", "artisan"}
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -491,7 +505,7 @@ func runSiteInit(svc *config.CustomService, site string) {
 		container = "lerd-" + svc.Name
 	}
 	script := applySiteHandle(svc.SiteInit.Exec, site)
-	cmd := exec.Command("podman", "exec", container, "sh", "-c", script)
+	cmd := exec.Command(podman.PodmanBin(), "exec", container, "sh", "-c", script)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

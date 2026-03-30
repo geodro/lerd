@@ -55,7 +55,7 @@ func newPhpExtAddCmd() *cobra.Command {
 			unit := "lerd-php" + short + "-fpm"
 			if err := services.Mgr.Restart(unit); err != nil {
 				fmt.Printf("[WARN] restart %s: %v\n", unit, err)
-				fmt.Printf("Run: systemctl --user restart %s\n", unit)
+				fmt.Printf("Run: %s\n", serviceStartHint(unit))
 			} else {
 				fmt.Printf("FPM container restarted.\n")
 			}
@@ -97,7 +97,7 @@ func newPhpExtRemoveCmd() *cobra.Command {
 			unit := "lerd-php" + short + "-fpm"
 			if err := services.Mgr.Restart(unit); err != nil {
 				fmt.Printf("[WARN] restart %s: %v\n", unit, err)
-				fmt.Printf("Run: systemctl --user restart %s\n", unit)
+				fmt.Printf("Run: %s\n", serviceStartHint(unit))
 			} else {
 				fmt.Printf("FPM container restarted.\n")
 			}

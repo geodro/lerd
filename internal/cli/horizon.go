@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/geodro/lerd/internal/podman"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,11 +93,11 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan horizon
+ExecStart=%s exec -w %s %s php artisan horizon
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container)
 
 	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
@@ -110,6 +111,7 @@ WantedBy=default.target
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
+	waitForFPMContainer(container)
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting horizon: %w", err)
 	}

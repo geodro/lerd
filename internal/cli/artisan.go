@@ -44,7 +44,7 @@ func runArtisan(_ *cobra.Command, args []string) error {
 	container := "lerd-php" + short + "-fpm"
 
 	if running, _ := podman.ContainerRunning(container); !running {
-		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
+		return fmt.Errorf("PHP %s FPM service is not running — start it with: %s", version, serviceStartHint(container))
 	}
 
 	ensureServicesForCwd(cwd)

@@ -204,6 +204,20 @@ func openTerminalAt(dir string) error {
 		candidates = append(candidates, termCmd{t, []string{}})
 	}
 
+	// macOS: check well-known app bundle CLI shims and native binaries.
+	macOSCandidates := []termCmd{
+		{"/Applications/Ghostty.app/Contents/MacOS/ghostty", []string{"--working-directory=" + dir}},
+		{"/opt/homebrew/bin/ghostty", []string{"--working-directory=" + dir}},
+		{"/Applications/kitty.app/Contents/MacOS/kitty", []string{"--directory", dir}},
+		{"/Applications/WezTerm.app/Contents/MacOS/wezterm", []string{"start", "--cwd", dir}},
+		{"/Applications/iTerm.app/Contents/MacOS/iTerm2", []string{}},
+	}
+	for _, mc := range macOSCandidates {
+		if _, err := os.Stat(mc.bin); err == nil {
+			candidates = append(candidates, mc)
+		}
+	}
+
 	candidates = append(candidates,
 		termCmd{"kitty", []string{"--directory", dir}},
 		termCmd{"foot", []string{"--working-directory", dir}},
@@ -231,6 +245,11 @@ func openTerminalAt(dir string) error {
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
 		return cmd.Start()
+	}
+	// macOS fallback: open Terminal.app via osascript
+	if osa, err := exec.LookPath("osascript"); err == nil {
+		script := `tell application "Terminal" to do script "cd ` + dir + `"`
+		return exec.Command(osa, "-e", script).Start()
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
 }
@@ -1009,12 +1028,7 @@ func countSitesUsingService(name string) int {
 	return config.CountSitesUsingService(name)
 }
 
-// serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
-func serviceRecentLogs(unit string) string {
-	cmd := exec.Command("journalctl", "--user", "-u", unit+".service", "-n", "20", "--no-pager", "--output=short")
-	out, _ := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out))
-}
+// serviceRecentLogs is implemented per-platform in logs_linux.go / logs_darwin.go.
 
 // VersionResponse is the response for GET /api/version.
 type VersionResponse struct {
@@ -1453,14 +1467,41 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 
+	// On macOS some units are native services (e.g. lerd-dns), not containers.
+	// Fall back to the platform log stream (file tail) for those.
 	if exists, _ := podman.ContainerExists(container); !exists {
-		fmt.Fprintf(w, "data: container %s is not running\n\n", container)
-		flusher.Flush()
+		if isContainerUnit(container) {
+			fmt.Fprintf(w, "data: container %s is not running\n\n", container)
+			flusher.Flush()
+			return
+		}
+		// Native service — use platform log stream directly.
+		pr, pw := io.Pipe()
+		cmd := logStreamCmd(r.Context(), container)
+		cmd.Stdout = pw
+		cmd.Stderr = pw
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
+			flusher.Flush()
+			return
+		}
+		go func() { cmd.Wait(); pw.Close() }() //nolint:errcheck
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			fmt.Fprintf(w, "data: %s\n\n", strings.ReplaceAll(scanner.Text(), "\\", "\\\\"))
+			flusher.Flush()
+			if r.Context().Err() != nil {
+				break
+			}
+		}
+		if cmd.Process != nil {
+			cmd.Process.Kill() //nolint:errcheck
+		}
 		return
 	}
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", "100", container)
+	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), "logs", "-f", "--tail", "100", container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -1524,7 +1565,7 @@ func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
+	cmd := logStreamCmd(r.Context(), unit)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -1759,8 +1800,14 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Emit an initial line immediately so the frontend transitions from
+	// "Waiting for log output..." to showing real content. This is especially
+	// useful for queue workers that produce no output when idle.
+	fmt.Fprintf(w, "data: [%s] streaming logs — waiting for output...\n\n", unit)
+	flusher.Flush()
+
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
+	cmd := logStreamCmd(r.Context(), unit)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 

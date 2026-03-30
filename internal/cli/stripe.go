@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/geodro/lerd/internal/podman"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,11 +93,11 @@ After=network.target
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman run --rm --replace --name %s --network host docker.io/stripe/stripe-cli:latest listen --api-key %s --forward-to %s --skip-verify
+ExecStart=%s run --rm --replace --name %s --network host docker.io/stripe/stripe-cli:latest listen --api-key %s --forward-to %s --skip-verify
 
 [Install]
 WantedBy=default.target
-`, siteName, containerName, apiKey, forwardTo)
+`, siteName, podman.PodmanBin(), containerName, apiKey, forwardTo)
 
 	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {

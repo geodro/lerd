@@ -35,6 +35,9 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
+
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
 	}
@@ -141,11 +144,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing DNS quadlet")
-	if content, err := podman.GetQuadletTemplate("lerd-dns.container"); err == nil {
-		if err := services.Mgr.WriteContainerUnit("lerd-dns", content); err != nil {
-			return err
-		}
+	step("Writing DNS service")
+	if err := writeDNSUnit(os.Stdout); err != nil {
+		return err
 	}
 	ok()
 
@@ -160,7 +161,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// 7. Pull images in parallel, then build dnsmasq.
+	// 7. Pull images in parallel (nginx always; DNS images only on platforms that need them).
 	pullJobs := []BuildJob{
 		{
 			Label: "Pulling nginx:alpine",
@@ -171,31 +172,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 				return cmd.Run()
 			},
 		},
-		{
-			Label: "Pulling alpine:latest",
-			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
 	}
+	pullJobs = append(pullJobs, pullDNSImages()...)
 	if err := RunParallel(pullJobs); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
-	}
-
-	if err := RunParallel([]BuildJob{{
-		Label: "Building dnsmasq image",
-		Run: func(w io.Writer) error {
-			containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-			cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
-			cmd.Stdin = strings.NewReader(containerfile)
-			cmd.Stdout = w
-			cmd.Stderr = w
-			return cmd.Run()
-		},
-	}}); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 
@@ -262,6 +241,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if err := services.Mgr.Restart("lerd-ui"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
+	ok()
+
+	step("Enabling autostart on login")
+	installAutostart()
 	ok()
 
 	// Restart tray if running.

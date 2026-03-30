@@ -22,6 +22,24 @@ import (
 
 const apiBase = "http://127.0.0.1:7073"
 
+// lerdBin returns the path to the running lerd binary, falling back to
+// well-known install locations when PATH is restricted (e.g. launchd).
+func lerdBin() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	for _, p := range []string{
+		os.ExpandEnv("$HOME/.local/bin/lerd"),
+		"/opt/homebrew/bin/lerd",
+		"/usr/local/bin/lerd",
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "lerd"
+}
+
 // Snapshot holds the state polled from the Lerd API.
 type Snapshot struct {
 	Running          bool
@@ -121,7 +139,7 @@ func onReady(mono bool) {
 		icon = iconMonoPNG
 	}
 	systray.SetTemplateIcon(iconMonoPNG, icon)
-	systray.SetTitle("Lerd")
+	systray.SetTitle("")
 	systray.SetTooltip("Lerd — local dev environment")
 
 	menu := buildMenu()
@@ -247,7 +265,7 @@ func handleToggle(item *systray.MenuItem) {
 			} else {
 				arg = "start"
 			}
-			_ = exec.Command("lerd", arg).Start()
+			_ = exec.Command(lerdBin(), arg).Start()
 		}()
 	}
 }
@@ -267,7 +285,7 @@ func handleServices(menu *menuState) {
 				if status == "active" {
 					arg = "stop"
 				}
-				_ = exec.Command("lerd", "service", arg, name).Start()
+				_ = exec.Command(lerdBin(), "service", arg, name).Start()
 			}
 		}(i)
 	}
@@ -283,7 +301,7 @@ func handlePHP(menu *menuState) {
 				if version == "" {
 					continue
 				}
-				_ = exec.Command("lerd", "use", version).Start()
+				_ = exec.Command(lerdBin(), "use", version).Start()
 			}
 		}(i)
 	}
@@ -292,9 +310,9 @@ func handlePHP(menu *menuState) {
 func handleAutostart(item *systray.MenuItem) {
 	for range item.ClickedCh {
 		if services.Mgr.IsEnabled("lerd-autostart") {
-			_ = exec.Command("lerd", "autostart", "disable").Start()
+			_ = exec.Command(lerdBin(), "autostart", "disable").Start()
 		} else {
-			_ = exec.Command("lerd", "autostart", "enable").Start()
+			_ = exec.Command(lerdBin(), "autostart", "enable").Start()
 		}
 	}
 }
@@ -339,10 +357,14 @@ func openUpdateTerminal(latestVer string) {
 func handleQuit(item *systray.MenuItem, cancel context.CancelFunc) {
 	<-item.ClickedCh
 	cancel()
-	_ = exec.Command("lerd", "quit").Run()
+	_ = exec.Command(lerdBin(), "quit").Run()
 	systray.Quit()
 }
 
 func openURL(url string) {
-	_ = exec.Command("xdg-open", url).Start()
+	cmd := "xdg-open"
+	if _, err := exec.LookPath("open"); err == nil {
+		cmd = "open"
+	}
+	_ = exec.Command(cmd, url).Start()
 }

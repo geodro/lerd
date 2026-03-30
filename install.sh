@@ -449,18 +449,16 @@ cmd_uninstall() {
   if [ "$(detect_os)" = "darwin" ]; then
     # ── macOS: stop and remove launchd plists ──────────────────────────────
     local launch_agents="$HOME/Library/LaunchAgents"
+    local uid_domain="gui/$(id -u)"
     if [ -d "$launch_agents" ]; then
       for f in "$launch_agents"/lerd-*.plist; do
         [ -f "$f" ] || continue
-        info "Unloading $(basename "$f") ..."
-        launchctl unload -w "$f" 2>/dev/null || true
+        local label; label="com.lerd.$(basename "$f" .plist)"
+        info "Stopping $(basename "$f" .plist) ..."
+        launchctl bootout "${uid_domain}/${label}" 2>/dev/null || true
+        launchctl disable "${uid_domain}/${label}" 2>/dev/null || true
         rm -f "$f"
       done
-    fi
-    # Remove pf helper LaunchDaemon if present
-    if [ -f "/Library/LaunchDaemons/com.lerd.pf.plist" ]; then
-      sudo launchctl unload "/Library/LaunchDaemons/com.lerd.pf.plist" 2>/dev/null || true
-      sudo rm -f "/Library/LaunchDaemons/com.lerd.pf.plist"
     fi
   else
     # ── Linux: stop and remove systemd units ──────────────────────────────
@@ -503,6 +501,15 @@ cmd_uninstall() {
 
   # Optionally remove data
   if ask "Remove all Lerd data and config? (~/.config/lerd, ~/.local/share/lerd)"; then
+    # On macOS, stop any lerd containers still running inside Podman Machine
+    # before removing volume data (avoids virtiofs file-lock hangs).
+    if [ "$(detect_os)" = "darwin" ] && command -v podman &>/dev/null; then
+      local running; running="$(podman ps --format '{{.Names}}' 2>/dev/null | grep '^lerd-' || true)"
+      if [ -n "$running" ]; then
+        info "Stopping running lerd containers ..."
+        echo "$running" | xargs podman stop 2>/dev/null || true
+      fi
+    fi
     rm -rf "$LERD_CONFIG_DIR"
     rm -rf "$LERD_DATA_DIR"
     success "Removed config and data directories"

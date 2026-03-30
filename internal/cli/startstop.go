@@ -113,8 +113,18 @@ type startResult struct {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
+	// On macOS, Podman runs inside a Linux VM. Start it before any containers.
+	ensurePodmanMachineRunning()
+
 	// Rebuild missing FPM images in the background so they don't delay startup.
 	go ensureFPMImages()
+
+	// Ensure the lerd Podman network and DNS image exist — both can be lost
+	// after a Podman Machine restart when the VM's storage is reset.
+	if err := podman.EnsureNetwork("lerd"); err != nil {
+		fmt.Printf("  WARN: podman network: %v\n", err)
+	}
+	ensureDNSImageForStart()
 
 	// Rewrite nginx.conf so any config changes in new binary versions take effect.
 	if err := nginx.EnsureNginxConfig(); err != nil {

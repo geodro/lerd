@@ -142,11 +142,11 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan %s
+ExecStart=%s exec -w %s %s php artisan %s
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container, artisanArgs)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container, artisanArgs)
 
 	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
@@ -161,6 +161,7 @@ WantedBy=default.target
 		}
 	}
 
+	waitForFPMContainer(container)
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting queue worker: %w", err)
 	}

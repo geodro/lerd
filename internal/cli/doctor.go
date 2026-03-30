@@ -53,7 +53,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	if _, err := exec.LookPath("podman"); err != nil {
 		fail("podman binary", "not found in PATH", "install podman: https://podman.io/docs/installation")
 	} else if err := podman.RunSilent("info"); err != nil {
-		fail("podman", "podman info failed — daemon not running?", "podman system service --time=0 &  or  systemctl --user start podman.socket")
+		fail("podman", "podman info failed — daemon not running?", podmanDaemonHint())
 	} else {
 		ok("podman")
 	}
@@ -72,16 +72,18 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	currentUser := os.Getenv("USER")
-	if currentUser == "" {
-		currentUser = os.Getenv("LOGNAME")
-	}
-	if currentUser != "" {
-		out, err := exec.Command("loginctl", "show-user", currentUser).Output()
-		if err != nil || !strings.Contains(string(out), "Linger=yes") {
-			warn("linger enabled", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
-		} else {
-			ok("linger enabled")
+	if runtime.GOOS == "linux" {
+		currentUser := os.Getenv("USER")
+		if currentUser == "" {
+			currentUser = os.Getenv("LOGNAME")
+		}
+		if currentUser != "" {
+			out, err := exec.Command("loginctl", "show-user", currentUser).Output()
+			if err != nil || !strings.Contains(string(out), "Linger=yes") {
+				warn("linger enabled", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
+			} else {
+				ok("linger enabled")
+			}
 		}
 	}
 
@@ -156,12 +158,18 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 			ok(fmt.Sprintf(".%s resolves to 127.0.0.1", tld))
 		} else {
 			fail(fmt.Sprintf(".%s resolution", tld), "not resolving to 127.0.0.1",
-				"run 'lerd install' or: sudo systemctl restart NetworkManager")
+				dnsRestartHint())
 		}
 	}
 
-	// Port 5300 conflict (only check when DNS container is not running)
-	dnsRunning, _ := podman.ContainerRunning("lerd-dns")
+	// Port 5300 conflict (only warn when lerd-dns is not actively managing port 5300)
+	dnsRunning := services.Mgr.IsActive("lerd-dns")
+	if !dnsRunning {
+		// Also accept a running container (Linux path).
+		if cr, _ := podman.ContainerRunning("lerd-dns"); cr {
+			dnsRunning = true
+		}
+	}
 	if !dnsRunning && portInUse("5300") {
 		warn("DNS port 5300", "port in use by another process — lerd-dns may fail to start")
 	}
@@ -269,13 +277,5 @@ func checkDirWritable(dir string) error {
 	return nil
 }
 
-// portInUse returns true if something is listening on the given TCP port.
-func portInUse(port string) bool {
-	out, err := exec.Command("ss", "-tlnp").Output()
-	if err != nil {
-		return false
-	}
-	needle := ":" + port + " "
-	return strings.Contains(string(out), needle)
-}
+// portInUse is implemented per-platform in doctor_linux.go / doctor_darwin.go.
 

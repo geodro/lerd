@@ -56,7 +56,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	} else {
 		fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
 			"not resolving",
-			"run 'lerd install' to reconfigure, or: sudo systemctl restart NetworkManager")
+			dnsRestartHint())
 	}
 
 	// Nginx
@@ -67,7 +67,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	} else {
 		fail2("lerd-nginx container",
 			"not running",
-			"systemctl --user start lerd-nginx  |  check: systemctl --user status lerd-nginx")
+			serviceStatusHint("lerd-nginx"))
 	}
 
 	// PHP FPM
@@ -97,7 +97,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		} else {
 			fail2("PHP "+v+" FPM",
 				containerName+" not running",
-				"systemctl --user start "+containerName)
+				serviceStartHint(containerName))
 		}
 	}
 
@@ -106,7 +106,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	if services.Mgr.IsActive("lerd-watcher") {
 		ok2("lerd-watcher")
 	} else {
-		fail2("lerd-watcher", "not running", "systemctl --user start lerd-watcher")
+		fail2("lerd-watcher", "not running", serviceStartHint("lerd-watcher"))
 	}
 
 	// Services — only show services that have a quadlet file installed
@@ -129,7 +129,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				warn2(svc, "inactive — start with: lerd service start "+svc)
 			}
 		default:
-			fail2(svc, status, "systemctl --user status "+unit)
+			fail2(svc, status, serviceStatusHint(unit))
 		}
 	}
 	customs, _ := config.ListCustomServices()
@@ -151,7 +151,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				warn2(label, "inactive — start with: lerd service start "+svc.Name)
 			}
 		default:
-			fail2(label, status, "systemctl --user status "+unit)
+			fail2(label, status, serviceStatusHint(unit))
 		}
 	}
 	if installedCount == 0 {

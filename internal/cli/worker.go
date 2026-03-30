@@ -5,12 +5,30 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// waitForFPMContainer blocks until the named FPM container is running and
+// accepting exec sessions, or until the timeout is reached.
+// This prevents "container state improper" errors when launchd starts worker
+// services in parallel with the FPM container on boot/machine restart.
+func waitForFPMContainer(container string) {
+	for range 30 {
+		if running, _ := podman.ContainerRunning(container); running {
+			// Container is running — verify exec works before returning.
+			if err := podman.RunSilent("exec", container, "true"); err == nil {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
 
 // NewWorkerCmd returns the worker parent command with start/stop/list subcommands.
 func NewWorkerCmd() *cobra.Command {
@@ -181,11 +199,11 @@ BindsTo=%s.service
 Type=simple
 Restart=%s
 RestartSec=5
-ExecStart=podman exec -w %s %s %s
+ExecStart=%s exec -w %s %s %s
 
 [Install]
 WantedBy=default.target
-`, label, siteName, fpmUnit, fpmUnit, restart, sitePath, container, w.Command)
+`, label, siteName, fpmUnit, fpmUnit, restart, podman.PodmanBin(), sitePath, container, w.Command)
 
 	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
@@ -200,6 +218,7 @@ WantedBy=default.target
 		}
 	}
 
+	waitForFPMContainer(container)
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting %s worker: %w", workerName, err)
 	}
