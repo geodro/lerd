@@ -392,7 +392,10 @@ func (p *progressReader) Read(b []byte) (int, error) {
 func addShellShims() error {
 	home, _ := os.UserHomeDir()
 	binDir := config.BinDir()
-	lerdBin := filepath.Join(home, ".local", "bin", "lerd")
+	lerdBin, err := os.Executable()
+	if err != nil {
+		lerdBin = filepath.Join(home, ".local", "bin", "lerd")
+	}
 	fnmBin := filepath.Join(binDir, "fnm")
 
 	// Write php shim
