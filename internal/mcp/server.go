@@ -2279,6 +2279,8 @@ func execSecure(args map[string]any) (any, *rpcError) {
 		_ = err
 	}
 
+	syncMCPLerdYAMLSecured(site.Path, true)
+
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
 	}
@@ -2311,6 +2313,8 @@ func execUnsecure(args map[string]any) (any, *rpcError) {
 	}); err != nil {
 		_ = err
 	}
+
+	syncMCPLerdYAMLSecured(site.Path, false)
 
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
@@ -2872,10 +2876,17 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("site %q not found — run sites to list registered sites", siteName)), nil
 	}
 
-	// Write .php-version pin file in the project.
+	// Write .php-version pin file (keeps CLI php and other tools in sync).
 	phpVersionFile := filepath.Join(site.Path, ".php-version")
 	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
 		return toolErr("writing .php-version: " + err.Error()), nil
+	}
+	// Also update .lerd.yaml when it already exists so lerd's priority-1
+	// override stays in sync with .php-version.
+	if _, statErr := os.Stat(filepath.Join(site.Path, ".lerd.yaml")); statErr == nil {
+		proj, _ := config.LoadProjectConfig(site.Path)
+		proj.PHPVersion = version
+		_ = config.SaveProjectConfig(site.Path, proj)
 	}
 
 	// Ensure the FPM quadlet and xdebug ini exist for this version.
@@ -2995,4 +3006,16 @@ func runLerdCmd(cmdArgs ...string) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("command failed (%v):\n%s", err, out.String())), nil
 	}
 	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
+// syncMCPLerdYAMLSecured updates the secured field in .lerd.yaml when the file
+// already exists, keeping the saved config in sync with MCP secure/unsecure calls.
+func syncMCPLerdYAMLSecured(projectPath string, secured bool) {
+	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(projectPath)
+	proj.Secured = secured
+	_ = config.SaveProjectConfig(projectPath, proj)
 }

@@ -5,7 +5,7 @@
 | Command | Description |
 |---|---|
 | `lerd use <version>` | Set the global PHP version and build the FPM image if needed |
-| `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` |
+| `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` and updates `.lerd.yaml` if it exists, then re-links |
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild` | Force-rebuild all installed PHP-FPM images (run after `lerd update` if needed) |
 | `lerd fetch [version...]` | Pre-build PHP FPM images for the given (or all supported) versions so first use isn't slow |
@@ -47,11 +47,17 @@ To pin a project permanently:
 
 ```bash
 cd ~/Lerd/my-app
-lerd isolate 8.2
-# writes .php-version: 8.2 — commit this if you like
+lerd isolate 8.4
 ```
 
-To change the global default:
+This writes `.php-version: 8.4` (so CLI `php`, asdf, and other tools see the right version) and, when `.lerd.yaml` already exists in the project, also updates its `php_version` field to keep lerd's priority-1 override in sync. The site is re-linked automatically so nginx picks up the new version immediately.
+
+The UI PHP version selector and the MCP `site_php` tool follow the same rules — they always write both files when applicable.
+
+!!! tip "Overriding a `composer.json` constraint"
+    If `composer.json` requires `^8.3` but you need to run the project on PHP 8.4, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
+
+To change the global default (applies to all projects that don't have a per-project pin):
 
 ```bash
 lerd use 8.4

@@ -65,6 +65,7 @@ RUN apk update && apk add --no-cache \
          || true; } \
     && { (pecl install igbinary && docker-php-ext-enable igbinary) || true; } \
     && { (pecl install mongodb && docker-php-ext-enable mongodb) || true; } \
+    && { (pecl install pcov && docker-php-ext-enable pcov) || true; } \
     && rm -rf /tmp/pear /var/cache/apk/*
 
 # Install Composer and Node.js (for CLI tools like laravel new that spawn npm)

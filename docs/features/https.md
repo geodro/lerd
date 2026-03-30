@@ -7,12 +7,16 @@ cd ~/Lerd/my-app
 lerd secure
 # Issues a cert for my-app.test, regenerates the SSL vhost, reloads nginx
 # Updates APP_URL=https://my-app.test in .env if it exists
+# Updates secured: true in .lerd.yaml if it exists
 # Visit https://my-app.test — no certificate warning
 
 lerd unsecure
 # Removes the cert, switches back to HTTP vhost
 # Updates APP_URL=http://my-app.test in .env if it exists
+# Updates secured: false in .lerd.yaml if it exists
 ```
+
+HTTPS can also be enabled during `lerd init` or `lerd setup` — the wizard asks the question upfront and applies it as part of the configuration step.
 
 Certificates are stored in `~/.local/share/lerd/certs/sites/`.
 
@@ -20,7 +24,7 @@ Certificates are stored in `~/.local/share/lerd/certs/sites/`.
 
 ## From the Web UI
 
-The Sites tab has an HTTPS toggle per site — clicking it runs `lerd secure` or `lerd unsecure` inline and updates the vhost without touching the terminal.
+The Sites tab has an HTTPS toggle per site — clicking it runs `lerd secure` or `lerd unsecure` inline and updates the vhost without touching the terminal. If `.lerd.yaml` exists in the project, the `secured` field is updated there too so the state is preserved for future `lerd init` runs.
 
 ---
 

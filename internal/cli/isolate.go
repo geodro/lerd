@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +27,39 @@ func runIsolate(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	phpVersionFile := filepath.Join(cwd, ".php-version")
-	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
+	if err := pinProjectPHP(cwd, version); err != nil {
+		return err
+	}
+
+	fmt.Printf("PHP version pinned to %s\n", version)
+
+	// Re-link if the site is registered so nginx picks up the new version.
+	if _, err := config.FindSiteByPath(cwd); err == nil {
+		if err := runLink([]string{}, ""); err != nil {
+			fmt.Printf("[WARN] re-linking site: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// pinProjectPHP writes the PHP version pin files for a project directory.
+// It always writes .php-version (so CLI php and other tools see it).
+// It also updates php_version in .lerd.yaml when that file already exists,
+// so the lerd override (priority 1) stays in sync.
+func pinProjectPHP(dir, version string) error {
+	if err := os.WriteFile(filepath.Join(dir, ".php-version"), []byte(version+"\n"), 0644); err != nil {
 		return fmt.Errorf("writing .php-version: %w", err)
 	}
 
-	fmt.Printf("PHP version pinned to %s in %s\n", version, cwd)
+	lerdYAML := filepath.Join(dir, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err == nil {
+		proj, _ := config.LoadProjectConfig(dir)
+		proj.PHPVersion = version
+		if err := config.SaveProjectConfig(dir, proj); err != nil {
+			return fmt.Errorf("updating .lerd.yaml: %w", err)
+		}
+	}
+
 	return nil
 }

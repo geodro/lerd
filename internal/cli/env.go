@@ -147,6 +147,15 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	updates := map[string]string{}
 	dbName := projectDBName(cwd)
 
+	// Load .lerd.yaml service hints so we can apply env vars for services
+	// listed there even when they are not yet referenced in the env file.
+	lerdYAMLServices := map[string]bool{}
+	if proj, projErr := config.LoadProjectConfig(cwd); projErr == nil {
+		for _, svc := range proj.Services {
+			lerdYAMLServices[svc] = true
+		}
+	}
+
 	if len(fw.Env.Services) > 0 {
 		// Framework defines its own service detection and vars — use those.
 		for svc, def := range fw.Env.Services {
@@ -184,7 +193,8 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		// Default Laravel-style detection.
 		for _, svc := range knownServices {
 			detector, ok := serviceDetectors[svc]
-			if !ok || !detector(envMap) {
+			detectedFromEnv := ok && detector(envMap)
+			if !detectedFromEnv && !lerdYAMLServices[svc] {
 				continue
 			}
 
@@ -193,7 +203,11 @@ func runEnv(_ *cobra.Command, _ []string) error {
 				continue
 			}
 
-			fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc)
+			if detectedFromEnv {
+				fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc)
+			} else {
+				fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", svc)
+			}
 			for _, kv := range info.envVars {
 				k, v, _ := strings.Cut(kv, "=")
 				updates[k] = v

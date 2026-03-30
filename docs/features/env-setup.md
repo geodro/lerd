@@ -12,7 +12,7 @@ lerd env
 ## What it does
 
 1. **Creates the env file** from the framework's example file (e.g. `.env.example` for Laravel, `.env.dist` for Symfony) if no env file exists yet
-2. **Detects which services the project uses** — for Laravel, by inspecting env keys (`DB_CONNECTION`, `REDIS_HOST`, etc.); for other frameworks, using the service detection rules defined in the [framework definition](../usage/frameworks.md)
+2. **Detects which services the project uses** — for Laravel, by inspecting env keys (`DB_CONNECTION`, `REDIS_HOST`, etc.); for other frameworks, using the service detection rules defined in the [framework definition](../usage/frameworks.md). Services listed in `.lerd.yaml` are also included even when the env file does not reference them yet
 3. **Writes lerd connection values** for each detected service (hosts, ports, credentials) — preserving all comments and line order
 4. **Creates the project database** (and a `<name>_testing` database) inside the running service container; reports if they already exist
 5. **Starts any referenced service** that is not already running
@@ -28,11 +28,13 @@ lerd env
 Creating .env from .env.example...
   Detected mysql        — applying lerd connection values
   Detected redis        — applying lerd connection values
-  Detected mailpit      — applying lerd connection values
+  From .lerd.yaml mailpit — applying lerd connection values
   Setting APP_URL=http://my-app.test
   Generating APP_KEY...
 Done.
 ```
+
+Services prefixed with `From .lerd.yaml` were not referenced in the env file but are listed in `.lerd.yaml` — their connection values are written and the service is started so the project is ready to use them.
 
 ---
 

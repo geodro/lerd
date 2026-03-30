@@ -35,6 +35,7 @@ func main() {
 	root.AddCommand(cli.NewUpdateCmd(version.Version))
 	root.AddCommand(cli.NewUninstallCmd())
 	root.AddCommand(cli.NewParkCmd())
+	root.AddCommand(cli.NewInitCmd())
 	root.AddCommand(cli.NewLinkCmd())
 	root.AddCommand(cli.NewUnlinkCmd())
 	root.AddCommand(cli.NewUnparkCmd())
@@ -51,7 +52,7 @@ func main() {
 	root.AddCommand(cli.NewPhpRebuildCmd())
 	root.AddCommand(cli.NewPhpCmd())
 	root.AddCommand(cli.NewPhpShellCmd())
-	root.AddCommand(cli.NewArtisanCmd())
+	root.AddCommand(cli.NewConsoleCmd())
 	root.AddCommand(cli.NewEnvCmd())
 	root.AddCommand(cli.NewNodeCmd())
 	root.AddCommand(cli.NewNpmCmd())
@@ -232,6 +233,9 @@ func newWatchCmd() *cobra.Command {
 						if err != nil {
 							return
 						}
+						if site.Paused {
+							return
+						}
 						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.Domain)
 						if err != nil {
 							return
@@ -304,13 +308,15 @@ func newWatchCmd() *cobra.Command {
 						if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != site.PHPVersion {
 							site.PHPVersion = detected
 							_ = config.AddSite(*site)
-							if site.Secured {
-								_ = nginx.GenerateSSLVhost(*site, detected)
-							} else {
-								_ = nginx.GenerateVhost(*site, detected)
-							}
-							if err := nginx.Reload(); err != nil {
-								fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+							if !site.Paused {
+								if site.Secured {
+									_ = nginx.GenerateSSLVhost(*site, detected)
+								} else {
+									_ = nginx.GenerateVhost(*site, detected)
+								}
+								if err := nginx.Reload(); err != nil {
+									fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+								}
 							}
 						}
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
@@ -379,7 +385,7 @@ func scanWorktrees() bool {
 	}
 	generated := false
 	for _, s := range reg.Sites {
-		if s.Ignored {
+		if s.Ignored || s.Paused {
 			continue
 		}
 		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.Domain)

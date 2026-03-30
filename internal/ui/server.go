@@ -1118,6 +1118,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		site.Secured = true
 		envfile.UpdateAppURL(site.Path, "https", site.Domain) //nolint:errcheck
+		syncLerdYAMLSecured(site.Path, true)
 		needsReload = true
 	case "unsecure":
 		if err := certs.UnsecureSite(*site); err != nil {
@@ -1126,6 +1127,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		site.Secured = false
 		envfile.UpdateAppURL(site.Path, "http", site.Domain) //nolint:errcheck
+		syncLerdYAMLSecured(site.Path, false)
 		needsReload = true
 	case "php":
 		version := r.URL.Query().Get("version")
@@ -1133,10 +1135,17 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "version parameter required"})
 			return
 		}
-		// Write .php-version into project directory
+		// Write .php-version into project directory (keeps CLI php and other tools in sync).
 		if err := os.WriteFile(filepath.Join(site.Path, ".php-version"), []byte(version+"\n"), 0644); err != nil {
 			writeJSON(w, SiteActionResponse{Error: "writing .php-version: " + err.Error()})
 			return
+		}
+		// Also update .lerd.yaml when it already exists so lerd's priority-1
+		// override stays in sync with .php-version.
+		if _, statErr := os.Stat(filepath.Join(site.Path, ".lerd.yaml")); statErr == nil {
+			proj, _ := config.LoadProjectConfig(site.Path)
+			proj.PHPVersion = version
+			_ = config.SaveProjectConfig(site.Path, proj)
 		}
 		site.PHPVersion = version
 		// Regenerate vhost with new PHP version
@@ -1826,4 +1835,16 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 		fmt.Fprintf(w, "data: %s\n\n", line)
 		flusher.Flush()
 	}
+}
+
+// syncLerdYAMLSecured updates the secured field in .lerd.yaml when the file
+// already exists, keeping the saved config in sync with UI toggles.
+func syncLerdYAMLSecured(projectPath string, secured bool) {
+	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(projectPath)
+	proj.Secured = secured
+	_ = config.SaveProjectConfig(projectPath, proj)
 }

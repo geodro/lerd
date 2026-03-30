@@ -72,6 +72,7 @@ func runSecure(_ *cobra.Command, args []string) error {
 	}
 
 	updateEnvAppURL(site.Path, "https", site.Domain)
+	syncProjectConfigSecured(site.Path, true)
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
@@ -104,6 +105,7 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 	}
 
 	updateEnvAppURL(site.Path, "http", site.Domain)
+	syncProjectConfigSecured(site.Path, false)
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
@@ -111,6 +113,20 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 	restartStripeIfActive(site)
 	fmt.Printf("Unsecured: http://%s\n", site.Domain)
 	return nil
+}
+
+// syncProjectConfigSecured updates the secured field in .lerd.yaml when the
+// file already exists, keeping the saved config in sync with secure/unsecure calls.
+func syncProjectConfigSecured(projectPath string, secured bool) {
+	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(projectPath)
+	proj.Secured = secured
+	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
+		fmt.Printf("  [WARN] updating .lerd.yaml: %v\n", err)
+	}
 }
 
 // restartStripeIfActive restarts the Stripe listener for the site if it is currently running,

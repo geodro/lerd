@@ -11,7 +11,6 @@ import (
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // NewLinkCmd returns the link command.
@@ -125,6 +124,13 @@ func runLink(args []string, customDomain string) error {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 
+	// If .lerd.yaml requests HTTPS and the site is not yet secured, issue the cert now.
+	if proj, err := config.LoadProjectConfig(cwd); err == nil && proj.Secured && !secured {
+		if err := runSecure(nil, []string{}); err != nil {
+			fmt.Printf("[WARN] securing site: %v\n", err)
+		}
+	}
+
 	return nil
 }
 
@@ -133,21 +139,11 @@ func runLink(args []string, customDomain string) error {
 // auto-detects via config.DetectFramework. Returns ("", false) if no
 // framework definition is found.
 func resolveFramework(dir string) (string, bool) {
-	// Check .lerd.yaml for explicit framework override
-	type lerdYAML struct {
-		PHPVersion string `yaml:"php_version"`
-		Framework  string `yaml:"framework"`
-	}
-	if data, err := os.ReadFile(filepath.Join(dir, ".lerd.yaml")); err == nil {
-		var local lerdYAML
-		if yaml.Unmarshal(data, &local) == nil && local.Framework != "" {
-			// Validate that a definition exists for the specified framework
-			if _, ok := config.GetFramework(local.Framework); ok {
-				return local.Framework, true
-			}
-			return "", false
+	if proj, err := config.LoadProjectConfig(dir); err == nil && proj.Framework != "" {
+		if _, ok := config.GetFramework(proj.Framework); ok {
+			return proj.Framework, true
 		}
+		return "", false
 	}
-
 	return config.DetectFramework(dir)
 }

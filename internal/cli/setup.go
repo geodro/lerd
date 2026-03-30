@@ -31,8 +31,13 @@ func NewSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Bootstrap a PHP project (composer, npm, env, migrate, assets, open)",
-		Long: `Runs a series of standard project setup steps with an interactive
-step-selector so you can toggle which steps to execute before they run.
+		Long: `Configures the site and runs a series of standard project setup steps with
+an interactive step-selector so you can toggle which steps to execute.
+
+Before the step selector, lerd setup runs the lerd init wizard so you can
+choose the PHP version, HTTPS, and required services. The answers are saved
+to .lerd.yaml (commit it for portability). On subsequent runs, or when
+.lerd.yaml already exists, the config is applied silently with no prompts.
 
 Steps for all frameworks:
   1. composer install        — skipped if vendor/ already exists
@@ -51,9 +56,8 @@ Additional steps for Laravel projects:
   12. schedule:start         — start task scheduler
   13. reverb:start           — start Reverb WebSocket server (if configured)
 
-Site registration (lerd link) always runs first, before the step selector.
-
-Use --all to skip the selector and run everything (useful in CI).`,
+Use --all to skip all selectors and run everything (useful in CI). In --all
+mode with no .lerd.yaml, site registration falls back to auto-detection.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runSetup(allSteps, skipOpen)
 		},
@@ -70,11 +74,11 @@ func runSetup(allSteps, skipOpen bool) error {
 		return err
 	}
 
-	// Always refresh site registration first so PHP/Node versions are correct
-	// before any subsequent step (especially lerd secure) reads from the registry.
-	fmt.Println("→ Registering site...")
-	if err := runLink(nil, ""); err != nil {
-		fmt.Printf("  [WARN] lerd link: %v\n", err)
+	// Run init wizard (or apply saved .lerd.yaml) before any other step so
+	// PHP version, HTTPS, and services are configured first.
+	fmt.Println("→ Configuring site...")
+	if err := runSetupInit(cwd, allSteps); err != nil {
+		fmt.Printf("  [WARN] %v\n", err)
 	}
 
 	site, _ := config.FindSiteByPath(cwd)
@@ -157,13 +161,16 @@ func runSetup(allSteps, skipOpen bool) error {
 		})
 	}
 
-	steps = append(steps, setupStep{
-		label:   "lerd secure",
-		enabled: false,
-		run: func() error {
-			return runSecure(nil, nil)
-		},
-	})
+	// Only offer the secure step when the site isn't already secured by lerd init.
+	if site == nil || !site.Secured {
+		steps = append(steps, setupStep{
+			label:   "lerd secure",
+			enabled: false,
+			run: func() error {
+				return runSecure(nil, nil)
+			},
+		})
+	}
 
 	if isLaravel {
 		steps = append(steps, setupStep{

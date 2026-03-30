@@ -18,6 +18,9 @@ type Framework struct {
 	Composer  string                     `yaml:"composer,omitempty"` // auto | true | false
 	NPM       string                     `yaml:"npm,omitempty"`      // auto | true | false
 	Workers   map[string]FrameworkWorker `yaml:"workers,omitempty"`
+	// Console is the console command to run (without 'php' prefix).
+	// Example: "artisan", "bin/console"
+	Console string `yaml:"console,omitempty"`
 	// Create is the scaffold command used by "lerd new". The target directory is appended automatically.
 	// Example: "composer create-project laravel/laravel"
 	Create string `yaml:"create,omitempty"`
@@ -122,6 +125,7 @@ var laravelFramework = &Framework{
 	},
 	Composer: "auto",
 	NPM:      "auto",
+	Console:  "artisan",
 	Workers: map[string]FrameworkWorker{
 		"queue": {
 			Label:   "Queue Worker",

@@ -14,6 +14,6 @@ func BundledExtensions() []string {
 		"pdo_mysql", "pdo_pgsql", "pdo_sqlite", "soap", "shmop",
 		"sockets", "sqlite3", "sysvmsg", "sysvsem", "sysvshm", "xsl", "zip",
 		// PECL
-		"redis", "imagick", "igbinary", "mongodb", "xdebug",
+		"redis", "imagick", "igbinary", "mongodb", "pcov", "xdebug",
 	}
 }
