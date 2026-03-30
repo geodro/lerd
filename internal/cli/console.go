@@ -100,6 +100,9 @@ func getConsoleCommand(cwd string) (string, error) {
 	}
 
 	if frameworkConfig.Console == "" {
+		if framework == "laravel" {
+			return "artisan", nil
+		}
 		return "", fmt.Errorf(
 			"no console command defined for framework %q — add 'console' field to %s/%s.yaml",
 			frameworkConfig.Name,
