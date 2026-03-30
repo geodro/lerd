@@ -128,6 +128,27 @@ archives:
       - README.md
       - install.sh
 
+brews:
+  - name: lerd
+    ids:
+      - lerd-darwin-amd64
+      - lerd-darwin-arm64
+    repository:
+      owner: geodro
+      name: homebrew-lerd
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/geodro/lerd"
+    description: "Local Laravel development environment for macOS"
+    license: "MIT"
+    skip_upload: auto
+    dependencies:
+      - name: podman
+      - name: dnsmasq
+    install: |
+      bin.install "lerd"
+    caveats: |
+      Run `lerd install` to complete Lerd setup.
+
 checksum:
   name_template: "checksums.txt"
 
@@ -161,9 +182,9 @@ release:
   header: |
     ## Lerd {{ .Version }}
 
-    Laravel Herd for Linux — Podman-native dev environment.
+    Laravel Herd for Linux & macOS — Podman-native dev environment.
 
-    ### Install / Upgrade
+    ### Install on Linux
 
     ```bash
     curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
@@ -173,6 +194,21 @@ release:
 
     ```bash
     lerd update
+    ```
+
+    ### Install on macOS
+
+    ```bash
+    brew tap geodro/lerd
+    brew install lerd
+    lerd install
+    ```
+
+    Or if already installed:
+
+    ```bash
+    brew upgrade lerd
+    lerd install
     ```
   footer: |
     **Full Changelog**: https://github.com/geodro/lerd/compare/{{ .PreviousTag }}...{{ .Tag }}

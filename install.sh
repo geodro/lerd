@@ -379,6 +379,18 @@ cmd_install() {
   local local_binary="${1:-}"
   header "Installing Lerd"
 
+  if [ "$(detect_os)" = "darwin" ]; then
+    echo ""
+    echo "  Lerd on macOS is distributed via Homebrew."
+    echo ""
+    echo "    brew tap geodro/lerd"
+    echo "    brew install lerd"
+    echo ""
+    echo "  After install, run:  lerd install"
+    echo ""
+    exit 0
+  fi
+
   # Validate local binary path before running any checks so the error is clear.
   if [ -n "$local_binary" ]; then
     [ -f "$local_binary" ] || die "File not found: $local_binary"
@@ -427,6 +439,14 @@ cmd_install() {
 # ── Update ───────────────────────────────────────────────────────────────────
 cmd_update() {
   header "Updating Lerd"
+
+  if [ "$(detect_os)" = "darwin" ]; then
+    echo ""
+    echo "  Lerd on macOS is managed by Homebrew."
+    echo "  To upgrade, run:  brew upgrade lerd"
+    echo ""
+    exit 0
+  fi
 
   local arch; arch="$(detect_arch)"
   local latest; latest="$(latest_version)"

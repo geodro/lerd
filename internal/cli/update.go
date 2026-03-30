@@ -37,6 +37,12 @@ func NewUpdateCmd(currentVersion string) *cobra.Command {
 }
 
 func runUpdate(currentVersion string) error {
+	if runtime.GOOS == "darwin" {
+		fmt.Println("Lerd on macOS is managed by Homebrew.")
+		fmt.Println("To upgrade, run:  brew upgrade lerd")
+		return nil
+	}
+
 	fmt.Println("==> Checking for updates")
 
 	latest, err := lerdUpdate.FetchLatestVersion()
@@ -177,7 +183,7 @@ func downloadReleaseBinary(version string) (string, func(), error) {
 	arch := runtime.GOARCH // "amd64" or "arm64"
 	ver := stripV(version)
 
-	filename := fmt.Sprintf("lerd_%s_linux_%s.tar.gz", ver, arch)
+	filename := fmt.Sprintf("lerd_%s_%s_%s.tar.gz", ver, runtime.GOOS, arch)
 	url := fmt.Sprintf("%s/v%s/%s", githubDownloadBase, ver, filename)
 
 	tmp, err := os.MkdirTemp("", "lerd-update-*")
