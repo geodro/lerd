@@ -1105,7 +1105,24 @@
                 </div>
 
                 <!-- .env tab -->
-                <div x-show="svcDetailTab === 'env'" class="p-3 sm:p-5">
+                <div x-show="svcDetailTab === 'env'" class="p-3 sm:p-5 space-y-3">
+                  <!-- Connection URL -->
+                  <template x-if="selectedService.connection_url">
+                    <div class="rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden">
+                      <div class="flex items-center justify-between bg-gray-50 dark:bg-white/[0.03] px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Connect</span>
+                      </div>
+                      <div class="bg-gray-50 dark:bg-black/40 px-3 py-2.5">
+                        <a
+                          :href="selectedService.connection_url"
+                          class="font-mono text-[10px] text-sky-600 dark:text-sky-400 hover:underline break-all"
+                          x-text="selectedService.connection_url"
+                        ></a>
+                        <p class="text-[10px] text-gray-400 dark:text-gray-600 mt-1.5">Use <code class="text-gray-500 dark:text-gray-400">127.0.0.1</code> or <code class="text-gray-500 dark:text-gray-400">localhost</code> from your host machine or DB client. Inside your app containers use the hostname shown in <code class="text-gray-500 dark:text-gray-400">DB_HOST</code> below.</p>
+                      </div>
+                    </div>
+                  </template>
+                  <!-- .env vars -->
                   <div class="rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden">
                     <div class="flex items-center justify-between bg-gray-50 dark:bg-white/[0.03] px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border">
                       <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">.env</span>

@@ -33,7 +33,7 @@ func runConsole(_ *cobra.Command, args []string) error {
 	}
 
 	// Get console command for current framework
-	consoleCmd, err := getConsoleCommand(cwd)
+	consoleCmd, err := config.GetConsoleCommand(cwd)
 	if err != nil {
 		return err
 	}
@@ -74,42 +74,4 @@ func runConsole(_ *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
-}
-
-func getConsoleCommand(cwd string) (string, error) {
-	framework := ""
-
-	// Try to get framework from site config first
-	siteConfig, err := config.FindSiteByPath(cwd)
-	if err == nil && siteConfig.Framework != "" {
-		framework = siteConfig.Framework
-	} else {
-		// Detect framework from directory
-		detectedFramework, ok := config.DetectFramework(cwd)
-		if !ok {
-			return "", fmt.Errorf("no framework detected — create framework config with 'lerd framework add'")
-		}
-
-		framework = detectedFramework
-	}
-
-	// Get framework definition
-	frameworkConfig, ok := config.GetFramework(framework)
-	if !ok {
-		return "", fmt.Errorf("framework %q not found", framework)
-	}
-
-	if frameworkConfig.Console == "" {
-		if framework == "laravel" {
-			return "artisan", nil
-		}
-		return "", fmt.Errorf(
-			"no console command defined for framework %q — add 'console' field to %s/%s.yaml",
-			frameworkConfig.Name,
-			config.FrameworksDir(),
-			frameworkConfig.Name,
-		)
-	}
-
-	return frameworkConfig.Console, nil
 }

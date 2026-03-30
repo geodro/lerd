@@ -534,6 +534,7 @@ type ServiceResponse struct {
 	Status             string            `json:"status"`
 	EnvVars            map[string]string `json:"env_vars"`
 	Dashboard          string            `json:"dashboard,omitempty"`
+	ConnectionURL      string            `json:"connection_url,omitempty"`
 	Custom             bool              `json:"custom,omitempty"`
 	SiteCount          int               `json:"site_count"`
 	Pinned             bool              `json:"pinned"`
@@ -553,6 +554,14 @@ var builtinDashboards = map[string]string{
 	"meilisearch": "http://localhost:7700",
 }
 
+// builtinConnectionURLs maps built-in service names to clickable connection URLs
+// using localhost (for use with DB clients and tools on the host machine).
+var builtinConnectionURLs = map[string]string{
+	"mysql":    "mysql://root:lerd@127.0.0.1:3306/lerd",
+	"postgres": "postgresql://postgres:lerd@127.0.0.1:5432/lerd",
+	"redis":    "redis://127.0.0.1:6379",
+}
+
 func buildServiceResponse(name string) ServiceResponse {
 	unit := "lerd-" + name
 	status, _ := svcpkg.Mgr.UnitStatus(unit)
@@ -569,12 +578,13 @@ func buildServiceResponse(name string) ServiceResponse {
 	}
 
 	return ServiceResponse{
-		Name:      name,
-		Status:    status,
-		EnvVars:   envMap,
-		Dashboard: builtinDashboards[name],
-		SiteCount: countSitesUsingService(name),
-		Pinned:    config.ServiceIsPinned(name),
+		Name:          name,
+		Status:        status,
+		EnvVars:       envMap,
+		Dashboard:     builtinDashboards[name],
+		ConnectionURL: builtinConnectionURLs[name],
+		SiteCount:     countSitesUsingService(name),
+		Pinned:        config.ServiceIsPinned(name),
 	}
 }
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -273,6 +274,42 @@ func SaveFramework(fw *Framework) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(FrameworksDir(), fw.Name+".yaml"), data, 0644)
+}
+
+// GetConsoleCommand returns the console binary (without the "php" prefix) for
+// the framework detected in projectDir. It checks the site registry first, then
+// falls back to auto-detection. For Laravel the default is "artisan".
+func GetConsoleCommand(projectDir string) (string, error) {
+	framework := ""
+
+	if site, err := FindSiteByPath(projectDir); err == nil && site.Framework != "" {
+		framework = site.Framework
+	} else {
+		detected, ok := DetectFramework(projectDir)
+		if !ok {
+			return "", fmt.Errorf("no framework detected — create framework config with 'lerd framework add'")
+		}
+		framework = detected
+	}
+
+	fw, ok := GetFramework(framework)
+	if !ok {
+		return "", fmt.Errorf("framework %q not found", framework)
+	}
+
+	if fw.Console == "" {
+		if framework == "laravel" {
+			return "artisan", nil
+		}
+		return "", fmt.Errorf(
+			"no console command defined for framework %q — add 'console' field to %s/%s.yaml",
+			fw.Name,
+			FrameworksDir(),
+			fw.Name,
+		)
+	}
+
+	return fw.Console, nil
 }
 
 // RemoveFramework deletes a user-defined framework YAML. For "laravel" it only
