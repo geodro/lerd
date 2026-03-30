@@ -266,22 +266,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// Optional: register lerd MCP globally if Claude Code is installed.
-	if _, err := exec.LookPath("claude"); err == nil {
-		if !IsMCPGloballyRegistered() {
-			fmt.Print("\n  --> Claude Code detected. Register lerd MCP globally? [Y/n] ")
-			var answer string
-			fmt.Scan(&answer) //nolint:errcheck
-			if answer == "" || strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes") {
-				if err := RunMCPEnableGlobal(); err != nil {
-					fmt.Printf("    WARN: MCP registration failed: %v\n", err)
-				}
-			}
-		}
-	}
-
 	fmt.Println("\nLerd installation complete!")
-	fmt.Println("\n  Dashboard: \033[96mhttp://127.0.0.1:7073\033[0m")
+	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
 	return nil
 }
 

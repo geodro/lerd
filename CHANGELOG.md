@@ -7,6 +7,31 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.2] — 2026-03-30
+
+### Fixed
+
+- **`lerd install` no longer hangs after "Adding shell PATH configuration"** — the interactive MCP registration prompt has been removed. Run `lerd mcp:enable-global` manually after install to register the MCP server.
+- **Dashboard URL in install completion message** — now shows `http://lerd.localhost` instead of the raw `http://127.0.0.1:7073` address.
+
+---
+
+## [1.1.1] — 2026-03-30
+
+### Added
+
+- **CI badge on README** — the README now shows a live CI status badge linked to the `ci.yml` workflow.
+
+### Fixed
+
+- **MCP registration prompt unresponsive when installing via pipe** — `lerd install` reads the "Register lerd MCP globally?" prompt answer from `/dev/tty` instead of stdin. When the installer is run via a pipe (`curl ... | sh`), stdin is the pipe and `fmt.Scan` returns immediately with no input; opening `/dev/tty` directly reads from the actual terminal regardless of how the process was started.
+
+### Internal
+
+- **Release workflow now gates on CI** — the `release.yml` workflow runs build, test, vet, and format checks before invoking GoReleaser. A tag push on a broken commit will now fail before any artifacts are published.
+
+---
+
 ## [1.1.0] — 2026-03-30
 
 ### Added
