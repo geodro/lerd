@@ -140,7 +140,7 @@ brews:
     homepage: "https://github.com/geodro/lerd"
     description: "Local Laravel development environment for macOS"
     license: "MIT"
-    skip_upload: auto
+    skip_upload: false
     dependencies:
       - name: podman
       - name: dnsmasq
