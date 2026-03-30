@@ -5,6 +5,7 @@ project_name: lerd
 before:
   hooks:
     - go mod tidy
+    - sh -c "if [ -f dist-tray/lerd-tray-darwin-arm64/lerd-tray ]; then mkdir -p dist/lerd-tray_darwin_arm64 && cp dist-tray/lerd-tray-darwin-arm64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray && chmod +x dist/lerd-tray_darwin_arm64/lerd-tray; fi"
 
 builds:
   - id: lerd-amd64
