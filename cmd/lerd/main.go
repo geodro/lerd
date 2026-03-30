@@ -232,6 +232,9 @@ func newWatchCmd() *cobra.Command {
 						if err != nil {
 							return
 						}
+						if site.Paused {
+							return
+						}
 						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.Domain)
 						if err != nil {
 							return
@@ -304,13 +307,15 @@ func newWatchCmd() *cobra.Command {
 						if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != site.PHPVersion {
 							site.PHPVersion = detected
 							_ = config.AddSite(*site)
-							if site.Secured {
-								_ = nginx.GenerateSSLVhost(*site, detected)
-							} else {
-								_ = nginx.GenerateVhost(*site, detected)
-							}
-							if err := nginx.Reload(); err != nil {
-								fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+							if !site.Paused {
+								if site.Secured {
+									_ = nginx.GenerateSSLVhost(*site, detected)
+								} else {
+									_ = nginx.GenerateVhost(*site, detected)
+								}
+								if err := nginx.Reload(); err != nil {
+									fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+								}
 							}
 						}
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
@@ -379,7 +384,7 @@ func scanWorktrees() bool {
 	}
 	generated := false
 	for _, s := range reg.Sites {
-		if s.Ignored {
+		if s.Ignored || s.Paused {
 			continue
 		}
 		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.Domain)

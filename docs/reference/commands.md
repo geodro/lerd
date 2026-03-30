@@ -50,7 +50,7 @@
 | `lerd unlink [name]` | Stop serving the site |
 | `lerd sites` | Table view of all registered sites |
 | `lerd open [name]` | Open the site in the default browser |
-| `lerd share [name]` | Expose the site publicly via ngrok or Expose (auto-detected) |
+| `lerd share [name]` | Expose the site publicly via ngrok, cloudflared, or Expose (auto-detected) |
 | `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS — updates `APP_URL` in `.env` |
 | `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
 | `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |

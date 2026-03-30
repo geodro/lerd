@@ -125,6 +125,13 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  WARN: lerd vhost: %v\n", err)
 	}
 
+	// Refresh dnsmasq upstream config from the current system DNS before lerd-dns starts.
+	// This ensures the config reflects any DNS changes (new servers added, DHCP change)
+	// that occurred since the last run without requiring a full reinstall.
+	if err := dns.WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
+		fmt.Printf("  WARN: dns config: %v\n", err)
+	}
+
 	units := append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui", "lerd-watcher")
 	units = append(units, registeredQueueUnits()...)
@@ -139,7 +146,13 @@ func runStart(_ *cobra.Command, _ []string) error {
 		wg.Add(1)
 		go func(idx int, unit string) {
 			defer wg.Done()
-			results[idx] = startResult{unit: unit, err: podman.StartUnit(unit)}
+			if unit == "lerd-dns" {
+				// Always restart lerd-dns to pick up the refreshed dnsmasq config
+				// and clear any stale cached DNS entries.
+				results[idx] = startResult{unit: unit, err: podman.RestartUnit(unit)}
+			} else {
+				results[idx] = startResult{unit: unit, err: podman.StartUnit(unit)}
+			}
 		}(i, u)
 	}
 	wg.Wait()

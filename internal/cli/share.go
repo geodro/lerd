@@ -22,6 +22,7 @@ import (
 // NewShareCmd returns the share command.
 func NewShareCmd() *cobra.Command {
 	var useNgrok bool
+	var useCloudflare bool
 	var useExpose bool
 	var useServeo bool
 	var useLocalhostRun bool
@@ -31,20 +32,22 @@ func NewShareCmd() *cobra.Command {
 		Short: "Expose the current site publicly via a tunnel",
 		Long: `Starts a public tunnel to the current site.
 
-Auto-detection order: ngrok → Expose → localhost.run (SSH, no signup).
+Auto-detection order: ngrok → Cloudflare Tunnel → Expose → localhost.run (SSH, no signup).
 
 Supported tools:
   ngrok          https://ngrok.com/download
+  cloudflared    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
   expose         https://expose.dev
   localhost.run  free SSH tunnel, no account needed (--localhost-run)
   serveo.net     free SSH tunnel, no account needed (--serveo)`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runShare(args, useNgrok, useExpose, useServeo, useLocalhostRun)
+			return runShare(args, useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun)
 		},
 	}
 
 	cmd.Flags().BoolVar(&useNgrok, "ngrok", false, "Use ngrok")
+	cmd.Flags().BoolVar(&useCloudflare, "cloudflare", false, "Use Cloudflare Tunnel (cloudflared)")
 	cmd.Flags().BoolVar(&useExpose, "expose", false, "Use Expose")
 	cmd.Flags().BoolVar(&useServeo, "serveo", false, "Use serveo.net (SSH, no signup)")
 	cmd.Flags().BoolVar(&useLocalhostRun, "localhost-run", false, "Use localhost.run (SSH, no signup)")
@@ -54,9 +57,10 @@ Supported tools:
 type shareMode int
 
 const (
-	shareModeNgrok  shareMode = iota
-	shareModeExpose shareMode = iota
-	shareModeSSH    shareMode = iota
+	shareModeNgrok      shareMode = iota
+	shareModeExpose     shareMode = iota
+	shareModeSSH        shareMode = iota
+	shareModeCloudflare shareMode = iota
 )
 
 type shareTool struct {
@@ -64,7 +68,7 @@ type shareTool struct {
 	sshHost string // only for shareModeSSH
 }
 
-func runShare(args []string, useNgrok, useExpose, useServeo, useLocalhostRun bool) error {
+func runShare(args []string, useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun bool) error {
 	site, err := resolveShareSite(args)
 	if err != nil {
 		return err
@@ -79,7 +83,7 @@ func runShare(args []string, useNgrok, useExpose, useServeo, useLocalhostRun boo
 		port = 80
 	}
 
-	tool, err := pickShareTool(useNgrok, useExpose, useServeo, useLocalhostRun)
+	tool, err := pickShareTool(useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun)
 	if err != nil {
 		return err
 	}
@@ -99,6 +103,18 @@ func runShare(args []string, useNgrok, useExpose, useServeo, useLocalhostRun boo
 			shareURL = fmt.Sprintf("http://%s:%d", site.Domain, port)
 		}
 		cmd = exec.Command("expose", "share", shareURL)
+	case shareModeCloudflare:
+		httpsPort := cfg.Nginx.HTTPSPort
+		if httpsPort == 0 {
+			httpsPort = 443
+		}
+		proxyPort, stop, err := startHostProxy(site.Domain, port, httpsPort, site.Secured)
+		if err != nil {
+			return fmt.Errorf("starting local proxy: %w", err)
+		}
+		defer stop()
+		cmd = exec.Command("cloudflared", "tunnel",
+			"--url", fmt.Sprintf("http://127.0.0.1:%d", proxyPort))
 	case shareModeSSH:
 		httpsPort := cfg.Nginx.HTTPSPort
 		if httpsPort == 0 {
@@ -156,15 +172,15 @@ func resolveShareSite(args []string) (*config.Site, error) {
 	return site, nil
 }
 
-func pickShareTool(useNgrok, useExpose, useServeo, useLocalhostRun bool) (*shareTool, error) {
+func pickShareTool(useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun bool) (*shareTool, error) {
 	count := 0
-	for _, f := range []bool{useNgrok, useExpose, useServeo, useLocalhostRun} {
+	for _, f := range []bool{useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun} {
 		if f {
 			count++
 		}
 	}
 	if count > 1 {
-		return nil, fmt.Errorf("only one of --ngrok, --expose, --serveo, --localhost-run may be specified")
+		return nil, fmt.Errorf("only one of --ngrok, --cloudflare, --expose, --serveo, --localhost-run may be specified")
 	}
 
 	if useNgrok {
@@ -172,6 +188,12 @@ func pickShareTool(useNgrok, useExpose, useServeo, useLocalhostRun bool) (*share
 			return nil, fmt.Errorf("ngrok not found in PATH — install it from https://ngrok.com/download")
 		}
 		return &shareTool{mode: shareModeNgrok}, nil
+	}
+	if useCloudflare {
+		if _, err := exec.LookPath("cloudflared"); err != nil {
+			return nil, fmt.Errorf("cloudflared not found in PATH — install it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/")
+		}
+		return &shareTool{mode: shareModeCloudflare}, nil
 	}
 	if useExpose {
 		if _, err := exec.LookPath("expose"); err != nil {
@@ -190,15 +212,18 @@ func pickShareTool(useNgrok, useExpose, useServeo, useLocalhostRun bool) (*share
 	if _, err := exec.LookPath("ngrok"); err == nil {
 		return &shareTool{mode: shareModeNgrok}, nil
 	}
+	if _, err := exec.LookPath("cloudflared"); err == nil {
+		return &shareTool{mode: shareModeCloudflare}, nil
+	}
 	if _, err := exec.LookPath("expose"); err == nil {
 		return &shareTool{mode: shareModeExpose}, nil
 	}
 	if _, err := exec.LookPath("ssh"); err == nil {
-		fmt.Println("ngrok/Expose not found — using localhost.run (SSH, no signup required)")
+		fmt.Println("ngrok/cloudflared/Expose not found — using localhost.run (SSH, no signup required)")
 		return &shareTool{mode: shareModeSSH, sshHost: "localhost.run"}, nil
 	}
 
-	return nil, fmt.Errorf("no tunnel tool found — install ngrok (https://ngrok.com/download) or Expose (https://expose.dev), or ensure ssh is in PATH")
+	return nil, fmt.Errorf("no tunnel tool found — install ngrok (https://ngrok.com/download), cloudflared (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), or Expose (https://expose.dev), or ensure ssh is in PATH")
 }
 
 // startHostProxy starts a local HTTP reverse proxy on a random loopback port.
@@ -223,7 +248,7 @@ func startHostProxy(domain string, httpPort, httpsPort int, secured bool) (int, 
 	// transport (preserving connection pooling/timeouts) and add TLS skip-verify.
 	if secured {
 		t := http.DefaultTransport.(*http.Transport).Clone()
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, ServerName: domain} //nolint:gosec
 		proxy.Transport = t
 	}
 
