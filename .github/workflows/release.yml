@@ -37,9 +37,48 @@ jobs:
       - name: Format
         run: test -z "$(gofmt -l .)"
 
+  build-darwin-tray:
+    name: Build macOS tray (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-13
+            arch: amd64
+          - runner: macos-latest
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build lerd-tray
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p dist/lerd-tray_darwin_${{ matrix.arch }}
+          CGO_ENABLED=1 go build \
+            -ldflags="-s -w \
+              -X github.com/geodro/lerd/internal/version.Version=${VERSION} \
+              -X github.com/geodro/lerd/internal/version.Commit=${COMMIT} \
+              -X github.com/geodro/lerd/internal/version.Date=${DATE}" \
+            -o dist/lerd-tray_darwin_${{ matrix.arch }}/lerd-tray \
+            ./cmd/lerd-tray
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lerd-tray-darwin-${{ matrix.arch }}
+          path: dist/lerd-tray_darwin_${{ matrix.arch }}/lerd-tray
+          retention-days: 1
+
   release:
     name: GoReleaser
-    needs: ci
+    needs: [ci, build-darwin-tray]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -57,6 +96,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --fix-missing libappindicator3-dev
+
+      - name: Download macOS tray binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lerd-tray-darwin-*
+          path: dist-tray
+
+      - name: Stage macOS tray binaries for GoReleaser
+        run: |
+          mkdir -p dist/lerd-tray_darwin_amd64 dist/lerd-tray_darwin_arm64
+          cp dist-tray/lerd-tray-darwin-amd64/lerd-tray dist/lerd-tray_darwin_amd64/lerd-tray
+          cp dist-tray/lerd-tray-darwin-arm64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray
+          chmod +x dist/lerd-tray_darwin_amd64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
