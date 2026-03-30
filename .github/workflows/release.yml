@@ -103,6 +103,7 @@ jobs:
 
       - name: Stage macOS tray binaries for GoReleaser
         run: |
+          rm -rf dist/
           mkdir -p dist/lerd-tray_darwin_arm64
           cp dist-tray/lerd-tray-darwin-arm64/lerd-tray dist/lerd-tray_darwin_arm64/lerd-tray
           chmod +x dist/lerd-tray_darwin_arm64/lerd-tray
@@ -112,7 +113,7 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
