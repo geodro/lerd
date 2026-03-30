@@ -41,12 +41,19 @@ func runUninstall(force bool) error {
 		}
 	}
 
-	r := NewStepRunner()
+	// DNS teardown and all stdin reads must happen before NewStepRunner().
+	// StepRunner puts the terminal in raw mode and its keyreader goroutine
+	// consumes stdin, breaking sudo prompts and bufio reads after r.Close().
+	fmt.Print("  --> Removing DNS configuration ... ")
+	dns.Teardown()
+	fmt.Println("OK")
 
-	r.Run("Removing DNS configuration", func(_ io.Writer) error { //nolint:errcheck
-		dns.Teardown()
-		return nil
-	})
+	// Ask about data removal now, before raw mode starts.
+	fmt.Println()
+	removeData := force || confirmRemoveData()
+	fmt.Println()
+
+	r := NewStepRunner()
 
 	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
 		units := services.Mgr.ListContainerUnits("lerd-*")
@@ -101,8 +108,7 @@ func runUninstall(force bool) error {
 
 	r.Close()
 
-	fmt.Println()
-	if force || confirmRemoveData() {
+	if removeData {
 		fmt.Print("  --> Removing config and data directories ... ")
 		os.RemoveAll(config.ConfigDir())
 		os.RemoveAll(config.DataDir())
