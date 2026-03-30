@@ -66,6 +66,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// 2. Podman network
 	step("Creating lerd podman network")
 	if err := podman.EnsureNetwork("lerd"); err != nil {
+		if strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "podman.sock") {
+			return fmt.Errorf("cannot connect to Podman — make sure Podman Desktop or Podman Machine is installed and running.\n\n  Install Podman: https://podman-desktop.io\n\n  Original error: %w", err)
+		}
 		return err
 	}
 	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
