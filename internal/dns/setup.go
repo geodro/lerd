@@ -1,14 +1,17 @@
 //go:build linux
+
 package dns
+
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/geodro/lerd/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"github.com/geodro/lerd/internal/config"
 )
+
 const nmDnsConf = `[main]
 dns=dnsmasq
 `
@@ -18,6 +21,7 @@ const resolvedDropin = `[Resolve]
 DNS=127.0.0.1:5300
 Domains=~test
 `
+
 // nmDispatcherScript is installed at /etc/NetworkManager/dispatcher.d/99-lerd-dns.
 // On systems with NetworkManager + systemd-resolved, NM manages resolved via DBus and
 // overrides global resolved.conf drop-ins. Per-interface DNS set via resolvectl is
@@ -72,6 +76,7 @@ for uid_dir in /run/user/[0-9]*/; do
         systemctl --user restart lerd-dns 2>/dev/null || true
 done
 `
+
 // isSystemdResolvedActive returns true if systemd-resolved is the active DNS resolver.
 func isSystemdResolvedActive() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "systemd-resolved")
@@ -85,11 +90,13 @@ func isSystemdResolvedActive() bool {
 	}
 	return strings.Contains(string(data), "127.0.0.53") || strings.Contains(string(data), "systemd-resolved")
 }
+
 // isNetworkManagerActive returns true if NetworkManager is running.
 func isNetworkManagerActive() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "NetworkManager")
 	return cmd.Run() == nil
 }
+
 // defaultInterface returns the name of the default network interface (e.g. "enp1s0").
 func defaultInterface() string {
 	out, err := exec.Command("ip", "route", "show", "default").Output()
@@ -98,6 +105,7 @@ func defaultInterface() string {
 	}
 	return parseDefaultIface(string(out))
 }
+
 // parseDefaultIface extracts the interface name from `ip route show default` output.
 func parseDefaultIface(output string) string {
 	// "default via 192.168.1.1 dev enp1s0 ..."
@@ -109,9 +117,11 @@ func parseDefaultIface(output string) string {
 	}
 	return ""
 }
+
 // resolvPaths is the ordered list of resolv.conf files to try for upstream DNS detection.
 // Overridable in tests.
 var resolvPaths = []string{"/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"}
+
 // nmcliDNSFunc is the function used to get DHCP DNS via nmcli. Overridable in tests.
 var nmcliDNSFunc = func() []string {
 	out, err := exec.Command("nmcli", "-g", "IP4.DNS", "device", "show").Output()
@@ -120,6 +130,7 @@ var nmcliDNSFunc = func() []string {
 	}
 	return parseNmcliLines(string(out))
 }
+
 // ReadContainerDNS returns the DNS servers to configure as aardvark-dns upstreams
 // for the lerd Podman bridge network. It reads DnsForwardIps from the pasta rootless-netns
 // info.json (typically 169.254.1.1), which chains through systemd-resolved and therefore
@@ -139,6 +150,7 @@ func ReadContainerDNS() []string {
 	}
 	return info.DnsForwardIps
 }
+
 // ReadUpstreamDNS returns upstream DNS server IPs from the running system.
 // Sources tried in order:
 //  1. /run/systemd/resolve/resolv.conf — real upstreams on systemd-resolved systems
@@ -149,6 +161,7 @@ func ReadContainerDNS() []string {
 func ReadUpstreamDNS() []string {
 	return readUpstreamDNS()
 }
+
 // readUpstreamDNS is the internal implementation.
 func readUpstreamDNS() []string {
 	for _, path := range resolvPaths {
@@ -158,10 +171,12 @@ func readUpstreamDNS() []string {
 	}
 	return nmcliDNSFunc()
 }
+
 // nmcliDNS reads DHCP-assigned DNS servers from NetworkManager via nmcli.
 func nmcliDNS() []string {
 	return nmcliDNSFunc()
 }
+
 // parseNmcliLines parses the output of `nmcli -g IP4.DNS device show`.
 func parseNmcliLines(output string) []string {
 	var servers []string
@@ -181,6 +196,7 @@ func parseNmcliLines(output string) []string {
 	}
 	return servers
 }
+
 // Setup writes DNS configuration for .test resolution and restarts the resolver.
 //
 // Deprecated: prefer calling WriteDnsmasqConfig then ConfigureResolver separately so
@@ -191,6 +207,7 @@ func Setup() error {
 	}
 	return ConfigureResolver()
 }
+
 // ConfigureResolver configures the system DNS resolver to forward .test to the
 // lerd-dns dnsmasq container on port 5300. Call this after lerd-dns is running so
 // that any immediate resolvectl changes don't break DNS before dnsmasq is up.
@@ -203,6 +220,7 @@ func ConfigureResolver() error {
 	}
 	return setupNetworkManager()
 }
+
 // setupNMWithResolved handles Ubuntu-style: NM manages systemd-resolved via DBUS.
 func setupNMWithResolved() error {
 	dispatcherScript := "/etc/NetworkManager/dispatcher.d/99-lerd-dns"
@@ -271,6 +289,7 @@ func setupNMWithResolved() error {
 
 	return nil
 }
+
 // setupSystemdResolved configures systemd-resolved to forward .test to port 5300.
 func setupSystemdResolved() error {
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
@@ -290,6 +309,7 @@ func setupSystemdResolved() error {
 	}
 	return nil
 }
+
 // setupNetworkManager configures NetworkManager's embedded dnsmasq.
 func setupNetworkManager() error {
 	nmConfFile := "/etc/NetworkManager/conf.d/lerd.conf"
@@ -313,6 +333,7 @@ func setupNetworkManager() error {
 	}
 	return nil
 }
+
 // Teardown removes all lerd DNS configuration from the system and restores normal resolution.
 func Teardown() {
 	// NM dispatcher script
@@ -361,6 +382,7 @@ func Teardown() {
 		exec.Command("sudo", "systemctl", "restart", "systemd-resolved").Run() //nolint:errcheck
 	}
 }
+
 // InstallSudoers writes a sudoers drop-in granting the current user passwordless
 // access to resolvectl commands. Required for the autostart service which runs
 // non-interactively and cannot prompt for a sudo password.
