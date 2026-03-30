@@ -95,17 +95,6 @@ builds:
       - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
       - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
 
-  # lerd-tray (macOS): pre-built on macOS runners (CGO + Cocoa, no external deps).
-  # Binaries are produced by the build-darwin-tray CI job and placed in dist/ before
-  # GoReleaser runs. GoReleaser picks them up via the prebuilt builder.
-  - id: lerd-tray-darwin-arm64
-    builder: prebuilt
-    goos: [darwin]
-    goarch: [arm64]
-    binary: lerd-tray
-    prebuilt:
-      path: dist/lerd-tray_darwin_{{ .Arch }}/lerd-tray
-
 archives:
   - id: lerd-amd64
     ids: [lerd-amd64, lerd-tray-amd64]
@@ -132,12 +121,16 @@ archives:
       - install.sh
 
   - id: lerd-darwin-arm64
-    ids: [lerd-darwin-arm64, lerd-tray-darwin-arm64]
+    ids: [lerd-darwin-arm64]
     name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
     files:
       - README.md
       - install.sh
+      - src: dist/lerd-tray_darwin_arm64/lerd-tray
+        dst: lerd-tray
+        info:
+          mode: 0755
 
 brews:
   - name: lerd
