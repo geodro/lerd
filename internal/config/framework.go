@@ -23,7 +23,7 @@ type Framework struct {
 	// Example: "artisan", "bin/console"
 	Console string `yaml:"console,omitempty"`
 	// Create is the scaffold command used by "lerd new". The target directory is appended automatically.
-	// Example: "composer create-project laravel/laravel"
+	// Example: "composer create-project --no-install --no-plugins --no-scripts laravel/laravel"
 	Create string `yaml:"create,omitempty"`
 }
 
@@ -114,7 +114,7 @@ var laravelFramework = &Framework{
 	Name:      "laravel",
 	Label:     "Laravel",
 	PublicDir: "public",
-	Create:    "composer create-project laravel/laravel",
+	Create:    "composer create-project --no-install --no-plugins --no-scripts laravel/laravel",
 	Detect: []FrameworkRule{
 		{File: "artisan"},
 		{Composer: "laravel/framework"},

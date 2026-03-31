@@ -7,6 +7,17 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.1] — 2026-03-31
+
+### Fixed
+
+- **`mcp:inject` and `mcp:enable-global` fail on empty JSON config files** — `mergeMCPServersJSON` now skips `json.Unmarshal` when the target file exists but is empty, preventing a spurious "unexpected end of JSON input" error. Affects `~/.ai/mcp/mcp.json`, `~/.junie/mcp/mcp.json`, and `.mcp.json`. (PR [#31](https://github.com/geodro/lerd/pull/31))
+- **`lerd new` runs `composer install` with the wrong PHP version** — `composer create-project` for Laravel now passes `--no-install --no-plugins --no-scripts` so dependency installation is deferred to `lerd setup`, where the correct PHP version is already active. (PR [#28](https://github.com/geodro/lerd/pull/28) by @voronkovich)
+- **Duplicate `export PATH` entries written to `.zshrc` on repeated `lerd install`** — `appendShellRC` now checks whether the PATH line already exists before appending. (PR [#30](https://github.com/geodro/lerd/pull/30) by @voronkovich)
+- **Redundant `appendShellRC` call writes a broken `export PATH=":$PATH"` line to `.zshrc`** — the call with an empty `binDir` has been removed; `ensureZshFpath` already handles the fpath setup. (PR [#29](https://github.com/geodro/lerd/pull/29) by @voronkovich)
+
+---
+
 ## [1.2.0] — 2026-03-30
 
 ### Added

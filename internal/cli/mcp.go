@@ -249,7 +249,7 @@ func mergeJunieGuidelines(path, section string) error {
 func mergeMCPServersJSON(path string, lerdEntry map[string]any) error {
 	// Start with an empty config or read what's there.
 	cfg := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 		// Unmarshal preserving all existing keys.
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("parsing %s: %w", path, err)
@@ -508,7 +508,7 @@ Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 
 ### ` + bt + `project_new` + bt + `
-Scaffold a new PHP project using a framework's create command. For Laravel, runs ` + bt + `composer create-project laravel/laravel <path>` + bt + `. Other frameworks must have a ` + bt + `create` + bt + ` field in their YAML definition.
+Scaffold a new PHP project using a framework's create command. For Laravel, runs ` + bt + `composer create-project --no-install --no-plugins --no-scripts laravel/laravel <path>` + bt + `. Other frameworks must have a ` + bt + `create` + bt + ` field in their YAML definition.
 
 Arguments:
 - ` + bt + `path` + bt + ` (required): absolute path for the new project directory (e.g. ` + bt + `/home/user/code/myapp` + bt + `)

@@ -30,7 +30,7 @@ lerd new myapp -- --no-interaction      # pass extra flags to the scaffold comma
 
 For Laravel, this runs:
 ```bash
-composer create-project laravel/laravel /abs/path/to/myapp
+composer create-project --no-install --no-plugins --no-scripts laravel/laravel /abs/path/to/myapp
 ```
 
 After creation, register the site and bootstrap it:

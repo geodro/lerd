@@ -7,6 +7,17 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.1] — 2026-03-31
+
+### Fixed
+
+- **`mcp:inject` and `mcp:enable-global` fail on empty JSON config files** — `mergeMCPServersJSON` now skips `json.Unmarshal` when the target file exists but is empty, preventing a spurious "unexpected end of JSON input" error. Affects `~/.ai/mcp/mcp.json`, `~/.junie/mcp/mcp.json`, and `.mcp.json`. (PR [#31](https://github.com/geodro/lerd/pull/31))
+- **`lerd new` runs `composer install` with the wrong PHP version** — `composer create-project` for Laravel now passes `--no-install --no-plugins --no-scripts` so dependency installation is deferred to `lerd setup`, where the correct PHP version is already active. (PR [#28](https://github.com/geodro/lerd/pull/28) by @voronkovich)
+- **Duplicate `export PATH` entries written to `.zshrc` on repeated `lerd install`** — `appendShellRC` now checks whether the PATH line already exists before appending. (PR [#30](https://github.com/geodro/lerd/pull/30) by @voronkovich)
+- **Redundant `appendShellRC` call writes a broken `export PATH=":$PATH"` line to `.zshrc`** — the call with an empty `binDir` has been removed; `ensureZshFpath` already handles the fpath setup. (PR [#29](https://github.com/geodro/lerd/pull/29) by @voronkovich)
+
+---
+
 ## [1.2.0] — 2026-03-30
 
 ### Added
@@ -15,6 +26,13 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **launchd service manager on macOS** — all services run as launchd agents instead of systemd units. Container units use `podman run -d --restart=always` with launchd plists in `~/Library/LaunchAgents/`.
 - **`lerd-cleanup` standalone script on macOS** — `lerd install` writes `~/.local/bin/lerd-cleanup`, a standalone shell script that stops and removes launchd agents, containers, and the DNS resolver entry. This script remains usable even after `brew uninstall lerd` removes the lerd binary.
 - **`lerd uninstall` on macOS** — stops and removes all launchd agents, containers, and the DNS resolver entry; instructs the user to run `brew uninstall lerd` and mentions the cleanup script for cases where the binary has already been removed.
+- **`lerd init`** — interactive wizard that writes PHP version, HTTPS preference, and required services to `.lerd.yaml` for project portability. On a machine with an existing `.lerd.yaml`, `lerd init` applies the saved config non-interactively, making new-machine setup a single command. `lerd setup` now runs the wizard as its first step, `lerd link` auto-secures when `secured: true` is set, and `lerd env` / `lerd isolate` / `lerd secure` all keep the file in sync.
+- **`lerd console`** — run a framework's interactive console (e.g. `php artisan tinker` for Laravel, or the `console` field from the framework YAML) inside the project container. Arguments are forwarded as-is.
+- **`console` MCP tool** — execute framework console commands from an AI assistant session. Resolves the correct binary via `config.GetConsoleCommand` so it works for any framework that defines a `console` field.
+- **Cloudflare Tunnel backend for `lerd share`** — pass `--cloudflare` to tunnel a site via `cloudflared`. Without the flag, lerd auto-detects between ngrok and Expose as before. The tunnel is routed through the host proxy to fix Host header and TLS SNI for secured sites.
+- **pcov bundled in PHP-FPM images** — pcov is now pre-installed via PECL in all lerd PHP-FPM images; `lerd php:ext add pcov` is no longer needed to run `pest --coverage`.
+- **WebP support in PHP-FPM images** — gd and imagick now include WebP support out of the box (PR [#15](https://github.com/geodro/lerd/pull/15) by @ReyArlena).
+- **Connection URLs and hostname note in the dashboard** — database service cards now show ready-to-use connection URLs alongside a note about the internal container hostname.
 
 ### Fixed
 
@@ -24,6 +42,12 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Watcher and UI services on macOS** — service plists now use the actual running lerd executable path. Previously `~/.local/bin/lerd` was hardcoded, which does not exist when lerd is installed via Homebrew.
 - **launchctl exit-5 errors on macOS Ventura+** — `launchctl enable` is now called after `bootout` to prevent the "service disabled" error that occurs when Ventura marks a service as disabled upon bootout.
 - **`lerd update` on macOS** — redirects to `brew upgrade lerd` instead of attempting a self-download.
+- **Paused site vhosts overwritten on watcher restart** — `scanWorktrees()` now skips paused sites on startup; worktree vhost generation and nginx reloads triggered by `.php-version` changes are also skipped while a site is paused (registry is still updated for when the site is unpaused).
+- **`lerd console` falls back to `artisan` for Laravel** — when a Laravel project's framework YAML has no explicit `console` field, `lerd console` now correctly uses `php artisan`.
+
+### Internal
+
+- Unit tests for `config`, `php`, `distro`, and `envfile` packages.
 
 ---
 

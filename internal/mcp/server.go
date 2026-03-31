@@ -912,7 +912,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "project_new",
-			Description: "Scaffold a new PHP project using a framework's create command. For Laravel this runs `composer create-project laravel/laravel <path>`. Other frameworks must have a `create` field in their YAML definition. After creation, use site_link to register the site.",
+			Description: "Scaffold a new PHP project using a framework's create command. For Laravel this runs `composer create-project --no-install --no-plugins --no-scripts laravel/laravel <path>`. Other frameworks must have a `create` field in their YAML definition. After creation, use site_link to register the site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{

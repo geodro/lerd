@@ -26,7 +26,7 @@ func NewNewCmd() *cobra.Command {
   lerd new myapp -- --no-interaction      # pass extra args to the scaffold command
 
 For Laravel this runs:
-  composer create-project laravel/laravel <target> [extra args]
+  composer create-project --no-install --no-plugins --no-scripts laravel/laravel <target> [extra args]
 
 Other frameworks must define a 'create' field in their YAML definition:
   create: composer create-project myvendor/myframework
