@@ -7,6 +7,19 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.4] — 2026-03-31
+
+### Added
+
+- **`lerd php:rebuild` accepts a version argument** — pass a version (e.g. `lerd php:rebuild 8.3`) to rebuild only that PHP image instead of all installed versions.
+
+### Fixed
+
+- **Inter-application `.test` domain resolution inside containers** — HTTP/HTTPS requests from one site to another (e.g. `booking.test` calling `staffing.test`) were failing because `.test` domains resolved to `127.0.0.1` inside containers, which points to the container itself rather than the host Nginx. A shared hosts file (`~/.local/share/lerd/hosts`) is now bind-mounted into every PHP-FPM container at `/etc/hosts` with a `169.254.1.2` entry per linked site. Since it is a bind mount, `lerd link` and `lerd unlink` update all running containers instantly without a restart. Fixes [#39](https://github.com/geodro/lerd/issues/39).
+- **Reverb proxy returns 502 after container restart** — the Nginx `location /app` block used a bare hostname in `proxy_pass`, which Nginx resolves once at config load time. If the PHP-FPM container restarted and received a new IP, subsequent WebSocket and broadcast requests failed with 502. The proxy now uses a variable (`set $reverb`) to force per-request DNS resolution, matching how the FastCGI location already handles the FPM upstream.
+
+---
+
 ## [1.2.3] — 2026-03-31
 
 ### Added
