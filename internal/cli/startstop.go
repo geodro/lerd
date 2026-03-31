@@ -26,7 +26,7 @@ func ensureFPMImages() {
 		image := "lerd-php" + short + "-fpm:local"
 		if err := podman.RunSilent("image", "exists", image); err != nil {
 			fmt.Printf("  PHP %s image missing — rebuilding...\n", v)
-			if err := podman.BuildFPMImage(v); err != nil {
+			if err := podman.BuildFPMImage(v, false); err != nil {
 				fmt.Printf("  WARN: could not rebuild PHP %s image: %v\n", v, err)
 			}
 		}

@@ -75,59 +75,91 @@ func StoreFPMHash() error {
 }
 
 // BuildFPMImage builds the lerd PHP-FPM image for the given version if it doesn't exist.
-func BuildFPMImage(version string) error {
+// When local is false, it attempts to pull a pre-built base image from ghcr.io first.
+func BuildFPMImage(version string, local bool) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, false, cfg.GetExtensions(version), os.Stdout)
+	return buildFPMImage(version, false, local, cfg.GetExtensions(version), os.Stdout)
 }
 
 // BuildFPMImageTo builds the PHP-FPM image writing output to w.
-func BuildFPMImageTo(version string, w io.Writer) error {
+// When local is false, it attempts to pull a pre-built base image from ghcr.io first.
+func BuildFPMImageTo(version string, local bool, w io.Writer) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, false, cfg.GetExtensions(version), w)
+	return buildFPMImage(version, false, local, cfg.GetExtensions(version), w)
 }
 
 // RebuildFPMImage force-removes and rebuilds the PHP-FPM image for the given version.
-func RebuildFPMImage(version string) error {
+// When local is false, it attempts to pull a pre-built base image from ghcr.io first.
+func RebuildFPMImage(version string, local bool) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, true, cfg.GetExtensions(version), os.Stdout)
+	return buildFPMImage(version, true, local, cfg.GetExtensions(version), os.Stdout)
 }
 
 // RebuildFPMImageTo force-rebuilds the PHP-FPM image writing output to w.
-func RebuildFPMImageTo(version string, w io.Writer) error {
+// When local is false, it attempts to pull a pre-built base image from ghcr.io first.
+func RebuildFPMImageTo(version string, local bool, w io.Writer) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, true, cfg.GetExtensions(version), w)
+	return buildFPMImage(version, true, local, cfg.GetExtensions(version), w)
 }
 
-func buildFPMImage(version string, force bool, customExts []string, w io.Writer) error {
+// baseContainerfileHash returns a 12-character SHA-256 prefix of the Containerfile
+// with user-specific sections stripped. This is used as the tag for pre-built base
+// images on ghcr.io, so lerd knows exactly which image matches its embedded template.
+func baseContainerfileHash() (string, error) {
+	tmpl, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
+	if err != nil {
+		return "", err
+	}
+	base := strings.ReplaceAll(tmpl, "{{.CustomExtensions}}", "")
+	base = strings.ReplaceAll(base, "{{.MkcertCA}}", "")
+	sum := sha256.Sum256([]byte(base))
+	return fmt.Sprintf("%x", sum)[:12], nil
+}
+
+// tryPullBaseImage attempts to pull the pre-built base image from ghcr.io.
+// Returns the image reference on success, or "" if unavailable.
+func tryPullBaseImage(version string, w io.Writer) string {
+	hash, err := baseContainerfileHash()
+	if err != nil {
+		return ""
+	}
+	short := strings.ReplaceAll(version, ".", "")
+	ref := fmt.Sprintf("ghcr.io/geodro/lerd-php%s-fpm-base:%s", short, hash)
+	fmt.Fprintf(w, "  Pulling pre-built PHP %s base image...\n", version)
+	cmd := exec.Command("podman", "pull", ref)
+	cmd.Stdout = w
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(w, "  Pre-built image unavailable, falling back to local build (may take a few minutes)...\n")
+		return ""
+	}
+	return ref
+}
+
+func buildFPMImage(version string, force, local bool, customExts []string, w io.Writer) error {
 	short := strings.ReplaceAll(version, ".", "")
 	imageName := "lerd-php" + short + "-fpm:local"
 
 	if !force {
 		// Skip if image already exists
-		checkCmd := exec.Command("podman", "image", "exists", imageName)
-		if checkCmd.Run() == nil {
+		if exec.Command("podman", "image", "exists", imageName).Run() == nil {
 			return nil
 		}
 	}
 
-	fmt.Fprintf(w, "\n  Building PHP %s image (may take a few minutes)...\n", version)
-
-	containerfileTmpl, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
-	if err != nil {
-		return err
-	}
+	fmt.Fprintf(w, "\n  Building PHP %s image...\n", version)
 
 	tmp, err := os.MkdirTemp("", "lerd-php-build-*")
 	if err != nil {
@@ -135,23 +167,42 @@ func buildFPMImage(version string, force bool, customExts []string, w io.Writer)
 	}
 	defer os.RemoveAll(tmp)
 
-	containerfile := strings.ReplaceAll(containerfileTmpl, "{{.Version}}", version)
-	containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts))
-	containerfile = strings.ReplaceAll(containerfile, "{{.MkcertCA}}", mkcertCABlock(tmp))
+	var containerfile string
+	buildArgs := []string{"build", "-t", imageName}
 
-	cfPath := tmp + "/Containerfile"
+	// Fast path: pull pre-built base and layer just mkcert CA + custom extensions on top.
+	if !local {
+		if baseRef := tryPullBaseImage(version, w); baseRef != "" {
+			containerfile = "FROM " + baseRef + "\n" +
+				buildCustomExtBlock(customExts) +
+				mkcertCABlock(tmp)
+			goto build
+		}
+	}
+
+	// Slow path: full local build from the embedded Containerfile template.
+	{
+		tmpl, tmplErr := GetQuadletTemplate("lerd-php-fpm.Containerfile")
+		if tmplErr != nil {
+			return tmplErr
+		}
+		containerfile = strings.ReplaceAll(tmpl, "{{.Version}}", version)
+		containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts))
+		containerfile = strings.ReplaceAll(containerfile, "{{.MkcertCA}}", mkcertCABlock(tmp))
+		if force {
+			// Bypass layer cache so changes are fully applied. The old image stays
+			// tagged and the container keeps running until we restart the unit.
+			buildArgs = append(buildArgs, "--no-cache")
+		}
+	}
+
+build:
+	cfPath := filepath.Join(tmp, "Containerfile")
 	if err := os.WriteFile(cfPath, []byte(containerfile), 0644); err != nil {
 		return err
 	}
 
-	buildArgs := []string{"build", "-t", imageName, "-f", cfPath}
-	if force {
-		// Force rebuild: bypass layer cache so changes are fully applied.
-		// The old image stays tagged and the container keeps running until
-		// we restart the unit after the build completes.
-		buildArgs = append(buildArgs, "--no-cache")
-	}
-	buildArgs = append(buildArgs, tmp)
+	buildArgs = append(buildArgs, "-f", cfPath, tmp)
 	cmd := exec.Command("podman", buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w

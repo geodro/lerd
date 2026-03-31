@@ -297,7 +297,7 @@ func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	unitName := "lerd-php" + versionShort + "-fpm"
 
-	if err := podman.BuildFPMImageTo(phpVersion, w); err != nil {
+	if err := podman.BuildFPMImageTo(phpVersion, false, w); err != nil {
 		return fmt.Errorf("building FPM image for PHP %s: %w", phpVersion, err)
 	}
 	_ = podman.StoreFPMHash()

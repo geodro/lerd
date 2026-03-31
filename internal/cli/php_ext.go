@@ -46,7 +46,7 @@ func newPhpExtAddCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Adding extension %q to PHP %s image...\n", ext, version)
-			if err := podman.RebuildFPMImage(version); err != nil {
+			if err := podman.RebuildFPMImage(version, false); err != nil {
 				return err
 			}
 
@@ -88,7 +88,7 @@ func newPhpExtRemoveCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Removing extension %q from PHP %s image...\n", ext, version)
-			if err := podman.RebuildFPMImage(version); err != nil {
+			if err := podman.RebuildFPMImage(version, false); err != nil {
 				return err
 			}
 
