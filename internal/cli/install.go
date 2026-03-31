@@ -509,7 +509,6 @@ fi
 		zshFunctionsDir := filepath.Join(home, ".local", "share", "zsh", "site-functions")
 		if err := os.MkdirAll(zshFunctionsDir, 0755); err == nil {
 			installCompletion(lerdBin, "zsh", zshFunctionsDir, "_lerd")
-			appendShellRC(filepath.Join(home, ".zshrc"), "") // ensure fpath line exists
 			ensureZshFpath(filepath.Join(home, ".zshrc"), zshFunctionsDir)
 		}
 		return nil
