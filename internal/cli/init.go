@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 	survey "github.com/AlecAivazis/survey/v2"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
-	phpDet "github.com/geodro/lerd/internal/php"
+	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +83,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 
 	phpDefault := defaults.PHPVersion
 	if phpDefault == "" {
-		if v, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+		if v, detErr := phpPkg.DetectVersion(cwd); detErr == nil {
 			phpDefault = v
 		} else {
 			phpDefault = gcfg.PHP.DefaultVersion
@@ -93,7 +94,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	if err := survey.AskOne(&survey.Input{
 		Message: "PHP version:",
 		Default: phpDefault,
-	}, &phpVersion); err != nil {
+	}, &phpVersion, survey.WithValidator(validatePHPVersion)); err != nil {
 		return nil, err
 	}
 
@@ -146,11 +147,52 @@ func detectServicesFromDir(cwd string) []string {
 		envFormat = fmt
 
 		if len(fw.Env.Services) > 0 {
-			return detectServicesFromRules(envFilePath, envFormat, fw.Env.Services)
+			return detectServicesFromRules(envExampleFallback(envFilePath), envFormat, fw.Env.Services)
 		}
 	}
 
-	return detectServicesHeuristic(envFilePath, envFormat)
+	return detectServicesHeuristic(envExampleFallback(envFilePath), envFormat)
+}
+
+// envExampleFallback returns path if it exists, or path+".example" if that
+// exists, otherwise path (callers already handle missing files gracefully).
+func envExampleFallback(path string) string {
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if example := path + ".example"; fileExists(example) {
+		return example
+	}
+	return path
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// validatePHPVersion checks that the input looks like a valid PHP version
+// (e.g. "8.3", "8.4") and rejects inputs like "8,5" or plain strings.
+func validatePHPVersion(val interface{}) error {
+	s, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("invalid PHP version")
+	}
+	parts := strings.SplitN(s, ".", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("PHP version must be in MAJOR.MINOR format, e.g. 8.3")
+	}
+	for _, p := range parts {
+		if p == "" {
+			return fmt.Errorf("PHP version must be in MAJOR.MINOR format, e.g. 8.3")
+		}
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return fmt.Errorf("PHP version must be in MAJOR.MINOR format, e.g. 8.3")
+			}
+		}
+	}
+	return nil
 }
 
 // detectServicesFromRules uses the FrameworkServiceDef detection rules from a
@@ -259,6 +301,20 @@ func applyProjectConfig(cwd string) error {
 	proj, err := config.LoadProjectConfig(cwd)
 	if err != nil {
 		return err
+	}
+
+	// Install PHP FPM with a progress loader if the version is not yet installed.
+	if proj.PHPVersion != "" && !phpPkg.IsInstalled(proj.PHPVersion) {
+		phpVersion := proj.PHPVersion
+		jobs := []BuildJob{{
+			Label: "PHP " + phpVersion + " FPM",
+			Run: func(w io.Writer) error {
+				return ensureFPMQuadletTo(phpVersion, w)
+			},
+		}}
+		if err := RunParallel(jobs); err != nil {
+			fmt.Printf("[WARN] PHP %s FPM: %v\n", phpVersion, err)
+		}
 	}
 
 	if err := runLink([]string{}, ""); err != nil {

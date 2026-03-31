@@ -2,10 +2,12 @@ package podman
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/config"
 )
@@ -76,6 +78,53 @@ func RestartUnit(name string) error {
 		return fmt.Errorf("restart %s failed: %w\n%s", name, err, out)
 	}
 	return nil
+}
+
+// WaitReady polls until the named service is ready to accept connections, or
+// timeout is reached. Readiness is tested by running a lightweight probe inside
+// the container: mysqladmin ping for mysql, pg_isready for postgres. For other
+// services it falls back to waiting until the systemd unit is "active".
+func WaitReady(service string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	unit := "lerd-" + service
+
+	var probe func() bool
+	switch service {
+	case "mysql":
+		probe = func() bool {
+			cmd := exec.Command("podman", "exec", "lerd-mysql",
+				"mysqladmin", "ping", "-uroot", "-plerd", "--silent")
+			return cmd.Run() == nil
+		}
+	case "postgres":
+		probe = func() bool {
+			cmd := exec.Command("podman", "exec", "lerd-postgres",
+				"pg_isready", "-U", "postgres")
+			return cmd.Run() == nil
+		}
+	case "rustfs":
+		probe = func() bool {
+			conn, err := net.DialTimeout("tcp", "localhost:9000", time.Second)
+			if err != nil {
+				return false
+			}
+			conn.Close()
+			return true
+		}
+	default:
+		probe = func() bool {
+			status, _ := UnitStatus(unit)
+			return status == "active"
+		}
+	}
+
+	for time.Now().Before(deadline) {
+		if probe() {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("%s did not become ready within %s", service, timeout)
 }
 
 // UnitStatus returns the active state of a systemd user unit.

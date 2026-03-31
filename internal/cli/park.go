@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -289,10 +290,15 @@ func looksLikePHPProject(dir string) bool {
 
 // ensureFPMQuadlet builds the PHP image if needed, then writes (or overwrites) the quadlet.
 func ensureFPMQuadlet(phpVersion string) error {
+	return ensureFPMQuadletTo(phpVersion, os.Stdout)
+}
+
+// ensureFPMQuadletTo is like ensureFPMQuadlet but writes build output to w.
+func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	unitName := "lerd-php" + versionShort + "-fpm"
 
-	if err := podman.BuildFPMImage(phpVersion); err != nil {
+	if err := podman.BuildFPMImageTo(phpVersion, w); err != nil {
 		return fmt.Errorf("building FPM image for PHP %s: %w", phpVersion, err)
 	}
 	_ = podman.StoreFPMHash()

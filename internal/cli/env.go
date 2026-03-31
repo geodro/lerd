@@ -402,7 +402,8 @@ func createS3Bucket(name string) (bool, error) {
 	return true, nil
 }
 
-// ensureServiceRunning starts the service if it is not already active.
+// ensureServiceRunning starts the service if it is not already active, then
+// waits until it is ready to accept connections before returning.
 func ensureServiceRunning(name string) error {
 	unit := "lerd-" + name
 	// On macOS, UnitStatus returns "active" only after launchd has kicked the
@@ -459,6 +460,11 @@ func waitForServiceReady(name, container string) error {
 		readyCmd = func() *exec.Cmd {
 			return exec.Command(podman.PodmanBin(), "exec", container,
 				"pg_isready", "-U", "postgres")
+		}
+	case "rustfs":
+		readyCmd = func() *exec.Cmd {
+			// nc exits 0 if the port is open
+			return exec.Command("nc", "-z", "localhost", "9000")
 		}
 	default:
 		return nil // no readiness probe for other services

@@ -7,6 +7,21 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.2] — 2026-03-31
+
+### Added
+
+- **`lerd init` validates PHP version input** — the PHP version prompt now rejects invalid input such as `8,5` or plain strings; only `MAJOR.MINOR` numeric format (e.g. `8.3`) is accepted.
+- **`lerd init` and `lerd env` detect services from `.env.example`** — when `.env` is absent, service detection falls back to `.env.example` so a freshly cloned project is configured correctly before `.env` is created.
+- **`lerd env` waits for services to be ready before creating databases and buckets** — after starting MySQL, PostgreSQL, or RustFS, lerd now polls for readiness (`mysqladmin ping` / `pg_isready` / TCP dial) before attempting to create the database or bucket. Previously the create step could silently fail if the container had not finished initialising.
+- **Automatic quadlet restoration for orphaned PHP FPM containers** — `lerd php:list` (and any command that calls `ListInstalled`) now scans `podman ps -a` for `lerd-php*-fpm` containers whose quadlet file is missing and restores it automatically, so users who lost their quadlet files do not need to reinstall PHP.
+
+### Fixed
+
+- **`lerd init` installs PHP FPM with a progress indicator** — when the required PHP FPM version is not yet installed, `lerd init` now shows a spinner rather than silently blocking. (PR [#34](https://github.com/geodro/lerd/pull/34))
+
+---
+
 ## [1.2.1] — 2026-03-31
 
 ### Fixed
