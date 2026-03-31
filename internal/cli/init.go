@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 	survey "github.com/AlecAivazis/survey/v2"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
-	phpDet "github.com/geodro/lerd/internal/php"
+	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +83,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 
 	phpDefault := defaults.PHPVersion
 	if phpDefault == "" {
-		if v, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+		if v, detErr := phpPkg.DetectVersion(cwd); detErr == nil {
 			phpDefault = v
 		} else {
 			phpDefault = gcfg.PHP.DefaultVersion
@@ -259,6 +260,20 @@ func applyProjectConfig(cwd string) error {
 	proj, err := config.LoadProjectConfig(cwd)
 	if err != nil {
 		return err
+	}
+
+	// Install PHP FPM with a progress loader if the version is not yet installed.
+	if proj.PHPVersion != "" && !phpPkg.IsInstalled(proj.PHPVersion) {
+		phpVersion := proj.PHPVersion
+		jobs := []BuildJob{{
+			Label: "PHP " + phpVersion + " FPM",
+			Run: func(w io.Writer) error {
+				return ensureFPMQuadletTo(phpVersion, w)
+			},
+		}}
+		if err := RunParallel(jobs); err != nil {
+			fmt.Printf("[WARN] PHP %s FPM: %v\n", phpVersion, err)
+		}
 	}
 
 	if err := runLink([]string{}, ""); err != nil {
