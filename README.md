@@ -1,7 +1,7 @@
 # Lerd
 
-> The open-source Laravel Herd alternative for Linux —
-> Podman-native, rootless, with a built-in web UI.
+> Open-source Herd-like local PHP development environment for Linux.
+> Podman-native, rootless, with a built-in Web UI.
 
 [![CI](https://github.com/geodro/lerd/actions/workflows/ci.yml/badge.svg)](https://github.com/geodro/lerd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/geodro/lerd)](https://github.com/geodro/lerd/releases)
@@ -11,9 +11,14 @@
 
 ![Lerd Web UI](screenshots/app-3.png)
 
-Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers.
+Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers,
+designed for PHP and Laravel developers on Linux (Ubuntu, Fedora, Arch, Debian).
 No Docker. No sudo. No system pollution. Just `lerd link` and your project
 is live at `project.test` with HTTPS.
+
+## Built for Linux PHP developers
+
+If you're a PHP or Laravel developer on Linux and want frictionless local development — automatic `.test` domains, per-project PHP versions, one-click HTTPS, zero Docker — Lerd is built for you.
 
 ## Features
 
