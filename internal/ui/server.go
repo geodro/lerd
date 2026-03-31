@@ -543,6 +543,7 @@ type ServiceResponse struct {
 	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
 	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
 	ReverbSite         string            `json:"reverb_site,omitempty"`
+	HorizonSite        string            `json:"horizon_site,omitempty"`
 	WorkerSite         string            `json:"worker_site,omitempty"`
 	WorkerName         string            `json:"worker_name,omitempty"`
 }
@@ -615,9 +616,14 @@ func listActiveReverbServers() []string {
 	return listActiveUnitsBySuffix("lerd-reverb-*", "lerd-reverb-")
 }
 
-// listActiveStripeListeners returns the site names of active lerd-stripe-* service units
-// started by `lerd stripe:listen`. Container-based units (e.g. stripe-mock) live in
-// ListContainerUnits and are not included here.
+// listActiveHorizonWorkers returns site names of active lerd-horizon-* units.
+func listActiveHorizonWorkers() []string {
+	return listActiveUnitsBySuffix("lerd-horizon-*.service", "lerd-horizon-")
+}
+
+// listActiveStripeListeners returns the site names of active lerd-stripe-* units
+// that were started by `lerd stripe:listen` (i.e. have a .service file in the
+// systemd user dir, as opposed to quadlet-based services like stripe-mock).
 func listActiveStripeListeners() []string {
 	return listActiveUnitsBySuffix("lerd-stripe-*", "lerd-stripe-")
 }
@@ -699,6 +705,14 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			Status:     "active",
 			EnvVars:    map[string]string{},
 			ReverbSite: siteName,
+		})
+	}
+	for _, siteName := range listActiveHorizonWorkers() {
+		services = append(services, ServiceResponse{
+			Name:        "horizon-" + siteName,
+			Status:      "active",
+			EnvVars:     map[string]string{},
+			HorizonSite: siteName,
 		})
 	}
 	// Custom framework workers (non-builtin: not queue/schedule/reverb)
@@ -824,6 +838,26 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, resp)
 		} else {
 			writeJSON(w, ServiceActionResponse{OK: false, Error: "unsupported action for schedule worker"})
+		}
+		return
+	}
+
+	// Handle horizon worker services (horizon-{sitename})
+	if strings.HasPrefix(name, "horizon-") {
+		siteName := strings.TrimPrefix(name, "horizon-")
+		if action == "stop" {
+			opErr := cli.HorizonStopForSite(siteName)
+			resp := ServiceActionResponse{
+				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, HorizonSite: siteName},
+				OK:              opErr == nil,
+			}
+			if opErr != nil {
+				resp.Error = opErr.Error()
+				resp.Status = "active"
+			}
+			writeJSON(w, resp)
+		} else {
+			writeJSON(w, ServiceActionResponse{OK: false, Error: "unsupported action for horizon worker"})
 		}
 		return
 	}

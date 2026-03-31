@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -57,8 +56,14 @@ type phpInfo struct {
 }
 
 type serviceInfo struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	Name               string `json:"name"`
+	Status             string `json:"status"`
+	QueueSite          string `json:"queue_site,omitempty"`
+	ScheduleWorkerSite string `json:"schedule_worker_site,omitempty"`
+	StripeListenerSite string `json:"stripe_listener_site,omitempty"`
+	ReverbSite         string `json:"reverb_site,omitempty"`
+	HorizonSite        string `json:"horizon_site,omitempty"`
+	WorkerSite         string `json:"worker_site,omitempty"`
 }
 
 const daemonEnv = "LERD_TRAY_DAEMON"
@@ -224,9 +229,9 @@ func fetchSnapshot() *Snapshot {
 		var all []serviceInfo
 		if json.NewDecoder(r.Body).Decode(&all) == nil {
 			for _, svc := range all {
-				if strings.HasPrefix(svc.Name, "queue-") ||
-					strings.HasPrefix(svc.Name, "schedule-") ||
-					strings.HasPrefix(svc.Name, "stripe-") {
+				if svc.QueueSite != "" || svc.ScheduleWorkerSite != "" ||
+					svc.StripeListenerSite != "" || svc.ReverbSite != "" ||
+					svc.HorizonSite != "" || svc.WorkerSite != "" {
 					continue
 				}
 				snap.Services = append(snap.Services, svc)

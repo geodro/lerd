@@ -14,7 +14,8 @@ server {
     ssl_certificate_key /etc/nginx/certs/{{.CertDomain}}.key;
 {{if .Reverb}}
     location /app {
-        proxy_pass http://lerd-php{{.PHPVersionShort}}-fpm:8080;
+        set $reverb "lerd-php{{.PHPVersionShort}}-fpm";
+        proxy_pass http://$reverb:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

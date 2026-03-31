@@ -78,7 +78,14 @@ func newHorizonStopCmd(use string) *cobra.Command {
 }
 
 // HorizonStartForSite starts Laravel Horizon for the named site as a systemd service.
+// If a queue worker is running for the same site it is stopped first, since Horizon
+// manages queues and the two must not run simultaneously.
 func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
+	if status, _ := podman.UnitStatus("lerd-queue-" + siteName); status == "active" {
+		if err := QueueStopForSite(siteName); err != nil {
+			fmt.Printf("[WARN] stopping queue worker before horizon: %v\n", err)
+		}
+	}
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	fpmUnit := "lerd-php" + versionShort + "-fpm"
 	container := "lerd-php" + versionShort + "-fpm"

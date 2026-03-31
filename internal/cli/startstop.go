@@ -166,6 +166,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  WARN: dns config: %v\n", err)
 	}
 
+	// Write the shared hosts file mounted into PHP containers at /etc/hosts.
+	if err := podman.WriteContainerHosts(); err != nil {
+		fmt.Printf("  WARN: container hosts file: %v\n", err)
+	}
+
 	units := append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui", "lerd-watcher")
 	units = append(units, registeredQueueUnits()...)

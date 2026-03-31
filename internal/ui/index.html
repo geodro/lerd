@@ -932,7 +932,7 @@
                     <div>
                       <div class="flex items-center gap-2">
                         <span class="font-semibold text-gray-900 dark:text-white text-base"
-                          x-text="selectedService.queue_site ? 'Queue worker' : selectedService.stripe_listener_site ? 'Stripe listener' : capitalize(selectedService.name)"></span>
+                          x-text="selectedService.queue_site ? 'Queue worker' : selectedService.horizon_site ? 'Horizon' : selectedService.stripe_listener_site ? 'Stripe listener' : capitalize(selectedService.name)"></span>
                         <span
                           class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
                           :class="selectedService.status === 'active'
@@ -945,6 +945,9 @@
                       </div>
                       <template x-if="selectedService.queue_site">
                         <div class="text-xs text-gray-400 mt-0.5" x-text="selectedService.queue_site + '.test'"></div>
+                      </template>
+                      <template x-if="selectedService.horizon_site">
+                        <div class="text-xs text-gray-400 mt-0.5" x-text="selectedService.horizon_site + '.test'"></div>
                       </template>
                       <template x-if="selectedService.stripe_listener_site">
                         <div class="text-xs text-gray-400 mt-0.5" x-text="selectedService.stripe_listener_site + '.test'"></div>
@@ -967,8 +970,8 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-2">
-                    <!-- Start button (not for queue/stripe workers) -->
-                    <template x-if="!selectedService.queue_site && !selectedService.stripe_listener_site && selectedService.status !== 'active'">
+                    <!-- Start button (not for queue/stripe/horizon workers) -->
+                    <template x-if="!selectedService.queue_site && !selectedService.horizon_site && !selectedService.stripe_listener_site && selectedService.status !== 'active'">
                       <button
                         @click="toggleService(selectedService, 'start')"
                         :disabled="selectedService.loading"
@@ -995,8 +998,8 @@
                       </button>
                     </template>
 
-                    <!-- Pin toggle (core + custom services only, not queue/stripe workers) -->
-                    <template x-if="!selectedService.queue_site && !selectedService.stripe_listener_site && !selectedService.schedule_worker_site && !selectedService.reverb_site && !selectedService.worker_site">
+                    <!-- Pin toggle (core + custom services only, not queue/stripe/horizon/schedule/reverb workers) -->
+                    <template x-if="!selectedService.queue_site && !selectedService.horizon_site && !selectedService.stripe_listener_site && !selectedService.schedule_worker_site && !selectedService.reverb_site && !selectedService.worker_site">
                       <button
                         @click="toggleServicePin(selectedService)"
                         :disabled="selectedService.loading"
@@ -2030,11 +2033,12 @@ function lerdApp() {
 
     capitalize(s) { return s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); },
     coreServices() {
-      return this.services.filter(s => !s.queue_site && !s.schedule_worker_site && !s.stripe_listener_site && !s.reverb_site && !s.worker_site);
+      return this.services.filter(s => !s.queue_site && !s.schedule_worker_site && !s.stripe_listener_site && !s.reverb_site && !s.horizon_site && !s.worker_site);
     },
     workerGroups() {
       return [
         { key: 'queue',    label: 'Queues',    items: this.services.filter(s => s.queue_site) },
+        { key: 'horizon',  label: 'Horizon',   items: this.services.filter(s => s.horizon_site) },
         { key: 'schedule', label: 'Schedules', items: this.services.filter(s => s.schedule_worker_site) },
         { key: 'workers',  label: 'Workers',   items: this.services.filter(s => s.worker_site) },
         { key: 'stripe',   label: 'Stripe',    items: this.services.filter(s => s.stripe_listener_site) },
@@ -2042,7 +2046,7 @@ function lerdApp() {
       ].filter(g => g.items.length > 0);
     },
     workerSiteName(svc) {
-      return svc.queue_site || svc.schedule_worker_site || svc.stripe_listener_site || svc.reverb_site || svc.worker_site || svc.name;
+      return svc.queue_site || svc.horizon_site || svc.schedule_worker_site || svc.stripe_listener_site || svc.reverb_site || svc.worker_site || svc.name;
     },
     toggleWorkerGroup(key) {
       this.openWorkerGroup = this.openWorkerGroup === key ? null : key;
@@ -2190,6 +2194,7 @@ function lerdApp() {
     closeSiteHorizonLogs() {
       if (this.siteHorizonLogs._source) { this.siteHorizonLogs._source.close(); this.siteHorizonLogs._source = null; }
       this.siteHorizonLogs.connected = false;
+      this.siteHorizonLogs.lines = [];
     },
 
     openSiteQueueLogs(site) {
@@ -2420,11 +2425,13 @@ function lerdApp() {
       this.siteLogsTab = tab;
       const s = this.selectedSite;
       this.closeSiteQueueLogs();
+      this.closeSiteHorizonLogs();
       this.closeSiteStripeLogs();
       this.closeSiteScheduleLogs();
       this.closeSiteReverbLogs();
       this.closeSiteWorkerLogs();
       if (tab === 'queue' && s) this.openSiteQueueLogs(s);
+      else if (tab === 'horizon' && s) this.openSiteHorizonLogs(s);
       else if (tab === 'stripe' && s) this.openSiteStripeLogs(s);
       else if (tab === 'schedule' && s) this.openSiteScheduleLogs(s);
       else if (tab === 'reverb' && s) this.openSiteReverbLogs(s);
@@ -2460,7 +2467,9 @@ function lerdApp() {
       if (svc.status !== 'active') return;
       const url = svc.queue_site
         ? `/api/queue/${svc.queue_site}/logs`
-        : svc.stripe_listener_site
+        : svc.horizon_site
+          ? `/api/horizon/${svc.horizon_site}/logs`
+          : svc.stripe_listener_site
           ? `/api/stripe/${svc.stripe_listener_site}/logs`
           : svc.schedule_worker_site
             ? `/api/schedule/${svc.schedule_worker_site}/logs`

@@ -15,17 +15,25 @@ import (
 // NewPhpRebuildCmd returns the php:rebuild command.
 func NewPhpRebuildCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "php:rebuild",
-		Short: "Force-rebuild all installed PHP-FPM images",
-		Long:  "Removes and rebuilds all lerd PHP-FPM container images. Run after a lerd update to pick up Containerfile changes.",
+		Use:   "php:rebuild [version]",
+		Short: "Force-rebuild PHP-FPM image(s)",
+		Long:  "Removes and rebuilds lerd PHP-FPM container images. Pass a version (e.g. 8.3) to rebuild only that version, or omit to rebuild all installed versions.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runPhpRebuild,
 	}
 }
 
-func runPhpRebuild(_ *cobra.Command, _ []string) error {
-	versions, err := phpPkg.ListInstalled()
-	if err != nil {
-		return fmt.Errorf("listing PHP versions: %w", err)
+func runPhpRebuild(_ *cobra.Command, args []string) error {
+	var versions []string
+
+	if len(args) == 1 {
+		versions = []string{args[0]}
+	} else {
+		var err error
+		versions, err = phpPkg.ListInstalled()
+		if err != nil {
+			return fmt.Errorf("listing PHP versions: %w", err)
+		}
 	}
 
 	if len(versions) == 0 {
@@ -48,7 +56,11 @@ func runPhpRebuild(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  [WARN] could not store image hash: %v\n", err)
 	}
 
-	fmt.Println("\nAll PHP-FPM images rebuilt. Restarting containers...")
+	label := "PHP-FPM images"
+	if len(versions) == 1 {
+		label = "PHP " + versions[0] + " image"
+	}
+	fmt.Printf("\n%s rebuilt. Restarting containers...\n", label)
 	for _, v := range versions {
 		unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
 		if err := services.Mgr.Restart(unit); err != nil {
