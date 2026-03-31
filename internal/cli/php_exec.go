@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,8 +63,25 @@ func runPhp(_ *cobra.Command, args []string) error {
 
 	ensureServicesForCwd(cwd)
 
+	// If any positional arg is an absolute path to a file that exists on the
+	// host but outside $HOME (e.g. /tmp/ide-phpinfo.php written by PhpStorm),
+	// the container won't be able to read it since only $HOME is volume-mounted.
+	// Stream the file through stdin and replace the arg with /dev/stdin.
+	var stdinReader io.Reader = os.Stdin
+	useTTY := term.IsTerminal(int(os.Stdin.Fd()))
+	for i, arg := range args {
+		if filepath.IsAbs(arg) && !strings.HasPrefix(arg, home+"/") && arg != home {
+			if data, err := os.ReadFile(arg); err == nil {
+				args[i] = "/dev/stdin"
+				stdinReader = bytes.NewReader(data)
+				useTTY = false
+				break
+			}
+		}
+	}
+
 	execFlags := []string{"exec", "-i"}
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	if useTTY {
 		execFlags = append(execFlags, "-t")
 	}
 
@@ -75,7 +94,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.Command("podman", cmdArgs...)
-	cmd.Stdin = os.Stdin
+	cmd.Stdin = stdinReader
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

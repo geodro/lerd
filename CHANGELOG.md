@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`lerd php` can now run scripts outside `$HOME`** — IDEs like PhpStorm write their validation scripts to `/tmp` and call `php -d... /tmp/ide-phpinfo.php`. The container only mounts `$HOME`, so those scripts were unreachable and produced an empty output ("Failed to parse validation script output"). `runPhp` now detects any argument that is an absolute path to a host file outside `$HOME`, reads it, and streams it to the container via `stdin` / `/dev/stdin`.
+
+---
+
 ## [1.2.2] — 2026-03-31
 
 ### Added
