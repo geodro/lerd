@@ -151,7 +151,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	lerdYAMLServices := map[string]bool{}
 	if proj, projErr := config.LoadProjectConfig(cwd); projErr == nil {
 		for _, svc := range proj.Services {
-			lerdYAMLServices[svc] = true
+			lerdYAMLServices[svc.Name] = true
 		}
 	}
 

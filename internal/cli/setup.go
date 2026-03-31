@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AlecAivazis/survey/v2"
+	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
@@ -279,12 +279,15 @@ func runSetup(allSteps, skipOpen bool) error {
 			}
 		}
 
-		prompt := &survey.MultiSelect{
-			Message: "Select setup steps to run:",
-			Options: options,
-			Default: defaults,
-		}
-		if err := survey.AskOne(prompt, &selected); err != nil {
+		selected = defaults // pre-select enabled steps
+		if err := huh.NewForm(
+			huh.NewGroup(
+				huh.NewMultiSelect[string]().
+					Title("Setup steps").
+					Options(huh.NewOptions(options...)...).
+					Value(&selected),
+			),
+		).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
 			return err
 		}
 	}

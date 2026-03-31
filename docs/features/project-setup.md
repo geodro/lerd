@@ -7,16 +7,19 @@ cd ~/Projects/my-app
 lerd setup
 ```
 
-Before the step selector, `lerd setup` runs the **lerd init wizard** — you choose the PHP version, HTTPS, and required services. The answers are saved to `.lerd.yaml` in the project root. Commit this file so on any future machine `lerd setup` reads it and skips the wizard entirely.
+Before the step selector, `lerd setup` runs the **lerd init wizard** — you choose the PHP version, Node version, HTTPS, and required services. The answers are saved to `.lerd.yaml` in the project root. Commit this file so on any future machine `lerd setup` (or even `lerd link`) reads it and skips the wizard entirely.
 
 ```
 → Configuring site...
 ? PHP version: 8.4
+? Node version (leave blank to skip): 22
 ? Enable HTTPS? No
-? Services needed:  [mysql, redis]
+? Services: [mysql, redis]
 Saved .lerd.yaml
 Linked: my-app -> my-app.test (PHP 8.4, Node 22, Framework: laravel)
 ```
+
+The services list includes both built-in services and any custom services already registered with `lerd service add`.
 
 After the wizard, a checkbox list appears with all available steps pre-selected based on the current project state:
 
@@ -38,6 +41,8 @@ After the wizard, a checkbox list appears with all available steps pre-selected 
 The `lerd secure` step is omitted entirely when HTTPS was already enabled in the init wizard — there is nothing left to do.
 
 On a machine where `.lerd.yaml` already exists the wizard is skipped and the saved configuration is applied silently before the step selector appears.
+
+`lerd link` also applies `.lerd.yaml` when the file is present, so cloning a repo and running `lerd link` is enough to restore the full environment without running `lerd setup` or `lerd init` first. See [Configuration](../reference/configuration.md#per-project-config-lerdyaml) for the full field reference including inline service definitions and custom frameworks.
 
 ---
 
