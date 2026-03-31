@@ -2194,6 +2194,7 @@ function lerdApp() {
     closeSiteHorizonLogs() {
       if (this.siteHorizonLogs._source) { this.siteHorizonLogs._source.close(); this.siteHorizonLogs._source = null; }
       this.siteHorizonLogs.connected = false;
+      this.siteHorizonLogs.lines = [];
     },
 
     openSiteQueueLogs(site) {
@@ -2424,11 +2425,13 @@ function lerdApp() {
       this.siteLogsTab = tab;
       const s = this.selectedSite;
       this.closeSiteQueueLogs();
+      this.closeSiteHorizonLogs();
       this.closeSiteStripeLogs();
       this.closeSiteScheduleLogs();
       this.closeSiteReverbLogs();
       this.closeSiteWorkerLogs();
       if (tab === 'queue' && s) this.openSiteQueueLogs(s);
+      else if (tab === 'horizon' && s) this.openSiteHorizonLogs(s);
       else if (tab === 'stripe' && s) this.openSiteStripeLogs(s);
       else if (tab === 'schedule' && s) this.openSiteScheduleLogs(s);
       else if (tab === 'reverb' && s) this.openSiteReverbLogs(s);
@@ -2464,7 +2467,9 @@ function lerdApp() {
       if (svc.status !== 'active') return;
       const url = svc.queue_site
         ? `/api/queue/${svc.queue_site}/logs`
-        : svc.stripe_listener_site
+        : svc.horizon_site
+          ? `/api/horizon/${svc.horizon_site}/logs`
+          : svc.stripe_listener_site
           ? `/api/stripe/${svc.stripe_listener_site}/logs`
           : svc.schedule_worker_site
             ? `/api/schedule/${svc.schedule_worker_site}/logs`

@@ -45,6 +45,10 @@ func UnlinkSite(name string) error {
 		return fmt.Errorf("site %q not found", name)
 	}
 
+	for _, w := range collectRunningWorkers(site) {
+		stopWorkerByName(site, w)
+	}
+
 	if err := nginx.RemoveVhost(site.Domain); err != nil {
 		fmt.Printf("[WARN] removing vhost: %v\n", err)
 	}
