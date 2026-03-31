@@ -115,3 +115,8 @@ func UpdateCheckFile() string {
 func PausedDir() string {
 	return filepath.Join(DataDir(), "paused")
 }
+
+// ContainerHostsFile returns the path to the shared hosts file mounted into PHP containers.
+func ContainerHostsFile() string {
+	return filepath.Join(DataDir(), "hosts")
+}

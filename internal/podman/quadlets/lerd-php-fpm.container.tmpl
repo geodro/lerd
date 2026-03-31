@@ -6,6 +6,7 @@ After=network.target
 Image=lerd-php{{.VersionShort}}-fpm:local
 ContainerName=lerd-php{{.VersionShort}}-fpm
 Network=lerd
+Volume=%h/.local/share/lerd/hosts:/etc/hosts:ro,z
 Volume=%h:%h:rw
 Volume={{.XdebugIniPath}}:/usr/local/etc/php/conf.d/99-xdebug.ini:ro
 Volume={{.UserIniPath}}:/usr/local/etc/php/conf.d/98-lerd-user.ini:ro

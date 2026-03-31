@@ -7,6 +7,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -78,6 +79,10 @@ func UnlinkSite(name string) error {
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
+	}
+
+	if err := podman.WriteContainerHosts(); err != nil {
+		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
 	}
 
 	autoStopUnusedServices()

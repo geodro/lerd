@@ -10,6 +10,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -112,6 +113,10 @@ func runLink(args []string, customDomain string) error {
 
 	if err := ensureFPMQuadlet(phpVersion); err != nil {
 		fmt.Printf("[WARN] FPM quadlet for PHP %s: %v\n", phpVersion, err)
+	}
+
+	if err := podman.WriteContainerHosts(); err != nil {
+		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
 	}
 
 	frameworkLabel := framework
