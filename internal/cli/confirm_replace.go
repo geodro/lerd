@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	addStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
-	delStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))  // red
+	addStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	delStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 	metaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")) // blue
 )
 

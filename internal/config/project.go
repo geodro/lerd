@@ -10,12 +10,12 @@ import (
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
-	PHPVersion    string           `yaml:"php_version,omitempty"`
-	NodeVersion   string           `yaml:"node_version,omitempty"`
-	Framework     string           `yaml:"framework,omitempty"`
-	FrameworkDef  *Framework       `yaml:"framework_def,omitempty"`
-	Secured       bool             `yaml:"secured,omitempty"`
-	Services      []ProjectService `yaml:"services,omitempty"`
+	PHPVersion   string           `yaml:"php_version,omitempty"`
+	NodeVersion  string           `yaml:"node_version,omitempty"`
+	Framework    string           `yaml:"framework,omitempty"`
+	FrameworkDef *Framework       `yaml:"framework_def,omitempty"`
+	Secured      bool             `yaml:"secured,omitempty"`
+	Services     []ProjectService `yaml:"services,omitempty"`
 }
 
 // ServiceNames returns the name of every service in the config, for callers
@@ -33,10 +33,10 @@ func (p *ProjectConfig) ServiceNames() []string {
 //
 // YAML forms:
 //
-//	- redis                      # named reference
-//	- mongodb:                   # inline definition
-//	    image: mongo:7
-//	    ...
+//   - redis                      # named reference
+//   - mongodb:                   # inline definition
+//     image: mongo:7
+//     ...
 type ProjectService struct {
 	Name   string
 	Custom *CustomService // nil for named references
