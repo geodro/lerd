@@ -51,7 +51,7 @@ AI:  → site_link()
      ✓  myapp → https://myapp.test ready
 ```
 
-50+ tools available: run migrations, manage services, toggle workers, tail logs, enable Xdebug, export databases, and more, all from your AI assistant.
+60+ tools available: run migrations, manage services, toggle workers, tail logs, enable Xdebug, manage databases, manage PHP extensions, park directories, and more, all from your AI assistant.
 
 📖 [MCP documentation](https://geodro.github.io/lerd/features/mcp/)
 

@@ -53,7 +53,7 @@ lerd mcp:inject --path ~/Lerd/another-app
 
 ### Path resolution
 
-Tools like `artisan`, `composer`, `env_setup`, and `db_export` accept an optional `path` argument. When omitted, the server resolves the path in this order:
+Tools like `artisan`, `composer`, `env_setup`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
 
 1. Explicit `path` argument (highest priority)
 2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
@@ -69,6 +69,10 @@ Once the MCP server is connected, your AI assistant has access to:
 |---|---|
 | `sites` | List all registered lerd sites (name, domain, path, PHP/Node version, framework, worker status) |
 | `runtime_versions` | List installed PHP and Node.js versions with configured defaults |
+| `php_list` | List all PHP versions installed by lerd, marking the global default |
+| `php_ext_list` | List custom PHP extensions configured for a PHP version |
+| `php_ext_add` | Add a custom PHP extension — rebuilds the FPM image and restarts the container |
+| `php_ext_remove` | Remove a custom PHP extension — rebuilds the FPM image and restarts the container |
 | `artisan` | Run `php artisan` in the PHP-FPM container — migrations, generators, seeders, cache, tinker (Laravel only) |
 | `console` | Run the framework's console command (e.g. `php bin/console` for Symfony) — shown for non-Laravel frameworks that define a `console` field |
 | `composer` | Run `composer` in the PHP-FPM container — install, require, dump-autoload, etc. |
@@ -77,6 +81,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
 | `site_link` | Register a directory as a lerd site — generates nginx vhost and `.test` domain |
 | `site_unlink` | Unregister a site and remove its nginx vhost |
+| `park` | Register a parent directory — scans subdirectories and auto-registers any PHP projects as sites |
+| `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |
 | `unsecure` | Disable HTTPS for a site |
 | `xdebug_on` | Enable Xdebug for a PHP version and restart the FPM container |
@@ -89,6 +95,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `service_expose` | Add or remove an extra published port on a built-in service (persisted, auto-restarts if running) |
 | `service_env` | Return the recommended `.env` connection variables for a built-in or custom service |
 | `db_export` | Export a database to a SQL dump file (defaults to site DB from `.env`) |
+| `db_import` | Import a SQL dump file into the project database (reads connection from `.env`) |
+| `db_create` | Create a database and `_testing` variant for the project (infers name from `.env` or project dir) |
 | `queue_start` | Start the queue worker for a site (any framework with a `queue` worker) |
 | `queue_stop` | Stop the queue worker |
 | `horizon_start` | Start Laravel Horizon for a site (use instead of `queue_start` when `laravel/horizon` is installed) |
