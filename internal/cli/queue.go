@@ -127,12 +127,51 @@ func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, tim
 	}
 
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-queue-" + siteName
-
 	artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
 
+	if runtime.GOOS == "darwin" {
+		// On macOS, run the worker as its own container (podman run) rather than
+		// exec-ing into the FPM container. When launchd kills a host-side
+		// `podman exec` process, the exec session is left dangling in Podman's
+		// database and produces stale-session errors on every subsequent podman
+		// call. A dedicated container is stopped cleanly via `podman stop`
+		// (SIGTERM) and the Stop() method handles removal — no orphaned sessions.
+		image := "lerd-php" + versionShort + "-fpm:local"
+		if !podman.ImageExists(image) {
+			return fmt.Errorf("PHP %s image not found — run `lerd use %s` to build it", phpVersion, phpVersion)
+		}
+		_ = podman.EnsureUserIni(phpVersion)
+		unit := fmt.Sprintf(`[Container]
+ContainerName=%s
+Image=%s
+Network=lerd
+Volume=%s:%s
+Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini
+Volume=%s:/usr/local/etc/php/conf.d/99-user.ini
+Volume=%s:/etc/hosts
+WorkingDir=%s
+Exec=php artisan %s
+`, unitName, image,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			config.ContainerHostsFile(),
+			sitePath, artisanArgs)
+		if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
+			return fmt.Errorf("writing container unit: %w", err)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting queue worker: %w", err)
+		}
+		fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
+		fmt.Printf("  Logs: tail -f ~/Library/Logs/lerd/%s.log\n", unitName)
+		return nil
+	}
+
+	// Linux: service unit running `podman exec` into the shared FPM container.
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := fpmUnit
 	unit := fmt.Sprintf(`[Unit]
 Description=Lerd Queue Worker (%s)
 After=network.target %s.service
@@ -160,17 +199,13 @@ WantedBy=default.target
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
-
 	waitForFPMContainer(container)
 	if running, _ := podman.ContainerRunning(container); !running {
 		return fmt.Errorf("%s container is not running — run `lerd start` first", container)
 	}
-	// Kill any leftover in-container worker before starting so we never have duplicates.
-	killArtisanInContainer(container, "php artisan queue:")
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting queue worker: %w", err)
 	}
-
 	fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
 	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
 	return nil
@@ -192,22 +227,26 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 	}
 
 	unitName := "lerd-queue-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	if _, err := os.Stat(unitFile); os.IsNotExist(err) {
-		return nil // no queue worker for this site
+	if !services.Mgr.IsActive(unitName) {
+		return nil // no queue worker running for this site
 	}
 
-	// Upgrade legacy units that used Restart=on-failure — queue:restart causes a
-	// clean exit (code 0) which on-failure does not restart.
-	if data, err := os.ReadFile(unitFile); err == nil {
-		if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
-			if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
-				_ = services.Mgr.DaemonReload()
+	// Upgrade legacy Linux units that used Restart=on-failure.
+	if runtime.GOOS != "darwin" {
+		unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+		if data, err := os.ReadFile(unitFile); err == nil {
+			if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
+				if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
+					_ = services.Mgr.DaemonReload()
+				}
 			}
 		}
 	}
 
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	// On macOS the worker runs in its own container; on Linux it's exec'd into the FPM container.
+	// Either way, queue:restart signals via the cache (Redis/DB), so executing it in the FPM
+	// container is sufficient on both platforms.
 	container := "lerd-php" + versionShort + "-fpm"
 
 	if running, _ := podman.ContainerRunning(container); !running {
@@ -226,13 +265,10 @@ func QueueStopForSite(siteName string) error {
 	unitName := "lerd-queue-" + siteName
 
 	// Stop and disable — ignore errors if already stopped.
+	// On macOS, Stop() also calls `podman stop + rm` on the worker container,
+	// giving SIGTERM a chance to let the worker finish its current job.
 	_ = services.Mgr.Disable(unitName)
 	services.Mgr.Stop(unitName) //nolint:errcheck
-
-	// Kill any lingering in-container queue processes. On macOS, launchd only
-	// kills the host-side `podman exec` process when the plist is unloaded;
-	// the PHP worker inside the container keeps running and duplicates accumulate.
-	killArtisanInContainer(fpmContainerForSite(siteName), "php artisan queue:")
 
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
@@ -244,34 +280,4 @@ func QueueStopForSite(siteName string) error {
 
 	fmt.Printf("Queue worker stopped for %s\n", siteName)
 	return nil
-}
-
-// fpmContainerForSite returns the PHP-FPM container name for the given site by
-// looking up its PHP version from the site config.
-func fpmContainerForSite(siteName string) string {
-	site, err := config.FindSite(siteName)
-	phpVersion := ""
-	if err == nil && site != nil {
-		phpVersion = site.PHPVersion
-	}
-	if phpVersion == "" {
-		cfg, _ := config.LoadGlobal()
-		phpVersion = cfg.PHP.DefaultVersion
-	}
-	return "lerd-php" + strings.ReplaceAll(phpVersion, ".", "") + "-fpm"
-}
-
-// killArtisanInContainer kills PHP artisan processes matching the given pattern
-// inside the container. This is a macOS-only workaround: launchd kills only the
-// host-side `podman exec` process when a plist is unloaded, leaving the PHP
-// worker running inside the Podman Machine VM. On Linux, systemd stops the full
-// cgroup so the in-container process is already gone.
-func killArtisanInContainer(container, pattern string) {
-	if runtime.GOOS != "darwin" {
-		return
-	}
-	if running, _ := podman.ContainerRunning(container); !running {
-		return
-	}
-	podman.RunSilent("exec", container, "pkill", "-f", pattern) //nolint:errcheck
 }

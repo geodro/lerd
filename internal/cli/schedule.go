@@ -2,12 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"github.com/geodro/lerd/internal/podman"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -79,10 +80,43 @@ func newScheduleStopCmd(use string) *cobra.Command {
 // ScheduleStartForSite starts the Laravel task scheduler for the named site.
 func ScheduleStartForSite(siteName, sitePath, phpVersion string) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-schedule-" + siteName
 
+	if runtime.GOOS == "darwin" {
+		image := "lerd-php" + versionShort + "-fpm:local"
+		if !podman.ImageExists(image) {
+			return fmt.Errorf("PHP %s image not found — run `lerd use %s` to build it", phpVersion, phpVersion)
+		}
+		_ = podman.EnsureUserIni(phpVersion)
+		unit := fmt.Sprintf(`[Container]
+ContainerName=%s
+Image=%s
+Network=lerd
+Volume=%s:%s
+Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini
+Volume=%s:/usr/local/etc/php/conf.d/99-user.ini
+Volume=%s:/etc/hosts
+WorkingDir=%s
+Exec=php artisan schedule:work
+`, unitName, image,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			config.ContainerHostsFile(),
+			sitePath)
+		if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
+			return fmt.Errorf("writing container unit: %w", err)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting scheduler: %w", err)
+		}
+		fmt.Printf("Scheduler started for %s\n", siteName)
+		fmt.Printf("  Logs: tail -f ~/Library/Logs/lerd/%s.log\n", unitName)
+		return nil
+	}
+
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := fpmUnit
 	unit := fmt.Sprintf(`[Unit]
 Description=Lerd Scheduler (%s)
 After=network.target %s.service
@@ -114,8 +148,6 @@ WantedBy=default.target
 	if running, _ := podman.ContainerRunning(container); !running {
 		return fmt.Errorf("%s container is not running — run `lerd start` first", container)
 	}
-	// Kill any leftover in-container worker before starting so we never have duplicates.
-	killArtisanInContainer(container, "php artisan schedule:")
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting scheduler: %w", err)
 	}
@@ -130,10 +162,6 @@ func ScheduleStopForSite(siteName string) error {
 
 	_ = services.Mgr.Disable(unitName)
 	services.Mgr.Stop(unitName) //nolint:errcheck
-
-	// Kill any lingering in-container schedule process (macOS launchd only kills
-	// the host-side podman exec; the PHP process inside the container survives).
-	killArtisanInContainer(fpmContainerForSite(siteName), "php artisan schedule:")
 
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)

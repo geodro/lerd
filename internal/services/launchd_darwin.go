@@ -200,6 +200,9 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 	for _, env := range c["Environment"] {
 		args = append(args, "-e", env)
 	}
+	if dirs := c["WorkingDir"]; len(dirs) > 0 {
+		args = append(args, "--workdir", expandSpecifiers(dirs[0]))
+	}
 	for _, extra := range c["PodmanArgs"] {
 		args = append(args, strings.Fields(expandSpecifiers(extra))...)
 	}
