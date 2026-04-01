@@ -99,6 +99,8 @@ Built-in workers:
 
 The `reverb` worker toggle only appears in the UI when the project actually uses Reverb (detected via `laravel/reverb` in `composer.json` or `BROADCAST_CONNECTION=reverb` in `.env`).
 
+Each site that uses Reverb gets its own `REVERB_SERVER_PORT` assigned automatically — starting at `8080` and incrementing for each additional site — so multiple Reverb-enabled sites can run at the same time without port collisions. The port is written to the site's `.env` on first `lerd env` run or on the first `reverb:start`, and stays fixed after that.
+
 ---
 
 ## Adding custom workers to Laravel
