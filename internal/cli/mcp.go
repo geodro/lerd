@@ -284,7 +284,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment fo
 
 ## Path resolution
 
-Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `db_export` + bt + `, etc.) resolve it in this order:
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
 1. Explicit ` + bt + `path` + bt + ` argument
 2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
 3. **Current working directory** — the directory Claude was opened in
@@ -311,6 +311,25 @@ List all registered lerd sites with domains, paths, PHP versions, Node versions,
 
 ### ` + bt + `runtime_versions` + bt + `
 List all installed PHP and Node.js versions and the configured defaults. Call this to check what runtimes are available before running commands.
+
+### ` + bt + `php_list` + bt + `
+List all PHP versions installed by lerd as JSON, with each version's ` + bt + `default` + bt + ` flag. Use this to confirm which versions are available before calling ` + bt + `site_php` + bt + `, ` + bt + `php_ext_add` + bt + `, or ` + bt + `xdebug_on` + bt + `.
+
+### ` + bt + `php_ext_list` + bt + ` / ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + `
+Manage custom PHP extensions for a PHP version. Extensions are added on top of the bundled lerd FPM image. Adding or removing an extension rebuilds the image and restarts the FPM container (may take a minute).
+
+Optional ` + bt + `version` + bt + ` argument on all three — defaults to the project or global PHP version.
+
+` + bt + `php_ext_add` + bt + ` and ` + bt + `php_ext_remove` + bt + ` take ` + bt + `extension` + bt + ` (required).
+
+Examples:
+` + "```" + `
+php_ext_list()                              // list extensions for current project's PHP version
+php_ext_list(version: "8.4")               // list extensions for 8.4
+php_ext_add(extension: "imagick")          // add imagick to current project's PHP version
+php_ext_add(extension: "redis", version: "8.3")
+php_ext_remove(extension: "imagick")
+` + "```" + `
 
 ### ` + bt + `artisan` + bt + ` (Laravel only)
 Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container for the project. Only available when the site is detected as Laravel. Arguments:
@@ -464,6 +483,13 @@ Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_
 
 ` + bt + `site_unlink` + bt + ` takes ` + bt + `site` + bt + ` (site name from ` + bt + `sites` + bt + ` tool). Project files are NOT deleted.
 
+### ` + bt + `park` + bt + ` / ` + bt + `unpark` + bt + `
+` + bt + `park` + bt + ` registers a parent directory: it scans every immediate subdirectory and auto-registers any PHP projects found as lerd sites. Use this when you keep many projects under one folder.
+
+` + bt + `unpark` + bt + ` removes the registration and unlinks all sites whose paths are under that directory. Project files are NOT deleted.
+
+Both take ` + bt + `path` + bt + ` (optional, defaults to LERD_SITE_PATH or cwd).
+
 ### ` + bt + `secure` + bt + ` / ` + bt + `unsecure` + bt + `
 Enable or disable HTTPS for a site using a locally-trusted mkcert certificate. Both take ` + bt + `site` + bt + ` (site name). ` + bt + `APP_URL` + bt + ` in ` + bt + `.env` + bt + ` is updated automatically.
 
@@ -604,6 +630,17 @@ Export a database to a SQL dump file. Arguments:
 - ` + bt + `database` + bt + ` (optional): database name to export (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
 - ` + bt + `output` + bt + ` (optional): output file path (defaults to ` + bt + `<database>.sql` + bt + ` in the project root)
 
+### ` + bt + `db_import` + bt + `
+Import a SQL dump file into the project database. Reads connection details from ` + bt + `.env` + bt + `. The database service must already be running. Arguments:
+- ` + bt + `file` + bt + ` (required): absolute path to the SQL file to import
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory
+- ` + bt + `database` + bt + ` (optional): database name to import into (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
+
+### ` + bt + `db_create` + bt + `
+Create a database and a ` + bt + `<name>_testing` + bt + ` variant for the project. Infers the database name and engine from ` + bt + `.env` + bt + `, falling back to the project directory name. The service must be running. Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root
+- ` + bt + `name` + bt + ` (optional): database name (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
+
 ### ` + bt + `logs` + bt + `
 Fetch recent container logs. ` + bt + `target` + bt + ` is optional — when omitted, returns logs for the current site's PHP-FPM container (resolved from ` + bt + `LERD_SITE_PATH` + bt + `). Specify ` + bt + `target` + bt + ` only when you want a different container:
 - ` + bt + `"nginx"` + bt + ` — nginx proxy logs
@@ -694,6 +731,28 @@ db_export(output: "/tmp/myapp-backup.sql")
 artisan(args: ["migrate"])
 ` + "```" + `
 
+**Restore a database from a dump:**
+` + "```" + `
+db_import(file: "/tmp/myapp-backup.sql")
+` + "```" + `
+
+**Create databases for a new project manually:**
+` + "```" + `
+db_create()   // creates myapp + myapp_testing based on .env DB_DATABASE
+` + "```" + `
+
+**Check and manage PHP extensions:**
+` + "```" + `
+php_list()                           // see installed PHP versions
+php_ext_list()                       // see custom extensions for current project's PHP version
+php_ext_add(extension: "imagick")    // install imagick (rebuilds FPM image)
+` + "```" + `
+
+**Park a directory of projects:**
+` + "```" + `
+park(path: "/home/user/code")   // registers all PHP projects under ~/code as sites
+` + "```" + `
+
 **Diagnose PHP errors:**
 ` + "```" + `
 logs()                  // current site's PHP-FPM errors (no target needed)
@@ -775,6 +834,10 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 |------|-------------|
 | ` + bt + `sites` + bt + ` | List all registered sites with framework and worker status — call this first |
 | ` + bt + `runtime_versions` + bt + ` | List installed PHP and Node.js versions with defaults |
+| ` + bt + `php_list` + bt + ` | List installed PHP versions, marking the global default |
+| ` + bt + `php_ext_list` + bt + ` | List custom PHP extensions for a PHP version |
+| ` + bt + `php_ext_add` + bt + ` | Add a custom PHP extension — rebuilds FPM image and restarts container |
+| ` + bt + `php_ext_remove` + bt + ` | Remove a custom PHP extension — rebuilds FPM image and restarts container |
 | ` + bt + `artisan` + bt + ` | Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container (Laravel only) |
 | ` + bt + `console` + bt + ` | Run the framework's console command (e.g. ` + bt + `php bin/console` + bt + ` for Symfony) — non-Laravel frameworks with a ` + bt + `console` + bt + ` field |
 | ` + bt + `composer` + bt + ` | Run ` + bt + `composer` + bt + ` inside the PHP-FPM container |
@@ -783,6 +846,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost |
+| ` + bt + `park` + bt + ` | Register a parent directory — auto-registers all PHP projects as sites |
+| ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
 | ` + bt + `secure` + bt + ` | Enable HTTPS for a site (mkcert) — updates APP_URL automatically |
 | ` + bt + `unsecure` + bt + ` | Disable HTTPS for a site |
 | ` + bt + `xdebug_on` + bt + ` | Enable Xdebug for a PHP version (port 9003) |
@@ -795,6 +860,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `service_expose` + bt + ` | Add or remove an extra published port on a built-in service (persisted) |
 | ` + bt + `service_env` + bt + ` | Return the recommended ` + bt + `.env` + bt + ` connection variables for a service |
 | ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file (defaults to site DB from ` + bt + `.env` + bt + `) |
+| ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database (reads connection from ` + bt + `.env` + bt + `) |
+| ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant (infers name from ` + bt + `.env` + bt + ` or project dir) |
 | ` + bt + `queue_start` + bt + ` | Start the queue worker for a site (any framework with a queue worker) |
 | ` + bt + `queue_stop` + bt + ` | Stop the queue worker |
 | ` + bt + `horizon_start` + bt + ` | Start Laravel Horizon for a site (use instead of queue_start when laravel/horizon is installed) |
@@ -839,4 +906,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
 - ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
+- ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + ` rebuild the FPM image and restart the container — may take a minute; ` + bt + `version` + bt + ` defaults to the project or global PHP version
+- ` + bt + `db_import` + bt + ` requires the database service to be running; pipe the file by absolute path — it reads connection info from ` + bt + `.env` + bt + `
+- ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist
+- ` + bt + `park` + bt + ` auto-registers all PHP subdirectories as sites in one call; ` + bt + `unpark` + bt + ` removes them all — project files are NOT deleted
 `

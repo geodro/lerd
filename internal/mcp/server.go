@@ -584,6 +584,129 @@ func toolList() []mcpTool {
 				},
 			},
 		},
+		{
+			Name:        "db_import",
+			Description: "Import a SQL dump file into the project database. Reads connection details from the project .env. The database service must be running.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"file": {
+						Type:        "string",
+						Description: "Absolute path to the SQL dump file to import",
+					},
+					"database": {
+						Type:        "string",
+						Description: "Database name to import into (defaults to DB_DATABASE from .env)",
+					},
+				},
+				Required: []string{"file"},
+			},
+		},
+		{
+			Name:        "db_create",
+			Description: "Create a database (and a _testing variant) for the project. Reads the connection type from .env and starts the service if needed. Defaults to the DB_DATABASE name from .env, falling back to the project directory name.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"name": {
+						Type:        "string",
+						Description: "Database name (defaults to DB_DATABASE from .env, then to the project directory name)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "php_list",
+			Description: "List all PHP versions installed by lerd, marking the global default. Use this to check available versions before calling site_php or php_ext_add.",
+			InputSchema: mcpSchema{
+				Type:       "object",
+				Properties: map[string]mcpProp{},
+			},
+		},
+		{
+			Name:        "php_ext_list",
+			Description: "List custom PHP extensions configured for a PHP version. These are extensions added on top of the bundled lerd image.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"version": {
+						Type:        "string",
+						Description: "PHP version (e.g. \"8.4\"). Defaults to the project or global default.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "php_ext_add",
+			Description: "Install a custom PHP extension for a PHP version. Rebuilds the FPM image and restarts the container. This may take a minute.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"extension": {
+						Type:        "string",
+						Description: "Extension name to install (e.g. \"imagick\", \"redis\", \"swoole\")",
+					},
+					"version": {
+						Type:        "string",
+						Description: "PHP version (e.g. \"8.4\"). Defaults to the project or global default.",
+					},
+				},
+				Required: []string{"extension"},
+			},
+		},
+		{
+			Name:        "php_ext_remove",
+			Description: "Remove a custom PHP extension from a PHP version. Rebuilds the FPM image and restarts the container.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"extension": {
+						Type:        "string",
+						Description: "Extension name to remove",
+					},
+					"version": {
+						Type:        "string",
+						Description: "PHP version (e.g. \"8.4\"). Defaults to the project or global default.",
+					},
+				},
+				Required: []string{"extension"},
+			},
+		},
+		{
+			Name:        "park",
+			Description: "Register a directory as a lerd park: scans all subdirectories and auto-registers any PHP projects as sites. Use this to manage many projects under a single parent directory.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the directory to park. Defaults to LERD_SITE_PATH when omitted.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "unpark",
+			Description: "Remove a parked directory from lerd and unlink all sites whose paths are under it. Project files are NOT deleted.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the parked directory to remove",
+					},
+				},
+				Required: []string{"path"},
+			},
+		},
 	}
 
 	if siteIsLaravel() {
@@ -1160,6 +1283,22 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execServicePin(args)
 	case "service_unpin":
 		return execServiceUnpin(args)
+	case "db_import":
+		return execDBImport(args)
+	case "db_create":
+		return execDBCreate(args)
+	case "php_list":
+		return execPHPList()
+	case "php_ext_list":
+		return execPHPExtList(args)
+	case "php_ext_add":
+		return execPHPExtAdd(args)
+	case "php_ext_remove":
+		return execPHPExtRemove(args)
+	case "park":
+		return execPark(args)
+	case "unpark":
+		return execUnpark(args)
 	default:
 		return toolErr("unknown tool: " + p.Name), nil
 	}
@@ -3034,6 +3173,314 @@ func runLerdCmd(cmdArgs ...string) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("command failed (%v):\n%s", err, out.String())), nil
 	}
 	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
+// ---- DB import / create ----
+
+func execDBImport(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+
+	file := strArg(args, "file")
+	if file == "" {
+		return toolErr("file is required"), nil
+	}
+
+	env, err := readDBEnv(projectPath)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if db := strArg(args, "database"); db != "" {
+		env.database = db
+	}
+
+	f, err := os.Open(file)
+	if err != nil {
+		return toolErr(fmt.Sprintf("opening %s: %v", file, err)), nil
+	}
+	defer f.Close()
+
+	var cmd *exec.Cmd
+	switch env.connection {
+	case "mysql", "mariadb":
+		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+			"mysql", "-u"+env.username, "-p"+env.password, env.database)
+	case "pgsql", "postgres":
+		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+			"lerd-postgres", "psql", "-U", env.username, env.database)
+	default:
+		return toolErr("unsupported DB_CONNECTION: " + env.connection), nil
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stdin = f
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("import failed (%v):\n%s", err, stderr.String())), nil
+	}
+	return toolOK(fmt.Sprintf("Imported %s into %s (%s)", file, env.database, env.connection)), nil
+}
+
+func execDBCreate(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+
+	env, _ := readDBEnvLenient(projectPath)
+
+	dbName := strArg(args, "name")
+	if dbName == "" {
+		if env != nil && env.database != "" {
+			dbName = env.database
+		} else {
+			base := filepath.Base(projectPath)
+			dbName = strings.ToLower(strings.ReplaceAll(base, "-", "_"))
+		}
+	}
+
+	conn := "mysql"
+	if env != nil && env.connection != "" {
+		conn = env.connection
+	}
+
+	svc := "mysql"
+	switch strings.ToLower(conn) {
+	case "pgsql", "postgres":
+		svc = "postgres"
+	}
+
+	var results []string
+	for _, name := range []string{dbName, dbName + "_testing"} {
+		created, err := mcpCreateDatabase(svc, name)
+		if err != nil {
+			return toolErr(fmt.Sprintf("creating %q: %v", name, err)), nil
+		}
+		if created {
+			results = append(results, fmt.Sprintf("Created database %q", name))
+		} else {
+			results = append(results, fmt.Sprintf("Database %q already exists", name))
+		}
+	}
+	return toolOK(strings.Join(results, "\n")), nil
+}
+
+func mcpCreateDatabase(svc, name string) (bool, error) {
+	switch svc {
+	case "mysql":
+		check := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
+		out, err := check.Output()
+		if err == nil && strings.TrimSpace(string(out)) != "0" {
+			return false, nil
+		}
+		cmd := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return false, fmt.Errorf("%v: %s", err, stderr.String())
+		}
+		return true, nil
+	case "postgres":
+		cmd := exec.Command("podman", "exec", "lerd-postgres", "psql", "-U", "postgres",
+			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			if strings.Contains(string(out), "already exists") {
+				return false, nil
+			}
+			return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// readDBEnvLenient reads DB connection info from .env without requiring DB_DATABASE.
+func readDBEnvLenient(projectPath string) (*mcpDBEnv, error) {
+	envPath := filepath.Join(projectPath, ".env")
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		return nil, fmt.Errorf("no .env found in %s", projectPath)
+	}
+	vals := map[string]string{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		k, v, _ := strings.Cut(line, "=")
+		vals[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return &mcpDBEnv{
+		connection: vals["DB_CONNECTION"],
+		database:   vals["DB_DATABASE"],
+		username:   vals["DB_USERNAME"],
+		password:   vals["DB_PASSWORD"],
+	}, nil
+}
+
+// ---- PHP list / extensions ----
+
+func execPHPList() (any, *rpcError) {
+	versions, err := phpDet.ListInstalled()
+	if err != nil {
+		return toolErr("listing PHP versions: " + err.Error()), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	if len(versions) == 0 {
+		return toolOK("No PHP versions installed. Run 'lerd install' to set up PHP."), nil
+	}
+
+	type entry struct {
+		Version string `json:"version"`
+		Default bool   `json:"default"`
+	}
+	result := make([]entry, 0, len(versions))
+	for _, v := range versions {
+		result = append(result, entry{Version: v, Default: v == cfg.PHP.DefaultVersion})
+	}
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+func execPHPExtList(args map[string]any) (any, *rpcError) {
+	version, err := resolvePHPVersion(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	exts := cfg.GetExtensions(version)
+	if len(exts) == 0 {
+		return toolOK(fmt.Sprintf("No custom extensions configured for PHP %s.", version)), nil
+	}
+
+	data, _ := json.MarshalIndent(map[string]any{
+		"version":    version,
+		"extensions": exts,
+	}, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+func execPHPExtAdd(args map[string]any) (any, *rpcError) {
+	ext := strArg(args, "extension")
+	if ext == "" {
+		return toolErr("extension is required"), nil
+	}
+
+	version, err := resolvePHPVersion(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	cfg.AddExtension(version, ext)
+	if err := config.SaveGlobal(cfg); err != nil {
+		return toolErr("saving config: " + err.Error()), nil
+	}
+
+	var out bytes.Buffer
+	if err := podman.RebuildFPMImageTo(version, false, &out); err != nil {
+		return toolErr(fmt.Sprintf("rebuilding PHP %s image (%v):\n%s", version, err, out.String())), nil
+	}
+
+	short := strings.ReplaceAll(version, ".", "")
+	unit := "lerd-php" + short + "-fpm"
+	if err := podman.RestartUnit(unit); err != nil {
+		return toolOK(fmt.Sprintf("Extension %q added to PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
+	}
+	return toolOK(fmt.Sprintf("Extension %q added to PHP %s. FPM container restarted.", ext, version)), nil
+}
+
+func execPHPExtRemove(args map[string]any) (any, *rpcError) {
+	ext := strArg(args, "extension")
+	if ext == "" {
+		return toolErr("extension is required"), nil
+	}
+
+	version, err := resolvePHPVersion(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	cfg.RemoveExtension(version, ext)
+	if err := config.SaveGlobal(cfg); err != nil {
+		return toolErr("saving config: " + err.Error()), nil
+	}
+
+	var out bytes.Buffer
+	if err := podman.RebuildFPMImageTo(version, false, &out); err != nil {
+		return toolErr(fmt.Sprintf("rebuilding PHP %s image (%v):\n%s", version, err, out.String())), nil
+	}
+
+	short := strings.ReplaceAll(version, ".", "")
+	unit := "lerd-php" + short + "-fpm"
+	if err := podman.RestartUnit(unit); err != nil {
+		return toolOK(fmt.Sprintf("Extension %q removed from PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
+	}
+	return toolOK(fmt.Sprintf("Extension %q removed from PHP %s. FPM container restarted.", ext, version)), nil
+}
+
+// resolvePHPVersion picks the PHP version from args["version"], the site .php-version file, or the global default.
+func resolvePHPVersion(args map[string]any) (string, error) {
+	if v := strArg(args, "version"); v != "" {
+		if !phpVersionRe.MatchString(v) {
+			return "", fmt.Errorf("invalid PHP version %q — expected format like \"8.4\"", v)
+		}
+		return v, nil
+	}
+	if defaultSitePath != "" {
+		if v, err := phpDet.DetectVersion(defaultSitePath); err == nil {
+			return v, nil
+		}
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return "", fmt.Errorf("loading config: %w", err)
+	}
+	return cfg.PHP.DefaultVersion, nil
+}
+
+// ---- Park / Unpark ----
+
+func execPark(args map[string]any) (any, *rpcError) {
+	path := resolvedPath(args)
+	if path == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	return runLerdCmd("park", path)
+}
+
+func execUnpark(args map[string]any) (any, *rpcError) {
+	path := strArg(args, "path")
+	if path == "" {
+		return toolErr("path is required"), nil
+	}
+	return runLerdCmd("unpark", path)
 }
 
 // syncMCPLerdYAMLSecured updates the secured field in .lerd.yaml when the file

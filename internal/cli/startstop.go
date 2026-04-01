@@ -31,7 +31,7 @@ func missingFPMImageJobs() []BuildJob {
 		if err := podman.RunSilent("image", "exists", image); err != nil {
 			jobs = append(jobs, BuildJob{
 				Label: "Rebuilding PHP " + ver + " image",
-				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(ver, w) },
+				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(ver, false, w) },
 			})
 		}
 	}

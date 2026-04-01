@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	survey "github.com/AlecAivazis/survey/v2"
+	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpPkg "github.com/geodro/lerd/internal/php"
@@ -90,44 +90,96 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
-	var phpVersion string
-	if err := survey.AskOne(&survey.Input{
-		Message: "PHP version:",
-		Default: phpDefault,
-	}, &phpVersion, survey.WithValidator(validatePHPVersion)); err != nil {
-		return nil, err
+	serviceOptions := make([]string, len(knownServices))
+	copy(serviceOptions, knownServices)
+	if customs, err := config.ListCustomServices(); err == nil {
+		for _, svc := range customs {
+			serviceOptions = append(serviceOptions, svc.Name)
+		}
 	}
 
-	var secured bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Enable HTTPS?",
-		Default: defaults.Secured,
-	}, &secured); err != nil {
-		return nil, err
-	}
-
-	// Use saved services as defaults if re-running (--fresh), otherwise auto-detect.
-	serviceDefaults := defaults.Services
+	// Use saved named services as defaults if re-running (--fresh), otherwise auto-detect.
+	serviceDefaults := defaults.ServiceNames()
 	if len(serviceDefaults) == 0 {
 		serviceDefaults = detectServicesFromDir(cwd)
 	}
 
-	var selectedServices []string
-	if err := survey.AskOne(&survey.MultiSelect{
-		Message: "Services needed:",
-		Options: knownServices,
-		Default: serviceDefaults,
-	}, &selectedServices); err != nil {
+	phpVersion := phpDefault
+	nodeVersion := defaults.NodeVersion
+	secured := defaults.Secured
+	selectedServices := serviceDefaults
+
+	if err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("PHP version").
+				Value(&phpVersion).
+				Validate(func(s string) error {
+					if s == "" {
+						return nil
+					}
+					return validatePHPVersion(s)
+				}),
+			huh.NewInput().
+				Title("Node version").
+				Description("Leave blank to skip").
+				Value(&nodeVersion),
+			huh.NewConfirm().
+				Title("Enable HTTPS?").
+				Value(&secured),
+			huh.NewMultiSelect[string]().
+				Title("Services").
+				Options(huh.NewOptions(serviceOptions...)...).
+				Value(&selectedServices),
+		),
+	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
 		return nil, err
 	}
 
 	framework, _ := resolveFramework(cwd)
 
+	// For custom (non-built-in) frameworks, embed the definition so the project
+	// is fully portable — another machine can restore it from .lerd.yaml alone.
+	var frameworkDef *config.Framework
+	if framework != "" && framework != "laravel" {
+		if fw, ok := config.GetFramework(framework); ok {
+			frameworkDef = fw
+		}
+	}
+
+	// Build an index of custom service definitions to embed in .lerd.yaml.
+	// Priority: existing inline definition in defaults > definition file on disk.
+	// Built-in services (knownServices) are never embedded — they don't need to be.
+	builtIn := make(map[string]bool, len(knownServices))
+	for _, s := range knownServices {
+		builtIn[s] = true
+	}
+	inlineByName := map[string]*config.CustomService{}
+	for _, svc := range defaults.Services {
+		if svc.Custom != nil {
+			inlineByName[svc.Name] = svc.Custom
+		}
+	}
+
+	services := make([]config.ProjectService, len(selectedServices))
+	for i, name := range selectedServices {
+		custom := inlineByName[name]
+		if custom == nil && !builtIn[name] {
+			// Load the definition from disk so the project stays portable.
+			if svc, err := config.LoadCustomService(name); err == nil {
+				custom = svc
+			}
+		}
+		services[i] = config.ProjectService{Name: name, Custom: custom}
+	}
+
 	return &config.ProjectConfig{
-		PHPVersion: phpVersion,
-		Framework:  framework,
-		Secured:    secured,
-		Services:   selectedServices,
+		PHPVersion:   phpVersion,
+		NodeVersion:  nodeVersion,
+		Framework:    framework,
+		FrameworkDef: frameworkDef,
+		Secured:      secured,
+		Services:     services,
 	}, nil
 }
 
@@ -173,11 +225,7 @@ func fileExists(path string) bool {
 
 // validatePHPVersion checks that the input looks like a valid PHP version
 // (e.g. "8.3", "8.4") and rejects inputs like "8,5" or plain strings.
-func validatePHPVersion(val interface{}) error {
-	s, ok := val.(string)
-	if !ok {
-		return fmt.Errorf("invalid PHP version")
-	}
+func validatePHPVersion(s string) error {
 	parts := strings.SplitN(s, ".", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("PHP version must be in MAJOR.MINOR format, e.g. 8.3")
@@ -304,6 +352,7 @@ func applyProjectConfig(cwd string) error {
 	}
 
 	// Install PHP FPM with a progress loader if the version is not yet installed.
+	// runLink handles everything else (framework restore, node-version, secure, services).
 	if proj.PHPVersion != "" && !phpPkg.IsInstalled(proj.PHPVersion) {
 		phpVersion := proj.PHPVersion
 		jobs := []BuildJob{{
@@ -317,27 +366,5 @@ func applyProjectConfig(cwd string) error {
 		}
 	}
 
-	if err := runLink([]string{}, ""); err != nil {
-		return fmt.Errorf("linking site: %w", err)
-	}
-
-	if site, findErr := config.FindSiteByPath(cwd); findErr == nil {
-		if proj.Secured && !site.Secured {
-			if err := runSecure(nil, []string{}); err != nil {
-				fmt.Printf("[WARN] enabling HTTPS: %v\n", err)
-			}
-		} else if !proj.Secured && site.Secured {
-			if err := runUnsecure(nil, []string{}); err != nil {
-				fmt.Printf("[WARN] disabling HTTPS: %v\n", err)
-			}
-		}
-	}
-
-	for _, svc := range proj.Services {
-		if err := ensureServiceRunning(svc); err != nil {
-			fmt.Printf("[WARN] service %s: %v\n", svc, err)
-		}
-	}
-
-	return nil
+	return runLink([]string{}, "")
 }

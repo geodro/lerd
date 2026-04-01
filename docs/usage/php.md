@@ -7,8 +7,8 @@
 | `lerd use <version>` | Set the global PHP version and build the FPM image if needed |
 | `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` and updates `.lerd.yaml` if it exists, then re-links |
 | `lerd php:list` | List all installed PHP-FPM versions |
-| `lerd php:rebuild` | Force-rebuild all installed PHP-FPM images (run after `lerd update` if needed) |
-| `lerd fetch [version...]` | Pre-build PHP FPM images for the given (or all supported) versions so first use isn't slow |
+| `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images; `--local` builds from source instead of pulling a base |
+| `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io; `--local` builds from source instead |
 | `lerd xdebug on [version]` | Enable Xdebug for a PHP version — rebuilds the FPM image and restarts the container |
 | `lerd xdebug off [version]` | Disable Xdebug — rebuilds without Xdebug and restarts |
 | `lerd xdebug status` | Show Xdebug enabled/disabled for all installed PHP versions |
@@ -76,6 +76,22 @@ lerd use 8.4
     - `xdebug.client_port=9003`
 
     Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
+
+---
+
+## Pre-built images
+
+lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top — bringing first-time build time from ~5 minutes down to ~30 seconds.
+
+The base image tag is derived from the embedded Containerfile, so lerd always pulls the exact image that matches the version of lerd you have installed. If the pull fails (no internet, image not yet published) lerd falls back to a full local build transparently.
+
+To build entirely from source instead:
+
+```bash
+lerd fetch --local
+lerd fetch --local 8.4
+lerd php:rebuild --local
+```
 
 ---
 

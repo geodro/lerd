@@ -14,16 +14,19 @@ import (
 
 // NewPhpRebuildCmd returns the php:rebuild command.
 func NewPhpRebuildCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "php:rebuild [version]",
 		Short: "Force-rebuild PHP-FPM image(s)",
-		Long:  "Removes and rebuilds lerd PHP-FPM container images. Pass a version (e.g. 8.3) to rebuild only that version, or omit to rebuild all installed versions.",
+		Long:  "Force-rebuilds lerd PHP-FPM container images. Pulls a pre-built base from ghcr.io by default; pass --local to build entirely from source.\nPass a version (e.g. 8.3) to rebuild only that version, or omit to rebuild all installed versions.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runPhpRebuild,
 	}
+	cmd.Flags().Bool("local", false, "Build images locally instead of pulling pre-built base images")
+	return cmd
 }
 
-func runPhpRebuild(_ *cobra.Command, args []string) error {
+func runPhpRebuild(cmd *cobra.Command, args []string) error {
+	local, _ := cmd.Flags().GetBool("local")
 	var versions []string
 
 	if len(args) == 1 {
@@ -46,7 +49,7 @@ func runPhpRebuild(_ *cobra.Command, args []string) error {
 		ver := v
 		jobs[i] = BuildJob{
 			Label: "PHP " + ver,
-			Run:   func(w io.Writer) error { return podman.RebuildFPMImageTo(ver, w) },
+			Run:   func(w io.Writer) error { return podman.RebuildFPMImageTo(ver, local, w) },
 		}
 	}
 	RunParallel(jobs) //nolint:errcheck — individual failures printed by RunParallel

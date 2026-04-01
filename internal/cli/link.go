@@ -41,6 +41,33 @@ func runLink(args []string, customDomain string) error {
 		return err
 	}
 
+	// Load .lerd.yaml early so its values can influence the link.
+	proj, _ := config.LoadProjectConfig(cwd)
+
+	// Restore embedded custom framework definition before resolveFramework runs.
+	if proj != nil && proj.Framework != "" && proj.FrameworkDef != nil {
+		proj.FrameworkDef.Name = proj.Framework
+		existing, exists := config.GetFramework(proj.Framework)
+		if !exists {
+			// Does not exist locally — save without prompting.
+			_ = config.SaveFramework(proj.FrameworkDef)
+		} else {
+			if ok, err := confirmReplace("framework", proj.Framework, existing, proj.FrameworkDef); err != nil {
+				return err
+			} else if ok {
+				_ = config.SaveFramework(proj.FrameworkDef)
+			}
+		}
+	}
+
+	// Write .node-version from .lerd.yaml if the file is not already present.
+	if proj != nil && proj.NodeVersion != "" {
+		nodeVersionFile := filepath.Join(cwd, ".node-version")
+		if _, statErr := os.Stat(nodeVersionFile); os.IsNotExist(statErr) {
+			_ = os.WriteFile(nodeVersionFile, []byte(proj.NodeVersion+"\n"), 0644)
+		}
+	}
+
 	rawName := filepath.Base(cwd)
 	if len(args) > 0 {
 		rawName = args[0]
@@ -60,6 +87,9 @@ func runLink(args []string, customDomain string) error {
 	phpVersion, err := phpDet.DetectVersion(cwd)
 	if err != nil {
 		phpVersion = cfg.PHP.DefaultVersion
+	}
+	if proj != nil && proj.PHPVersion != "" {
+		phpVersion = proj.PHPVersion
 	}
 
 	nodeVersion, err := nodeDet.DetectVersion(cwd)
@@ -129,10 +159,40 @@ func runLink(args []string, customDomain string) error {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 
-	// If .lerd.yaml requests HTTPS and the site is not yet secured, issue the cert now.
-	if proj, err := config.LoadProjectConfig(cwd); err == nil && proj.Secured && !secured {
-		if err := runSecure(nil, []string{}); err != nil {
-			fmt.Printf("[WARN] securing site: %v\n", err)
+	// Apply remaining .lerd.yaml settings: HTTPS and services.
+	if proj != nil {
+		if proj.Secured && !secured {
+			if err := runSecure(nil, []string{}); err != nil {
+				fmt.Printf("[WARN] securing site: %v\n", err)
+			}
+		} else if !proj.Secured && secured {
+			if err := runUnsecure(nil, []string{}); err != nil {
+				fmt.Printf("[WARN] disabling HTTPS: %v\n", err)
+			}
+		}
+
+		for _, svc := range proj.Services {
+			if svc.Custom != nil {
+				svc.Custom.Name = svc.Name
+				existing, loadErr := config.LoadCustomService(svc.Name)
+				save := true
+				if loadErr == nil {
+					var err error
+					save, err = confirmReplace("service", svc.Name, existing, svc.Custom)
+					if err != nil {
+						return err
+					}
+				}
+				if save {
+					if err := config.SaveCustomService(svc.Custom); err != nil {
+						fmt.Printf("[WARN] registering service %s: %v\n", svc.Name, err)
+						continue
+					}
+				}
+			}
+			if err := ensureServiceRunning(svc.Name); err != nil {
+				fmt.Printf("[WARN] service %s: %v\n", svc.Name, err)
+			}
 		}
 	}
 
@@ -147,6 +207,14 @@ func resolveFramework(dir string) (string, bool) {
 	if proj, err := config.LoadProjectConfig(dir); err == nil && proj.Framework != "" {
 		if _, ok := config.GetFramework(proj.Framework); ok {
 			return proj.Framework, true
+		}
+		// Framework definition not found locally — restore from the embedded def
+		// in .lerd.yaml if present (enables portability across machines).
+		if proj.FrameworkDef != nil {
+			proj.FrameworkDef.Name = proj.Framework
+			if saveErr := config.SaveFramework(proj.FrameworkDef); saveErr == nil {
+				return proj.Framework, true
+			}
 		}
 		return "", false
 	}

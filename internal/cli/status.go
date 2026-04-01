@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
@@ -205,14 +204,8 @@ func printUpdateNotice(info *lerdUpdate.UpdateInfo) {
 	fmt.Println()
 	fmt.Printf("%s%s%s\n", colorYellow, bar, colorReset)
 	fmt.Printf("%s  Update available: %s  →  run: lerd update%s\n", colorYellow, info.LatestVersion, colorReset)
+	fmt.Printf("%s  Run lerd whatsnew to see what changed.%s\n", colorYellow, colorReset)
 	fmt.Printf("%s%s%s\n", colorYellow, bar, colorReset)
-	if info.Changelog != "" {
-		fmt.Println()
-		fmt.Println("  What's new:")
-		for _, line := range strings.Split(info.Changelog, "\n") {
-			fmt.Println("  " + line)
-		}
-	}
 }
 
 // certExpiry reads the expiry date from a PEM certificate file.

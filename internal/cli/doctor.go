@@ -234,15 +234,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	if updateInfo, _ := lerdUpdate.CachedUpdateCheck(version.Version); updateInfo != nil {
-		warn("lerd update available", updateInfo.LatestVersion+" — run: lerd update")
-		if updateInfo.Changelog != "" {
-			fmt.Println()
-			fmt.Println("  What's new:")
-			for _, line := range strings.Split(updateInfo.Changelog, "\n") {
-				fmt.Println("  " + line)
-			}
-			fmt.Println()
-		}
+		warn("lerd update available", updateInfo.LatestVersion+" — run: lerd update, lerd whatsnew to see changes")
 	} else {
 		ok("lerd up to date")
 	}
