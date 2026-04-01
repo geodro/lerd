@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.3.2] — 2026-04-01
+
+### Fixed
+
+- **Queue log streaming was a stale duplicate of the shared implementation** — the `/api/queue/<site>/logs` SSE handler had its own inline copy of the log streaming logic instead of calling the shared `streamUnitLogs` helper used by every other worker (horizon, schedule, reverb, stripe). The duplicate is removed.
+
+---
+
 ## [1.3.1] — 2026-04-01
 
 ### Fixed
