@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/podman"
 )
 
@@ -51,6 +53,17 @@ type VhostData struct {
 	CertDomain      string // domain whose cert files to use (defaults to Domain)
 	PublicDir       string // document root subdirectory, e.g. "public", "web", "."
 	Reverb          bool   // true when the site uses Laravel Reverb (adds /app WebSocket proxy)
+	ReverbPort      int    // port Reverb listens on inside the PHP-FPM container (default 8080)
+}
+
+// detectSiteReverbPort reads REVERB_SERVER_PORT from the site's .env, falling back to 8080.
+func detectSiteReverbPort(sitePath string) int {
+	if v := envfile.ReadKey(filepath.Join(sitePath, ".env"), "REVERB_SERVER_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil && port > 0 {
+			return port
+		}
+	}
+	return 8080
 }
 
 // phpShort converts "8.4" → "84".
@@ -92,6 +105,7 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 		PHPVersionShort: phpShort(phpVersion),
 		PublicDir:       publicDir,
 		Reverb:          detectSiteReverb(site.Path),
+		ReverbPort:      detectSiteReverbPort(site.Path),
 	}
 
 	var buf bytes.Buffer
@@ -128,6 +142,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 		CertDomain:      site.Domain,
 		PublicDir:       publicDir,
 		Reverb:          detectSiteReverb(site.Path),
+		ReverbPort:      detectSiteReverbPort(site.Path),
 	}
 
 	var buf bytes.Buffer

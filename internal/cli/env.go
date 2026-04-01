@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -285,7 +286,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// 3c. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb (Laravel only)
 	if isLaravel && strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
 		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
-		for k, v := range reverbEnvUpdates(envMap, site.Domain, site.Secured) {
+		for k, v := range reverbEnvUpdates(envMap, site.Domain, site.Secured, cwd) {
 			updates[k] = v
 		}
 	}
@@ -534,7 +535,8 @@ func copyEnvFile(src, dst string) error {
 // Random secrets (APP_ID, APP_KEY, APP_SECRET) are only generated when missing.
 // Connection values (HOST, PORT, SCHEME) are always set from the site's domain and TLS state
 // so that Vite and the browser can reach Reverb via the nginx WebSocket proxy.
-func reverbEnvUpdates(envMap map[string]string, domain string, secured bool) map[string]string {
+// REVERB_SERVER_PORT is auto-assigned when missing to avoid port collisions between sites.
+func reverbEnvUpdates(envMap map[string]string, domain string, secured bool, sitePath string) map[string]string {
 	updates := map[string]string{}
 	missing := func(key string) bool {
 		return strings.TrimSpace(envMap[key]) == ""
@@ -548,6 +550,12 @@ func reverbEnvUpdates(envMap map[string]string, domain string, secured bool) map
 	}
 	if missing("REVERB_APP_SECRET") {
 		updates["REVERB_APP_SECRET"] = randAlphanumeric(20)
+	}
+
+	// REVERB_SERVER_PORT is the port Reverb listens on inside the PHP-FPM container.
+	// Auto-assign a unique port per site to prevent collisions when multiple apps run Reverb.
+	if missing("REVERB_SERVER_PORT") {
+		updates["REVERB_SERVER_PORT"] = strconv.Itoa(assignReverbServerPort(sitePath))
 	}
 
 	// Connection values are derived from the site — always update so they stay in sync
@@ -573,6 +581,37 @@ func reverbEnvUpdates(envMap map[string]string, domain string, secured bool) map
 	updates["VITE_REVERB_SCHEME"] = scheme
 
 	return updates
+}
+
+// assignReverbServerPort returns the port Reverb should listen on for the site at sitePath.
+// It scans all other linked sites and picks the lowest port >= 8080 not already in use.
+// A site's port is read from REVERB_SERVER_PORT in its .env; if absent but the site's Reverb
+// unit is active, 8080 is assumed (pre-fix sites that started without an explicit port).
+func assignReverbServerPort(sitePath string) int {
+	used := map[int]bool{}
+	if reg, err := config.LoadSites(); err == nil {
+		for _, s := range reg.Sites {
+			if filepath.Clean(s.Path) == filepath.Clean(sitePath) {
+				continue
+			}
+			if v := envfile.ReadKey(filepath.Join(s.Path, ".env"), "REVERB_SERVER_PORT"); v != "" {
+				if p, err := strconv.Atoi(v); err == nil {
+					used[p] = true
+				}
+			} else {
+				// No REVERB_SERVER_PORT in .env — if Reverb is actively running for this site
+				// it must be on the default 8080.
+				if status, _ := podman.UnitStatus("lerd-reverb-" + s.Name); status == "active" {
+					used[8080] = true
+				}
+			}
+		}
+	}
+	port := 8080
+	for used[port] {
+		port++
+	}
+	return port
 }
 
 const alphanumChars = "abcdefghijklmnopqrstuvwxyz0123456789"

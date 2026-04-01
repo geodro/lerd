@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -86,6 +87,16 @@ func ReverbStartForSite(siteName, sitePath, phpVersion string) error {
 	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-reverb-" + siteName
 
+	// Read the port Reverb should listen on from the site's .env.
+	// If absent (e.g. UI toggle before lerd env was run), auto-assign a collision-free port
+	// and persist it so nginx and future starts use the same value.
+	envPath := filepath.Join(sitePath, ".env")
+	reverbPort := envfile.ReadKey(envPath, "REVERB_SERVER_PORT")
+	if reverbPort == "" {
+		reverbPort = strconv.Itoa(assignReverbServerPort(sitePath))
+		_ = envfile.ApplyUpdates(envPath, map[string]string{"REVERB_SERVER_PORT": reverbPort})
+	}
+
 	unit := fmt.Sprintf(`[Unit]
 Description=Lerd Reverb (%s)
 After=network.target %s.service
@@ -95,11 +106,11 @@ BindsTo=%s.service
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan reverb:start
+ExecStart=podman exec -w %s %s php artisan reverb:start --port=%s
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
+`, siteName, fpmUnit, fpmUnit, sitePath, container, reverbPort)
 
 	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
 	if err != nil {
