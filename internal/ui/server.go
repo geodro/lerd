@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -204,18 +205,25 @@ func openTerminalAt(dir string) error {
 		candidates = append(candidates, termCmd{t, []string{}})
 	}
 
-	// macOS: check well-known app bundle CLI shims and native binaries.
-	macOSCandidates := []termCmd{
-		{"/Applications/Ghostty.app/Contents/MacOS/ghostty", []string{"--working-directory=" + dir}},
-		{"/opt/homebrew/bin/ghostty", []string{"--working-directory=" + dir}},
-		{"/Applications/kitty.app/Contents/MacOS/kitty", []string{"--directory", dir}},
-		{"/Applications/WezTerm.app/Contents/MacOS/wezterm", []string{"start", "--cwd", dir}},
-		{"/Applications/iTerm.app/Contents/MacOS/iTerm2", []string{}},
-	}
-	for _, mc := range macOSCandidates {
-		if _, err := os.Stat(mc.bin); err == nil {
-			candidates = append(candidates, mc)
+	// macOS: use AppleScript so LaunchServices routes through the user's window
+	// server session. Direct binary execution fails from a launchd background service.
+	if runtime.GOOS == "darwin" {
+		if osa, err := exec.LookPath("osascript"); err == nil {
+			var script string
+			if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
+				script = `tell application "iTerm"
+	activate
+	create window with default profile command "cd ` + dir + ` && exec $SHELL"
+end tell`
+			} else {
+				script = `tell application "Terminal"
+	do script "cd ` + dir + `"
+	activate
+end tell`
+			}
+			return exec.Command(osa, "-e", script).Start()
 		}
+		return fmt.Errorf("osascript not found")
 	}
 
 	candidates = append(candidates,

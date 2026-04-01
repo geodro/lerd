@@ -19,29 +19,15 @@ func lerdLogPath(unit string) string {
 
 // isContainerUnit returns true for units that run as detached containers
 // (podman run -d). Their logs come from `podman logs`, not the launchd log file.
-// Service units (queue, schedule, stripe, reverb, horizon, workers) run
-// `podman exec` and write to the launchd log file.
+// On macOS all worker units (queue, schedule, stripe, reverb, horizon) are
+// container-based — only native launchd services are excluded.
 func isContainerUnit(unit string) bool {
-	// Native launchd services (not podman containers) — logs are in the launchd log file.
 	nativeUnits := map[string]bool{
 		"lerd-dns":     true, // dnsmasq running natively via Homebrew
 		"lerd-watcher": true,
 		"lerd-ui":      true,
 	}
-	if nativeUnits[unit] {
-		return false
-	}
-	// Exec-based worker units write to the launchd log file.
-	execPrefixes := []string{
-		"lerd-queue-", "lerd-schedule-", "lerd-stripe-",
-		"lerd-reverb-", "lerd-horizon-",
-	}
-	for _, p := range execPrefixes {
-		if strings.HasPrefix(unit, p) {
-			return false
-		}
-	}
-	return true
+	return !nativeUnits[unit]
 }
 
 func serviceRecentLogs(unit string) string {
