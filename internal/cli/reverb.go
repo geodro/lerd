@@ -125,6 +125,9 @@ WantedBy=default.target
 		}
 	}
 	waitForFPMContainer(container)
+	if running, _ := podman.ContainerRunning(container); !running {
+		return fmt.Errorf("%s container is not running — run `lerd start` first", container)
+	}
 	// Kill any leftover in-container worker before starting so we never have duplicates.
 	killArtisanInContainer(container, "php artisan reverb:")
 	if err := services.Mgr.Start(unitName); err != nil {
