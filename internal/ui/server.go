@@ -1577,48 +1577,7 @@ func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	unit := "lerd-queue-" + parts[0]
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
-	cmd.Stdout = pw
-	cmd.Stderr = pw
-
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	go func() {
-		cmd.Wait() //nolint:errcheck
-		pw.Close()
-	}()
-
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
-		line := scanner.Text()
-		escaped := strings.ReplaceAll(line, "\\", "\\\\")
-		fmt.Fprintf(w, "data: %s\n\n", escaped)
-		flusher.Flush()
-		if r.Context().Err() != nil {
-			break
-		}
-	}
-	if cmd.Process != nil {
-		cmd.Process.Kill() //nolint:errcheck
-	}
+	streamUnitLogs(w, r, "lerd-queue-"+parts[0])
 }
 
 // SettingsResponse is the response for GET /api/settings.

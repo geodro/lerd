@@ -12,6 +12,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **PHP FPM fails to start on fresh installs** — the shared hosts file (`~/.local/share/lerd/hosts`) is bind-mounted into every PHP-FPM container. If no site had ever been linked, the file did not exist and podman refused to start the container with `statfs: no such file or directory`. `WriteFPMQuadlet` now ensures the file is created before the container is started.
+- **Queue log streaming was a stale duplicate of the shared implementation** — the `/api/queue/<site>/logs` SSE handler had its own inline copy of the log streaming logic instead of calling the shared `streamUnitLogs` helper used by every other worker (horizon, schedule, reverb, stripe). The duplicate is removed.
 
 ---
 
