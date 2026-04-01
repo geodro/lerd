@@ -111,6 +111,8 @@ WantedBy=default.target
 		}
 	}
 	waitForFPMContainer(container)
+	// Kill any leftover in-container worker before starting so we never have duplicates.
+	killArtisanInContainer(container, "php artisan schedule:")
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting scheduler: %w", err)
 	}
@@ -125,6 +127,10 @@ func ScheduleStopForSite(siteName string) error {
 
 	_ = services.Mgr.Disable(unitName)
 	services.Mgr.Stop(unitName) //nolint:errcheck
+
+	// Kill any lingering in-container schedule process (macOS launchd only kills
+	// the host-side podman exec; the PHP process inside the container survives).
+	killArtisanInContainer(fpmContainerForSite(siteName), "php artisan schedule:")
 
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -161,6 +162,8 @@ WantedBy=default.target
 	}
 
 	waitForFPMContainer(container)
+	// Kill any leftover in-container worker before starting so we never have duplicates.
+	killArtisanInContainer(container, "php artisan queue:")
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting queue worker: %w", err)
 	}
@@ -223,6 +226,11 @@ func QueueStopForSite(siteName string) error {
 	_ = services.Mgr.Disable(unitName)
 	services.Mgr.Stop(unitName) //nolint:errcheck
 
+	// Kill any lingering in-container queue processes. On macOS, launchd only
+	// kills the host-side `podman exec` process when the plist is unloaded;
+	// the PHP worker inside the container keeps running and duplicates accumulate.
+	killArtisanInContainer(fpmContainerForSite(siteName), "php artisan queue:")
+
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
@@ -233,4 +241,34 @@ func QueueStopForSite(siteName string) error {
 
 	fmt.Printf("Queue worker stopped for %s\n", siteName)
 	return nil
+}
+
+// fpmContainerForSite returns the PHP-FPM container name for the given site by
+// looking up its PHP version from the site config.
+func fpmContainerForSite(siteName string) string {
+	site, err := config.FindSite(siteName)
+	phpVersion := ""
+	if err == nil && site != nil {
+		phpVersion = site.PHPVersion
+	}
+	if phpVersion == "" {
+		cfg, _ := config.LoadGlobal()
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+	return "lerd-php" + strings.ReplaceAll(phpVersion, ".", "") + "-fpm"
+}
+
+// killArtisanInContainer kills PHP artisan processes matching the given pattern
+// inside the container. This is a macOS-only workaround: launchd kills only the
+// host-side `podman exec` process when a plist is unloaded, leaving the PHP
+// worker running inside the Podman Machine VM. On Linux, systemd stops the full
+// cgroup so the in-container process is already gone.
+func killArtisanInContainer(container, pattern string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	if running, _ := podman.ContainerRunning(container); !running {
+		return
+	}
+	podman.RunSilent("exec", container, "pkill", "-f", pattern) //nolint:errcheck
 }

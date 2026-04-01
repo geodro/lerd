@@ -125,6 +125,8 @@ WantedBy=default.target
 		}
 	}
 	waitForFPMContainer(container)
+	// Kill any leftover in-container worker before starting so we never have duplicates.
+	killArtisanInContainer(container, "php artisan reverb:")
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting reverb: %w", err)
 	}
@@ -156,6 +158,10 @@ func ReverbStopForSite(siteName string) error {
 
 	_ = services.Mgr.Disable(unitName)
 	services.Mgr.Stop(unitName) //nolint:errcheck
+
+	// Kill any lingering in-container reverb process (macOS launchd only kills
+	// the host-side podman exec; the PHP process inside the container survives).
+	killArtisanInContainer(fpmContainerForSite(siteName), "php artisan reverb:")
 
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
