@@ -32,7 +32,7 @@ func migrateExecWorkerPlists() {
 			name := strings.TrimSuffix(filepath.Base(p), ".plist")
 			domain := fmt.Sprintf("gui/%d", os.Getuid())
 			exec.Command("launchctl", "bootout", domain+"/com.lerd."+name).Run() //nolint:errcheck
-			os.Remove(p)                                                          //nolint:errcheck
+			os.Remove(p)                                                         //nolint:errcheck
 			fmt.Printf("  --> Removed stale exec-based plist %s — re-register with `lerd schedule:start` / `lerd queue:start`\n", name)
 		}
 	}
