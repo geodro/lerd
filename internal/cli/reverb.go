@@ -123,7 +123,7 @@ Exec=php artisan reverb:start --port=%s
 			return fmt.Errorf("starting reverb: %w", err)
 		}
 		fmt.Printf("Reverb started for %s\n", siteName)
-		fmt.Printf("  Logs: tail -f ~/Library/Logs/lerd/%s.log\n", unitName)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
 	} else {
 		fpmUnit := "lerd-php" + versionShort + "-fpm"
 		container := fpmUnit

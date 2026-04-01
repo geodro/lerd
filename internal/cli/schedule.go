@@ -111,7 +111,7 @@ Exec=php artisan schedule:work
 			return fmt.Errorf("starting scheduler: %w", err)
 		}
 		fmt.Printf("Scheduler started for %s\n", siteName)
-		fmt.Printf("  Logs: tail -f ~/Library/Logs/lerd/%s.log\n", unitName)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
 		return nil
 	}
 

@@ -6,10 +6,37 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/podman"
 )
+
+// migrateExecWorkerPlists removes legacy worker plists that used `podman exec`
+// (written by alpha.2/alpha.3). These cause "no such container" errors on every
+// podman invocation because the container they exec into no longer exists.
+// Workers must be re-registered after removal (e.g. `lerd schedule:start`).
+func migrateExecWorkerPlists() {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, "Library", "LaunchAgents")
+	for _, glob := range []string{"lerd-queue-*.plist", "lerd-schedule-*.plist", "lerd-reverb-*.plist"} {
+		matches, _ := filepath.Glob(filepath.Join(dir, glob))
+		for _, p := range matches {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			if !strings.Contains(string(data), "<string>exec</string>") {
+				continue
+			}
+			name := strings.TrimSuffix(filepath.Base(p), ".plist")
+			domain := fmt.Sprintf("gui/%d", os.Getuid())
+			exec.Command("launchctl", "bootout", domain+"/com.lerd."+name).Run() //nolint:errcheck
+			os.Remove(p)                                                          //nolint:errcheck
+			fmt.Printf("  --> Removed stale exec-based plist %s — re-register with `lerd schedule:start` / `lerd queue:start`\n", name)
+		}
+	}
+}
 
 // ensurePodmanMachineRunning ensures a Podman Machine VM exists, is rootful,
 // and is running. If no machine exists it initialises one with --rootful.
@@ -106,7 +133,8 @@ func ensurePodmanMachineRunning() {
 		fmt.Printf("  WARN: podman machine start: %v\n", err)
 	}
 
-	// Prune stopped containers after a machine (re)start to clear any stale exec
-	// sessions left in Podman's database from processes that were killed abruptly.
-	podman.RunSilent("container", "prune", "-f") //nolint:errcheck
+	// Prune stopped containers and unused resources after a machine (re)start to
+	// clear any stale exec sessions left in Podman's database from processes
+	// that were killed abruptly.
+	podman.RunSilent("system", "prune", "-f") //nolint:errcheck
 }

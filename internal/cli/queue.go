@@ -165,7 +165,7 @@ Exec=php artisan %s
 			return fmt.Errorf("starting queue worker: %w", err)
 		}
 		fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
-		fmt.Printf("  Logs: tail -f ~/Library/Logs/lerd/%s.log\n", unitName)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
 		return nil
 	}
 
