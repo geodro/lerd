@@ -142,7 +142,7 @@ brews:
       name: homebrew-lerd
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/geodro/lerd"
-    description: "Local Laravel development environment for macOS"
+    description: "Local Laravel development environment for Linux and macOS"
     license: "MIT"
     skip_upload: false
     dependencies:

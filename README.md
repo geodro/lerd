@@ -1,24 +1,24 @@
 # Lerd
 
-> Open-source Herd-like local PHP development environment for Linux.
+> Open-source Herd-like local PHP development environment for Linux and macOS.
 > Podman-native, rootless, with a built-in Web UI.
 
 [![CI](https://github.com/geodro/lerd/actions/workflows/ci.yml/badge.svg)](https://github.com/geodro/lerd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/geodro/lerd)](https://github.com/geodro/lerd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)]()
 [![Docs](https://img.shields.io/badge/docs-geodro.github.io%2Flerd-blue)](https://geodro.github.io/lerd/)
 
 ![Lerd Web UI](screenshots/app-3.png)
 
 Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers,
-designed for PHP and Laravel developers on Linux (Ubuntu, Fedora, Arch, Debian).
+designed for PHP and Laravel developers on Linux (Ubuntu, Fedora, Arch, Debian) and macOS.
 No Docker. No sudo. No system pollution. Just `lerd link` and your project
 is live at `project.test` with HTTPS.
 
-## Built for Linux PHP developers
+## Built for PHP developers on Linux and macOS
 
-If you're a PHP or Laravel developer on Linux and want frictionless local development — automatic `.test` domains, per-project PHP versions, one-click HTTPS, zero Docker — Lerd is built for you.
+If you're a PHP or Laravel developer on Linux or macOS and want frictionless local development — automatic `.test` domains, per-project PHP versions, one-click HTTPS, zero Docker — Lerd is built for you.
 
 ## Features
 
@@ -63,7 +63,7 @@ AI:  → site_link()
 | Rootless           | ✅   | ❌   | ❌    | ✅           |
 | Web UI             | ✅   | ❌   | ❌    | ✅           |
 | Linux              | ✅   | ✅   | ✅    | ❌           |
-| macOS              | 🔜   | ✅   | ✅    | ✅           |
+| macOS              | ✅   | ✅   | ✅    | ✅           |
 | MCP server         | ✅   | ❌   | ❌    | ❌           |
 | Free & open source | ✅   | ✅   | ✅    | ❌           |
 
