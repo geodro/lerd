@@ -7,6 +7,18 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.3.0] — 2026-04-01
+
+### Added
+
+- **Multiple Reverb sites without port collisions** — when `lerd env` detects `BROADCAST_CONNECTION=reverb`, it auto-assigns a unique `REVERB_SERVER_PORT` per site starting at 8080 and incrementing for each additional site. `reverb:start` (including the UI toggle) also assigns and persists the port on first start if still missing, so the fix applies even when `lerd env` has not been re-run. The nginx WebSocket proxy uses the per-site port instead of the old hardcoded 8080. Fixes [#47](https://github.com/geodro/lerd/issues/47).
+- **New MCP tools: `db_import`, `db_create`, `php_list`, `php_ext`, `park`, `unpark`** — six new tools for AI agents covering database import from a SQL file, on-demand database creation, listing installed PHP versions, managing PHP extensions, and parking/unparking directories.
+- **`lerd whatsnew`** — new command that prints the changelog for the currently installed version. The changelog excerpt has been removed from `lerd status` and `lerd doctor` output.
+- **Portable `.lerd.yaml`** — `.lerd.yaml` can now describe a site's full local environment (PHP version, Node version, framework, services, custom workers). Running `lerd link` in a project that has a `.lerd.yaml` applies all settings automatically, so cloning a project and running `lerd link && lerd env` is enough to reproduce the full environment. Closes [#33](https://github.com/geodro/lerd/issues/33).
+- **Pre-built PHP base images** — PHP images are now built on top of pre-built base images pulled from `ghcr.io` instead of compiling all extensions from source. First-install time drops from ~5 minutes to ~30 seconds. Closes [#43](https://github.com/geodro/lerd/issues/43).
+
+---
+
 ## [1.2.4] — 2026-03-31
 
 ### Added
