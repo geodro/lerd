@@ -86,4 +86,8 @@ func ensurePodmanMachineRunning() {
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("  WARN: podman machine start: %v\n", err)
 	}
+
+	// Prune stopped containers after a machine (re)start to clear any stale exec
+	// sessions left in Podman's database from processes that were killed abruptly.
+	podman.RunSilent("container", "prune", "-f") //nolint:errcheck
 }

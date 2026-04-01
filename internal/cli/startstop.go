@@ -134,6 +134,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// On macOS, Podman runs inside a Linux VM. Start it before any containers.
 	ensurePodmanMachineRunning()
 
+	// Prune stopped containers on every start to flush stale exec sessions from
+	// Podman's database. These accumulate when host-side processes are killed
+	// abruptly (e.g. by launchd) and pollute logs with "no such container" errors.
+	podman.RunSilent("container", "prune", "-f") //nolint:errcheck
+
 	// Ensure FPM service units exist for all installed PHP versions.
 	// Must run before coreUnits() so plists are present when Start() is called.
 	ensureFPMQuadlets()
