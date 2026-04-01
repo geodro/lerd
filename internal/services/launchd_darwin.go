@@ -67,7 +67,7 @@ func xmlEscStr(s string) string {
 	return buf.String()
 }
 
-func buildPlist(lbl string, args []string, runAtLoad, keepAlive bool, logPath string) string {
+func buildPlist(lbl string, args []string, runAtLoad, keepAlive bool, stdoutPath, stderrPath string) string {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -89,11 +89,14 @@ func buildPlist(lbl string, args []string, runAtLoad, keepAlive bool, logPath st
 	if keepAlive {
 		sb.WriteString("\t<key>KeepAlive</key>\n\t<true/>\n")
 	}
-	if logPath != "" {
+	if stdoutPath != "" {
 		sb.WriteString("\t<key>StandardOutPath</key>\n\t<string>")
-		sb.WriteString(xmlEscStr(logPath))
-		sb.WriteString("</string>\n\t<key>StandardErrorPath</key>\n\t<string>")
-		sb.WriteString(xmlEscStr(logPath))
+		sb.WriteString(xmlEscStr(stdoutPath))
+		sb.WriteString("</string>\n")
+	}
+	if stderrPath != "" {
+		sb.WriteString("\t<key>StandardErrorPath</key>\n\t<string>")
+		sb.WriteString(xmlEscStr(stderrPath))
 		sb.WriteString("</string>\n")
 	}
 	sb.WriteString("</dict>\n</plist>\n")
@@ -248,7 +251,7 @@ func (m *darwinServiceManager) WriteServiceUnit(name, content string) error {
 		return err
 	}
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	plist := buildPlist(plistLabel(name), args, true, false, logPath)
+	plist := buildPlist(plistLabel(name), args, true, false, logPath, logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 
@@ -269,7 +272,7 @@ func (m *darwinServiceManager) WriteServiceUnitIfChanged(name, content string) (
 	}
 
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	newPlist := buildPlist(plistLabel(name), args, true, false, logPath)
+	newPlist := buildPlist(plistLabel(name), args, true, false, logPath, logPath)
 
 	if existing, err := os.ReadFile(plistPath(name)); err == nil && string(existing) == newPlist {
 		return false, nil
@@ -321,7 +324,9 @@ func (m *darwinServiceManager) WriteContainerUnit(name, content string) error {
 	// RunAtLoad=false: container units are started by `lerd start` (via lerd-autostart),
 	// which first ensures Podman Machine is running. Firing podman run at login before
 	// the machine is up causes silent failures, so we let lerd-autostart sequence it.
-	plist := buildPlist(plistLabel(name), args, false, false, logPath)
+	// Stdout is suppressed (/dev/null) because `podman run -d` only prints the container
+	// ID there; real container output is accessible via `podman logs <name>`.
+	plist := buildPlist(plistLabel(name), args, false, false, "/dev/null", logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 
