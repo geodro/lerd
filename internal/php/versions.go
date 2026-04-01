@@ -35,6 +35,11 @@ func ListInstalled() ([]string, error) {
 		}
 	}
 
+	// Source 1b: launchd plists (macOS — QuadletDir is always empty there)
+	for _, v := range listInstalledFromServiceDir() {
+		seen[v] = true
+	}
+
 	// Source 2: podman containers (catches installs where the quadlet is missing)
 	if out, err := exec.Command("podman", "ps", "-a",
 		"--filter", "name=lerd-php",
