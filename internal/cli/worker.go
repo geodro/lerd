@@ -45,7 +45,7 @@ func NewWorkerCmd() *cobra.Command {
 func newWorkerStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start <name>",
-		Short: "Start a framework worker as a systemd service",
+		Short: "Start a framework worker as a background service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			workerName := args[0]

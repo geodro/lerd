@@ -68,21 +68,21 @@ func runUninstall(force bool) error {
 		return nil
 	})
 
-	r.Run("Removing quadlet units", func(_ io.Writer) error { //nolint:errcheck
+	r.Run("Removing container units", func(_ io.Writer) error { //nolint:errcheck
 		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
 			services.Mgr.RemoveContainerUnit(unit) //nolint:errcheck
 		}
 		return nil
 	})
 
-	r.Run("Removing service unit files", func(_ io.Writer) error { //nolint:errcheck
+	r.Run("Removing service files", func(_ io.Writer) error { //nolint:errcheck
 		for _, name := range []string{"lerd-watcher", "lerd-ui"} {
 			services.Mgr.RemoveServiceUnit(name) //nolint:errcheck
 		}
 		return nil
 	})
 
-	r.Run("Reloading systemd daemon", func(_ io.Writer) error { //nolint:errcheck
+	r.Run("Reloading service manager", func(_ io.Writer) error { //nolint:errcheck
 		_ = services.Mgr.DaemonReload()
 		return nil
 	})

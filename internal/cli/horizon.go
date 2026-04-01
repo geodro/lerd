@@ -33,7 +33,7 @@ func NewHorizonStopCmd() *cobra.Command { return newHorizonStopCmd("horizon:stop
 func newHorizonStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start Laravel Horizon for the current site as a systemd service",
+		Short: "Start Laravel Horizon for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -77,7 +77,7 @@ func newHorizonStopCmd(use string) *cobra.Command {
 	}
 }
 
-// HorizonStartForSite starts Laravel Horizon for the named site as a systemd service.
+// HorizonStartForSite starts Laravel Horizon for the named site as a background service.
 // If a queue worker is running for the same site it is stopped first, since Horizon
 // manages queues and the two must not run simultaneously.
 func HorizonStartForSite(siteName, sitePath, phpVersion string) error {

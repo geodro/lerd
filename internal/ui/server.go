@@ -1840,11 +1840,35 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 		pw.Close()
 	}()
 
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Fprintf(w, "data: %s\n\n", line)
-		flusher.Flush()
+	lines := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+
+	// Send a keepalive comment every 30s so nginx (proxy_read_timeout 60s)
+	// does not close the SSE connection during idle periods, which would cause
+	// the frontend to reconnect and replay --tail lines as duplicates.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+loop:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break loop
+			}
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			break loop
+		}
 	}
 }
 

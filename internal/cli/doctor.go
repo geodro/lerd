@@ -89,9 +89,9 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 
 	quadletDir := config.QuadletDir()
 	if err := checkDirWritable(quadletDir); err != nil {
-		fail("quadlet dir writable", err.Error(), "mkdir -p "+quadletDir)
+		fail("service config dir writable", err.Error(), "mkdir -p "+quadletDir)
 	} else {
-		ok("quadlet dir writable")
+		ok("service config dir writable")
 	}
 
 	dataDir := config.DataDir()
@@ -198,9 +198,9 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	fmt.Println("\n[Containers & Images]")
 
 	if !services.Mgr.ContainerUnitInstalled("lerd-nginx") {
-		fail("lerd-nginx quadlet", "not installed", "run: lerd install")
+		fail("lerd-nginx service", "not installed", "run: lerd install")
 	} else {
-		ok("lerd-nginx quadlet installed")
+		ok("lerd-nginx service installed")
 	}
 
 	phpVersions, _ := phpPkg.ListInstalled()

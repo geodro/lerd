@@ -33,7 +33,7 @@ func NewScheduleStopCmd() *cobra.Command { return newScheduleStopCmd("schedule:s
 func newScheduleStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start the Laravel task scheduler for the current site as a systemd service",
+		Short: "Start the Laravel task scheduler for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {

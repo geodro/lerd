@@ -142,7 +142,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing nginx quadlet")
+	step("Writing nginx service config")
 	if content, err := podman.GetQuadletTemplate("lerd-nginx.container"); err == nil {
 		if err := services.Mgr.WriteContainerUnit("lerd-nginx", content); err != nil {
 			return err
@@ -156,7 +156,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Refreshing service quadlets")
+	step("Refreshing service configs")
 	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"} {
 		if !services.Mgr.ContainerUnitInstalled("lerd-" + svc) {
 			continue
@@ -184,8 +184,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 
-	// 8. Systemd / services
-	step("Reloading systemd daemon")
+	// 8. Reload service manager
+	step("Reloading service manager")
 	if err := services.Mgr.DaemonReload(); err != nil {
 		return err
 	}

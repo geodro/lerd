@@ -37,7 +37,7 @@ func NewReverbStopCmd() *cobra.Command { return newReverbStopCmd("reverb:stop") 
 func newReverbStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start the Laravel Reverb WebSocket server for the current site as a systemd service",
+		Short: "Start the Laravel Reverb WebSocket server for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {

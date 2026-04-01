@@ -26,7 +26,7 @@ func newStripeListenCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "stripe:listen",
-		Short: "Start a Stripe webhook listener for the current site as a systemd service",
+		Short: "Start a Stripe webhook listener for the current site as a background service",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()

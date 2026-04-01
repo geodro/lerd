@@ -39,7 +39,7 @@ func newQueueStartCmd(use string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   use,
-		Short: "Start a queue worker for the current site as a systemd service",
+		Short: "Start a queue worker for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runQueueStart(queue, tries, timeout)
 		},

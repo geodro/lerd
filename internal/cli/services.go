@@ -272,7 +272,7 @@ func newServiceAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [file.yaml]",
 		Short: "Define a new custom service (from a YAML file or flags)",
-		Long: `Define a new custom service and write its systemd quadlet.
+		Long: `Define a new custom service and register it as a background service.
 
 Load from a YAML file:
   lerd service add mongodb.yaml
