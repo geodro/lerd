@@ -25,7 +25,12 @@ func ensurePodmanMachineRunning() {
 		rootful bool
 	}
 
-	var machines []machineInfo
+	type machineEntry struct {
+		machineInfo
+		isDefault bool
+	}
+
+	var all []machineEntry
 	for _, line := range strings.Split(strings.TrimSpace(string(listOut)), "\n") {
 		if line == "" {
 			continue
@@ -34,7 +39,9 @@ func ensurePodmanMachineRunning() {
 		if len(fields) < 2 {
 			continue
 		}
-		name := strings.TrimSuffix(fields[0], "*") // strip default-machine marker
+		raw := fields[0]
+		isDefault := strings.HasSuffix(raw, "*")
+		name := strings.TrimSuffix(raw, "*")
 		running := fields[1] == "true"
 
 		// Inspect to get Rootful status.
@@ -44,7 +51,19 @@ func ensurePodmanMachineRunning() {
 			rootful = strings.TrimSpace(string(inspectOut)) == "true"
 		}
 
-		machines = append(machines, machineInfo{name: name, running: running, rootful: rootful})
+		all = append(all, machineEntry{machineInfo{name, running, rootful}, isDefault})
+	}
+
+	// Prefer the default machine (marked with *); fall back to the first listed.
+	var machines []machineInfo
+	for _, e := range all {
+		if e.isDefault {
+			machines = []machineInfo{e.machineInfo}
+			break
+		}
+	}
+	if len(machines) == 0 && len(all) > 0 {
+		machines = []machineInfo{all[0].machineInfo}
 	}
 
 	if len(machines) == 0 {
