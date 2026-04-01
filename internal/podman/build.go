@@ -261,8 +261,13 @@ func WriteFPMQuadlet(version string) error {
 	hostsPath := config.ContainerHostsFile()
 	if _, err := os.Stat(hostsPath); os.IsNotExist(err) {
 		if err := WriteContainerHosts(); err != nil {
-			// Non-fatal: create a minimal file so the mount succeeds.
-			_ = os.WriteFile(hostsPath, []byte("127.0.0.1 localhost\n::1 localhost\n"), 0644)
+			// Non-fatal: write the static header so the mount succeeds and
+			// host.containers.internal resolves correctly even before lerd link runs.
+			_ = os.WriteFile(hostsPath, []byte(
+				"127.0.0.1 localhost\n"+
+					"::1 localhost\n"+
+					"169.254.1.2 host.containers.internal host.docker.internal\n",
+			), 0644)
 		}
 	}
 
