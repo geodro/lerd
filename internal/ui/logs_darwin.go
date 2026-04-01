@@ -45,10 +45,15 @@ func serviceRecentLogs(unit string) string {
 }
 
 // logStreamCmd returns a command that streams logs for the unit.
-// Container units use `podman logs -f`; exec-based service units tail the launchd log file.
+// Container units use `podman logs -f`; native service units tail the launchd log file.
 func logStreamCmd(ctx context.Context, unit string) *exec.Cmd {
 	if isContainerUnit(unit) {
-		return exec.CommandContext(ctx, podman.PodmanBin(), "logs", "-f", "--tail", "100", unit)
+		// Wait up to 10s for the container to exist before streaming, so the
+		// UI doesn't get an immediate "no such container" error when the log
+		// panel opens right after a worker is started.
+		bin := podman.PodmanBin()
+		script := `for i in $(seq 1 20); do ` + bin + ` container exists ` + unit + ` 2>/dev/null && break; sleep 0.5; done; exec ` + bin + ` logs -f --tail 100 ` + unit
+		return exec.CommandContext(ctx, "/bin/sh", "-c", script)
 	}
 	path := lerdLogPath(unit)
 	script := `for i in $(seq 1 10); do [ -f "` + path + `" ] && break; sleep 0.5; done; exec tail -f -n 100 "` + path + `"`
