@@ -51,8 +51,14 @@ func logStreamCmd(ctx context.Context, unit string) *exec.Cmd {
 		// Wait up to 10s for the container to exist before streaming, so the
 		// UI doesn't get an immediate "no such container" error when the log
 		// panel opens right after a worker is started.
+		// Use --since <StartedAt> instead of --tail so we only show logs from
+		// the current container run; --tail spans all prior restarts and causes
+		// duplicate lines on every reconnect.
 		bin := podman.PodmanBin()
-		script := `for i in $(seq 1 20); do ` + bin + ` container exists ` + unit + ` 2>/dev/null && break; sleep 0.5; done; exec ` + bin + ` logs -f --tail 100 ` + unit
+		script := `for i in $(seq 1 20); do ` + bin + ` container exists ` + unit + ` 2>/dev/null && break; sleep 0.5; done` +
+			`; STARTED=$(` + bin + ` inspect --format '{{.State.StartedAt}}' ` + unit + ` 2>/dev/null | head -1 | tr -d '\n')` +
+			`; if [ -n "$STARTED" ]; then exec ` + bin + ` logs -f --since "$STARTED" ` + unit +
+			`; else exec ` + bin + ` logs -f --tail 100 ` + unit + `; fi`
 		return exec.CommandContext(ctx, "/bin/sh", "-c", script)
 	}
 	path := lerdLogPath(unit)

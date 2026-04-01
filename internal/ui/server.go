@@ -1560,8 +1560,18 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use --since <StartedAt> so we only show logs from the current container
+	// run. --tail spans all prior restarts and causes duplicate lines on every
+	// reconnect when the EventSource re-establishes.
+	logsArgs := []string{"logs", "-f", "--tail", "100", container}
+	if out, err := exec.Command(podman.PodmanBin(), "inspect", "--format", "{{.State.StartedAt}}", container).Output(); err == nil {
+		if s := strings.TrimSpace(string(out)); s != "" {
+			logsArgs = []string{"logs", "-f", "--since", s, container}
+		}
+	}
+
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), "logs", "-f", "--tail", "100", container)
+	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), logsArgs...)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 

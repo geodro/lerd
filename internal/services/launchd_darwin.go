@@ -380,10 +380,18 @@ func (m *darwinServiceManager) Start(name string) error {
 	out, err := launchctl("bootstrap", domain, p)
 	if err != nil {
 		s := string(out)
-		// 36 = already bootstrapped; kick it to (re)start
-		if strings.Contains(s, "36") || strings.Contains(s, "already bootstrapped") ||
+		// 36 = already bootstrapped; "Bootstrap failed: 5" = EBUSY / I-O error
+		// (macOS Ventura+ race after a rapid bootout+bootstrap) — both mean the
+		// job is already in the domain, kick it to (re)start with the current plist.
+		if strings.Contains(s, "36") || strings.Contains(s, "Bootstrap failed: 5") ||
+			strings.Contains(s, "already bootstrapped") ||
 			strings.Contains(s, "service already loaded") {
 			if kout, kerr := launchctl("kickstart", "-k", domain+"/"+label); kerr != nil {
+				ks := string(kout)
+				// 37 = EALREADY — job is already running, treat as success.
+				if strings.Contains(ks, "37") || strings.Contains(ks, "already running") {
+					return nil
+				}
 				return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
 			}
 			return nil
@@ -436,6 +444,10 @@ func (m *darwinServiceManager) Restart(name string) error {
 		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
 			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
 			return m.Start(name)
+		}
+		// 37 = EALREADY — job is already running, treat as success.
+		if strings.Contains(s, "37") || strings.Contains(s, "already running") {
+			return nil
 		}
 		return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, err, out)
 	}
