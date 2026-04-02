@@ -533,8 +533,15 @@ func copyEnvFile(src, dst string) error {
 
 // reverbEnvUpdates returns REVERB_ and VITE_REVERB_ env key→value pairs.
 // Random secrets (APP_ID, APP_KEY, APP_SECRET) are only generated when missing.
-// Connection values (HOST, PORT, SCHEME) are always set from the site's domain and TLS state
-// so that Vite and the browser can reach Reverb via the nginx WebSocket proxy.
+//
+// REVERB_HOST/PORT/SCHEME are always set to localhost:REVERB_SERVER_PORT over HTTP.
+// The queue worker runs inside the PHP-FPM container (via podman exec) alongside
+// Reverb, so it must connect to Reverb directly rather than routing through the
+// nginx reverse proxy on the host (which is not reachable from inside the container).
+//
+// VITE_REVERB_HOST/PORT/SCHEME are set to the site's domain and external port so
+// the browser can reach Reverb through the nginx WebSocket proxy.
+//
 // REVERB_SERVER_PORT is auto-assigned when missing to avoid port collisions between sites.
 func reverbEnvUpdates(envMap map[string]string, domain string, secured bool, sitePath string) map[string]string {
 	updates := map[string]string{}
@@ -557,28 +564,38 @@ func reverbEnvUpdates(envMap map[string]string, domain string, secured bool, sit
 	if missing("REVERB_SERVER_PORT") {
 		updates["REVERB_SERVER_PORT"] = strconv.Itoa(assignReverbServerPort(sitePath))
 	}
-
-	// Connection values are derived from the site — always update so they stay in sync
-	// with the site's domain and TLS state.
-	scheme := "http"
-	port := "80"
-	if secured {
-		scheme = "https"
-		port = "443"
+	serverPort := envMap["REVERB_SERVER_PORT"]
+	if v, ok := updates["REVERB_SERVER_PORT"]; ok {
+		serverPort = v
 	}
-	updates["REVERB_HOST"] = domain
-	updates["REVERB_PORT"] = port
-	updates["REVERB_SCHEME"] = scheme
+	if serverPort == "" {
+		serverPort = "8080"
+	}
 
-	// VITE_ vars mirror the connection values so the browser can connect via nginx.
+	// REVERB_HOST/PORT/SCHEME — server-side broadcasting (queue worker → Reverb).
+	// Always point to localhost:REVERB_SERVER_PORT so the queue worker, which runs
+	// inside the same PHP-FPM container as Reverb, connects directly without going
+	// through nginx.
+	updates["REVERB_HOST"] = "localhost"
+	updates["REVERB_PORT"] = serverPort
+	updates["REVERB_SCHEME"] = "http"
+
+	// VITE_ vars — browser-side (Echo → nginx → Reverb).
+	// Use the site's domain and external port so the browser can connect via nginx.
+	externalPort := "80"
+	externalScheme := "http"
+	if secured {
+		externalScheme = "https"
+		externalPort = "443"
+	}
 	appKey := envMap["REVERB_APP_KEY"]
 	if v, ok := updates["REVERB_APP_KEY"]; ok {
 		appKey = v
 	}
 	updates["VITE_REVERB_APP_KEY"] = appKey
 	updates["VITE_REVERB_HOST"] = domain
-	updates["VITE_REVERB_PORT"] = port
-	updates["VITE_REVERB_SCHEME"] = scheme
+	updates["VITE_REVERB_PORT"] = externalPort
+	updates["VITE_REVERB_SCHEME"] = externalScheme
 
 	return updates
 }

@@ -18,7 +18,7 @@ lerd env
 5. **Starts any referenced service** that is not already running
 6. **Sets the app URL** (`APP_URL` for Laravel; the `url_key` defined in the framework for others) to the project's registered `.test` domain
 7. **Generates `APP_KEY`** via `php artisan key:generate` if the key is missing or empty (Laravel only)
-8. **Generates `REVERB_*` values** — if `BROADCAST_CONNECTION=reverb` is detected, generates `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET`, `REVERB_HOST`, `REVERB_PORT`, and `REVERB_SCHEME` using random secure values for secrets. Also assigns a unique `REVERB_SERVER_PORT` so multiple Reverb-enabled sites can run simultaneously without port collisions (starts at `8080`, increments per site)
+8. **Generates `REVERB_*` values** — if `BROADCAST_CONNECTION=reverb` is detected, generates `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` using random secure values for secrets. Also assigns a unique `REVERB_SERVER_PORT` so multiple Reverb-enabled sites can run simultaneously without port collisions (starts at `8080`, increments per site). `REVERB_HOST`, `REVERB_PORT`, and `REVERB_SCHEME` are set to `localhost`, the assigned server port, and `http` respectively — the queue worker runs inside the PHP-FPM container alongside Reverb and connects directly. `VITE_REVERB_HOST`, `VITE_REVERB_PORT`, and `VITE_REVERB_SCHEME` are set to the site's domain and external port so the browser connects through the nginx WebSocket proxy
 
 ---
 
