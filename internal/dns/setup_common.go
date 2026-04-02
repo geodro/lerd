@@ -59,7 +59,8 @@ func WaitReady(timeout time.Duration) error {
 }
 
 // sudoWriteFile writes content to a system path by writing to a temp file
-// then using sudo cp, so sudo can prompt for a password on the terminal.
+// then using a single sudo sh invocation to mkdir + cp, so the user is only
+// prompted for their password once regardless of sudo credential cache state.
 func sudoWriteFile(path string, content []byte) error {
 	tmp, err := os.CreateTemp("", "lerd-sudo-*")
 	if err != nil {
@@ -73,20 +74,13 @@ func sudoWriteFile(path string, content []byte) error {
 	tmp.Close()
 
 	dir := filepath.Dir(path)
-	mkdirCmd := exec.Command("sudo", "mkdir", "-p", dir)
-	mkdirCmd.Stdin = os.Stdin
-	mkdirCmd.Stdout = os.Stdout
-	mkdirCmd.Stderr = os.Stderr
-	if err := mkdirCmd.Run(); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	cpCmd := exec.Command("sudo", "cp", tmp.Name(), path)
-	cpCmd.Stdin = os.Stdin
-	cpCmd.Stdout = os.Stdout
-	cpCmd.Stderr = os.Stderr
-	if err := cpCmd.Run(); err != nil {
-		return fmt.Errorf("cp to %s: %w", path, err)
+	cmd := exec.Command("sudo", "sh", "-c",
+		fmt.Sprintf("mkdir -p %q && cp %q %q", dir, tmp.Name(), path))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
 }
