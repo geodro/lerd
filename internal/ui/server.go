@@ -1526,8 +1526,13 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tail := "100"
+	if r.Header.Get("Last-Event-ID") != "" {
+		tail = "0"
+	}
+
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", "100", container)
+	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", tail, container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -1542,12 +1547,14 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		pw.Close()
 	}()
 
+	var lineID int
 	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
 		line := scanner.Text()
 		// Escape backslashes and encode as a single SSE data line.
 		escaped := strings.ReplaceAll(line, "\\", "\\\\")
-		fmt.Fprintf(w, "data: %s\n\n", escaped)
+		lineID++
+		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", lineID, escaped)
 		flusher.Flush()
 		if r.Context().Err() != nil {
 			break
@@ -1784,10 +1791,18 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	cursor := r.Header.Get("Last-Event-ID")
+	args := []string{"--user", "-u", unit, "-f", "--no-pager", "--output=json"}
+	if cursor != "" {
+		args = append(args, "--after-cursor="+cursor)
+	} else {
+		args = append(args, "-n", "100")
+	}
+
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", "--user", "-u", unit, "-f", "--no-pager", "-n", "100", "--output=cat")
+	cmd := exec.CommandContext(r.Context(), "journalctl", args...)
 	cmd.Stdout = pw
-	cmd.Stderr = pw
+	cmd.Stderr = io.Discard
 
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
@@ -1800,10 +1815,29 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 		pw.Close()
 	}()
 
+	type journalEntry struct {
+		Cursor  string          `json:"__CURSOR"`
+		Message json.RawMessage `json:"MESSAGE"`
+	}
+
 	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Fprintf(w, "data: %s\n\n", line)
+		var entry journalEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		var msg string
+		if len(entry.Message) > 0 && entry.Message[0] == '"' {
+			json.Unmarshal(entry.Message, &msg) //nolint:errcheck
+		} else {
+			// journalctl encodes binary messages as a JSON array of bytes
+			var b []byte
+			if json.Unmarshal(entry.Message, &b) == nil {
+				msg = string(b)
+			}
+		}
+		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", entry.Cursor, msg)
 		flusher.Flush()
 	}
 }
