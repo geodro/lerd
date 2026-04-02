@@ -92,13 +92,13 @@ func WaitReady(service string, timeout time.Duration) error {
 	switch service {
 	case "mysql":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-mysql",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-mysql",
 				"mysqladmin", "ping", "-uroot", "-plerd", "--silent")
 			return cmd.Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-postgres",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-postgres",
 				"pg_isready", "-U", "postgres")
 			return cmd.Run() == nil
 		}

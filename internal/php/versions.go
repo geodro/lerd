@@ -41,7 +41,7 @@ func ListInstalled() ([]string, error) {
 	}
 
 	// Source 2: podman containers (catches installs where the quadlet is missing)
-	if out, err := exec.Command("podman", "ps", "-a",
+	if out, err := exec.Command(podman.PodmanBin(), "ps", "-a",
 		"--filter", "name=lerd-php",
 		"--format", "{{.Names}}").Output(); err == nil {
 		for _, name := range bytes.Fields(out) {

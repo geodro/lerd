@@ -93,7 +93,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 	)
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdin = stdinReader
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

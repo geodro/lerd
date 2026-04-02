@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -368,7 +369,22 @@ func (m *darwinServiceManager) Start(name string) error {
 	// bootstrap always picks up the current plist on disk. kickstart -k would
 	// restart the job but launchd would use its cached plist, missing any
 	// changes written by WriteServiceUnit / WriteContainerUnit.
-	if _, err := launchctl("print", domain+"/"+label); err == nil {
+	if out, err := launchctl("print", domain+"/"+label); err == nil {
+		// Parse the PID from launchctl print output and kill the process
+		// directly so the port is released before we bootstrap the new instance.
+		// bootout sends SIGTERM but returns before the process exits, causing
+		// the next bootstrap to fail with "address already in use".
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "pid = ") {
+				if pid, err := strconv.Atoi(strings.TrimPrefix(line, "pid = ")); err == nil {
+					if proc, err := os.FindProcess(pid); err == nil {
+						proc.Kill() //nolint:errcheck
+					}
+				}
+				break
+			}
+		}
 		launchctl("bootout", domain+"/"+label) //nolint:errcheck
 	}
 

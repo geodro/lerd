@@ -172,7 +172,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/nginx:alpine")
+				cmd := exec.Command(podman.PodmanBin(), "pull", "docker.io/library/nginx:alpine")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()

@@ -168,7 +168,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	short := strings.ReplaceAll(version, ".", "")
 	ref := fmt.Sprintf("ghcr.io/geodro/lerd-php%s-fpm-base:%s", short, hash)
 	fmt.Fprintf(w, "  Pulling pre-built PHP %s base image...\n", version)
-	cmd := exec.Command("podman", "pull", ref)
+	cmd := exec.Command(PodmanBin(), "pull", ref)
 	cmd.Stdout = w
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
