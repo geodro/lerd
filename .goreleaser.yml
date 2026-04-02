@@ -151,10 +151,16 @@ brews:
       bin.install "lerd"
       bin.install "lerd-tray" if File.exist?("lerd-tray")
     caveats: |
-      Run `lerd install` to complete Lerd setup.
+      To finish setting up Lerd, run:
+        lerd install
 
-      To uninstall cleanly, run `lerd uninstall` before `brew uninstall lerd`.
-      If you already removed the binary, run `~/.local/bin/lerd-cleanup` instead.
+      To uninstall cleanly, run in order:
+        lerd uninstall
+        brew uninstall lerd
+
+      If you already removed the binary before running `lerd uninstall`, run:
+        ~/.local/bin/lerd-cleanup
+        brew uninstall lerd
 
 checksum:
   name_template: "checksums.txt"
