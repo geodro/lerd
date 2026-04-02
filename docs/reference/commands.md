@@ -5,7 +5,7 @@
 | Command | Description |
 |---|---|
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
-| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services |
+| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; builds or pulls any missing images first |
 | `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
 | `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray |
 | `lerd update` | Check for updates and update after confirmation |
