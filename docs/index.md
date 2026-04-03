@@ -1,5 +1,7 @@
 ---
 layout: home
+title: Lerd - Local PHP development for Linux
+description: Open-source local PHP development environment for Linux. Automatic .test domains, PHP 8.1–8.5, rootless Podman, built-in Web UI. Works on Ubuntu, Fedora, Arch, and Debian.
 
 hero:
   name: Lerd

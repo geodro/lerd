@@ -27,14 +27,17 @@ export default defineConfig({
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
   ],
 
-  transformPageData(pageData) {
+  transformPageData(pageData, { siteConfig }) {
     const canonicalUrl = `${SITE_URL}/${pageData.relativePath.replace(/\.md$/, '.html').replace(/index\.html$/, '')}`
+    const description = pageData.frontmatter.description ?? pageData.description ?? siteConfig.site.description
+    const title = pageData.frontmatter.title ?? pageData.title ?? siteConfig.site.title
     pageData.frontmatter.head ??= []
     pageData.frontmatter.head.push(
       ['link', { rel: 'canonical', href: canonicalUrl }],
-      ['meta', { property: 'og:title', content: pageData.frontmatter.title ?? pageData.title }],
-      ['meta', { property: 'og:description', content: pageData.frontmatter.description ?? pageData.description }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
       ['meta', { property: 'og:url', content: canonicalUrl }],
+      ['meta', { name: 'description', content: description }],
     )
   },
 
