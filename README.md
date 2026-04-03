@@ -9,7 +9,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)]()
 [![Docs](https://img.shields.io/badge/docs-geodro.github.io%2Flerd-blue)](https://geodro.github.io/lerd/)
 
-![Lerd Web UI](screenshots/app-3.png)
+![Lerd Web UI](screenshots/app-1.png)
 
 Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers,
 designed for PHP and Laravel developers on Linux (Ubuntu, Fedora, Arch, Debian).
@@ -23,10 +23,10 @@ If you're a PHP or Laravel developer on Linux and want frictionless local develo
 ## Features
 
 - 🌐 **Automatic `.test` domains** with one-command TLS
-- 🐘 **Per-project PHP version** (8.2, 8.3, 8.4), switch with one click
+- 🐘 **Per-project PHP version** (8.1–8.5), switch with one click
 - 📦 **Node.js isolation** per project (Node 22, 24)
-- 🖥️ **Built-in Web UI** - manage sites, services, and logs from a browser
-- 🗄️ **One-click services**: MySQL, PostgreSQL, Redis, Meilisearch, Minio, Mailpit, Stripe Mock, Reverb and more
+- 🖥️ **Built-in Web UI** - 3-pane dashboard to manage sites, services, and logs from a browser
+- 🗄️ **One-click services**: MySQL, PostgreSQL, Redis, Meilisearch, RustFS, Mailpit, Stripe Mock, Reverb and more
 - 📋 **Live logs** for PHP-FPM, Queue, Schedule, Reverb, per site
 - 🔒 **Rootless & daemonless** - Podman-native, no Docker required
 - 🤖 **MCP server** - let AI assistants (Claude Code, Windsurf, Junie) manage your environment directly

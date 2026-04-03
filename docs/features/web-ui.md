@@ -20,47 +20,69 @@ Once installed, Lerd opens in its own window without browser chrome, just like a
 
 ---
 
-## Screenshots
+## Layout
 
-![Sites tab](../assets/screenshots/app-3.png)
-*Sites tab — all registered projects with controls*
+The dashboard uses a three-pane layout:
 
-![Services tab](../assets/screenshots/app-2.png)
-*Services tab — start/stop services and copy `.env` values*
+- **Left icon rail** — switch between Sites, Services, and System with icon buttons; theme toggle and docs link at the bottom
+- **Middle list panel** — scrollable list of all items in the active section; status dots, compact rows, collapsible groups
+- **Detail panel** — full controls and live logs for the selected item
 
-![System tab](../assets/screenshots/app-1.png)
-*System tab — DNS, nginx, and PHP-FPM health*
+On mobile the list and detail panels are full-screen with a bottom tab bar for navigation.
 
 ---
 
-## Sites tab
+## Screenshots
 
-Lists all registered projects with their domain, path, PHP version, Node version, and per-site controls:
+![Sites tab](../assets/screenshots/app-3.png)
+*Sites tab — registered projects with per-site controls and live logs*
+
+![Services tab](../assets/screenshots/app-2.png)
+*Services tab — start/stop services and copy `.env` connection values*
+
+![System tab](../assets/screenshots/app-1.png)
+*System tab — DNS, nginx, PHP-FPM health and version management*
+
+---
+
+## Sites
+
+The middle panel lists all registered projects. Active sites show a status dot (green when FPM is running), domain name, and small indicator dots for running workers (amber for queue/horizon, sky for reverb, emerald for schedule, violet for custom workers). Paused sites appear in a separate collapsible section.
+
+Selecting a site opens the detail panel with:
 
 - **HTTPS toggle** — enable or disable TLS with one click; updates `APP_URL` in `.env` automatically
 - **PHP / Node dropdowns** — change the version per site; writes `.php-version` / `.node-version` into the project and regenerates the nginx vhost on the fly
-- **Queue toggle** — start or stop the queue worker for a site (available for any framework that defines a `queue` worker); amber when running; click the **logs** link to open the live log drawer
-- **Schedule toggle** — start or stop the task scheduler (available for frameworks with a `schedule` worker); live log link when running
-- **Reverb toggle** — start or stop the Reverb WebSocket server; only shown when the project actually uses Reverb (detected via composer or `.env`)
-- **Framework worker toggles** — any additional workers defined by the site's framework (e.g. Symfony `messenger`, Laravel `horizon`) appear as indigo toggles; each has a live log link when running
-- **Stripe toggle** — start or stop the Stripe webhook listener for a site
-- **Unlink button** — remove a site from nginx without touching the terminal; for parked sites the directory is left on disk (run `lerd link` to re-register it)
-- **Click any row** — opens the live PHP-FPM log drawer at the bottom of the screen
+- **Queue toggle** — start or stop the queue worker; amber when running; live log stream below
+- **Schedule toggle** — start or stop the task scheduler; live log stream below
+- **Reverb toggle** — start or stop the Reverb WebSocket server; only shown when the project uses Reverb (detected via composer or `.env`)
+- **Framework worker toggles** — additional workers defined by the site's framework (e.g. Symfony `messenger`, Laravel `horizon`) appear as indigo toggles
+- **Stripe toggle** — start or stop the Stripe webhook listener
+- **Pause / Resume** — suspend a site's nginx vhost without unlinking it; the site stays registered and FPM keeps running
+- **Unlink button** — remove a site from nginx without touching the terminal
+- **Git Worktrees** — when the project uses git worktrees, each branch and its domain are listed with a direct open link
+- **Live PHP-FPM log** — streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
 
-## Services tab
+## Services
 
-Shows all available services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit) with their current status. Start or stop any service with one click; each panel shows the correct `.env` connection values with a one-click copy button.
+The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit) and grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
-Workers (queue, schedule, reverb, and any custom framework workers), Stripe listeners, and infrastructure services are shown together. Per-site worker services are grouped into collapsible accordions (Queues, Schedules, Reverb, Workers). Click a group header to expand it and see the individual per-site entries; only one group is open at a time.
+Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button.
 
-## System tab
+## System
 
-Health check panel for DNS, nginx, PHP-FPM containers, the file watcher, installed Node.js versions, and the autostart toggle.
+The middle panel lists individual system components: DNS, Nginx, Watcher, each installed PHP-FPM version, each installed Node.js version, the Node install form, Autostart toggle, and the Lerd version entry.
 
-The **Node.js card** lists all versions installed via fnm and includes an inline install form — enter a version number (e.g. `22`) and click **Install**. This is equivalent to running `lerd node:install <version>` from the terminal.
+Selecting an item opens its detail panel:
 
-The **Watcher card** shows whether `lerd-watcher` is running. When stopped, a **Start** button appears to restart it from the UI without opening a terminal. The card also streams live watcher logs (DNS repair events, fsnotify errors, worktree timeouts) directly in the browser.
+- **PHP-FPM cards** — show which sites use the version, Xdebug toggle, custom extension list, and a live FPM log stream. For versions with no active sites, a manual Start/Stop button is shown.
+- **Node.js cards** — show which sites use the version, with a remove button. The **Install Node.js version** entry has an inline form — enter a version number (e.g. `22`) and click **Install**, equivalent to `lerd node:install <version>`.
+- **Watcher card** — shows whether `lerd-watcher` is running; a Start button appears when stopped. Streams live watcher logs (DNS repair events, fsnotify errors, worktree timeouts).
+- **Autostart card** — enable or disable automatic start of all services at login.
+- **Lerd card** — shows the current version and a **Check for updates** button. When an update is available, the version number and a `lerd update` instruction are shown.
+
+The **Start** / **Stop** buttons in the System panel header start or stop all core services (DNS, nginx, and all PHP-FPM containers for versions that have active sites).
 
 ## Updates
 
-Shows the current and latest version. When an update is available, a notice with the version number is shown alongside an instruction to run `lerd update` in a terminal (the update requires `sudo` for sysctl/sudoers steps and cannot run in the background).
+Shows the current version. When an update is available, a notice with the version number is shown alongside an instruction to run `lerd update` in a terminal (the update requires `sudo` for sysctl/sudoers steps and cannot run in the background).
