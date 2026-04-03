@@ -8,16 +8,29 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // DetectVersion detects the Node.js version for the given directory.
 // It checks, in order:
-//  1. .nvmrc
-//  2. .node-version
-//  3. package.json engines.node
-//  4. global config default
+//  1. .lerd.yaml node_version field (explicit lerd override)
+//  2. .nvmrc
+//  3. .node-version
+//  4. package.json engines.node
+//  5. global config default
 func DetectVersion(dir string) (string, error) {
-	// 1. .nvmrc
+	// 1. .lerd.yaml — explicit lerd override takes top priority
+	lerdYaml := filepath.Join(dir, ".lerd.yaml")
+	if data, err := os.ReadFile(lerdYaml); err == nil {
+		var lerdCfg struct {
+			NodeVersion string `yaml:"node_version"`
+		}
+		if yaml.Unmarshal(data, &lerdCfg) == nil && lerdCfg.NodeVersion != "" {
+			return lerdCfg.NodeVersion, nil
+		}
+	}
+
+	// 2. .nvmrc
 	nvmrc := filepath.Join(dir, ".nvmrc")
 	if data, err := os.ReadFile(nvmrc); err == nil {
 		v := strings.TrimSpace(string(data))

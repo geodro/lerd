@@ -5,10 +5,12 @@
 | Command | Description |
 |---|---|
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
-| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; builds or pulls any missing images first |
+| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; warns about port conflicts and builds or pulls any missing images first |
 | `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
 | `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray |
 | `lerd update` | Check for updates and update after confirmation |
+| `lerd update --beta` | Update to the latest pre-release build |
+| `lerd update --rollback` | Revert to the previously installed version |
 | `lerd whatsnew` | Show what changed between the installed version and the latest release |
 | `lerd uninstall` | Stop all containers and remove Lerd |
 | `lerd uninstall --force` | Same, skipping all confirmation prompts |

@@ -26,29 +26,44 @@ var (
 
 // NewUpdateCmd returns the update command.
 func NewUpdateCmd(currentVersion string) *cobra.Command {
-	return &cobra.Command{
+	var beta, rollback bool
+	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update Lerd to the latest release",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runUpdate(currentVersion)
+			if rollback {
+				return runRollback()
+			}
+			return runUpdate(currentVersion, beta)
 		},
 	}
+	cmd.Flags().BoolVar(&beta, "beta", false, "Update to the latest pre-release build")
+	cmd.Flags().BoolVar(&rollback, "rollback", false, "Revert to the previously installed version")
+	cmd.MarkFlagsMutuallyExclusive("beta", "rollback")
+	return cmd
 }
 
-func runUpdate(currentVersion string) error {
+func runUpdate(currentVersion string, beta bool) error {
 	fmt.Println("==> Checking for updates")
 
-	latest, err := lerdUpdate.FetchLatestVersion()
-	if err != nil {
-		return fmt.Errorf("could not fetch latest version: %w", err)
+	var latest string
+	var err error
+	if beta {
+		latest, err = lerdUpdate.FetchLatestPrerelease()
+		if err != nil {
+			return fmt.Errorf("could not fetch latest pre-release: %w", err)
+		}
+	} else {
+		latest, err = lerdUpdate.FetchLatestVersion()
+		if err != nil {
+			return fmt.Errorf("could not fetch latest version: %w", err)
+		}
 	}
 
 	// Strip "v" prefix and any git-describe suffix (e.g. "-dirty", "-5-gabcdef")
-	// so local dev builds compare cleanly against release tags.
-	cur := lerdUpdate.StripV(currentVersion)
-	if i := strings.IndexByte(cur, '-'); i != -1 {
-		cur = cur[:i]
-	}
+	// so local dev builds compare cleanly against release tags. Preserve semver
+	// pre-release suffixes like "-beta.1".
+	cur := stripGitDescribe(lerdUpdate.StripV(currentVersion))
 	lat := lerdUpdate.StripV(latest)
 
 	if !lerdUpdate.VersionGreaterThan(lat, cur) {
@@ -84,6 +99,9 @@ func runUpdate(currentVersion string) error {
 	if err != nil {
 		return err
 	}
+
+	// Back up current binary for rollback.
+	backupBinary(self, currentVersion)
 
 	fmt.Printf("  --> Downloading lerd v%s ... ", lat)
 	extracted, cleanup, err := downloadReleaseBinary(latest)
@@ -236,3 +254,125 @@ func copyFile(src, dest string, mode os.FileMode) error {
 }
 
 func stripV(v string) string { return lerdUpdate.StripV(v) }
+
+// stripGitDescribe removes git-describe suffixes like "-dirty" or "-5-gabcdef"
+// while preserving semver pre-release tags like "-beta.1" or "-rc.1".
+// Git-describe suffixes contain a commit hash segment starting with "g".
+func stripGitDescribe(v string) string {
+	for {
+		i := strings.LastIndexByte(v, '-')
+		if i < 0 {
+			break
+		}
+		suffix := v[i+1:]
+		if suffix == "dirty" {
+			v = v[:i]
+			continue
+		}
+		// Git describe hash segment: g followed by hex chars.
+		// Also strip the preceding commit-count segment (e.g. "-5-gabcdef").
+		if len(suffix) > 1 && suffix[0] == 'g' && isHex(suffix[1:]) {
+			v = v[:i]
+			// Now check if the new last segment is a numeric commit count.
+			if j := strings.LastIndexByte(v, '-'); j >= 0 && isNumeric(v[j+1:]) {
+				v = v[:j]
+			}
+			continue
+		}
+		break
+	}
+	return v
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// backupBinary copies the current binary and version to backup locations for rollback.
+func backupBinary(self, currentVersion string) {
+	if err := copyFile(self, config.BackupBinaryFile(), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "  warn: could not back up binary for rollback: %v\n", err)
+		return
+	}
+
+	// Back up lerd-tray if it exists next to the main binary.
+	trayPath := filepath.Join(filepath.Dir(self), "lerd-tray")
+	if _, err := os.Stat(trayPath); err == nil {
+		if err := copyFile(trayPath, config.BackupTrayFile(), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "  warn: could not back up lerd-tray: %v\n", err)
+		}
+	}
+
+	os.WriteFile(config.BackupVersionFile(), []byte(lerdUpdate.StripV(currentVersion)), 0644) //nolint:errcheck
+}
+
+// runRollback restores the previously backed-up binary.
+func runRollback() error {
+	bakPath := config.BackupBinaryFile()
+	if _, err := os.Stat(bakPath); os.IsNotExist(err) {
+		return fmt.Errorf("no backup found — rollback is only available after a successful update")
+	}
+
+	prevVersion := "unknown"
+	if data, err := os.ReadFile(config.BackupVersionFile()); err == nil {
+		prevVersion = strings.TrimSpace(string(data))
+	}
+
+	self, err := selfPath()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("==> Rolling back to v%s\n", prevVersion)
+
+	// Atomically replace lerd.
+	tmp := self + ".tmp"
+	if err := copyFile(bakPath, tmp, 0755); err != nil {
+		return fmt.Errorf("restoring backup: %w", err)
+	}
+	if err := os.Rename(tmp, self); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("replacing binary: %w", err)
+	}
+
+	// Restore lerd-tray if a backup exists.
+	trayBak := config.BackupTrayFile()
+	if _, err := os.Stat(trayBak); err == nil {
+		selfTray := filepath.Join(filepath.Dir(self), "lerd-tray")
+		tmpTray := selfTray + ".tmp"
+		if err := copyFile(trayBak, tmpTray, 0755); err == nil {
+			os.Rename(tmpTray, selfTray) //nolint:errcheck
+		}
+	}
+
+	// Remove backup files so you can't double-rollback.
+	os.Remove(bakPath)
+	os.Remove(config.BackupTrayFile())
+	os.Remove(config.BackupVersionFile())
+
+	// Update the cache.
+	lerdUpdate.WriteUpdateCache(prevVersion)
+
+	fmt.Printf("\nRolled back to v%s — applying infrastructure changes...\n\n", prevVersion)
+
+	// Re-exec the new binary with `install`, same as a normal update.
+	installCmd := exec.Command(self, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	installCmd.Stdin = os.Stdin
+	return installCmd.Run()
+}

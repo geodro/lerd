@@ -25,10 +25,11 @@ npx tsc --init
 
 ## Version resolution
 
-1. `.nvmrc` in the project root
-2. `.node-version` in the project root
-3. `package.json` — `engines.node` field
-4. Global default in `~/.config/lerd/config.yaml`
+1. `.lerd.yaml` — `node_version` field (explicit lerd override, highest priority)
+2. `.nvmrc` in the project root
+3. `.node-version` in the project root
+4. `package.json` — `engines.node` field
+5. Global default in `~/.config/lerd/config.yaml`
 
 To pin a project to a specific version:
 

@@ -11,9 +11,12 @@ import (
 // watchedSiteFiles lists the file names in a site root that trigger queue:restart.
 var watchedSiteFiles = map[string]bool{
 	".env":          true,
+	".lerd.yaml":    true,
 	"composer.json": true,
 	"composer.lock": true,
 	".php-version":  true,
+	".node-version": true,
+	".nvmrc":        true,
 }
 
 // WatchSiteFiles monitors key config files in each site directory returned by

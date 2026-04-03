@@ -2212,6 +2212,7 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 
 	unit := "lerd-" + name
 	_ = podman.StopUnit(unit)
+	podman.RemoveContainer(unit)
 	if err := podman.RemoveQuadlet(unit); err != nil {
 		return toolErr("removing quadlet: " + err.Error()), nil
 	}

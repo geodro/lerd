@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
@@ -306,10 +307,13 @@ func newWatchCmd() *cobra.Command {
 						if err != nil {
 							return
 						}
-						// Re-detect PHP version in case .php-version changed.
+						siteChanged := false
+
+						// Re-detect PHP version in case .lerd.yaml or .php-version changed.
 						if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != site.PHPVersion {
+							fmt.Printf("PHP version changed for %s: %s -> %s\n", site.Name, site.PHPVersion, detected)
 							site.PHPVersion = detected
-							_ = config.AddSite(*site)
+							siteChanged = true
 							if !site.Paused {
 								if site.Secured {
 									_ = nginx.GenerateSSLVhost(*site, detected)
@@ -320,6 +324,17 @@ func newWatchCmd() *cobra.Command {
 									fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
 								}
 							}
+						}
+
+						// Re-detect Node version in case .lerd.yaml, .node-version, or .nvmrc changed.
+						if detected, detErr := nodeDet.DetectVersion(sitePath); detErr == nil && detected != site.NodeVersion {
+							fmt.Printf("Node version changed for %s: %s -> %s\n", site.Name, site.NodeVersion, detected)
+							site.NodeVersion = detected
+							siteChanged = true
+						}
+
+						if siteChanged {
+							_ = config.AddSite(*site)
 						}
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
 							fmt.Printf("[WARN] queue restart for %s: %v\n", site.Name, err)

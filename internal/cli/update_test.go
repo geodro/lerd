@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,8 +243,186 @@ func TestRunUpdate_alreadyLatest(t *testing.T) {
 	defer func() { lerdUpdate.ReleasesBaseURL = orig }()
 
 	// Should return nil without downloading anything
-	err := runUpdate("1.0.0")
+	err := runUpdate("1.0.0", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ── VersionGreaterThan pre-release ──────────────────────────────────────────
+
+func TestVersionGreaterThan_prerelease(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"1.5.0", "1.5.0-beta.1", true},
+		{"1.5.0-beta.1", "1.5.0", false},
+		{"1.5.0-beta.2", "1.5.0-beta.1", true},
+		{"1.5.0-rc.1", "1.5.0-beta.1", true},
+		{"1.5.0-beta.1", "1.5.0-rc.1", false},
+		{"1.5.0-beta.1", "1.5.0-beta.1", false},
+		{"2.0.0-beta.1", "1.5.0", true},
+		{"1.4.0", "1.5.0-beta.1", false},
+		// Existing stable comparisons still work.
+		{"1.5.0", "1.4.0", true},
+		{"1.4.0", "1.5.0", false},
+		{"1.5.0", "1.5.0", false},
+	}
+	for _, c := range cases {
+		got := lerdUpdate.VersionGreaterThan(c.a, c.b)
+		if got != c.want {
+			t.Errorf("VersionGreaterThan(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// ── stripGitDescribe ────────────────────────────────────────────────────────
+
+func TestStripGitDescribe(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"1.5.0", "1.5.0"},
+		{"1.5.0-dirty", "1.5.0"},
+		{"1.5.0-5-gabcdef0", "1.5.0"},
+		{"1.5.0-dirty", "1.5.0"},
+		{"1.5.0-beta.1", "1.5.0-beta.1"},
+		{"1.5.0-rc.1", "1.5.0-rc.1"},
+		{"1.5.0-beta.1-dirty", "1.5.0-beta.1"},
+		{"1.5.0-beta.1-3-g1a2b3c4", "1.5.0-beta.1"},
+	}
+	for _, c := range cases {
+		got := stripGitDescribe(c.in)
+		if got != c.want {
+			t.Errorf("stripGitDescribe(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ── FetchLatestPrerelease ───────────────────────────────────────────────────
+
+func TestFetchLatestPrerelease_success(t *testing.T) {
+	releases := []lerdUpdate.GithubReleaseForTest{
+		{TagName: "v1.5.0-beta.1", Prerelease: true, Draft: false},
+		{TagName: "v1.4.0", Prerelease: false, Draft: false},
+	}
+	body, _ := json.Marshal(releases)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	orig := lerdUpdate.APIBaseURL
+	lerdUpdate.APIBaseURL = srv.URL
+	defer func() { lerdUpdate.APIBaseURL = orig }()
+
+	got, err := lerdUpdate.FetchLatestPrerelease()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.5.0-beta.1" {
+		t.Errorf("got %q, want v1.5.0-beta.1", got)
+	}
+}
+
+func TestFetchLatestPrerelease_noPrerelease(t *testing.T) {
+	releases := []lerdUpdate.GithubReleaseForTest{
+		{TagName: "v1.4.0", Prerelease: false, Draft: false},
+	}
+	body, _ := json.Marshal(releases)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	orig := lerdUpdate.APIBaseURL
+	lerdUpdate.APIBaseURL = srv.URL
+	defer func() { lerdUpdate.APIBaseURL = orig }()
+
+	_, err := lerdUpdate.FetchLatestPrerelease()
+	if err == nil {
+		t.Fatal("expected error when no pre-release available, got nil")
+	}
+}
+
+func TestFetchLatestPrerelease_serverError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	orig := lerdUpdate.APIBaseURL
+	lerdUpdate.APIBaseURL = srv.URL
+	defer func() { lerdUpdate.APIBaseURL = orig }()
+
+	_, err := lerdUpdate.FetchLatestPrerelease()
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+}
+
+// ── backupBinary ────────────────────────────────────────────────────────────
+
+func TestBackupBinary(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	// Create a data dir for the backup files.
+	dataDir := filepath.Join(tmp, "lerd")
+	os.MkdirAll(dataDir, 0755)
+
+	// Create a fake binary in a separate subdirectory to avoid collision.
+	binDir := filepath.Join(tmp, "bin")
+	os.MkdirAll(binDir, 0755)
+	fakeBin := filepath.Join(binDir, "lerd")
+	os.WriteFile(fakeBin, []byte("fake-binary"), 0755)
+
+	backupBinary(fakeBin, "1.4.0")
+
+	// Check backup file exists.
+	bakData, err := os.ReadFile(filepath.Join(dataDir, "lerd.bak"))
+	if err != nil {
+		t.Fatalf("backup binary not created: %v", err)
+	}
+	if string(bakData) != "fake-binary" {
+		t.Errorf("backup content = %q, want %q", bakData, "fake-binary")
+	}
+
+	// Check version file.
+	verData, err := os.ReadFile(filepath.Join(dataDir, "rollback-version"))
+	if err != nil {
+		t.Fatalf("rollback-version not created: %v", err)
+	}
+	if string(verData) != "1.4.0" {
+		t.Errorf("version = %q, want %q", verData, "1.4.0")
+	}
+}
+
+// ── rollback ────────────────────────────────────────────────────────────────
+
+func TestRunRollback_noBackup(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, "lerd"), 0755)
+
+	err := runRollback()
+	if err == nil {
+		t.Fatal("expected error when no backup exists, got nil")
+	}
+}
+
+// ── mutual exclusivity ─────────────────────────────────────────────────────
+
+func TestUpdateCmd_mutuallyExclusive(t *testing.T) {
+	cmd := NewUpdateCmd("1.0.0")
+	cmd.SetArgs([]string{"--beta", "--rollback"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when both --beta and --rollback are set, got nil")
 	}
 }
