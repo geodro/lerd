@@ -190,9 +190,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		},
 	})
 
-	// 8. Systemd / services
-	step("Reloading systemd daemon")
-	if err := podman.DaemonReload(); err != nil {
+	// 8. Reload service manager
+	step("Reloading service manager")
+	if err := podman.DaemonReloadFn(); err != nil {
 		return err
 	}
 	ok()
