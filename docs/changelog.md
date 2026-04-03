@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.1] — 2026-04-03
+
+### Fixed
+
+- **3-pane dashboard layout missing from v1.4.0** — the new icon rail, list panel, and full-height detail panel were lost during a merge conflict resolution. The correct UI is now restored.
+
+---
+
 ## [1.4.0] — 2026-04-03
 
 ### Added
