@@ -36,7 +36,7 @@ A portable, self-contained description of a project's local environment. Created
 | Field | Description |
 |---|---|
 | `php_version` | PHP version for this project — highest priority, overrides `.php-version` and `composer.json` |
-| `node_version` | Node version — writes `.node-version` on apply if the file does not already exist |
+| `node_version` | Node version — highest priority, overrides `.nvmrc`, `.node-version`, and `package.json`; writes `.node-version` on apply if the file does not already exist |
 | `framework` | Framework name — overrides auto-detection |
 | `framework_def` | Full framework definition — embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
 | `secured` | When `true`, HTTPS is enabled on apply |
@@ -126,6 +126,8 @@ The config is applied whenever `lerd link` or `lerd init` runs in the project ro
 - **`lerd init`** — installs PHP FPM if needed, then runs `lerd link` (which applies everything above). Re-runs the wizard if `--fresh` is passed.
 
 Commit `.lerd.yaml` to the repository. On a fresh machine, `lerd link` is sufficient to reproduce the full local environment.
+
+The Lerd watcher also monitors `.lerd.yaml` for changes. When you switch branches with a different config the PHP and Node versions are re-detected and applied automatically — no manual `lerd link` or `lerd init` needed. See [Automatic version switching](../features/project-setup.md#automatic-version-switching) for details.
 
 `lerd isolate`, the UI PHP version selector, and the MCP `site_php` tool all keep `php_version` in sync when this file exists.
 
