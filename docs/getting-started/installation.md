@@ -2,27 +2,25 @@
 
 ## One-line installer (recommended)
 
-=== "curl"
+::: code-group
 
-    ```bash
-    curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
-    ```
+```bash [curl]
+curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+```
 
-=== "wget"
+```bash [wget]
+wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+```
 
-    ```bash
-    wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
-    ```
+```bash [From source]
+git clone https://github.com/geodro/lerd
+cd lerd
+make build
+make install            # installs to ~/.local/bin/lerd
+make install-installer  # installs lerd-installer to ~/.local/bin/
+```
 
-=== "From source"
-
-    ```bash
-    git clone https://github.com/geodro/lerd
-    cd lerd
-    make build
-    make install            # installs to ~/.local/bin/lerd
-    make install-installer  # installs lerd-installer to ~/.local/bin/
-    ```
+:::
 
 The installer will:
 
@@ -32,8 +30,9 @@ The installer will:
 - Add `~/.local/bin` to your shell's `PATH` (bash, zsh, or fish)
 - Automatically run `lerd install` to complete environment setup
 
-!!! info "DNS setup requires sudo"
-    `lerd install` writes to `/etc/NetworkManager/dnsmasq.d/` and `/etc/NetworkManager/conf.d/` and restarts NetworkManager. This is the only step that requires `sudo`.
+::: info DNS setup requires sudo
+`lerd install` writes to `/etc/NetworkManager/dnsmasq.d/` and `/etc/NetworkManager/conf.d/` and restarts NetworkManager. This is the only step that requires `sudo`.
+:::
 
 After install, reload your shell or open a new terminal so `PATH` takes effect.
 
@@ -70,17 +69,17 @@ Fetches the latest release from GitHub, downloads the binary for your architectu
 
 You can also re-run the installer:
 
-=== "curl"
+::: code-group
 
-    ```bash
-    curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
-    ```
+```bash [curl]
+curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
+```
 
-=== "wget"
+```bash [wget]
+wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
+```
 
-    ```bash
-    wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
-    ```
+:::
 
 ---
 

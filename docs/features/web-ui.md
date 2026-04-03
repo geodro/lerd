@@ -32,20 +32,9 @@ On mobile the list and detail panels are full-screen with a bottom tab bar for n
 
 ---
 
-## Screenshots
-
-![Sites tab](../assets/screenshots/app-3.png)
-*Sites tab — registered projects with per-site controls and live logs*
-
-![Services tab](../assets/screenshots/app-2.png)
-*Services tab — start/stop services and copy `.env` connection values*
-
-![System tab](../assets/screenshots/app-1.png)
-*System tab — DNS, nginx, PHP-FPM health and version management*
-
----
-
 ## Sites
+
+![Sites tab](/assets/screenshots/app-1.png)
 
 The middle panel lists all registered projects. Active sites show a status dot (green when FPM is running), domain name, and small indicator dots for running workers (amber for queue/horizon, sky for reverb, emerald for schedule, violet for custom workers). Paused sites appear in a separate collapsible section.
 
@@ -65,11 +54,15 @@ Selecting a site opens the detail panel with:
 
 ## Services
 
+![Services tab](/assets/screenshots/app-2.png)
+
 The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit) and grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
 Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button.
 
 ## System
+
+![System tab](/assets/screenshots/app-3.png)
 
 The middle panel lists individual system components: DNS, Nginx, Watcher, each installed PHP-FPM version, each installed Node.js version, the Node install form, Autostart toggle, and the Lerd version entry.
 

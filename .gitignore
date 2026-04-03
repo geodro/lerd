@@ -4,3 +4,6 @@ dist/
 .venv/
 site/
 docs/assets/screenshots/
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
