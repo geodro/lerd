@@ -144,7 +144,7 @@ func CountSitesUsingService(name string) int {
 	needle := "lerd-" + name
 	count := 0
 	for _, s := range reg.Sites {
-		if s.Ignored || s.Paused {
+		if s.Ignored {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))

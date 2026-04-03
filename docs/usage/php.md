@@ -85,8 +85,9 @@ lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (
 
 The base image tag is derived from the embedded Containerfile, so lerd always pulls the exact image that matches the version of lerd you have installed. If the pull fails (no internet, image not yet published) lerd falls back to a full local build transparently.
 
-`lerd start` checks all required images before starting containers. If any are missing (e.g. after `podman image rm`), it rebuilds or pulls them automatically using the same parallel spinner UI, so containers always start against a valid image.
+The images are public, so no ghcr.io login is required. lerd pulls them anonymously even if you are already logged into ghcr.io, to avoid authentication errors from expired or unrelated credentials.
 
+`lerd start` checks all required images before starting containers. If any are missing (e.g. after `podman image rm`), it rebuilds or pulls them automatically using the same parallel spinner UI, so containers always start against a valid image.
 
 To build entirely from source instead:
 
