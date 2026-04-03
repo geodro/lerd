@@ -393,7 +393,6 @@ func downloadFile(url, dest string, mode os.FileMode, w io.Writer) error {
 	return os.Chmod(dest, mode)
 }
 
-
 type progressReader struct {
 	r       io.Reader
 	total   int64
