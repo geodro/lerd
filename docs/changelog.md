@@ -7,6 +7,26 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.0] — 2026-04-03
+
+### Added
+
+- **3-pane dashboard layout** — the UI is redesigned around a persistent icon rail (Sites, Services, System), a scrollable list panel, and a full-height detail panel. Logs fill remaining height rather than being capped at a fixed box. Works at any scale from 1 to 50+ sites. Mobile gets a full-screen list/detail with a bottom tab bar and a back button.
+- **PHP-FPM auto-lifecycle** — FPM containers for unused PHP versions are stopped automatically on `lerd unlink` and `lerd start`. Paused sites keep their FPM running. On `lerd start`, only versions referenced by at least one site are started. When a site is unpaused, its FPM container is guaranteed running before nginx is restored.
+- **Manual FPM start/stop from the dashboard** — unused PHP versions (no active sites) show a Stop button in the dashboard when running. Stopped unused versions are shown with a neutral badge rather than an error.
+- **`lerd start` parallel spinner UI** — start and stop operations now show a live per-unit progress display. All images required by units are checked and rebuilt or pulled before containers start.
+- **Site pills on services** — core services (MySQL, Mailpit, etc.) and worker-type services (Queue, Horizon, Reverb, etc.) show clickable site pills. Clicking a pill navigates directly to that site's settings.
+- **Clickable PHP-FPM site pills** — site pills on the PHP-FPM detail panel now navigate to the site's settings panel instead of opening the browser.
+- **Instant system theme switching** — when the theme is set to Auto, the dashboard switches between light and dark immediately as the OS preference changes, without a page reload.
+
+### Fixed
+
+- **`lerd status` false errors for stopped unused PHP-FPM** — stopped FPM containers for versions not referenced by any site are now reported as warnings, not errors.
+- **MinIO migration prompt shown after already migrating to RustFS** — the `lerd update` migration prompt now also checks whether the `lerd-minio` container is running, so users who have already migrated are not prompted again.
+- **Pre-built PHP base images required ghcr.io login** — lerd now always pulls base images anonymously to avoid authentication errors from expired or unrelated ghcr.io credentials.
+
+---
+
 ## [1.3.3] — 2026-04-02
 
 ### Fixed
