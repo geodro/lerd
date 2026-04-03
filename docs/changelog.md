@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.2] — 2026-04-03
+
+### Fixed
+
+- **Paused sites counted in service badges and auto-stop logic** — paused sites were included when counting how many sites use a service, so services stayed active and their site-count badges inflated even after all active sites were paused. Paused sites are now excluded from `CountSitesUsingService` and the badge tooltip list.
+
+---
+
 ## [1.4.1] — 2026-04-03
 
 ### Fixed

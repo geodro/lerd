@@ -1080,7 +1080,7 @@ func sitesUsingService(name string) []string {
 	needle := "lerd-" + name
 	var domains []string
 	for _, s := range reg.Sites {
-		if s.Ignored {
+		if s.Ignored || s.Paused {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
