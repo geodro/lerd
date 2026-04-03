@@ -45,13 +45,14 @@ Then apply with `lerd service restart mysql`.
 
 ## Service credentials
 
-!!! tip "Two sets of hostnames"
-    Services run as Podman containers on the `lerd` network. Two hostnames apply depending on where you're connecting from:
+::: tip Two sets of hostnames
+Services run as Podman containers on the `lerd` network. Two hostnames apply depending on where you're connecting from:
 
-    - **From host tools** (e.g. TablePlus, Redis CLI): use `127.0.0.1`
-    - **From your Laravel app** (PHP-FPM runs inside the `lerd` network): use container hostnames (e.g. `lerd-mysql`)
+- **From host tools** (e.g. TablePlus, Redis CLI): use `127.0.0.1`
+- **From your Laravel app** (PHP-FPM runs inside the `lerd` network): use container hostnames (e.g. `lerd-mysql`)
 
-    `lerd service start <name>` prints the correct `.env` variables to paste into your project.
+`lerd service start <name>` prints the correct `.env` variables to paste into your project.
+:::
 
 | Service | Host (host tools) | Host (Laravel `.env`) | Port | User | Password | DB |
 |---|---|---|---|---|---|---|
@@ -323,8 +324,9 @@ depends_on:
 
 Dependencies can be built-in services (`mysql`, `redis`, `postgres`, `meilisearch`, `rustfs`, `mailpit`) or other custom services.
 
-!!! note
-    Circular dependencies (A depends on B, B depends on A) are not detected at definition time. The start cycle is naturally broken because a service already active is skipped. Avoid circular configurations.
+::: info
+Circular dependencies (A depends on B, B depends on A) are not detected at definition time. The start cycle is naturally broken because a service already active is skipped. Avoid circular configurations.
+:::
 
 ### Example: Soketi (Pusher-compatible WebSocket server)
 
