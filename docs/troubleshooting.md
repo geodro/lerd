@@ -103,6 +103,11 @@ lerd status   # quick health snapshot of all running services
 
     After installing the package, run `lerd install` again to register the CA.
 
+??? bug "PHP image build is slow on first run"
+    lerd normally pulls a pre-built base image from ghcr.io and finishes in ~30 seconds. If you see it fall back to a local build instead, the most common cause is being logged into ghcr.io with expired or unrelated credentials — the registry rejects the authenticated request even though the image is public.
+
+    lerd handles this automatically since v1.3.4 by always pulling anonymously. If you are on an older version, running `podman logout ghcr.io` before the build will fix it.
+
 ??? bug "Error: NetworkUpdate is not supported for backend CNI: invalid argument"
     Your system is likely configured to use the older CNI backend, which lacks support for the requested network operation. Edit or create the Podman configuration file at `/etc/containers/containers.conf` and add or modify the `network_backend` setting to `netavark`:
 
