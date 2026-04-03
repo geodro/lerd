@@ -653,6 +653,12 @@ Optional ` + bt + `lines` + bt + ` parameter (default: 50).
 ### ` + bt + `status` + bt + `
 Return the health status of core lerd services as structured JSON: DNS resolution (ok + tld), nginx (running), PHP-FPM containers (running per version), and the file watcher (running). **Call this first when a site isn't loading** — it pinpoints which service is down before suggesting fixes.
 
+### ` + bt + `which` + bt + `
+Show the resolved PHP version, Node version, document root, and nginx config path for the current site. Call this to confirm which runtime versions a project will use before running commands.
+
+Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+
 ### ` + bt + `doctor` + bt + `
 Run a full environment diagnostic. Checks podman availability, systemd user session, linger, quadlet/data dir writability, config validity, DNS resolution, port 80/443 conflicts, PHP image presence, and available updates. Returns a text report with OK/FAIL/WARN per check and hints for each failure. **Use this when the user reports setup issues or unexpected behaviour.**
 
@@ -810,6 +816,11 @@ artisan(args: ["make:migration", "add_status_to_orders"])
 // ... edit the migration file ...
 artisan(args: ["migrate"])
 ` + "```" + `
+
+**Check which PHP and Node versions a site will use:**
+` + "```" + `
+which()   // shows resolved PHP, Node, document root, nginx config
+` + "```" + `
 `
 
 // junieGuidelinesSection is the lerd block written into .junie/guidelines.md.
@@ -888,6 +899,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
 | ` + bt + `doctor` + bt + ` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates |
+| ` + bt + `which` + bt + ` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
 
 ### Key conventions
 
