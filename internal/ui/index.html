@@ -3056,7 +3056,7 @@ function lerdApp() {
     get allCoreRunning() {
       return !!(this.systemStatus.dns?.ok &&
         this.systemStatus.nginx?.running &&
-        (this.systemStatus.php_fpms || []).every(f => f.running));
+        (this.systemStatus.php_fpms || []).every(f => f.running || this.phpSiteCount(f.version) === 0));
     },
 
     async lerdStart() {

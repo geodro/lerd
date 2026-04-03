@@ -62,10 +62,16 @@ func NewQuitCmd() *cobra.Command {
 
 // coreUnits returns the container units managed by lerd start/stop.
 // Does not include lerd-ui or lerd-watcher — those are added separately in runStart.
+// Only PHP-FPM versions that are referenced by at least one site are included;
+// unused versions are left stopped.
 func coreUnits() []string {
 	units := []string{"lerd-dns", "lerd-nginx"}
+	active := activePHPVersions()
 	versions, _ := phpPkg.ListInstalled()
 	for _, v := range versions {
+		if !active[v] {
+			continue
+		}
 		short := strings.ReplaceAll(v, ".", "")
 		units = append(units, "lerd-php"+short+"-fpm")
 	}

@@ -67,9 +67,11 @@ lerd use 8.4
 
 ## FPM lifecycle
 
-Lerd starts a PHP-FPM container for each installed PHP version when you run `lerd start`. After that, it automatically manages which containers stay running based on whether any sites actually need them.
+Lerd automatically manages which PHP-FPM containers are running based on which versions are actually needed by your sites.
 
-**Auto-stop** — when you unlink a site, lerd checks every installed PHP version. If no remaining active (non-ignored, non-paused) site uses a version, its FPM container is stopped. The version itself stays installed — the container is just not running. The same cleanup runs at `lerd start` to stop any FPM containers left over from versions no longer in use.
+**`lerd start`** — only starts FPM containers for versions referenced by at least one site (active or paused). Unused versions are left stopped.
+
+**Auto-stop** — when you unlink a site, lerd checks every installed PHP version. If no remaining active (non-ignored, non-paused) site uses a version, its FPM container is stopped. The version itself stays installed — the container is just not running.
 
 **Paused sites count** — a site that is paused still counts as using its PHP version, so that version's FPM container is not stopped. When the site is resumed, FPM is guaranteed to be running.
 
