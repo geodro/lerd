@@ -128,8 +128,10 @@ func runUpdate(currentVersion string) error {
 		return err
 	}
 
-	// Offer MinIO → RustFS migration if legacy data directory exists.
-	if _, err := os.Stat(config.DataSubDir("minio")); err == nil {
+	// Offer MinIO → RustFS migration if legacy data directory exists and the
+	// minio container is still running (skip if already migrated to RustFS).
+	minioRunning, _ := podman.ContainerRunning("lerd-minio")
+	if _, err := os.Stat(config.DataSubDir("minio")); err == nil && minioRunning {
 		fmt.Print("\n==> MinIO detected — migrate to RustFS? [y/N] ")
 		migrateReader := bufio.NewReader(os.Stdin)
 		migrateAnswer, _ := migrateReader.ReadString('\n')
