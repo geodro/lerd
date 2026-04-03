@@ -983,6 +983,8 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot remove built-in service", http.StatusForbidden)
 			return
 		}
+		_ = podman.StopUnit(unit)
+		podman.RemoveContainer(unit)
 		if err := podman.RemoveQuadlet(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
