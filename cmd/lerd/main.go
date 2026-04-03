@@ -59,6 +59,7 @@ func main() {
 	root.AddCommand(cli.NewNpxCmd())
 	root.AddCommand(cli.NewServiceCmd())
 	root.AddCommand(cli.NewStatusCmd())
+	root.AddCommand(cli.NewWhichCmd())
 	root.AddCommand(cli.NewAboutCmd())
 	root.AddCommand(cli.NewWhatsnewCmd())
 	root.AddCommand(cli.NewManCmd())
