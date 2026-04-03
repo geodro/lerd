@@ -257,12 +257,21 @@ func checkDirWritable(dir string) error {
 	return nil
 }
 
-// portInUse returns true if something is listening on the given TCP port.
-func portInUse(port string) bool {
+// ssOutput runs ss -tlnp once and returns its output for batch port checks.
+func ssOutput() string {
 	out, err := exec.Command("ss", "-tlnp").Output()
 	if err != nil {
-		return false
+		return ""
 	}
-	needle := ":" + port + " "
-	return strings.Contains(string(out), needle)
+	return string(out)
+}
+
+// portInUseIn checks whether the given TCP port appears in pre-fetched ss output.
+func portInUseIn(port, output string) bool {
+	return strings.Contains(output, ":"+port+" ")
+}
+
+// portInUse returns true if something is listening on the given TCP port.
+func portInUse(port string) bool {
+	return portInUseIn(port, ssOutput())
 }
