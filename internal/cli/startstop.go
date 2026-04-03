@@ -125,10 +125,16 @@ func NewQuitCmd() *cobra.Command {
 
 // coreUnits returns the container units managed by lerd start/stop.
 // Does not include lerd-ui or lerd-watcher — those are added separately in runStart.
+// Only PHP-FPM versions that are referenced by at least one site are included;
+// unused versions are left stopped.
 func coreUnits() []string {
 	units := []string{"lerd-dns", "lerd-nginx"}
+	active := activePHPVersions()
 	versions, _ := phpPkg.ListInstalled()
 	for _, v := range versions {
+		if !active[v] {
+			continue
+		}
 		short := strings.ReplaceAll(v, ".", "")
 		units = append(units, "lerd-php"+short+"-fpm")
 	}
@@ -245,6 +251,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if err := dns.ConfigureResolver(); err != nil {
 		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
 	}
+
+	autoStopUnusedFPMs()
 
 	// Restart the tray applet, stopping any existing instance first.
 	// Prefer the systemd service when enabled; otherwise launch directly.

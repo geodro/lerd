@@ -1424,6 +1424,22 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "php_default": version})
+	case "start":
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		if err := podman.StartUnit(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "stop":
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		if err := podman.StopUnit(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	case "remove":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"

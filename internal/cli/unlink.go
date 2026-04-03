@@ -86,6 +86,7 @@ func UnlinkSite(name string) error {
 	}
 
 	autoStopUnusedServices()
+	autoStopUnusedFPMs()
 
 	return nil
 }
