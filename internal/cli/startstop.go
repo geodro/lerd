@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
@@ -18,35 +18,81 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ensureFPMImages rebuilds any PHP FPM images that have been removed.
-// Returns the list of jobs that were queued so the caller can run them
-// via RunParallel for Ctrl+O-expandable output.
-func missingFPMImageJobs() []BuildJob {
-	versions, _ := phpPkg.ListInstalled()
+// quadletImage reads the Image= value from an installed quadlet file.
+// Returns "" if the file cannot be read or has no Image= line.
+func quadletImage(unit string) string {
+	path := filepath.Join(config.QuadletDir(), unit+".container")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, "Image="); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
+}
+
+// ensureImages checks all images required by units that are about to start and
+// builds or pulls any that are missing, using the parallel spinner UI.
+func ensureImages() {
+	units := append(coreUnits(), installedServiceUnits()...)
 	var jobs []BuildJob
-	for _, v := range versions {
-		ver := v
-		short := strings.ReplaceAll(ver, ".", "")
-		image := "lerd-php" + short + "-fpm:local"
-		if err := podman.RunSilent("image", "exists", image); err != nil {
+	seen := map[string]bool{}
+
+	for _, unit := range units {
+		image := quadletImage(unit)
+		if image == "" || seen[image] {
+			continue
+		}
+		seen[image] = true
+
+		if podman.RunSilent("image", "exists", image) == nil {
+			continue // already present
+		}
+
+		img := image
+		switch {
+		case img == "lerd-dnsmasq:local":
 			jobs = append(jobs, BuildJob{
-				Label: "Rebuilding PHP " + ver + " image",
-				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(ver, false, w) },
+				Label: "Building dnsmasq",
+				Run: func(w io.Writer) error {
+					containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
+					cmd := exec.Command(podman.PodmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
+					cmd.Stdin = strings.NewReader(containerfile)
+					cmd.Stdout = w
+					cmd.Stderr = w
+					return cmd.Run()
+				},
+			})
+
+		case strings.HasPrefix(img, "lerd-php") && strings.HasSuffix(img, "-fpm:local"):
+			// Extract version from image name, e.g. lerd-php84-fpm:local → 8.4
+			short := strings.TrimSuffix(strings.TrimPrefix(img, "lerd-php"), "-fpm:local")
+			ver := short[:1] + "." + short[1:]
+			v := ver
+			jobs = append(jobs, BuildJob{
+				Label: "PHP " + v,
+				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(v, false, w) },
+			})
+
+		default:
+			label := img
+			jobs = append(jobs, BuildJob{
+				Label: "Pulling " + label,
+				Run: func(w io.Writer) error {
+					cmd := exec.Command(podman.PodmanBin(), "pull", label)
+					cmd.Stdout = w
+					cmd.Stderr = w
+					return cmd.Run()
+				},
 			})
 		}
 	}
-	return jobs
-}
 
-// ensureFPMQuadlets writes the service unit (plist on macOS, quadlet on Linux)
-// for each installed PHP version if it is missing. This covers the case where
-// a clean reinstall left the .container tracking files but removed the plists.
-func ensureFPMQuadlets() {
-	versions, _ := phpPkg.ListInstalled()
-	for _, v := range versions {
-		if err := podman.WriteFPMQuadlet(v); err != nil {
-			fmt.Printf("  WARN: could not write FPM unit for PHP %s: %v\n", v, err)
-		}
+	if len(jobs) > 0 {
+		RunParallel(jobs) //nolint:errcheck
 	}
 }
 
@@ -79,10 +125,16 @@ func NewQuitCmd() *cobra.Command {
 
 // coreUnits returns the container units managed by lerd start/stop.
 // Does not include lerd-ui or lerd-watcher — those are added separately in runStart.
+// Only PHP-FPM versions that are referenced by at least one site are included;
+// unused versions are left stopped.
 func coreUnits() []string {
 	units := []string{"lerd-dns", "lerd-nginx"}
+	active := activePHPVersions()
 	versions, _ := phpPkg.ListInstalled()
 	for _, v := range versions {
+		if !active[v] {
+			continue
+		}
 		short := strings.ReplaceAll(v, ".", "")
 		units = append(units, "lerd-php"+short+"-fpm")
 	}
@@ -125,40 +177,9 @@ func allInstalledServiceUnits() []string {
 	return units
 }
 
-type startResult struct {
-	unit string
-	err  error
-}
-
 func runStart(_ *cobra.Command, _ []string) error {
-	// On macOS, Podman runs inside a Linux VM. Start it before any containers.
-	ensurePodmanMachineRunning()
-
-	// Remove legacy worker plists that used `podman exec` (alpha.2/alpha.3).
-	// These cause "no such container" errors on every podman invocation.
-	migrateExecWorkerPlists()
-
-	// Prune stopped containers and unused resources on every start to flush stale
-	// exec sessions from Podman's database. These accumulate when host-side processes
-	// are killed abruptly (e.g. by launchd) and pollute logs with "no such container" errors.
-	podman.RunSilent("system", "prune", "-f") //nolint:errcheck
-
-	// Ensure FPM service units exist for all installed PHP versions.
-	// Must run before coreUnits() so plists are present when Start() is called.
-	ensureFPMQuadlets()
-
-	// Rebuild any missing FPM images before starting units. Uses RunParallel so
-	// build output is captured and expandable with Ctrl+O.
-	if jobs := missingFPMImageJobs(); len(jobs) > 0 {
-		RunParallel(jobs) //nolint:errcheck
-	}
-
-	// Ensure the lerd Podman network and DNS image exist — both can be lost
-	// after a Podman Machine restart when the VM's storage is reset.
-	if err := podman.EnsureNetwork("lerd"); err != nil {
-		fmt.Printf("  WARN: podman network: %v\n", err)
-	}
-	ensureDNSImageForStart()
+	// Build or pull any missing images before starting containers.
+	ensureImages()
 
 	// Rewrite nginx.conf so any config changes in new binary versions take effect.
 	if err := nginx.EnsureNginxConfig(); err != nil {
@@ -186,33 +207,26 @@ func runStart(_ *cobra.Command, _ []string) error {
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+
 	fmt.Println("Starting Lerd...")
 
-	results := make([]startResult, len(units))
-	var wg sync.WaitGroup
+	jobs := make([]BuildJob, len(units))
 	for i, u := range units {
-		wg.Add(1)
-		go func(idx int, unit string) {
-			defer wg.Done()
-			if unit == "lerd-dns" {
-				// Always restart lerd-dns to pick up the refreshed dnsmasq config
-				// and clear any stale cached DNS entries.
-				results[idx] = startResult{unit: unit, err: services.Mgr.Restart(unit)}
-			} else {
-				results[idx] = startResult{unit: unit, err: services.Mgr.Start(unit)}
-			}
-		}(i, u)
-	}
-	wg.Wait()
-
-	for _, r := range results {
-		fmt.Printf("  --> %s ... ", r.unit)
-		if r.err != nil {
-			fmt.Printf("WARN (%v)\n", r.err)
-		} else {
-			fmt.Println("OK")
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		jobs[i] = BuildJob{
+			Label: label,
+			Run: func(w io.Writer) error {
+				if unit == "lerd-dns" {
+					// Always restart lerd-dns to pick up the refreshed dnsmasq config
+					// and clear any stale cached DNS entries.
+					return podman.RestartUnit(unit)
+				}
+				return podman.StartUnit(unit)
+			},
 		}
 	}
+	RunParallel(jobs) //nolint:errcheck
 
 	// Sync the pasta DNS proxy (169.254.1.1) as the aardvark-dns upstream for the lerd
 	// network. This address chains through systemd-resolved, which resolves both .test
@@ -240,6 +254,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if err := dns.ConfigureResolver(); err != nil {
 		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
 	}
+
+	autoStopUnusedFPMs()
 
 	// Restart the tray applet, stopping any existing instance first.
 	// Prefer the systemd service when enabled; otherwise launch directly.
@@ -307,27 +323,19 @@ func runStop(_ *cobra.Command, _ []string) error {
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+
 	fmt.Println("Stopping Lerd...")
 
-	results := make([]startResult, len(units))
-	var wg sync.WaitGroup
+	jobs := make([]BuildJob, len(units))
 	for i, u := range units {
-		wg.Add(1)
-		go func(idx int, unit string) {
-			defer wg.Done()
-			results[idx] = startResult{unit: unit, err: services.Mgr.Stop(unit)}
-		}(i, u)
-	}
-	wg.Wait()
-
-	for _, r := range results {
-		fmt.Printf("  --> %s ... ", r.unit)
-		if r.err != nil {
-			fmt.Printf("WARN (%v)\n", r.err)
-		} else {
-			fmt.Println("OK")
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		jobs[i] = BuildJob{
+			Label: label,
+			Run:   func(w io.Writer) error { return podman.StopUnit(unit) },
 		}
 	}
+	RunParallel(jobs) //nolint:errcheck
 	return nil
 }
 

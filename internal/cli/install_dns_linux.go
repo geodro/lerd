@@ -31,7 +31,7 @@ func pullDNSImages() []BuildJob {
 		{
 			Label: "Pulling alpine:latest",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
+				cmd := exec.Command(podman.PodmanBin(), "pull", "docker.io/library/alpine:latest")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -41,7 +41,7 @@ func pullDNSImages() []BuildJob {
 			Label: "Building dnsmasq image",
 			Run: func(w io.Writer) error {
 				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-				cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+				cmd := exec.Command(podman.PodmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
 				cmd.Stdin = strings.NewReader(containerfile)
 				cmd.Stdout = w
 				cmd.Stderr = w

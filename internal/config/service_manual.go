@@ -134,6 +134,25 @@ func SetServicePinned(name string, v bool) error {
 	return savePinnedServices(m)
 }
 
+// CountSitesUsingPHP returns how many non-ignored, non-paused sites are
+// registered with the given PHP version.
+func CountSitesUsingPHP(version string) int {
+	reg, err := LoadSites()
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, s := range reg.Sites {
+		if s.Ignored || s.Paused {
+			continue
+		}
+		if s.PHPVersion == version {
+			count++
+		}
+	}
+	return count
+}
+
 // CountSitesUsingService returns how many active (non-ignored, non-paused) site
 // .env files reference lerd-{name}, i.e. are configured to use the service.
 func CountSitesUsingService(name string) int {
@@ -144,7 +163,7 @@ func CountSitesUsingService(name string) int {
 	needle := "lerd-" + name
 	count := 0
 	for _, s := range reg.Sites {
-		if s.Ignored || s.Paused {
+		if s.Ignored {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))

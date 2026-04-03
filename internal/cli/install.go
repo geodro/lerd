@@ -86,10 +86,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// 4. mkcert CA — interactive (may prompt for sudo)
 	fmt.Println("  --> Installing mkcert CA")
 	cmd := exec.Command(certs.MkcertPath(), "-install")
-	iw := &indentWriter{w: os.Stdout, prefix: "      ", bol: true}
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = iw
-	cmd.Stderr = iw
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	cmd.Run() //nolint:errcheck
 
 	// 5. DNS config + sudoers
@@ -167,8 +166,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// 7. Pull images in parallel (nginx always; DNS images only on platforms that need them).
-	pullJobs := []BuildJob{
+	// 7. Pull images in parallel, then build dnsmasq.
+	RunParallel([]BuildJob{ //nolint:errcheck
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
@@ -178,15 +177,22 @@ func runInstall(_ *cobra.Command, _ []string) error {
 				return cmd.Run()
 			},
 		},
-	}
-	pullJobs = append(pullJobs, pullDNSImages()...)
-	if err := RunParallel(pullJobs); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
-	}
+		{
+			Label: "Building dnsmasq",
+			Run: func(w io.Writer) error {
+				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
+				cmd := exec.Command(podman.PodmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
+				cmd.Stdin = strings.NewReader(containerfile)
+				cmd.Stdout = w
+				cmd.Stderr = w
+				return cmd.Run()
+			},
+		},
+	})
 
-	// 8. Reload service manager
-	step("Reloading service manager")
-	if err := services.Mgr.DaemonReload(); err != nil {
+	// 8. Systemd / services
+	step("Reloading systemd daemon")
+	if err := podman.DaemonReload(); err != nil {
 		return err
 	}
 	ok()
@@ -203,11 +209,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Configuring DNS resolver")
+	fmt.Println("  --> Configuring DNS resolver")
 	if err := dns.ConfigureResolver(); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
-	ok()
 
 	step("Starting lerd-nginx")
 	if err := services.Mgr.Restart("lerd-nginx"); err != nil {
@@ -341,27 +346,6 @@ func downloadFile(url, dest string, mode os.FileMode, w io.Writer) error {
 	fmt.Fprintf(w, " (%d bytes)\n", written)
 
 	return os.Chmod(dest, mode)
-}
-
-// indentWriter prefixes each line of output with a fixed string.
-type indentWriter struct {
-	w      io.Writer
-	prefix string
-	bol    bool // beginning of line
-}
-
-func (iw *indentWriter) Write(p []byte) (int, error) {
-	for _, b := range p {
-		if iw.bol {
-			fmt.Fprint(iw.w, iw.prefix)
-			iw.bol = false
-		}
-		iw.w.Write([]byte{b}) //nolint:errcheck
-		if b == '\n' {
-			iw.bol = true
-		}
-	}
-	return len(p), nil
 }
 
 type progressReader struct {

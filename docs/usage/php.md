@@ -65,6 +65,29 @@ lerd use 8.4
 
 ---
 
+## FPM lifecycle
+
+Lerd automatically manages which PHP-FPM containers are running based on which versions are actually needed by your sites.
+
+**`lerd start`** — only starts FPM containers for versions referenced by at least one site (active or paused). Unused versions are left stopped.
+
+**Auto-stop** — when you unlink a site, lerd checks every installed PHP version. If no remaining active (non-ignored, non-paused) site uses a version, its FPM container is stopped. The version itself stays installed — the container is just not running.
+
+**Paused sites count** — a site that is paused still counts as using its PHP version, so that version's FPM container is not stopped. When the site is resumed, FPM is guaranteed to be running.
+
+**Auto-start** — FPM is started automatically when you link a site (`lerd link`, `lerd park`, `lerd isolate`) or change the global default (`lerd use`). When unpausing a site, lerd also ensures the required FPM container is running before restoring the nginx vhost.
+
+**Manual control** — unused PHP versions (no active sites) can be started and stopped manually from the dashboard (System → PHP → Start / Stop). From the CLI:
+
+```bash
+systemctl --user start  lerd-php84-fpm
+systemctl --user stop   lerd-php84-fpm
+```
+
+**`lerd status`** — stopped FPM containers for unused versions are reported as a warning, not an error.
+
+---
+
 ## Xdebug
 
 ??? info "Xdebug configuration values"
@@ -84,6 +107,10 @@ lerd use 8.4
 lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top — bringing first-time build time from ~5 minutes down to ~30 seconds.
 
 The base image tag is derived from the embedded Containerfile, so lerd always pulls the exact image that matches the version of lerd you have installed. If the pull fails (no internet, image not yet published) lerd falls back to a full local build transparently.
+
+The images are public, so no ghcr.io login is required. lerd pulls them anonymously even if you are already logged into ghcr.io, to avoid authentication errors from expired or unrelated credentials.
+
+`lerd start` checks all required images before starting containers. If any are missing (e.g. after `podman image rm`), it rebuilds or pulls them automatically using the same parallel spinner UI, so containers always start against a valid image.
 
 To build entirely from source instead:
 

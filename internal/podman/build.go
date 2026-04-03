@@ -168,7 +168,25 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	short := strings.ReplaceAll(version, ".", "")
 	ref := fmt.Sprintf("ghcr.io/geodro/lerd-php%s-fpm-base:%s", short, hash)
 	fmt.Fprintf(w, "  Pulling pre-built PHP %s base image...\n", version)
-	cmd := exec.Command(PodmanBin(), "pull", ref)
+
+	// Use an empty auth file so the pull is always anonymous, regardless of
+	// whether the user is logged into ghcr.io. A logged-in account with
+	// expired or mismatched credentials would otherwise cause a 401 for this
+	// public image and force a slow local build.
+	tmpAuth, err := os.CreateTemp("", "lerd-auth-*.json")
+	if err == nil {
+		tmpAuth.WriteString("{}")
+		tmpAuth.Close()
+		defer os.Remove(tmpAuth.Name())
+	}
+
+	args := []string{"pull"}
+	if tmpAuth != nil {
+		args = append(args, "--authfile="+tmpAuth.Name())
+	}
+	args = append(args, ref)
+
+	cmd := exec.Command(PodmanBin(), args...)
 	cmd.Stdout = w
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {

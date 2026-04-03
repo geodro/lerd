@@ -115,6 +115,12 @@ func UnpauseSite(name string) error {
 		phpVersion = detected
 	}
 
+	if phpVersion != "" {
+		if err := ensureFPMQuadlet(phpVersion); err != nil {
+			fmt.Printf("[WARN] ensuring FPM for PHP %s: %v\n", phpVersion, err)
+		}
+	}
+
 	if site.Secured {
 		if err := nginx.GenerateSSLVhost(*site, phpVersion); err != nil {
 			return fmt.Errorf("generating SSL vhost: %w", err)

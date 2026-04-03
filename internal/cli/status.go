@@ -97,10 +97,12 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		running, _ := podman.ContainerRunning(containerName)
 		if running {
 			ok2("PHP " + v + " FPM")
-		} else {
+		} else if activePHPVersions()[v] {
 			fail2("PHP "+v+" FPM",
 				containerName+" not running",
-				serviceStartHint(containerName))
+				"systemctl --user start "+containerName)
+		} else {
+			warn2("PHP "+v+" FPM", "stopped (no sites using this version)")
 		}
 	}
 

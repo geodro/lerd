@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
@@ -597,6 +598,52 @@ func autoStopUnusedServices() {
 			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" || status == "activating" {
 				stopServiceAndDependents(name)
+			}
+		}
+	}
+}
+
+// activePHPVersions returns the set of PHP versions actually in use by
+// non-ignored, non-paused sites, using live disk detection (.php-version file)
+// with the stored registry value as fallback.
+func activePHPVersions() map[string]bool {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+	active := make(map[string]bool)
+	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
+		v := s.PHPVersion
+		if detected, err := phpPkg.DetectVersion(s.Path); err == nil && detected != "" {
+			v = detected
+		}
+		if v != "" {
+			active[v] = true
+		}
+	}
+	return active
+}
+
+// autoStopUnusedFPMs stops any PHP-FPM container whose PHP version is no longer
+// referenced by any active (non-ignored, non-paused) site.
+func autoStopUnusedFPMs() {
+	versions, err := phpPkg.ListInstalled()
+	if err != nil {
+		return
+	}
+	active := activePHPVersions()
+	for _, v := range versions {
+		if active[v] {
+			continue
+		}
+		unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
+		status, _ := podman.UnitStatus(unit)
+		if status == "active" || status == "activating" {
+			if err := podman.StopUnit(unit); err != nil {
+				fmt.Printf("[WARN] stopping %s: %v\n", unit, err)
 			}
 		}
 	}

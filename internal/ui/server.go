@@ -545,6 +545,7 @@ type ServiceResponse struct {
 	ConnectionURL      string            `json:"connection_url,omitempty"`
 	Custom             bool              `json:"custom,omitempty"`
 	SiteCount          int               `json:"site_count"`
+	SiteDomains        []string          `json:"site_domains,omitempty"`
 	Pinned             bool              `json:"pinned"`
 	DependsOn          []string          `json:"depends_on,omitempty"`
 	QueueSite          string            `json:"queue_site,omitempty"`
@@ -593,6 +594,7 @@ func buildServiceResponse(name string) ServiceResponse {
 		Dashboard:     builtinDashboards[name],
 		ConnectionURL: builtinConnectionURLs[name],
 		SiteCount:     countSitesUsingService(name),
+		SiteDomains:   sitesUsingService(name),
 		Pinned:        config.ServiceIsPinned(name),
 	}
 }
@@ -673,14 +675,15 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 		services = append(services, ServiceResponse{
-			Name:      svc.Name,
-			Status:    status,
-			EnvVars:   envMap,
-			Dashboard: svc.Dashboard,
-			Custom:    true,
-			SiteCount: countSitesUsingService(svc.Name),
-			Pinned:    config.ServiceIsPinned(svc.Name),
-			DependsOn: svc.DependsOn,
+			Name:        svc.Name,
+			Status:      status,
+			EnvVars:     envMap,
+			Dashboard:   svc.Dashboard,
+			Custom:      true,
+			SiteCount:   countSitesUsingService(svc.Name),
+			SiteDomains: sitesUsingService(svc.Name),
+			Pinned:      config.ServiceIsPinned(svc.Name),
+			DependsOn:   svc.DependsOn,
 		})
 	}
 	for _, siteName := range listActiveQueueWorkers() {
@@ -1080,6 +1083,29 @@ func countSitesUsingService(name string) int {
 	return config.CountSitesUsingService(name)
 }
 
+// sitesUsingService returns the domains of active sites whose .env references lerd-{name}.
+func sitesUsingService(name string) []string {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+	needle := "lerd-" + name
+	var domains []string
+	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), needle) {
+			domains = append(domains, s.Domain)
+		}
+	}
+	return domains
+}
+
 // serviceRecentLogs is implemented per-platform in logs_linux.go / logs_darwin.go.
 
 // VersionResponse is the response for GET /api/version.
@@ -1405,6 +1431,22 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "php_default": version})
+	case "start":
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		if err := podman.StartUnit(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case "stop":
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		if err := podman.StopUnit(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	case "remove":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
