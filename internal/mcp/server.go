@@ -3405,7 +3405,7 @@ func execPHPExtAdd(args map[string]any) (any, *rpcError) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := podman.RestartUnitFn(unit); err != nil {
 		return toolOK(fmt.Sprintf("Extension %q added to PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
 	}
 	return toolOK(fmt.Sprintf("Extension %q added to PHP %s. FPM container restarted.", ext, version)), nil
@@ -3439,7 +3439,7 @@ func execPHPExtRemove(args map[string]any) (any, *rpcError) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := podman.RestartUnitFn(unit); err != nil {
 		return toolOK(fmt.Sprintf("Extension %q removed from PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
 	}
 	return toolOK(fmt.Sprintf("Extension %q removed from PHP %s. FPM container restarted.", ext, version)), nil

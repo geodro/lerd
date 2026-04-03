@@ -1434,7 +1434,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		if err := podman.StartUnit(unit); err != nil {
+		if err := podman.StartUnitFn(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -1442,7 +1442,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "stop":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		if err := podman.StopUnit(unit); err != nil {
+		if err := podman.StopUnitFn(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -1623,17 +1623,38 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		pw.Close()
 	}()
 
+	lines := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+
+	// Send a keepalive comment every 30s so nginx (proxy_read_timeout 60s)
+	// does not close the SSE connection during idle PHP-FPM periods, which
+	// would cause the frontend to show "connecting..." indefinitely.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	var lineID int
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Escape backslashes and encode as a single SSE data line.
-		escaped := strings.ReplaceAll(line, "\\", "\\\\")
-		lineID++
-		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", lineID, escaped)
-		flusher.Flush()
-		if r.Context().Err() != nil {
-			break
+loop:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break loop
+			}
+			lineID++
+			escaped := strings.ReplaceAll(line, "\\", "\\\\")
+			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", lineID, escaped)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			break loop
 		}
 	}
 	if cmd.Process != nil {

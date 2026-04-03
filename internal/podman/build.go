@@ -22,6 +22,26 @@ var WriteContainerUnitFn func(name, content string) error = WriteQuadlet
 // Override this on macOS with a no-op.
 var DaemonReloadFn func() error = DaemonReload
 
+// StartUnitFn starts a service unit.
+// Defaults to systemctl --user start.
+// Override this on macOS to use launchd.
+var StartUnitFn func(name string) error = StartUnit
+
+// StopUnitFn stops a service unit.
+// Defaults to systemctl --user stop.
+// Override this on macOS to use launchd.
+var StopUnitFn func(name string) error = StopUnit
+
+// RestartUnitFn restarts a service unit.
+// Defaults to systemctl --user restart.
+// Override this on macOS to use launchd.
+var RestartUnitFn func(name string) error = RestartUnit
+
+// UnitStatusFn returns the active state of a service unit.
+// Defaults to systemctl --user is-active.
+// Override this on macOS to use launchd.
+var UnitStatusFn func(name string) (string, error) = UnitStatus
+
 // SkipQuadletUpToDateCheck disables the early-return optimisation in
 // WriteFPMQuadlet that skips writing when the .container file is unchanged.
 // Set to true on macOS where the unit file is a launchd plist, not a quadlet.

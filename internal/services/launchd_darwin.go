@@ -35,6 +35,10 @@ func init() {
 	// Override WriteFPMQuadlet to use launchd plists instead of systemd quadlets.
 	podman.WriteContainerUnitFn = Mgr.WriteContainerUnit
 	podman.DaemonReloadFn = Mgr.DaemonReload
+	podman.StartUnitFn = Mgr.Start
+	podman.StopUnitFn = Mgr.Stop
+	podman.RestartUnitFn = Mgr.Restart
+	podman.UnitStatusFn = Mgr.UnitStatus
 	podman.SkipQuadletUpToDateCheck = true
 }
 

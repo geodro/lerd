@@ -220,9 +220,9 @@ func runStart(_ *cobra.Command, _ []string) error {
 				if unit == "lerd-dns" {
 					// Always restart lerd-dns to pick up the refreshed dnsmasq config
 					// and clear any stale cached DNS entries.
-					return podman.RestartUnit(unit)
+					return podman.RestartUnitFn(unit)
 				}
-				return podman.StartUnit(unit)
+				return podman.StartUnitFn(unit)
 			},
 		}
 	}
@@ -332,7 +332,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		label := strings.TrimPrefix(unit, "lerd-")
 		jobs[i] = BuildJob{
 			Label: label,
-			Run:   func(w io.Writer) error { return podman.StopUnit(unit) },
+			Run:   func(w io.Writer) error { return podman.StopUnitFn(unit) },
 		}
 	}
 	RunParallel(jobs) //nolint:errcheck

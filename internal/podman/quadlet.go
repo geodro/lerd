@@ -113,7 +113,7 @@ func WaitReady(service string, timeout time.Duration) error {
 		}
 	default:
 		probe = func() bool {
-			status, _ := UnitStatus(unit)
+			status, _ := UnitStatusFn(unit)
 			return status == "active"
 		}
 	}

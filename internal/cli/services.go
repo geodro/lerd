@@ -640,9 +640,9 @@ func autoStopUnusedFPMs() {
 			continue
 		}
 		unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
-		status, _ := podman.UnitStatus(unit)
+		status, _ := podman.UnitStatusFn(unit)
 		if status == "active" || status == "activating" {
-			if err := podman.StopUnit(unit); err != nil {
+			if err := podman.StopUnitFn(unit); err != nil {
 				fmt.Printf("[WARN] stopping %s: %v\n", unit, err)
 			}
 		}
