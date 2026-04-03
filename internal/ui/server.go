@@ -518,6 +518,7 @@ type ServiceResponse struct {
 	ConnectionURL      string            `json:"connection_url,omitempty"`
 	Custom             bool              `json:"custom,omitempty"`
 	SiteCount          int               `json:"site_count"`
+	SiteDomains        []string          `json:"site_domains,omitempty"`
 	Pinned             bool              `json:"pinned"`
 	DependsOn          []string          `json:"depends_on,omitempty"`
 	QueueSite          string            `json:"queue_site,omitempty"`
@@ -565,8 +566,9 @@ func buildServiceResponse(name string) ServiceResponse {
 		EnvVars:       envMap,
 		Dashboard:     builtinDashboards[name],
 		ConnectionURL: builtinConnectionURLs[name],
-		SiteCount:     countSitesUsingService(name),
-		Pinned:        config.ServiceIsPinned(name),
+		SiteCount:    countSitesUsingService(name),
+		SiteDomains:  sitesUsingService(name),
+		Pinned:       config.ServiceIsPinned(name),
 	}
 }
 
@@ -661,14 +663,15 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 		services = append(services, ServiceResponse{
-			Name:      svc.Name,
-			Status:    status,
-			EnvVars:   envMap,
-			Dashboard: svc.Dashboard,
-			Custom:    true,
-			SiteCount: countSitesUsingService(svc.Name),
-			Pinned:    config.ServiceIsPinned(svc.Name),
-			DependsOn: svc.DependsOn,
+			Name:        svc.Name,
+			Status:      status,
+			EnvVars:     envMap,
+			Dashboard:   svc.Dashboard,
+			Custom:      true,
+			SiteCount:   countSitesUsingService(svc.Name),
+			SiteDomains: sitesUsingService(svc.Name),
+			Pinned:      config.ServiceIsPinned(svc.Name),
+			DependsOn:   svc.DependsOn,
 		})
 	}
 	for _, siteName := range listActiveQueueWorkers() {
@@ -1066,6 +1069,29 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 // countSitesUsingService counts how many active site .env files reference lerd-{name}.
 func countSitesUsingService(name string) int {
 	return config.CountSitesUsingService(name)
+}
+
+// sitesUsingService returns the domains of active sites whose .env references lerd-{name}.
+func sitesUsingService(name string) []string {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+	needle := "lerd-" + name
+	var domains []string
+	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), needle) {
+			domains = append(domains, s.Domain)
+		}
+	}
+	return domains
 }
 
 // serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
