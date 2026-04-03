@@ -46,6 +46,18 @@ On a machine where `.lerd.yaml` already exists the wizard is skipped and the sav
 
 ---
 
+## Automatic version switching
+
+When the Lerd watcher is running it monitors `.lerd.yaml`, `.php-version`, `.node-version`, and `.nvmrc` in every linked site directory. If any of these files change — for example after a `git checkout` to a branch with a different `.lerd.yaml` — Lerd automatically:
+
+1. Re-detects the PHP and Node versions for the site.
+2. Updates the site registry.
+3. Regenerates the nginx vhost (when the PHP version changed) and reloads nginx.
+
+No hooks or per-project setup needed — it works for every linked site out of the box.
+
+---
+
 ## Smart defaults
 
 | Step | Default | Condition |

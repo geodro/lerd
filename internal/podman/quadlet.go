@@ -38,6 +38,12 @@ func RemoveQuadlet(name string) error {
 	return nil
 }
 
+// RemoveContainer removes a stopped Podman container by name, ignoring errors
+// if the container does not exist.
+func RemoveContainer(name string) {
+	_ = exec.Command("podman", "rm", "-f", name).Run()
+}
+
 // DaemonReload runs systemctl --user daemon-reload.
 func DaemonReload() error {
 	cmd := exec.Command("systemctl", "--user", "daemon-reload")
