@@ -54,8 +54,9 @@ This writes `.php-version: 8.4` (so CLI `php`, asdf, and other tools see the rig
 
 The UI PHP version selector and the MCP `site_php` tool follow the same rules — they always write both files when applicable.
 
-!!! tip "Overriding a `composer.json` constraint"
-    If `composer.json` requires `^8.3` but you need to run the project on PHP 8.4, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
+::: tip Overriding a `composer.json` constraint
+If `composer.json` requires `^8.3` but you need to run the project on PHP 8.4, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
+:::
 
 To change the global default (applies to all projects that don't have a per-project pin):
 
@@ -90,15 +91,16 @@ systemctl --user stop   lerd-php84-fpm
 
 ## Xdebug
 
-??? info "Xdebug configuration values"
-    Xdebug is configured with:
+::: details Xdebug configuration values
+Xdebug is configured with:
 
-    - `xdebug.mode=debug`
-    - `xdebug.start_with_request=yes`
-    - `xdebug.client_host=host.containers.internal` (reaches your host IDE from the container)
-    - `xdebug.client_port=9003`
+- `xdebug.mode=debug`
+- `xdebug.start_with_request=yes`
+- `xdebug.client_host=host.containers.internal` (reaches your host IDE from the container)
+- `xdebug.client_port=9003`
 
-    Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
+Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
+:::
 
 ---
 

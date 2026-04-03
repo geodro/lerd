@@ -1,0 +1,19 @@
+{
+  "name": "lerd",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "> Open-source Herd-like local PHP development environment for Linux. > Podman-native, rootless, with a built-in Web UI.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "vitepress dev .",
+    "build": "vitepress build .",
+    "preview": "vitepress preview ."
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

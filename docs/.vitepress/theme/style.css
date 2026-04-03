@@ -1,0 +1,157 @@
+/* -----------------------------------------------------------------------
+   Hero image size
+   ----------------------------------------------------------------------- */
+
+.VPHero .image-src {
+  max-width: 520px;
+  width: 100%;
+}
+
+.VPHero .text {
+  font-size: 40px !important;
+}
+
+@media (min-width: 640px) {
+  .VPHero .text {
+    font-size: 48px !important;
+  }
+}
+
+/* -----------------------------------------------------------------------
+   Lerd docs — exact app color palette
+   App source: internal/ui/index.html
+   red: #FF2D20 | bg: #0d0d0d | card: #161616 | border: #262626 | muted: #404040
+   ----------------------------------------------------------------------- */
+
+:root {
+  /* Brand — app red */
+  --vp-c-brand-1: #FF2D20;
+  --vp-c-brand-2: #e02419;
+  --vp-c-brand-3: #ff5a50;
+  --vp-c-brand-soft: rgba(255, 45, 32, 0.12);
+
+  /* Button */
+  --vp-button-brand-bg: #FF2D20;
+  --vp-button-brand-hover-bg: #e02419;
+  --vp-button-brand-active-bg: #c41e10;
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+}
+
+/* Light mode — app uses Tailwind gray defaults in light */
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+}
+
+/* Dark mode — exact app palette */
+.dark {
+  --vp-c-bg:        #0d0d0d;
+  --vp-c-bg-soft:   #161616;
+  --vp-c-bg-alt:    #111111;
+  --vp-c-bg-elv:    #161616;
+
+  --vp-c-divider:   #262626;
+
+  --vp-c-text-1:    rgba(255, 255, 255, 0.87);
+  --vp-c-text-2:    rgba(255, 255, 255, 0.55);
+  --vp-c-text-3:    rgba(255, 255, 255, 0.33);
+
+  --vp-c-mute:      #262626;
+  --vp-c-mute-dark: #1a1a1a;
+
+  --vp-code-block-bg: #161616;
+  --vp-code-bg:       #1e1e1e;
+
+  --vp-nav-bg-color:     #0d0d0d;
+  --vp-sidebar-bg-color: #111111;
+
+  --vp-custom-block-tip-border:    transparent;
+  --vp-custom-block-tip-bg:        rgba(255, 45, 32, 0.08);
+}
+
+/* Nav bar */
+.dark .VPNav {
+  background-color: #0d0d0d;
+  border-bottom-color: #262626;
+}
+
+.dark .VPLocalNav {
+  background-color: #0d0d0d;
+  border-bottom-color: #262626;
+}
+
+/* Sidebar */
+.dark .VPSidebar {
+  background-color: #111111;
+  border-right-color: #262626;
+}
+
+/* Active sidebar item */
+.dark .VPSidebarItem.is-active > .item .link .text {
+  color: #FF2D20;
+}
+
+.dark .VPSidebarItem.is-active > .item .indicator {
+  background-color: #FF2D20;
+}
+
+/* Nav top links active */
+.dark .VPNavBarMenuLink.active,
+.dark .VPNavBarMenuLink:hover {
+  color: #FF2D20;
+}
+
+/* Code blocks */
+.dark .vp-code-group .tabs {
+  background-color: #161616;
+  border-bottom-color: #262626;
+}
+
+.dark div[class*='language-'] {
+  background-color: #161616;
+}
+
+/* Tables */
+.dark .vp-doc th {
+  background-color: #161616;
+}
+
+.dark .vp-doc tr:nth-child(2n) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Custom blocks (tips, warnings, etc.) */
+.dark .custom-block {
+  background-color: #161616;
+  border-color: #262626;
+}
+
+/* Scrollbar */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* Home page hero button */
+.VPButton.brand {
+  background-color: #FF2D20 !important;
+  border-color: #FF2D20 !important;
+}
+
+.VPButton.brand:hover {
+  background-color: #e02419 !important;
+  border-color: #e02419 !important;
+}
