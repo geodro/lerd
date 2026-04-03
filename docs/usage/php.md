@@ -110,6 +110,8 @@ The base image tag is derived from the embedded Containerfile, so lerd always pu
 
 The images are public, so no ghcr.io login is required. lerd pulls them anonymously even if you are already logged into ghcr.io, to avoid authentication errors from expired or unrelated credentials.
 
+`lerd start` checks all required images before starting containers. If any are missing (e.g. after `podman image rm`), it rebuilds or pulls them automatically using the same parallel spinner UI, so containers always start against a valid image.
+
 To build entirely from source instead:
 
 ```bash
