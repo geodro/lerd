@@ -369,6 +369,8 @@ func runSetupInit(cwd string, skipWizard bool) error {
 
 	if !hasExisting && skipWizard {
 		// Non-interactive and no saved config — just link with auto-detection.
+		linkSkipSetupPrompt = true
+		defer func() { linkSkipSetupPrompt = false }()
 		return runLink([]string{})
 	}
 
@@ -388,6 +390,10 @@ func runSetupInit(cwd string, skipWizard bool) error {
 }
 
 func applyProjectConfig(cwd string) error {
+	// Suppress the "Run lerd setup?" prompt inside runLink — we're already
+	// in init/setup and the caller handles worker steps separately.
+	linkSkipSetupPrompt = true
+	defer func() { linkSkipSetupPrompt = false }()
 	proj, err := config.LoadProjectConfig(cwd)
 	if err != nil {
 		return err

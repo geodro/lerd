@@ -16,6 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// linkSkipSetupPrompt suppresses the "Run lerd setup?" prompt when runLink
+// is called from within lerd setup / lerd init (prevents infinite recursion).
+var linkSkipSetupPrompt bool
+
 // NewLinkCmd returns the link command.
 func NewLinkCmd() *cobra.Command {
 	return &cobra.Command{
@@ -242,15 +246,14 @@ func runLink(args []string) error {
 			}
 		}
 
-		// Start workers listed in .lerd.yaml, but only if the project looks ready
-		// (vendor/ exists). On first clone, offer to run lerd setup instead.
-		if len(proj.Workers) > 0 {
-			vendorDir := filepath.Join(cwd, "vendor")
-			if _, statErr := os.Stat(vendorDir); statErr == nil {
-				startWorkersForSite(&site, proj.Workers, phpVersion)
-			} else if isInteractive() {
-				fmt.Printf("\n  Workers configured (%s) but vendor/ is missing.\n", strings.Join(proj.Workers, ", "))
-				fmt.Print("  Run lerd setup to install dependencies and start workers? [Y/n]: ")
+		// Workers are configured — prompt for setup so the user can choose to
+		// install dependencies, run migrations, and start workers in the right order.
+		// Skip if workers are already running (re-link of an active site) or if
+		// we're already inside a setup/init call (prevents infinite recursion).
+		if len(proj.Workers) > 0 && !linkSkipSetupPrompt && !hasRunningWorkers(&site) {
+			if isInteractive() {
+				fmt.Printf("\n  Workers configured: %s\n", strings.Join(proj.Workers, ", "))
+				fmt.Print("  Run lerd setup? [Y/n]: ")
 				var answer string
 				fmt.Scanln(&answer)
 				answer = strings.TrimSpace(strings.ToLower(answer))
@@ -260,7 +263,7 @@ func runLink(args []string) error {
 					}
 				}
 			} else {
-				fmt.Printf("  Skipping workers (vendor/ not found — run lerd setup)\n")
+				fmt.Printf("  Workers configured — run lerd setup to start them\n")
 			}
 		}
 	}
@@ -307,6 +310,11 @@ func startWorkersForSite(site *config.Site, workers []string, phpVersion string)
 			fmt.Printf("[WARN] starting worker %s: %v\n", w, err)
 		}
 	}
+}
+
+// hasRunningWorkers returns true if any workers are currently active for the site.
+func hasRunningWorkers(site *config.Site) bool {
+	return len(collectRunningWorkers(site)) > 0
 }
 
 // isInteractive returns true if stdin is a terminal.
