@@ -7,6 +7,50 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.5.1] — 2026-04-04
+
+### Fixed
+
+- **Nginx fails to start when TLS certificates are missing** — `lerd start` now detects SSL vhosts referencing missing cert files before starting nginx, switches affected sites back to HTTP, and removes orphan SSL configs. Previously a single missing certificate would prevent all sites from loading.
+- **Paused sites bypass landing page after update** — `lerd install` (called by `lerd update`) was regenerating vhosts for all sites, overwriting paused landing pages with the full site config. Paused and ignored sites are now skipped during vhost regeneration.
+- **Paused landing page redesigned** — the paused page now matches the branded "Site Not Found" page with the Lerd logo, red accent, and Resume + Dashboard buttons. Uses a single shared HTML file instead of generating one per site.
+
+---
+
+## [1.5.0] — 2026-04-04
+
+### Added
+
+- **Multi-domain support** — sites can now respond to multiple `.test` domains. Use `lerd domain add`, `lerd domain remove`, and `lerd domain list` to manage them. Domains are stored in `.lerd.yaml` and the certificate is reissued automatically when a domain is added to a secured site.
+- **`lerd env:check` command** — compare all `.env` files against `.env.example` and flag missing or extra keys. Exits non-zero when required keys are missing.
+- **`lerd check` command** — validate `.lerd.yaml` syntax, PHP version, Node version, services, frameworks, and workers before running setup. Reports OK/WARN/FAIL per field.
+- **`lerd which` command** — show the resolved PHP version, Node version, document root, and nginx config paths for the current site.
+- **Port conflict detection** — `lerd start` checks for port conflicts before starting containers and warns if another process is already using a required port.
+- **`lerd update --beta`** — update to the latest pre-release build from GitHub.
+- **`lerd update --rollback`** — revert to the previously installed version using the automatic backup.
+- **Automatic PHP/Node version switching** — the watcher monitors `.lerd.yaml`, `.php-version`, `.node-version`, and `.nvmrc` and automatically re-links the site when versions change.
+- **Workers in `lerd init`** — the wizard includes a workers step that pre-selects workers based on the framework and installed packages. Horizon is auto-detected from `composer.json`.
+- **Setup prompt on link** — when linking a site with workers configured in `.lerd.yaml`, lerd prompts to run `lerd setup` to install dependencies and start workers.
+- **Branded error pages** — requests to unlinked `.test` domains show a styled "Site Not Found" page with links to the dashboard instead of a generic browser error.
+- **Failing worker visibility** — `lerd status` shows failing and restarting workers across all sites. The web UI shows a pulsing red toggle and a "!" indicator on the log tab for failing workers.
+
+### Fixed
+
+- **Crash-looping workers left running after unlink** — `lerd unlink` now detects and stops crash-looping workers for the site.
+- **Paused sites counted in status workers section** — paused sites are now excluded from the workers list in `lerd status`.
+- **Paused sites counted in TLS check** — `lerd status` no longer flags TLS issues for paused or ignored sites.
+- **Service container left behind on remove** — `lerd service remove` now properly cleans up the Podman container.
+
+---
+
+## [1.4.2] — 2026-04-03
+
+### Fixed
+
+- **Paused sites counted in service badges and auto-stop logic** — paused sites were included when counting how many sites use a service, so services stayed active and their site-count badges inflated even after all active sites were paused. Paused sites are now excluded from `CountSitesUsingService` and the badge tooltip list.
+
+---
+
 ## [1.4.1] — 2026-04-03
 
 ### Fixed

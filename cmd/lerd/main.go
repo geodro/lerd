@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
@@ -54,11 +55,14 @@ func main() {
 	root.AddCommand(cli.NewPhpShellCmd())
 	root.AddCommand(cli.NewConsoleCmd())
 	root.AddCommand(cli.NewEnvCmd())
+	root.AddCommand(cli.NewEnvCheckCmd())
 	root.AddCommand(cli.NewNodeCmd())
 	root.AddCommand(cli.NewNpmCmd())
 	root.AddCommand(cli.NewNpxCmd())
 	root.AddCommand(cli.NewServiceCmd())
 	root.AddCommand(cli.NewStatusCmd())
+	root.AddCommand(cli.NewWhichCmd())
+	root.AddCommand(cli.NewCheckCmd())
 	root.AddCommand(cli.NewAboutCmd())
 	root.AddCommand(cli.NewWhatsnewCmd())
 	root.AddCommand(cli.NewManCmd())
@@ -95,6 +99,7 @@ func main() {
 		root.AddCommand(cmd)
 	}
 	root.AddCommand(cli.NewShareCmd())
+	root.AddCommand(cli.NewDomainCmd())
 	root.AddCommand(cli.NewFrameworkCmd())
 	root.AddCommand(cli.NewWorkerCmd())
 	root.AddCommand(cli.NewNewCmd())
@@ -237,7 +242,7 @@ func newWatchCmd() *cobra.Command {
 						if site.Paused {
 							return
 						}
-						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.Domain)
+						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.PrimaryDomain())
 						if err != nil {
 							return
 						}
@@ -247,7 +252,7 @@ func newWatchCmd() *cobra.Command {
 								gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
 								var vhostErr error
 								if site.Secured {
-									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.Domain)
+									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
 								} else {
 									vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
 								}
@@ -305,10 +310,13 @@ func newWatchCmd() *cobra.Command {
 						if err != nil {
 							return
 						}
-						// Re-detect PHP version in case .php-version changed.
+						siteChanged := false
+
+						// Re-detect PHP version in case .lerd.yaml or .php-version changed.
 						if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != site.PHPVersion {
+							fmt.Printf("PHP version changed for %s: %s -> %s\n", site.Name, site.PHPVersion, detected)
 							site.PHPVersion = detected
-							_ = config.AddSite(*site)
+							siteChanged = true
 							if !site.Paused {
 								if site.Secured {
 									_ = nginx.GenerateSSLVhost(*site, detected)
@@ -319,6 +327,17 @@ func newWatchCmd() *cobra.Command {
 									fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
 								}
 							}
+						}
+
+						// Re-detect Node version in case .lerd.yaml, .node-version, or .nvmrc changed.
+						if detected, detErr := nodeDet.DetectVersion(sitePath); detErr == nil && detected != site.NodeVersion {
+							fmt.Printf("Node version changed for %s: %s -> %s\n", site.Name, site.NodeVersion, detected)
+							site.NodeVersion = detected
+							siteChanged = true
+						}
+
+						if siteChanged {
+							_ = config.AddSite(*site)
 						}
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
 							fmt.Printf("[WARN] queue restart for %s: %v\n", site.Name, err)
@@ -346,7 +365,7 @@ func newWatchCmd() *cobra.Command {
 					return // not a registered site
 				}
 				fmt.Printf("Project deleted: %s (%s)\n", site.Name, removedPath)
-				_ = nginx.RemoveVhost(site.Domain)
+				_ = nginx.RemoveVhost(site.PrimaryDomain())
 				if err := config.RemoveSite(site.Name); err != nil {
 					fmt.Printf("[WARN] removing site %s: %v\n", site.Name, err)
 					return
@@ -389,7 +408,7 @@ func scanWorktrees() bool {
 		if s.Ignored || s.Paused {
 			continue
 		}
-		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.Domain)
+		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
 		if err != nil || len(worktrees) == 0 {
 			continue
 		}
@@ -397,7 +416,7 @@ func scanWorktrees() bool {
 			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
 			var vhostErr error
 			if s.Secured {
-				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.Domain)
+				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain())
 			} else {
 				vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, s.PHPVersion)
 			}
@@ -420,7 +439,7 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 	if err != nil {
 		return false
 	}
-	suffix := "." + site.Domain + ".conf"
+	suffix := "." + site.PrimaryDomain() + ".conf"
 	changed := false
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), suffix) {
@@ -429,11 +448,11 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 		}
 	}
 	// Re-generate for worktrees still present
-	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	for _, wt := range worktrees {
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.Domain)
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.PrimaryDomain())
 		} else {
 			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, site.PHPVersion)
 		}
@@ -469,7 +488,7 @@ func removeStale(cfg *config.GlobalConfig) bool {
 		}
 		if _, statErr := os.Stat(site.Path); os.IsNotExist(statErr) {
 			fmt.Printf("Removing stale site: %s (%s)\n", site.Name, site.Path)
-			_ = nginx.RemoveVhost(site.Domain)
+			_ = nginx.RemoveVhost(site.PrimaryDomain())
 			_ = config.RemoveSite(site.Name)
 			removed = true
 		}

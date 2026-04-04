@@ -94,7 +94,13 @@ func runQueueStart(queue string, tries, timeout int) error {
 		phpVersion = cfg.PHP.DefaultVersion
 	}
 
-	return queueStartExplicit(siteName, cwd, phpVersion, queue, tries, timeout)
+	if err := queueStartExplicit(siteName, cwd, phpVersion, queue, tries, timeout); err != nil {
+		return err
+	}
+	if site, err := config.FindSite(siteName); err == nil {
+		SyncLerdYAMLWorkers(site)
+	}
+	return nil
 }
 
 func runQueueStop() error {
@@ -112,7 +118,13 @@ func runQueueStop() error {
 		return err
 	}
 
-	return QueueStopForSite(siteName)
+	if err := QueueStopForSite(siteName); err != nil {
+		return err
+	}
+	if site, err := config.FindSite(siteName); err == nil {
+		SyncLerdYAMLWorkers(site)
+	}
+	return nil
 }
 
 func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, timeout int) error {

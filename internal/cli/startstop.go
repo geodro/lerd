@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -177,7 +178,136 @@ func allInstalledServiceUnits() []string {
 	return units
 }
 
+// portCheck pairs a host port with a human-readable label and container name.
+type portCheck struct {
+	port      string // host port number
+	label     string // e.g. "nginx HTTP", "mysql"
+	container string // lerd container name
+}
+
+// builtinExtraPorts lists secondary host ports for built-in services that are
+// hardcoded in the quadlet files but not reflected in config.ServiceConfig.Port.
+var builtinExtraPorts = map[string][]string{
+	"rustfs":  {"9001"},
+	"mailpit": {"8025"},
+}
+
+// hostPort extracts the host port from a port mapping string ("host:container").
+// If no colon is present the whole string is returned.
+func hostPort(mapping string) string {
+	if i := strings.Index(mapping, ":"); i >= 0 {
+		return mapping[:i]
+	}
+	return mapping
+}
+
+// collectPortChecks builds the list of ports to verify for the given units.
+func collectPortChecks(units []string) []portCheck {
+	unitSet := make(map[string]bool, len(units))
+	for _, u := range units {
+		unitSet[u] = true
+	}
+
+	var checks []portCheck
+
+	// Nginx ports (configurable).
+	if unitSet["lerd-nginx"] {
+		cfg, err := config.LoadGlobal()
+		httpPort := 80
+		httpsPort := 443
+		if err == nil {
+			if cfg.Nginx.HTTPPort > 0 {
+				httpPort = cfg.Nginx.HTTPPort
+			}
+			if cfg.Nginx.HTTPSPort > 0 {
+				httpsPort = cfg.Nginx.HTTPSPort
+			}
+		}
+		checks = append(checks,
+			portCheck{strconv.Itoa(httpPort), "nginx HTTP", "lerd-nginx"},
+			portCheck{strconv.Itoa(httpsPort), "nginx HTTPS", "lerd-nginx"},
+		)
+	}
+
+	// DNS port.
+	if unitSet["lerd-dns"] {
+		checks = append(checks, portCheck{"5300", "dns", "lerd-dns"})
+	}
+
+	// Built-in services.
+	cfg, _ := config.LoadGlobal()
+	for _, svc := range knownServices {
+		if !unitSet["lerd-"+svc] {
+			continue
+		}
+		container := "lerd-" + svc
+		if cfg != nil {
+			if sc, ok := cfg.Services[svc]; ok && sc.Port > 0 {
+				checks = append(checks, portCheck{strconv.Itoa(sc.Port), svc, container})
+			}
+			if sc, ok := cfg.Services[svc]; ok {
+				for _, ep := range sc.ExtraPorts {
+					checks = append(checks, portCheck{hostPort(ep), svc, container})
+				}
+			}
+		}
+		for _, ep := range builtinExtraPorts[svc] {
+			checks = append(checks, portCheck{ep, svc, container})
+		}
+	}
+
+	// Custom services.
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		if !unitSet["lerd-"+svc.Name] {
+			continue
+		}
+		container := "lerd-" + svc.Name
+		for _, p := range svc.Ports {
+			checks = append(checks, portCheck{hostPort(p), svc.Name, container})
+		}
+	}
+
+	return checks
+}
+
+// checkPortConflicts warns about ports already in use by non-lerd processes.
+func checkPortConflicts(units []string) {
+	checks := collectPortChecks(units)
+	if len(checks) == 0 {
+		return
+	}
+
+	ss := ssOutput()
+	if ss == "" {
+		return
+	}
+
+	var conflicts []string
+	for _, c := range checks {
+		running, _ := podman.ContainerRunning(c.container)
+		if running {
+			continue
+		}
+		if portInUseIn(c.port, ss) {
+			conflicts = append(conflicts,
+				fmt.Sprintf("  WARN: port %s (%s) already in use — may fail to start (check: ss -tlnp sport = :%s)", c.port, c.label, c.port))
+		}
+	}
+	if len(conflicts) > 0 {
+		fmt.Println("Port conflicts detected:")
+		for _, msg := range conflicts {
+			fmt.Println(msg)
+		}
+		fmt.Println()
+	}
+}
+
 func runStart(_ *cobra.Command, _ []string) error {
+	// Pre-flight port conflict check.
+	units := append(coreUnits(), installedServiceUnits()...)
+	checkPortConflicts(units)
+
 	// Build or pull any missing images before starting containers.
 	ensureImages()
 
@@ -201,7 +331,19 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  WARN: container hosts file: %v\n", err)
 	}
 
-	units := append(coreUnits(), installedServiceUnits()...)
+	// Pre-flight: repair SSL vhosts with missing cert files so nginx can start.
+	if repairs := nginx.RepairVhosts(); len(repairs) > 0 {
+		for _, r := range repairs {
+			switch r.Reason {
+			case "missing-cert":
+				fmt.Printf("  WARN: missing TLS certificate for %s — switched to HTTP\n", r.Domain)
+			case "orphan-ssl":
+				fmt.Printf("  WARN: removed orphan SSL vhost for %s\n", r.Domain)
+			}
+		}
+	}
+
+	units = append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui", "lerd-watcher")
 	units = append(units, registeredQueueUnits()...)
 	units = append(units, registeredStripeUnits()...)

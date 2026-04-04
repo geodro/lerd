@@ -72,14 +72,14 @@ func runUnpark(_ *cobra.Command, args []string) error {
 		if !strings.HasPrefix(site.Path, absDir+string(filepath.Separator)) {
 			continue
 		}
-		if err := nginx.RemoveVhost(site.Domain); err != nil {
+		if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
 			fmt.Printf("  [WARN] removing vhost for %s: %v\n", site.Name, err)
 		}
 		if err := config.RemoveSite(site.Name); err != nil {
 			fmt.Printf("  [WARN] removing site %s: %v\n", site.Name, err)
 			continue
 		}
-		fmt.Printf("  - %s (%s)\n", site.Name, site.Domain)
+		fmt.Printf("  - %s (%s)\n", site.Name, site.PrimaryDomain())
 		removed++
 	}
 

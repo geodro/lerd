@@ -124,6 +124,8 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(handleInstallNodeVersion))
 	mux.HandleFunc("/api/node-versions/", withCORS(handleNodeVersionAction))
+	mux.HandleFunc("/api/sites/link", withCORS(handleSiteLink))
+	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
 	mux.HandleFunc("/api/sites/", withCORS(handleSiteAction))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
@@ -340,12 +342,14 @@ type WorkerStatus struct {
 	Name    string `json:"name"`
 	Label   string `json:"label"`
 	Running bool   `json:"running"`
+	Failing bool   `json:"failing,omitempty"`
 }
 
 // SiteResponse is the response for GET /api/sites.
 type SiteResponse struct {
 	Name              string             `json:"name"`
 	Domain            string             `json:"domain"`
+	Domains           []string           `json:"domains"`
 	Path              string             `json:"path"`
 	PHPVersion        string             `json:"php_version"`
 	NodeVersion       string             `json:"node_version"`
@@ -355,13 +359,17 @@ type SiteResponse struct {
 	IsLaravel         bool               `json:"is_laravel"`
 	FrameworkLabel    string             `json:"framework_label"`
 	QueueRunning      bool               `json:"queue_running"`
+	QueueFailing      bool               `json:"queue_failing,omitempty"`
 	StripeRunning     bool               `json:"stripe_running"`
 	StripeSecretSet   bool               `json:"stripe_secret_set"`
 	ScheduleRunning   bool               `json:"schedule_running"`
+	ScheduleFailing   bool               `json:"schedule_failing,omitempty"`
 	ReverbRunning     bool               `json:"reverb_running"`
+	ReverbFailing     bool               `json:"reverb_failing,omitempty"`
 	HasReverb         bool               `json:"has_reverb"`
 	HasHorizon        bool               `json:"has_horizon"`
 	HorizonRunning    bool               `json:"horizon_running"`
+	HorizonFailing    bool               `json:"horizon_failing,omitempty"`
 	HasQueueWorker    bool               `json:"has_queue_worker"`
 	HasScheduleWorker bool               `json:"has_schedule_worker"`
 	FrameworkWorkers  []WorkerStatus     `json:"framework_workers,omitempty"`
@@ -487,13 +495,14 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 					Name:    wname,
 					Label:   label,
 					Running: unitStatus == "active",
+					Failing: unitStatus == "activating" || unitStatus == "failed",
 				})
 			}
 		}
 
 		worktreeResponses := []WorktreeResponse{}
 		mainBranch := gitpkg.MainBranch(s.Path)
-		if wts, err := gitpkg.DetectWorktrees(s.Path, s.Domain); err == nil {
+		if wts, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain()); err == nil {
 			for _, wt := range wts {
 				worktreeResponses = append(worktreeResponses, WorktreeResponse{
 					Branch: wt.Branch,
@@ -505,7 +514,8 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 		sites = append(sites, SiteResponse{
 			Name:              s.Name,
-			Domain:            s.Domain,
+			Domain:            s.PrimaryDomain(),
+			Domains:           s.Domains,
 			Path:              s.Path,
 			PHPVersion:        phpVersion,
 			NodeVersion:       nodeVersion,
@@ -515,13 +525,17 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			FrameworkLabel:    frameworkLabel(fwName),
 			FPMRunning:        fpmRunning,
 			QueueRunning:      queueStatus == "active",
+			QueueFailing:      queueStatus == "activating" || queueStatus == "failed",
 			StripeRunning:     stripeStatus == "active",
 			StripeSecretSet:   stripeSecretSet,
 			ScheduleRunning:   scheduleStatus == "active",
+			ScheduleFailing:   scheduleStatus == "activating" || scheduleStatus == "failed",
 			ReverbRunning:     reverbStatus == "active",
+			ReverbFailing:     reverbStatus == "activating" || reverbStatus == "failed",
 			HasReverb:         hasReverb,
 			HasHorizon:        hasHorizon,
 			HorizonRunning:    horizonStatus == "active",
+			HorizonFailing:    horizonStatus == "activating" || horizonStatus == "failed",
 			HasQueueWorker:    hasQueueWorker,
 			HasScheduleWorker: hasScheduleWorker,
 			FrameworkWorkers:  fwWorkers,
@@ -995,6 +1009,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot remove built-in service", http.StatusForbidden)
 			return
 		}
+		_ = svcpkg.Mgr.Stop(unit)
 		if err := svcpkg.Mgr.RemoveContainerUnit(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
@@ -1092,7 +1107,7 @@ func sitesUsingService(name string) []string {
 	needle := "lerd-" + name
 	var domains []string
 	for _, s := range reg.Sites {
-		if s.Ignored {
+		if s.Ignored || s.Paused {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
@@ -1100,7 +1115,7 @@ func sitesUsingService(name string) []string {
 			continue
 		}
 		if strings.Contains(string(data), needle) {
-			domains = append(domains, s.Domain)
+			domains = append(domains, s.PrimaryDomain())
 		}
 	}
 	return domains
@@ -1195,7 +1210,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.Secured = true
-		envfile.UpdateAppURL(site.Path, "https", site.Domain) //nolint:errcheck
+		envfile.UpdateAppURL(site.Path, "https", site.PrimaryDomain()) //nolint:errcheck
 		syncLerdYAMLSecured(site.Path, true)
 		needsReload = true
 	case "unsecure":
@@ -1204,7 +1219,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.Secured = false
-		envfile.UpdateAppURL(site.Path, "http", site.Domain) //nolint:errcheck
+		envfile.UpdateAppURL(site.Path, "http", site.PrimaryDomain()) //nolint:errcheck
 		syncLerdYAMLSecured(site.Path, false)
 		needsReload = true
 	case "php":
@@ -1277,6 +1292,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			phpVersion = detected
 		}
 		go cli.HorizonStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		go syncLerdYAMLWorkersDelayed(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "horizon:stop":
@@ -1284,6 +1300,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		syncLerdYAMLWorkers(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "queue:start":
@@ -1292,6 +1309,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			phpVersion = detected
 		}
 		go cli.QueueStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		go syncLerdYAMLWorkersDelayed(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "queue:stop":
@@ -1299,6 +1317,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		syncLerdYAMLWorkers(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "stripe:start":
@@ -1306,7 +1325,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		if site.Secured {
 			scheme = "https"
 		}
-		go cli.StripeStartForSite(site.Name, site.Path, scheme+"://"+site.Domain) //nolint:errcheck
+		go cli.StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "stripe:stop":
@@ -1322,6 +1341,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			phpVersion = detected
 		}
 		go cli.ScheduleStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		go syncLerdYAMLWorkersDelayed(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "schedule:stop":
@@ -1329,6 +1349,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		syncLerdYAMLWorkers(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "reverb:start":
@@ -1337,6 +1358,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			phpVersion = detected
 		}
 		go cli.ReverbStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
+		go syncLerdYAMLWorkersDelayed(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "reverb:stop":
@@ -1344,6 +1366,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		syncLerdYAMLWorkers(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "terminal":
@@ -1351,6 +1374,138 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "domain:add":
+		domainName := r.URL.Query().Get("name")
+		if domainName == "" {
+			writeJSON(w, SiteActionResponse{Error: "name parameter required"})
+			return
+		}
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil {
+			writeJSON(w, SiteActionResponse{Error: "loading config: " + cfgErr.Error()})
+			return
+		}
+		fullDomain := strings.ToLower(domainName) + "." + cfg.DNS.TLD
+		if site.HasDomain(fullDomain) {
+			writeJSON(w, SiteActionResponse{Error: "site already has domain " + fullDomain})
+			return
+		}
+		if existing, eErr := config.IsDomainUsed(fullDomain); eErr == nil && existing != nil {
+			writeJSON(w, SiteActionResponse{Error: "domain " + fullDomain + " is already used by site " + existing.Name})
+			return
+		}
+		oldPrimary := site.PrimaryDomain()
+		site.Domains = append(site.Domains, fullDomain)
+		if err := config.AddSite(*site); err != nil {
+			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
+			return
+		}
+		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		if site.Secured {
+			certsDir := filepath.Join(config.CertsDir(), "sites")
+			_ = certs.IssueCert(site.PrimaryDomain(), site.Domains, certsDir)
+		}
+		_ = podman.WriteContainerHosts()
+		_ = nginx.Reload()
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "domain:edit":
+		oldName := r.URL.Query().Get("old")
+		newName := r.URL.Query().Get("new")
+		if oldName == "" || newName == "" {
+			writeJSON(w, SiteActionResponse{Error: "old and new parameters required"})
+			return
+		}
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil {
+			writeJSON(w, SiteActionResponse{Error: "loading config: " + cfgErr.Error()})
+			return
+		}
+		oldDomain := strings.ToLower(oldName) + "." + cfg.DNS.TLD
+		newDomain := strings.ToLower(newName) + "." + cfg.DNS.TLD
+		if !site.HasDomain(oldDomain) {
+			writeJSON(w, SiteActionResponse{Error: "site does not have domain " + oldDomain})
+			return
+		}
+		if oldDomain != newDomain {
+			if existing, eErr := config.IsDomainUsed(newDomain); eErr == nil && existing != nil && existing.Path != site.Path {
+				writeJSON(w, SiteActionResponse{Error: "domain " + newDomain + " is already used by site " + existing.Name})
+				return
+			}
+		}
+		oldPrimary := site.PrimaryDomain()
+		for i, d := range site.Domains {
+			if d == oldDomain {
+				site.Domains[i] = newDomain
+				break
+			}
+		}
+		if err := config.AddSite(*site); err != nil {
+			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
+			return
+		}
+		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		if site.Secured {
+			certsDir := filepath.Join(config.CertsDir(), "sites")
+			_ = certs.IssueCert(site.PrimaryDomain(), site.Domains, certsDir)
+		}
+		_ = podman.WriteContainerHosts()
+		_ = nginx.Reload()
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "domain:remove":
+		domainName := r.URL.Query().Get("name")
+		if domainName == "" {
+			writeJSON(w, SiteActionResponse{Error: "name parameter required"})
+			return
+		}
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil {
+			writeJSON(w, SiteActionResponse{Error: "loading config: " + cfgErr.Error()})
+			return
+		}
+		fullDomain := strings.ToLower(domainName) + "." + cfg.DNS.TLD
+		if !site.HasDomain(fullDomain) {
+			writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
+			return
+		}
+		if len(site.Domains) <= 1 {
+			writeJSON(w, SiteActionResponse{Error: "cannot remove the last domain"})
+			return
+		}
+		oldPrimary := site.PrimaryDomain()
+		var newDomains []string
+		for _, d := range site.Domains {
+			if d != fullDomain {
+				newDomains = append(newDomains, d)
+			}
+		}
+		site.Domains = newDomains
+		if err := config.AddSite(*site); err != nil {
+			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
+			return
+		}
+		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		if site.Secured {
+			certsDir := filepath.Join(config.CertsDir(), "sites")
+			_ = certs.IssueCert(site.PrimaryDomain(), site.Domains, certsDir)
+		}
+		_ = podman.WriteContainerHosts()
+		_ = nginx.Reload()
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	default:
@@ -1379,11 +1534,13 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 				}
 				if parts[2] == "start" {
 					go cli.WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
+					go syncLerdYAMLWorkersDelayed(site)
 				} else {
 					if err := cli.WorkerStopForSite(site.Name, workerName); err != nil {
 						writeJSON(w, SiteActionResponse{Error: err.Error()})
 						return
 					}
+					syncLerdYAMLWorkers(site)
 				}
 				writeJSON(w, SiteActionResponse{OK: true})
 				return
@@ -1951,5 +2108,142 @@ func syncLerdYAMLSecured(projectPath string, secured bool) {
 	}
 	proj, _ := config.LoadProjectConfig(projectPath)
 	proj.Secured = secured
+	_ = config.SaveProjectConfig(projectPath, proj)
+}
+
+// uiRegenerateSiteVhost regenerates the nginx vhost for a site after a domain change.
+func uiRegenerateSiteVhost(site *config.Site, oldPrimary string) error {
+	newPrimary := site.PrimaryDomain()
+	if oldPrimary != newPrimary {
+		_ = nginx.RemoveVhost(oldPrimary)
+	}
+	if site.Secured {
+		if err := nginx.GenerateSSLVhost(*site, site.PHPVersion); err != nil {
+			return err
+		}
+		sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
+		mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
+		_ = os.Remove(mainConf)
+		return os.Rename(sslConf, mainConf)
+	}
+	return nginx.GenerateVhost(*site, site.PHPVersion)
+}
+
+// handleBrowse returns a listing of directories for the file browser.
+func handleBrowse(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("dir")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = home
+	}
+	dir = filepath.Clean(dir)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+
+	type dirEntry struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+	var dirs []dirEntry
+	// Always include parent
+	parent := filepath.Dir(dir)
+	if parent != dir {
+		dirs = append(dirs, dirEntry{Name: "..", Path: parent})
+	}
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		dirs = append(dirs, dirEntry{Name: e.Name(), Path: filepath.Join(dir, e.Name())})
+	}
+	writeJSON(w, map[string]any{"current": dir, "dirs": dirs})
+}
+
+// handleSiteLink links a directory as a site via POST /api/sites/link.
+func handleSiteLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, SiteActionResponse{Error: "path parameter required"})
+		return
+	}
+	path = filepath.Clean(path)
+
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		writeJSON(w, SiteActionResponse{Error: "not a valid directory: " + path})
+		return
+	}
+
+	// Run lerd link in the target directory.
+	self, err := os.Executable()
+	if err != nil {
+		writeJSON(w, SiteActionResponse{Error: "resolving executable: " + err.Error()})
+		return
+	}
+	cmd := exec.Command(self, "link")
+	cmd.Dir = path
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		writeJSON(w, SiteActionResponse{Error: "link failed: " + out.String()})
+		return
+	}
+
+	// Run env setup (non-fatal — may not be a Laravel project).
+	envCmd := exec.Command(self, "env")
+	envCmd.Dir = path
+	_ = envCmd.Run()
+
+	// Find the newly linked site to return its domain.
+	site, err := config.FindSiteByPath(path)
+	if err != nil {
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "domain": site.PrimaryDomain()})
+}
+
+// syncLerdYAMLWorkersDelayed waits briefly for the worker unit to start, then syncs.
+func syncLerdYAMLWorkersDelayed(site *config.Site) {
+	time.Sleep(2 * time.Second)
+	syncLerdYAMLWorkers(site)
+}
+
+// syncLerdYAMLWorkers updates the workers list in .lerd.yaml based on which
+// workers are currently running for the site.
+func syncLerdYAMLWorkers(site *config.Site) {
+	lerdYAML := filepath.Join(site.Path, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	running := cli.CollectRunningWorkerNames(site)
+	proj, _ := config.LoadProjectConfig(site.Path)
+	proj.Workers = running
+	_ = config.SaveProjectConfig(site.Path, proj)
+}
+
+// syncLerdYAMLDomains updates domains in .lerd.yaml (name-only, no TLD).
+func syncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
+	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(projectPath)
+	suffix := "." + tld
+	var names []string
+	for _, d := range fullDomains {
+		names = append(names, strings.TrimSuffix(d, suffix))
+	}
+	proj.Domains = names
 	_ = config.SaveProjectConfig(projectPath, proj)
 }

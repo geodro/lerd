@@ -73,23 +73,21 @@ The tray uses the **StatusNotifierItem (SNI) / AppIndicator** protocol (DBus-bas
 
 The tray uses CGO and requires `libappindicator3` at build time:
 
-=== "Arch"
+::: code-group
 
-    ```bash
-    sudo pacman -S libappindicator-gtk3
-    ```
+```bash [Arch]
+sudo pacman -S libappindicator-gtk3
+```
 
-=== "Debian / Ubuntu"
+```bash [Debian / Ubuntu]
+sudo apt install libappindicator3-dev
+```
 
-    ```bash
-    sudo apt install libappindicator3-dev
-    ```
+```bash [Fedora]
+sudo dnf install libappindicator-gtk3-devel
+```
 
-=== "Fedora"
-
-    ```bash
-    sudo dnf install libappindicator-gtk3-devel
-    ```
+:::
 
 For headless / CI builds without AppIndicator:
 

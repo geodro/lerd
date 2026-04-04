@@ -41,3 +41,35 @@ Services prefixed with `From .lerd.yaml` were not referenced in the env file but
 ## Safe to re-run
 
 Running `lerd env` on a project that already has a `.env` is safe — it only updates connection-related keys and leaves everything else untouched.
+
+---
+
+## Checking for drift
+
+`lerd env:check` compares all `.env` files in the project against `.env.example` and shows a single table of any keys that are out of sync:
+
+```bash
+lerd env:check
+```
+
+Example output when keys are out of sync:
+
+```
+  KEY              .env.example  .env  .env.testing
+  ---------------  ------------  ----  ------------
+  STRIPE_KEY            ✓         ✗         ✗
+  STRIPE_SECRET         ✓         ✗         ✗
+  LEGACY_TOKEN          ✗         ✓         ✗
+
+  3 key(s) out of sync
+```
+
+When everything is in sync:
+
+```
+  all .env files are in sync with .env.example
+```
+
+The command automatically discovers all `.env*` files in the project directory (`.env`, `.env.testing`, `.env.local`, etc.) and checks each one against `.env.example`. Only keys that differ in at least one file are shown.
+
+The command exits with a non-zero status when any `.env` file is missing a key defined in `.env.example` (✓ in `.env.example`, ✗ in an env file). Extra keys (present in an env file but not in `.env.example`) are reported but don't cause a failure.

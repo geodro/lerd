@@ -5,10 +5,12 @@
 | Command | Description |
 |---|---|
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
-| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; builds or pulls any missing images first |
+| `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; warns about port conflicts and builds or pulls any missing images first |
 | `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
 | `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray |
 | `lerd update` | Check for updates and update after confirmation |
+| `lerd update --beta` | Update to the latest pre-release build |
+| `lerd update --rollback` | Revert to the previously installed version |
 | `lerd whatsnew` | Show what changed between the installed version and the latest release |
 | `lerd uninstall` | Stop all containers and remove Lerd |
 | `lerd uninstall --force` | Same, skipping all confirmation prompts |
@@ -19,8 +21,10 @@
 | `lerd autostart tray disable` | Disable tray autostart |
 | `lerd dns:check` | Verify that `*.test` resolves to `127.0.0.1` |
 | `lerd status` | Health summary: DNS, nginx, PHP-FPM containers, watcher, services, cert expiry; shows a notice if an update is available |
+| `lerd which` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
 | `lerd about` | Show version, build info, and project URL |
 | `lerd man [page]` | Browse the built-in documentation in the terminal; pass a page name to jump directly (e.g. `lerd man sites`) |
+| `lerd check` | Validate `.lerd.yaml` syntax, services, and PHP version before setup |
 | `lerd doctor` | Full environment diagnostic — podman, systemd, DNS, ports, PHP images, config validity |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 
@@ -59,6 +63,7 @@
 | `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
 | `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings |
+| `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 
 ## PHP
 

@@ -144,6 +144,46 @@ func TestUpdateAppURL_setsHTTPS(t *testing.T) {
 	}
 }
 
+// ── ReadKeys ─────────────────────────────────────────────────────────────────
+
+func TestReadKeys_returnsAllKeys(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\nDB_HOST=localhost\nAPP_ENV=local\n")
+	keys, err := ReadKeys(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"APP_NAME", "DB_HOST", "APP_ENV"}
+	if len(keys) != len(want) {
+		t.Fatalf("got %d keys, want %d", len(keys), len(want))
+	}
+	for i, k := range keys {
+		if k != want[i] {
+			t.Errorf("key[%d] = %q, want %q", i, k, want[i])
+		}
+	}
+}
+
+func TestReadKeys_skipsCommentsAndBlanks(t *testing.T) {
+	f := writeEnv(t, "# a comment\nAPP_NAME=MyApp\n\n# another\nDB_HOST=localhost\n")
+	keys, err := ReadKeys(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("got %d keys, want 2: %v", len(keys), keys)
+	}
+	if keys[0] != "APP_NAME" || keys[1] != "DB_HOST" {
+		t.Errorf("unexpected keys: %v", keys)
+	}
+}
+
+func TestReadKeys_missingFile(t *testing.T) {
+	_, err := ReadKeys("/nonexistent/.env")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
 func TestUpdateAppURL_noEnvFile_silent(t *testing.T) {
 	// Should silently return nil when .env doesn't exist
 	err := UpdateAppURL(t.TempDir(), "https", "myapp.test")

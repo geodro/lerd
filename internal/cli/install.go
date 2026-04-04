@@ -35,15 +35,18 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
-	// On macOS, Podman Machine must be running before any podman commands.
-	ensurePodmanMachineRunning()
-
+	// Install the port forwarding helper and configure unprivileged ports before
+	// starting Podman Machine so that gvproxy starts with the helper already in
+	// place and can forward ports 80/443 from the macOS host on first run.
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
 	}
 	if err := ensurePortForwarding(); err != nil {
 		return err
 	}
+
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
 
 	// 1. Directories
 	step("Creating directories")
@@ -119,22 +122,27 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if err == nil {
 		cfg, _ := config.LoadGlobal()
 		for _, site := range reg.Sites {
+			// Skip paused and ignored sites — they have their own vhosts
+			// (landing page or none) that should not be overwritten.
+			if site.Paused || site.Ignored {
+				continue
+			}
 			phpVer := site.PHPVersion
 			if phpVer == "" && cfg != nil {
 				phpVer = cfg.PHP.DefaultVersion
 			}
 			if site.Secured {
 				if err := nginx.GenerateSSLVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.Domain, err)
+					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
 					continue
 				}
-				sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
-				mainConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+				sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+				mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 				os.Remove(mainConf)          //nolint:errcheck
 				os.Rename(sslConf, mainConf) //nolint:errcheck
 			} else {
 				if err := nginx.GenerateVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.Domain, err)
+					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
 				}
 			}
 		}

@@ -88,3 +88,12 @@ func IsServiceActive(name string) bool {
 	out, _ := cmd.Output()
 	return strings.TrimSpace(string(out)) == "active"
 }
+
+// IsServiceActiveOrRestarting returns true if the service is active or in a
+// restart loop (activating). Used to detect workers that should be stopped on unlink.
+func IsServiceActiveOrRestarting(name string) bool {
+	cmd := exec.Command("systemctl", "--user", "is-active", name)
+	out, _ := cmd.Output()
+	state := strings.TrimSpace(string(out))
+	return state == "active" || state == "activating"
+}

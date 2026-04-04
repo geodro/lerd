@@ -53,7 +53,7 @@ lerd mcp:inject --path ~/Lerd/another-app
 
 ### Path resolution
 
-Tools like `artisan`, `composer`, `env_setup`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
+Tools like `artisan`, `composer`, `env_setup`, `env_check`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
 
 1. Explicit `path` argument (highest priority)
 2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
@@ -79,8 +79,11 @@ Once the MCP server is connected, your AI assistant has access to:
 | `node_install` | Install a Node.js version via fnm (e.g. `"20"`, `"lts"`) |
 | `node_uninstall` | Uninstall a Node.js version via fnm |
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
+| `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 | `site_link` | Register a directory as a lerd site — generates nginx vhost and `.test` domain |
-| `site_unlink` | Unregister a site and remove its nginx vhost |
+| `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |
+| `site_domain_add` | Add an additional domain to a site (without TLD) |
+| `site_domain_remove` | Remove a domain from a site (cannot remove last) |
 | `park` | Register a parent directory — scans subdirectories and auto-registers any PHP projects as sites |
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |
@@ -122,6 +125,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `logs` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher — use when a site isn't loading |
 | `doctor` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates — use when the user reports setup issues |
+| `which` | Show the resolved PHP version, Node version, document root, and nginx config for the current site |
+| `check` | Validate `.lerd.yaml` syntax, PHP version, services, and framework — reports OK/WARN/FAIL per field |
 
 ---
 

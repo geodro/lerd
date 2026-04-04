@@ -106,7 +106,16 @@
     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-lerd-border shrink-0 min-h-[48px]">
       <div x-show="tab==='sites'" class="flex items-center justify-between w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sites</span>
-        <button @click="loadSites()" class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">Refresh</button>
+        <div class="flex items-center gap-1">
+          <button @click="openLinkModal()" title="Link new site"
+            class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          </button>
+          <button @click="loadSites()" title="Refresh"
+            class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20.49 9A9 9 0 005.64 5.64L4 4m16 16l-1.64-1.64A9 9 0 014.51 15"/></svg>
+          </button>
+        </div>
       </div>
       <div x-show="tab==='services'" class="flex items-center w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Services</span>
@@ -144,6 +153,7 @@
             <span class="flex-1 text-sm truncate" x-text="site.domain"></span>
             <svg x-show="site.tls" class="w-3 h-3 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
             <svg x-show="site.worktrees && site.worktrees.length > 0" class="w-3 h-3 shrink-0 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/></svg>
+            <span x-show="site.queue_failing || site.horizon_failing || site.schedule_failing || site.reverb_failing || (site.framework_workers || []).some(w => w.failing)" class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500 animate-pulse" title="Worker failing"></span>
             <span x-show="site.queue_running || site.horizon_running" class="w-1.5 h-1.5 rounded-full shrink-0 bg-amber-400"></span>
             <span x-show="site.stripe_running" class="w-1.5 h-1.5 rounded-full shrink-0 bg-violet-400"></span>
             <span x-show="site.schedule_running" class="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-400"></span>
@@ -498,6 +508,25 @@
                         class="font-semibold text-lerd-red hover:text-lerd-redhov transition-colors"
                         x-text="selectedSite.domain"
                       ></a>
+                      <template x-if="(selectedSite.domains || []).length > 1">
+                        <span class="relative cursor-default" x-data="{ show: false }" @mouseenter="show = true" @mouseleave="show = false">
+                          <span class="text-xs text-gray-400 dark:text-gray-500" x-text="'+' + (selectedSite.domains.length - 1) + ' more'"></span>
+                          <div x-show="show" x-transition.opacity class="absolute left-0 top-full mt-1 z-50 bg-gray-900 dark:bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
+                            <template x-for="d in selectedSite.domains.slice(1)" :key="d">
+                              <a :href="(selectedSite.tls ? 'https://' : 'http://') + d" @click.prevent="window.open((selectedSite.tls ? 'https://' : 'http://') + d, '_blank', 'noopener')"
+                                class="flex items-center gap-1.5 py-0.5 font-mono text-white hover:text-lerd-red transition-colors cursor-pointer">
+                                <span x-text="d"></span>
+                                <svg class="w-3 h-3 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                              </a>
+                            </template>
+                          </div>
+                        </span>
+                      </template>
+                      <button x-show="!selectedSite.paused"
+                        @click="openDomainModal(selectedSite)"
+                        class="text-gray-400 hover:text-lerd-red transition-colors" title="Manage domains">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                      </button>
                       <template x-if="!selectedSite.paused && selectedSite.fpm_running">
                         <span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full">
                           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>running
@@ -607,10 +636,10 @@
 
                   <!-- Queue -->
                   <div x-show="selectedSite.has_queue_worker" class="flex items-center gap-1.5">
-                    <button @click="toggleQueue(selectedSite)" :disabled="selectedSite.queueLoading" :title="selectedSite.queue_running ? 'Stop queue worker' : 'Start queue worker'"
+                    <button @click="toggleQueue(selectedSite)" :disabled="selectedSite.queueLoading" :title="selectedSite.queue_failing ? 'Queue worker is failing — click to restart' : selectedSite.queue_running ? 'Stop queue worker' : 'Start queue worker'"
                       class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                      :class="selectedSite.queue_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'">
-                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.queue_running ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                      :class="selectedSite.queue_failing ? 'bg-red-500 animate-pulse' : selectedSite.queue_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.queue_running || selectedSite.queue_failing ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
                       <svg x-show="selectedSite.queueLoading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
                     </button>
                     <span class="text-xs text-gray-500 dark:text-gray-400">Queue</span>
@@ -619,10 +648,10 @@
 
                   <!-- Horizon -->
                   <div x-show="selectedSite.has_horizon" class="flex items-center gap-1.5">
-                    <button @click="toggleHorizon(selectedSite)" :disabled="selectedSite.horizonLoading" :title="selectedSite.horizon_running ? 'Stop Horizon' : 'Start Horizon'"
+                    <button @click="toggleHorizon(selectedSite)" :disabled="selectedSite.horizonLoading" :title="selectedSite.horizon_failing ? 'Horizon is failing — click to restart' : selectedSite.horizon_running ? 'Stop Horizon' : 'Start Horizon'"
                       class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                      :class="selectedSite.horizon_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'">
-                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.horizon_running ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                      :class="selectedSite.horizon_failing ? 'bg-red-500 animate-pulse' : selectedSite.horizon_running ? 'bg-amber-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.horizon_running || selectedSite.horizon_failing ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
                       <svg x-show="selectedSite.horizonLoading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
                     </button>
                     <span class="text-xs text-gray-500 dark:text-gray-400">Horizon</span>
@@ -643,10 +672,10 @@
 
                   <!-- Schedule -->
                   <div x-show="selectedSite.has_schedule_worker" class="flex items-center gap-1.5">
-                    <button @click="toggleSchedule(selectedSite)" :disabled="selectedSite.scheduleLoading" :title="selectedSite.schedule_running ? 'Stop scheduler' : 'Start scheduler'"
+                    <button @click="toggleSchedule(selectedSite)" :disabled="selectedSite.scheduleLoading" :title="selectedSite.schedule_failing ? 'Scheduler is failing — click to restart' : selectedSite.schedule_running ? 'Stop scheduler' : 'Start scheduler'"
                       class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                      :class="selectedSite.schedule_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-lerd-muted'">
-                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.schedule_running ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                      :class="selectedSite.schedule_failing ? 'bg-red-500 animate-pulse' : selectedSite.schedule_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.schedule_running || selectedSite.schedule_failing ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
                       <svg x-show="selectedSite.scheduleLoading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
                     </button>
                     <span class="text-xs text-gray-500 dark:text-gray-400">Schedule</span>
@@ -655,10 +684,10 @@
 
                   <!-- Reverb -->
                   <div x-show="selectedSite.has_reverb" class="flex items-center gap-1.5">
-                    <button @click="toggleReverb(selectedSite)" :disabled="selectedSite.reverbLoading" :title="selectedSite.reverb_running ? 'Stop Reverb' : 'Start Reverb WebSocket server'"
+                    <button @click="toggleReverb(selectedSite)" :disabled="selectedSite.reverbLoading" :title="selectedSite.reverb_failing ? 'Reverb is failing — click to restart' : selectedSite.reverb_running ? 'Stop Reverb' : 'Start Reverb WebSocket server'"
                       class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                      :class="selectedSite.reverb_running ? 'bg-sky-500' : 'bg-gray-300 dark:bg-lerd-muted'">
-                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.reverb_running ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                      :class="selectedSite.reverb_failing ? 'bg-red-500 animate-pulse' : selectedSite.reverb_running ? 'bg-sky-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.reverb_running || selectedSite.reverb_failing ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
                       <svg x-show="selectedSite.reverbLoading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
                     </button>
                     <span class="text-xs text-gray-500 dark:text-gray-400">Reverb</span>
@@ -668,10 +697,10 @@
                   <!-- Custom framework workers -->
                   <template x-for="worker in (selectedSite.framework_workers || [])" :key="'toggle-' + worker.name">
                     <div class="flex items-center gap-1.5">
-                      <button @click="toggleWorker(selectedSite, worker)" :disabled="worker.loading" :title="worker.running ? 'Stop ' + worker.label : 'Start ' + worker.label"
+                      <button @click="toggleWorker(selectedSite, worker)" :disabled="worker.loading" :title="worker.failing ? worker.label + ' is failing — click to restart' : worker.running ? 'Stop ' + worker.label : 'Start ' + worker.label"
                         class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                        :class="worker.running ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-lerd-muted'">
-                        <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="worker.running ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                        :class="worker.failing ? 'bg-red-500 animate-pulse' : worker.running ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                        <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="worker.running || worker.failing ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
                         <svg x-show="worker.loading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
                       </button>
                       <span class="text-xs text-gray-500 dark:text-gray-400" x-text="worker.label"></span>
@@ -727,23 +756,23 @@
               <div class="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div class="flex items-center gap-0 border-b border-gray-100 dark:border-lerd-border px-3 sm:px-5 pt-3 shrink-0">
                   <button @click="setSiteLogsTab('fpm')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='fpm' ? 'border-lerd-red text-lerd-red' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">PHP-FPM</button>
-                  <template x-if="selectedSite && selectedSite.queue_running">
-                    <button @click="setSiteLogsTab('queue')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='queue' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">Queue</button>
+                  <template x-if="selectedSite && (selectedSite.queue_running || selectedSite.queue_failing)">
+                    <button @click="setSiteLogsTab('queue')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='queue' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : selectedSite.queue_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.queue_failing ? 'Queue !' : 'Queue'"></button>
                   </template>
-                  <template x-if="selectedSite && selectedSite.horizon_running">
-                    <button @click="setSiteLogsTab('horizon')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='horizon' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">Horizon</button>
+                  <template x-if="selectedSite && (selectedSite.horizon_running || selectedSite.horizon_failing)">
+                    <button @click="setSiteLogsTab('horizon')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='horizon' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : selectedSite.horizon_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.horizon_failing ? 'Horizon !' : 'Horizon'"></button>
                   </template>
                   <template x-if="selectedSite && selectedSite.stripe_running">
                     <button @click="setSiteLogsTab('stripe')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='stripe' ? 'border-violet-500 text-violet-600 dark:text-violet-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">Stripe</button>
                   </template>
-                  <template x-if="selectedSite && selectedSite.schedule_running">
-                    <button @click="setSiteLogsTab('schedule')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='schedule' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">Schedule</button>
+                  <template x-if="selectedSite && (selectedSite.schedule_running || selectedSite.schedule_failing)">
+                    <button @click="setSiteLogsTab('schedule')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='schedule' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : selectedSite.schedule_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.schedule_failing ? 'Schedule !' : 'Schedule'"></button>
                   </template>
-                  <template x-if="selectedSite && selectedSite.reverb_running">
-                    <button @click="setSiteLogsTab('reverb')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='reverb' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">Reverb</button>
+                  <template x-if="selectedSite && (selectedSite.reverb_running || selectedSite.reverb_failing)">
+                    <button @click="setSiteLogsTab('reverb')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='reverb' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : selectedSite.reverb_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.reverb_failing ? 'Reverb !' : 'Reverb'"></button>
                   </template>
-                  <template x-for="worker in (selectedSite && selectedSite.framework_workers || []).filter(w => w.running)" :key="'tab-' + worker.name">
-                    <button @click="setSiteLogsTab('worker:' + worker.name)" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab === 'worker:' + worker.name ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="worker.label"></button>
+                  <template x-for="worker in (selectedSite && selectedSite.framework_workers || []).filter(w => w.running || w.failing)" :key="'tab-' + worker.name">
+                    <button @click="setSiteLogsTab('worker:' + worker.name)" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab === 'worker:' + worker.name ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : worker.failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="worker.failing ? worker.label + ' !' : worker.label"></button>
                   </template>
                 </div>
 
@@ -1488,6 +1517,8 @@ function lerdApp() {
     sites: [],
     sitesLoading: false,
     selectedSiteDomain: null,
+    domainModal: { open: false, site: null, domains: [], newDomain: '', editIndex: -1, editValue: '', error: '', loading: false },
+    linkModal: { open: false, currentDir: '', dirs: [], loading: false, linking: false, error: '' },
     phpVersions: [],
     nodeVersions: [],
     services: [],
@@ -2100,9 +2131,151 @@ function lerdApp() {
       }
     },
 
+    get tld() {
+      return this.systemStatus.dns ? this.systemStatus.dns.tld : 'test';
+    },
+
     openSite(site) {
       const url = (site.tls ? 'https://' : 'http://') + site.domain;
       window.open(url, '_blank', 'noopener');
+    },
+
+    openDomainModal(site) {
+      const suffix = '.' + this.tld;
+      this.domainModal = {
+        open: true,
+        site: site,
+        domains: (site.domains || [site.domain]).map(d => d.endsWith(suffix) ? d.slice(0, -suffix.length) : d),
+        newDomain: '',
+        editIndex: -1,
+        editValue: '',
+        error: '',
+        loading: false,
+      };
+    },
+
+    _refreshDomainModal(siteName) {
+      const m = this.domainModal;
+      const updated = this.sites.find(s => s.name === siteName);
+      if (updated) {
+        m.site = updated;
+        this.selectedSiteDomain = updated.domain;
+        const suffix = '.' + this.tld;
+        m.domains = (updated.domains || [updated.domain]).map(d => d.endsWith(suffix) ? d.slice(0, -suffix.length) : d);
+      }
+    },
+
+    async openLinkModal() {
+      this.linkModal = { open: true, currentDir: '', dirs: [], loading: true, linking: false, error: '' };
+      await this.browseDir('');
+    },
+
+    closeLinkModal() {
+      this.linkModal.open = false;
+    },
+
+    async browseDir(dir) {
+      const m = this.linkModal;
+      m.loading = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/browse?dir=${encodeURIComponent(dir)}`);
+        const data = await res.json();
+        if (data.error) { m.error = data.error; m.loading = false; return; }
+        m.currentDir = data.current;
+        m.dirs = data.dirs || [];
+      } catch (e) { m.error = e.message; }
+      m.loading = false;
+    },
+
+    async linkSite() {
+      const m = this.linkModal;
+      m.linking = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/sites/link?path=${encodeURIComponent(m.currentDir)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { m.error = data.error; m.linking = false; return; }
+        m.open = false;
+        await this.loadSites();
+        if (data.domain) {
+          const site = this.sites.find(s => s.domain === data.domain);
+          if (site) this.selectSite(site);
+        }
+      } catch (e) { m.error = e.message; }
+      m.linking = false;
+    },
+
+    closeDomainModal() {
+      this.domainModal.open = false;
+    },
+
+    domainModalStartEdit(index) {
+      this.domainModal.editIndex = index;
+      this.domainModal.editValue = this.domainModal.domains[index];
+      this.domainModal.error = '';
+    },
+
+    domainModalCancelEdit() {
+      this.domainModal.editIndex = -1;
+      this.domainModal.editValue = '';
+      this.domainModal.error = '';
+    },
+
+    async domainModalSaveEdit(index) {
+      const m = this.domainModal;
+      const oldName = m.domains[index];
+      const newName = m.editValue.trim().toLowerCase();
+      if (!newName || newName === oldName) { this.domainModalCancelEdit(); return; }
+      const siteName = m.site.name;
+      m.loading = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/sites/${m.site.domain}/domain:edit?old=${encodeURIComponent(oldName)}&new=${encodeURIComponent(newName)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { m.error = data.error; m.loading = false; return; }
+        m.editIndex = -1;
+        m.editValue = '';
+        await this.loadSites();
+        this._refreshDomainModal(siteName);
+      } catch (e) { m.error = e.message; }
+      m.loading = false;
+    },
+
+    async domainModalAdd() {
+      const m = this.domainModal;
+      const name = m.newDomain.trim().toLowerCase();
+      if (!name) return;
+      const siteName = m.site.name;
+      m.loading = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/sites/${m.site.domain}/domain:add?name=${encodeURIComponent(name)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { m.error = data.error; m.loading = false; return; }
+        m.newDomain = '';
+        await this.loadSites();
+        this._refreshDomainModal(siteName);
+      } catch (e) { m.error = e.message; }
+      m.loading = false;
+    },
+
+    async domainModalRemove(index) {
+      const m = this.domainModal;
+      if (m.domains.length <= 1) { m.error = 'Cannot remove the last domain'; return; }
+      const name = m.domains[index];
+      const siteName = m.site.name;
+      m.loading = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/sites/${m.site.domain}/domain:remove?name=${encodeURIComponent(name)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { m.error = data.error; m.loading = false; return; }
+        if (m.editIndex === index) this.domainModalCancelEdit();
+        await this.loadSites();
+        this._refreshDomainModal(siteName);
+      } catch (e) { m.error = e.message; }
+      m.loading = false;
     },
 
     openWorktree(wt) {
@@ -2674,5 +2847,142 @@ function lerdApp() {
   };
 }
 </script>
+
+<!-- Link Site Modal -->
+<template x-if="linkModal.open">
+  <div class="fixed inset-0 z-50 flex items-center justify-center" @keydown.escape.window="closeLinkModal()">
+    <div class="absolute inset-0 bg-black/50" @click="closeLinkModal()"></div>
+    <div class="relative bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-xl shadow-2xl w-full max-w-lg mx-4" @click.stop>
+      <!-- Header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+        <h3 class="font-semibold text-gray-900 dark:text-white">Link Site</h3>
+        <button @click="closeLinkModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Current path -->
+      <div class="px-5 py-3 border-b border-gray-100 dark:border-lerd-border">
+        <div class="text-xs text-gray-400 mb-1">Directory</div>
+        <div class="text-sm font-mono text-gray-700 dark:text-gray-300 truncate" x-text="linkModal.currentDir"></div>
+      </div>
+
+      <!-- Directory browser -->
+      <div class="px-5 py-2 max-h-72 overflow-y-auto">
+        <div x-show="linkModal.loading" class="py-4 text-center text-xs text-gray-400">Loading...</div>
+        <div x-show="!linkModal.loading">
+          <template x-for="d in linkModal.dirs" :key="d.path">
+            <button @click="browseDir(d.path)"
+              class="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm rounded hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+              :class="d.name === '..' ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'">
+              <svg class="w-4 h-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+              <span class="truncate" x-text="d.name"></span>
+            </button>
+          </template>
+          <div x-show="linkModal.dirs.length === 0" class="py-4 text-center text-xs text-gray-400">No subdirectories</div>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <template x-if="linkModal.error">
+        <div class="px-5 py-2">
+          <p class="text-xs text-red-500" x-text="linkModal.error"></p>
+        </div>
+      </template>
+
+      <!-- Footer -->
+      <div class="px-5 py-4 border-t border-gray-100 dark:border-lerd-border flex items-center justify-end gap-2">
+        <button @click="closeLinkModal()"
+          class="text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-3 py-1.5 transition-colors">
+          Cancel
+        </button>
+        <button @click="linkSite()" :disabled="linkModal.linking || linkModal.loading"
+          class="text-xs font-medium bg-lerd-red text-white rounded px-4 py-1.5 hover:bg-lerd-redhov transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+          <svg x-show="linkModal.linking" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+          <span x-text="linkModal.linking ? 'Linking...' : 'Link This Directory'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- Domain Management Modal -->
+<template x-if="domainModal.open">
+  <div class="fixed inset-0 z-50 flex items-center justify-center" @keydown.escape.window="closeDomainModal()">
+    <div class="absolute inset-0 bg-black/50" @click="closeDomainModal()"></div>
+    <div class="relative bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-xl shadow-2xl w-full max-w-md mx-4" @click.stop>
+      <!-- Header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+        <h3 class="font-semibold text-gray-900 dark:text-white">Manage Domains</h3>
+        <button @click="closeDomainModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Domain List -->
+      <div class="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
+        <template x-for="(dom, i) in domainModal.domains" :key="i">
+          <div class="flex items-center gap-2 group">
+            <!-- View mode -->
+            <div x-show="domainModal.editIndex !== i" class="flex items-center gap-2 flex-1 min-w-0">
+                <div class="flex-1 min-w-0 flex items-center gap-1.5">
+                  <span class="text-sm font-mono text-gray-700 dark:text-gray-300 truncate" x-text="dom"></span>
+                  <span class="text-sm text-gray-400 dark:text-gray-500 shrink-0" x-text="'.' + tld"></span>
+                  <span x-show="i === 0" class="text-[10px] font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded shrink-0">primary</span>
+                </div>
+                <button @click="domainModalStartEdit(i)" class="text-gray-400 hover:text-lerd-red transition-colors shrink-0" title="Edit">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                </button>
+                <button x-show="domainModal.domains.length > 1" @click="domainModalRemove(i)" :disabled="domainModal.loading"
+                  class="text-gray-400 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50" title="Remove">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </div>
+            <!-- Edit mode -->
+            <div x-show="domainModal.editIndex === i" class="flex items-center gap-2 flex-1">
+                <input type="text" x-model="domainModal.editValue"
+                  @keydown.enter="domainModalSaveEdit(i)"
+                  @keydown.escape="domainModalCancelEdit()"
+                  x-effect="if (domainModal.editIndex === i) $nextTick(() => $el.focus())"
+                  class="flex-1 text-sm font-mono bg-transparent border border-lerd-red/50 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red"
+                  :disabled="domainModal.loading">
+                <span class="text-sm text-gray-400 shrink-0" x-text="'.' + tld"></span>
+                <button @click="domainModalSaveEdit(i)" :disabled="domainModal.loading"
+                  class="text-emerald-500 hover:text-emerald-600 transition-colors shrink-0 disabled:opacity-50" title="Save">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </button>
+                <button @click="domainModalCancelEdit()" class="text-gray-400 hover:text-gray-600 transition-colors shrink-0" title="Cancel">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Add Domain -->
+      <div class="px-5 py-3 border-t border-gray-100 dark:border-lerd-border">
+        <div class="flex items-center gap-2">
+          <input type="text" x-model="domainModal.newDomain" placeholder="Add domain"
+            @keydown.enter="domainModalAdd()"
+            class="flex-1 text-sm font-mono bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-lerd-red/50"
+            :disabled="domainModal.loading">
+          <span class="text-sm text-gray-400 shrink-0" x-text="'.' + tld"></span>
+          <button @click="domainModalAdd()" :disabled="domainModal.loading || !domainModal.newDomain.trim()"
+            class="text-xs font-medium bg-lerd-red text-white rounded px-3 py-1.5 hover:bg-lerd-redhov transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0">
+            Add
+          </button>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <template x-if="domainModal.error">
+        <div class="px-5 py-2 border-t border-gray-100 dark:border-lerd-border">
+          <p class="text-xs text-red-500" x-text="domainModal.error"></p>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
 </body>
 </html>

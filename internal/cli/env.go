@@ -287,7 +287,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// 3c. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb (Laravel only)
 	if isLaravel && strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
 		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
-		for k, v := range reverbEnvUpdates(envMap, site.Domain, site.Secured, cwd) {
+		for k, v := range reverbEnvUpdates(envMap, site.PrimaryDomain(), site.Secured, cwd) {
 			updates[k] = v
 		}
 	}
@@ -492,7 +492,7 @@ func siteURL(path string) string {
 			if s.Secured {
 				scheme = "https"
 			}
-			return scheme + "://" + s.Domain
+			return scheme + "://" + s.PrimaryDomain()
 		}
 	}
 	return ""

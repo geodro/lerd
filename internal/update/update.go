@@ -1,13 +1,18 @@
 package update
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
 
 // ReleasesBaseURL is the base GitHub releases URL. Overridable in tests.
 var ReleasesBaseURL = "https://github.com/geodro/lerd/releases"
+
+// APIBaseURL is the GitHub API base URL for the repo. Overridable in tests.
+var APIBaseURL = "https://api.github.com/repos/geodro/lerd"
 
 // FetchLatestVersion returns the latest published release tag from GitHub.
 func FetchLatestVersion() (string, error) {
@@ -41,6 +46,57 @@ func FetchLatestVersion() (string, error) {
 		return "", fmt.Errorf("unexpected release URL format: %s", location)
 	}
 	return parts[1], nil
+}
+
+// GithubReleaseForTest is exported only so tests in other packages can build
+// JSON fixtures. It is not part of the public API.
+type GithubReleaseForTest = githubRelease
+
+// githubRelease is a minimal representation of a GitHub release API response.
+type githubRelease struct {
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
+	Draft      bool   `json:"draft"`
+}
+
+// FetchLatestPrerelease returns the latest pre-release tag from GitHub.
+// Unlike FetchLatestVersion, this calls the GitHub API because the
+// /releases/latest redirect only returns stable releases.
+func FetchLatestPrerelease() (string, error) {
+	url := APIBaseURL + "/releases"
+	req, err := http.NewRequest(http.MethodGet, url, nil) //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "lerd-cli")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status from %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var releases []githubRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return "", fmt.Errorf("parsing releases JSON: %w", err)
+	}
+
+	for _, r := range releases {
+		if r.Prerelease && !r.Draft && r.TagName != "" {
+			return r.TagName, nil
+		}
+	}
+	return "", fmt.Errorf("no pre-release found")
 }
 
 // StripV removes a leading "v" from a version string.

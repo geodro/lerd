@@ -147,11 +147,17 @@ func extractChangelogSections(changelog, currentVersion, latestVersion string) s
 	return strings.TrimSpace(result.String())
 }
 
-// VersionGreaterThan returns true if a > b, comparing "X.Y.Z" version strings
-// (without a leading "v") component-by-component as integers.
+// VersionGreaterThan returns true if a > b, comparing "X.Y.Z[-pre]" version
+// strings (without a leading "v") component-by-component as integers.
+// Pre-release suffixes (e.g. "-beta.1", "-rc.1") are handled per semver:
+// a release without a pre-release suffix is greater than one with the same
+// core version, and pre-release suffixes are compared lexicographically.
 func VersionGreaterThan(a, b string) bool {
-	aParts := strings.Split(a, ".")
-	bParts := strings.Split(b, ".")
+	aCore, aPre := splitPrerelease(a)
+	bCore, bPre := splitPrerelease(b)
+
+	aParts := strings.Split(aCore, ".")
+	bParts := strings.Split(bCore, ".")
 
 	maxLen := len(aParts)
 	if len(bParts) > maxLen {
@@ -170,5 +176,23 @@ func VersionGreaterThan(a, b string) bool {
 			return ai > bi
 		}
 	}
-	return false
+
+	// Core versions are equal — compare pre-release suffixes.
+	// No pre-release > has pre-release (stable wins).
+	if aPre == "" && bPre != "" {
+		return true
+	}
+	if aPre != "" && bPre == "" {
+		return false
+	}
+	return aPre > bPre
+}
+
+// splitPrerelease splits "1.2.3-beta.1" into ("1.2.3", "beta.1").
+// If there is no pre-release suffix, pre is "".
+func splitPrerelease(v string) (core, pre string) {
+	if i := strings.IndexByte(v, '-'); i != -1 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
 }

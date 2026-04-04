@@ -269,4 +269,19 @@ func checkDirWritable(dir string) error {
 	return nil
 }
 
+// ssOutput runs ss -tlnp once and returns its output for batch port checks.
+// Returns "" on platforms where ss is not available (e.g. macOS).
+func ssOutput() string {
+	out, err := exec.Command("ss", "-tlnp").Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// portInUseIn checks whether the given TCP port appears in pre-fetched ss output.
+func portInUseIn(port, output string) bool {
+	return strings.Contains(output, ":"+port+" ")
+}
+
 // portInUse is implemented per-platform in doctor_linux.go / doctor_darwin.go.

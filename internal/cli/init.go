@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -109,7 +110,37 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	secured := defaults.Secured
 	selectedServices := serviceDefaults
 
-	if err := huh.NewForm(
+	// Detect available workers from the framework definition.
+	// If horizon is installed, show it instead of queue (they're mutually exclusive).
+	framework, _ := resolveFramework(cwd)
+	hasHorizon := SiteHasHorizon(cwd)
+	hasReverb := SiteUsesReverb(cwd)
+	var workerOptions []string
+	if fw, ok := config.GetFramework(framework); ok && fw.Workers != nil {
+		for name := range fw.Workers {
+			// Skip queue when horizon is installed — horizon manages queues.
+			if name == "queue" && hasHorizon {
+				continue
+			}
+			// Skip reverb when not configured.
+			if name == "reverb" && !hasReverb {
+				continue
+			}
+			workerOptions = append(workerOptions, name)
+		}
+		// Horizon is not in the framework workers map — it's auto-detected from
+		// composer.json. Add it explicitly when installed.
+		if hasHorizon {
+			workerOptions = append(workerOptions, "horizon")
+		}
+		sort.Strings(workerOptions)
+	}
+	selectedWorkers := defaults.Workers
+	if len(selectedWorkers) == 0 {
+		selectedWorkers = []string{}
+	}
+
+	formGroups := []*huh.Group{
 		huh.NewGroup(
 			huh.NewInput().
 				Title("PHP version").
@@ -132,11 +163,21 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 				Options(huh.NewOptions(serviceOptions...)...).
 				Value(&selectedServices),
 		),
-	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
-		return nil, err
 	}
 
-	framework, _ := resolveFramework(cwd)
+	if len(workerOptions) > 0 {
+		formGroups = append(formGroups, huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Workers").
+				Description("Auto-start when linking").
+				Options(huh.NewOptions(workerOptions...)...).
+				Value(&selectedWorkers),
+		))
+	}
+
+	if err := huh.NewForm(formGroups...).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return nil, err
+	}
 
 	// For custom (non-built-in) frameworks, embed the definition so the project
 	// is fully portable — another machine can restore it from .lerd.yaml alone.
@@ -180,6 +221,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		FrameworkDef: frameworkDef,
 		Secured:      secured,
 		Services:     services,
+		Workers:      selectedWorkers,
 	}, nil
 }
 
@@ -327,7 +369,9 @@ func runSetupInit(cwd string, skipWizard bool) error {
 
 	if !hasExisting && skipWizard {
 		// Non-interactive and no saved config — just link with auto-detection.
-		return runLink([]string{}, "")
+		linkSkipSetupPrompt = true
+		defer func() { linkSkipSetupPrompt = false }()
+		return runLink([]string{})
 	}
 
 	if !hasExisting {
@@ -346,6 +390,10 @@ func runSetupInit(cwd string, skipWizard bool) error {
 }
 
 func applyProjectConfig(cwd string) error {
+	// Suppress the "Run lerd setup?" prompt inside runLink — we're already
+	// in init/setup and the caller handles worker steps separately.
+	linkSkipSetupPrompt = true
+	defer func() { linkSkipSetupPrompt = false }()
 	proj, err := config.LoadProjectConfig(cwd)
 	if err != nil {
 		return err
@@ -366,5 +414,5 @@ func applyProjectConfig(cwd string) error {
 		}
 	}
 
-	return runLink([]string{}, "")
+	return runLink([]string{})
 }

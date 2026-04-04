@@ -284,7 +284,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment fo
 
 ## Path resolution
 
-Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain_add` + bt + `, ` + bt + `site_domain_remove` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
 1. Explicit ` + bt + `path` + bt + ` argument
 2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
 3. **Current working directory** — the directory Claude was opened in
@@ -475,13 +475,25 @@ Arguments:
 
 > Run this right after ` + bt + `site_link` + bt + ` when setting up a fresh project.
 
+### ` + bt + `env_check` + bt + `
+Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and show a table of missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
+
+Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+
 ### ` + bt + `site_link` + bt + ` / ` + bt + `site_unlink` + bt + `
 Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_link` + bt + `:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project directory — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
-- ` + bt + `name` + bt + ` (optional): site name (defaults to directory name, cleaned up)
-- ` + bt + `domain` + bt + ` (optional): custom domain (defaults to ` + bt + `<name>.test` + bt + `)
+- ` + bt + `name` + bt + ` (optional): domain name without TLD (e.g. ` + bt + `"myapp"` + bt + ` becomes ` + bt + `myapp.test` + bt + `; defaults to directory name, cleaned up)
 
-` + bt + `site_unlink` + bt + ` takes ` + bt + `site` + bt + ` (site name from ` + bt + `sites` + bt + ` tool). Project files are NOT deleted.
+` + bt + `site_unlink` + bt + ` takes ` + bt + `path` + bt + ` (optional, same resolution as ` + bt + `site_link` + bt + `). Removes the site and all its domains. Project files are NOT deleted.
+
+### ` + bt + `site_domain_add` + bt + ` / ` + bt + `site_domain_remove` + bt + `
+Add or remove additional domains for a site. Each site can have multiple domains (all served by the same nginx vhost).
+- ` + bt + `path` + bt + ` (optional): project directory
+- ` + bt + `domain` + bt + ` (required): domain name without TLD (e.g. ` + bt + `"api"` + bt + ` becomes ` + bt + `api.test` + bt + `)
+
+Cannot remove the last domain. When a site is secured, the TLS certificate is automatically reissued to cover all domains.
 
 ### ` + bt + `park` + bt + ` / ` + bt + `unpark` + bt + `
 ` + bt + `park` + bt + ` registers a parent directory: it scans every immediate subdirectory and auto-registers any PHP projects found as lerd sites. Use this when you keep many projects under one folder.
@@ -653,6 +665,20 @@ Optional ` + bt + `lines` + bt + ` parameter (default: 50).
 ### ` + bt + `status` + bt + `
 Return the health status of core lerd services as structured JSON: DNS resolution (ok + tld), nginx (running), PHP-FPM containers (running per version), and the file watcher (running). **Call this first when a site isn't loading** — it pinpoints which service is down before suggesting fixes.
 
+### ` + bt + `which` + bt + `
+Show the resolved PHP version, Node version, document root, and nginx config path for the current site. Call this to confirm which runtime versions a project will use before running commands.
+
+Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+
+### ` + bt + `check` + bt + `
+Validate a project's ` + bt + `.lerd.yaml` + bt + ` file. Checks YAML syntax, PHP version format and installation status, service definitions (built-in, custom, and inline), and framework references. Reports OK/WARN/FAIL per field with a summary.
+
+Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root containing ` + bt + `.lerd.yaml` + bt + ` — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+
+> **Use this before** ` + bt + `env_setup` + bt + ` or ` + bt + `site_link` + bt + ` to catch configuration errors early.
+
 ### ` + bt + `doctor` + bt + `
 Run a full environment diagnostic. Checks podman availability, systemd user session, linger, quadlet/data dir writability, config validity, DNS resolution, port 80/443 conflicts, PHP image presence, and available updates. Returns a text report with OK/FAIL/WARN per check and hints for each failure. **Use this when the user reports setup issues or unexpected behaviour.**
 
@@ -810,6 +836,16 @@ artisan(args: ["make:migration", "add_status_to_orders"])
 // ... edit the migration file ...
 artisan(args: ["migrate"])
 ` + "```" + `
+
+**Check which PHP and Node versions a site will use:**
+` + "```" + `
+which()   // shows resolved PHP, Node, document root, nginx config
+` + "```" + `
+
+**Validate project config before setup:**
+` + "```" + `
+check()   // validates .lerd.yaml syntax, services, PHP version
+` + "```" + `
 `
 
 // junieGuidelinesSection is the lerd block written into .junie/guidelines.md.
@@ -844,8 +880,11 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `node_install` + bt + ` | Install a Node.js version via fnm (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY |
+| ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` and flag missing or extra keys |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
-| ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost |
+| ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
+| ` + bt + `site_domain_add` + bt + ` | Add an additional domain to a site (without TLD) |
+| ` + bt + `site_domain_remove` + bt + ` | Remove a domain from a site (cannot remove last) |
 | ` + bt + `park` + bt + ` | Register a parent directory — auto-registers all PHP projects as sites |
 | ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
 | ` + bt + `secure` + bt + ` | Enable HTTPS for a site (mkcert) — updates APP_URL automatically |
@@ -888,6 +927,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
 | ` + bt + `doctor` + bt + ` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates |
+| ` + bt + `which` + bt + ` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
+| ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` syntax, PHP version, services, and framework references — reports OK/WARN/FAIL per field |
 
 ### Key conventions
 

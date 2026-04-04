@@ -388,6 +388,7 @@ func newServiceRemoveCmd() *cobra.Command {
 					return fmt.Errorf("could not stop %s: %w\nRemove aborted — the service is still running", unit, err)
 				}
 			}
+			podman.RemoveContainer(unit)
 
 			// Remove quadlet and reload
 			if err := services.Mgr.RemoveContainerUnit(unit); err != nil {

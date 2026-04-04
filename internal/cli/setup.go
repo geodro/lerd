@@ -84,6 +84,15 @@ func runSetup(allSteps, skipOpen bool) error {
 	site, _ := config.FindSiteByPath(cwd)
 	isLaravel := site != nil && site.IsLaravel()
 
+	// Load saved workers from .lerd.yaml to pre-select them in the step selector.
+	projCfg, _ := config.LoadProjectConfig(cwd)
+	savedWorkers := make(map[string]bool)
+	if projCfg != nil {
+		for _, w := range projCfg.Workers {
+			savedWorkers[w] = true
+		}
+	}
+
 	_, vendorMissing := os.Stat(cwd + "/vendor")
 	_, nodeModulesMissing := os.Stat(cwd + "/node_modules")
 	_, pkgJSONErr := os.Stat(cwd + "/package.json")
@@ -173,26 +182,50 @@ func runSetup(allSteps, skipOpen bool) error {
 	}
 
 	if isLaravel {
-		steps = append(steps, setupStep{
-			label:   "queue:start",
-			enabled: siteUsesRedisQueue(cwd),
-			run: func() error {
-				s, err := config.FindSiteByPath(cwd)
-				if err != nil {
-					return fmt.Errorf("site not registered: %w", err)
-				}
-				phpVersion := s.PHPVersion
-				if phpVersion == "" {
-					if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
-						phpVersion = detected
-					} else {
-						cfg, _ := config.LoadGlobal()
-						phpVersion = cfg.PHP.DefaultVersion
+		// Show horizon instead of queue when laravel/horizon is installed.
+		if SiteHasHorizon(cwd) {
+			steps = append(steps, setupStep{
+				label:   "horizon:start",
+				enabled: savedWorkers["horizon"],
+				run: func() error {
+					s, err := config.FindSiteByPath(cwd)
+					if err != nil {
+						return fmt.Errorf("site not registered: %w", err)
 					}
-				}
-				return QueueStartForSite(s.Name, cwd, phpVersion)
-			},
-		})
+					phpVersion := s.PHPVersion
+					if phpVersion == "" {
+						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+							phpVersion = detected
+						} else {
+							cfg, _ := config.LoadGlobal()
+							phpVersion = cfg.PHP.DefaultVersion
+						}
+					}
+					return HorizonStartForSite(s.Name, cwd, phpVersion)
+				},
+			})
+		} else {
+			steps = append(steps, setupStep{
+				label:   "queue:start",
+				enabled: savedWorkers["queue"] || siteUsesRedisQueue(cwd),
+				run: func() error {
+					s, err := config.FindSiteByPath(cwd)
+					if err != nil {
+						return fmt.Errorf("site not registered: %w", err)
+					}
+					phpVersion := s.PHPVersion
+					if phpVersion == "" {
+						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+							phpVersion = detected
+						} else {
+							cfg, _ := config.LoadGlobal()
+							phpVersion = cfg.PHP.DefaultVersion
+						}
+					}
+					return QueueStartForSite(s.Name, cwd, phpVersion)
+				},
+			})
+		}
 
 		steps = append(steps, setupStep{
 			label:   "stripe:listen",
@@ -212,7 +245,7 @@ func runSetup(allSteps, skipOpen bool) error {
 
 		steps = append(steps, setupStep{
 			label:   "schedule:start",
-			enabled: true,
+			enabled: savedWorkers["schedule"],
 			run: func() error {
 				s, err := config.FindSiteByPath(cwd)
 				if err != nil {
@@ -233,7 +266,7 @@ func runSetup(allSteps, skipOpen bool) error {
 
 		steps = append(steps, setupStep{
 			label:   "reverb:start",
-			enabled: SiteUsesReverb(cwd),
+			enabled: savedWorkers["reverb"] || SiteUsesReverb(cwd),
 			run: func() error {
 				s, err := config.FindSiteByPath(cwd)
 				if err != nil {
@@ -251,6 +284,47 @@ func runSetup(allSteps, skipOpen bool) error {
 				return ReverbStartForSite(s.Name, cwd, phpVersion)
 			},
 		})
+	}
+
+	// Custom framework workers (e.g. messenger for Symfony).
+	// For Laravel, skip built-in worker names already handled above.
+	if site != nil {
+		fwName := site.Framework
+		if fwName == "" {
+			fwName, _ = config.DetectFramework(cwd)
+		}
+		if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
+			for wName, wDef := range fw.Workers {
+				if isLaravel {
+					switch wName {
+					case "queue", "schedule", "reverb":
+						continue
+					}
+				}
+				wn := wName
+				wd := wDef
+				steps = append(steps, setupStep{
+					label:   wn + ":start",
+					enabled: savedWorkers[wn],
+					run: func() error {
+						s, err := config.FindSiteByPath(cwd)
+						if err != nil {
+							return fmt.Errorf("site not registered: %w", err)
+						}
+						phpVersion := s.PHPVersion
+						if phpVersion == "" {
+							if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
+								phpVersion = detected
+							} else {
+								cfg, _ := config.LoadGlobal()
+								phpVersion = cfg.PHP.DefaultVersion
+							}
+						}
+						return WorkerStartForSite(s.Name, cwd, phpVersion, wn, wd)
+					},
+				})
+			}
+		}
 	}
 
 	if !skipOpen {

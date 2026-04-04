@@ -111,9 +111,29 @@ func UpdateCheckFile() string {
 	return filepath.Join(DataDir(), "update-check.json")
 }
 
+// BackupBinaryFile returns the path to the backup lerd binary used for rollback.
+func BackupBinaryFile() string {
+	return filepath.Join(DataDir(), "lerd.bak")
+}
+
+// BackupTrayFile returns the path to the backup lerd-tray binary used for rollback.
+func BackupTrayFile() string {
+	return filepath.Join(DataDir(), "lerd-tray.bak")
+}
+
+// BackupVersionFile returns the path to the file storing the pre-update version string.
+func BackupVersionFile() string {
+	return filepath.Join(DataDir(), "rollback-version")
+}
+
 // PausedDir returns the directory where paused-site landing page HTML files are stored.
 func PausedDir() string {
 	return filepath.Join(DataDir(), "paused")
+}
+
+// ErrorPagesDir returns the directory where nginx error page HTML files are stored.
+func ErrorPagesDir() string {
+	return filepath.Join(DataDir(), "error-pages")
 }
 
 // ContainerHostsFile returns the path to the shared hosts file mounted into PHP containers.

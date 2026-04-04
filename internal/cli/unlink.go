@@ -14,27 +14,23 @@ import (
 // NewUnlinkCmd returns the unlink command.
 func NewUnlinkCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "unlink [name]",
+		Use:   "unlink",
 		Short: "Unlink the current directory site",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.NoArgs,
 		RunE:  runUnlink,
 	}
 }
 
-func runUnlink(_ *cobra.Command, args []string) error {
-	if len(args) > 0 {
-		return UnlinkSite(args[0])
-	}
+func runUnlink(_ *cobra.Command, _ []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	// Look up by path so directory names like "canavanbyrne.ie" resolve
-	// correctly to their registered site name (e.g. "canavanbyrne-ie").
-	if site, err := config.FindSiteByPath(cwd); err == nil {
-		return UnlinkSite(site.Name)
+	site, err := config.FindSiteByPath(cwd)
+	if err != nil {
+		return fmt.Errorf("no site registered for %s — link it first with lerd link", cwd)
 	}
-	return UnlinkSite(filepath.Base(cwd))
+	return UnlinkSite(site.Name)
 }
 
 // UnlinkSite removes the nginx vhost for the named site. For sites under a parked
@@ -50,8 +46,17 @@ func UnlinkSite(name string) error {
 		stopWorkerByName(site, w)
 	}
 
-	if err := nginx.RemoveVhost(site.Domain); err != nil {
+	// Remove vhost — the conf file is named after the primary domain and
+	// contains all domains in server_name, so one removal covers everything.
+	if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
 		fmt.Printf("[WARN] removing vhost: %v\n", err)
+	}
+
+	// Remove certificates if the site was secured.
+	if site.Secured {
+		certsDir := filepath.Join(config.CertsDir(), "sites")
+		os.Remove(filepath.Join(certsDir, site.PrimaryDomain()+".crt")) //nolint:errcheck
+		os.Remove(filepath.Join(certsDir, site.PrimaryDomain()+".key")) //nolint:errcheck
 	}
 
 	cfg, _ := config.LoadGlobal()
@@ -75,7 +80,7 @@ func UnlinkSite(name string) error {
 		}
 	}
 
-	fmt.Printf("Unlinked: %s (%s)\n", name, site.Domain)
+	fmt.Printf("Unlinked: %s (%s)\n", name, site.PrimaryDomain())
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)

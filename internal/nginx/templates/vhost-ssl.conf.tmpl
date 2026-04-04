@@ -1,12 +1,12 @@
 server {
     listen 80;
-    server_name {{.Domain}};
+    server_name {{.ServerNames}};
     return 302 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name {{.Domain}};
+    server_name {{.ServerNames}};
     root {{.Path}}/{{.PublicDir}};
     index index.php index.html;
 

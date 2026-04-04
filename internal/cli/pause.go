@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/template"
 
 	"github.com/geodro/lerd/internal/config"
 	gitpkg "github.com/geodro/lerd/internal/git"
@@ -88,7 +86,7 @@ func PauseSite(name string) error {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 
-	fmt.Printf("Paused: %s (%s)\n", name, site.Domain)
+	fmt.Printf("Paused: %s (%s)\n", name, site.PrimaryDomain())
 	if len(running) > 0 {
 		fmt.Printf("  Workers stopped: %s\n", strings.Join(running, ", "))
 	}
@@ -125,8 +123,8 @@ func UnpauseSite(name string) error {
 		if err := nginx.GenerateSSLVhost(*site, phpVersion); err != nil {
 			return fmt.Errorf("generating SSL vhost: %w", err)
 		}
-		sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+		sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+		mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 		_ = os.Remove(mainConf)
 		if err := os.Rename(sslConf, mainConf); err != nil {
 			return fmt.Errorf("installing SSL vhost: %w", err)
@@ -156,9 +154,9 @@ func UnpauseSite(name string) error {
 		return fmt.Errorf("updating registry: %w", err)
 	}
 
-	_ = os.Remove(filepath.Join(config.PausedDir(), site.Domain+".html"))
+	// The shared paused.html is left in place for other paused sites.
 
-	fmt.Printf("Resumed: %s (%s)\n", name, site.Domain)
+	fmt.Printf("Resumed: %s (%s)\n", name, site.PrimaryDomain())
 	if len(resumed) > 0 {
 		fmt.Printf("  Workers restarted: %s\n", strings.Join(resumed, ", "))
 	}
@@ -215,7 +213,33 @@ func startServicesForSiteNoticed(sitePath, siteName string) {
 	}
 }
 
-// collectRunningWorkers returns the names of all active workers for the site.
+// SyncLerdYAMLWorkers updates the workers list in .lerd.yaml if the file exists.
+func SyncLerdYAMLWorkers(site *config.Site) {
+	lerdYAML := filepath.Join(site.Path, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(site.Path)
+	proj.Workers = CollectRunningWorkerNames(site)
+	_ = config.SaveProjectConfig(site.Path, proj)
+}
+
+// CollectRunningWorkerNames returns the names of active workers for the site,
+// excluding stripe (which is not a framework worker). Used to sync .lerd.yaml.
+func CollectRunningWorkerNames(site *config.Site) []string {
+	all := collectRunningWorkers(site)
+	var workers []string
+	for _, w := range all {
+		if w != "stripe" {
+			workers = append(workers, w)
+		}
+	}
+	return workers
+}
+
+// collectRunningWorkers returns the names of all active or restarting workers
+// for the site. Uses IsServiceActiveOrRestarting so crash-looping workers are
+// also detected and can be stopped on unlink/pause.
 func collectRunningWorkers(site *config.Site) []string {
 	var active []string
 
@@ -283,7 +307,7 @@ func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
 		if site.Secured {
 			scheme = "https"
 		}
-		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.Domain) //nolint:errcheck
+		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
 	default:
 		fw, ok := config.GetFramework(site.Framework)
 		if !ok || fw.Workers == nil {
@@ -297,13 +321,15 @@ func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
 	}
 }
 
-// pausedPageTmpl is the HTML template for the paused-site landing page.
-var pausedPageTmpl = template.Must(template.New("paused").Parse(`<!DOCTYPE html>
+// pausedPageHTML is the static HTML for the shared paused-site landing page.
+// A single file is served for all paused sites; JavaScript reads the hostname
+// and calls the correct unpause API endpoint.
+const pausedPageHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Domain}} — Paused</title>
+  <title>Site Paused — Lerd</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
@@ -321,115 +347,109 @@ var pausedPageTmpl = template.Must(template.New("paused").Parse(`<!DOCTYPE html>
       border: 1px solid #2d3142;
       border-radius: 14px;
       padding: 2.5rem 3rem;
-      max-width: 400px;
+      max-width: 420px;
       width: calc(100% - 2rem);
       text-align: center;
     }
-    .icon { font-size: 2.5rem; margin-bottom: 1.25rem; }
-    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.3rem; }
-    .domain {
-      font-size: 0.8rem;
-      color: #6b7280;
-      font-family: ui-monospace, 'Cascadia Code', monospace;
-      margin: 0 0 2rem;
-    }
-    button {
-      background: #4f46e5;
+    .logo {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1.25rem;
+      background: #FF2D20;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.2rem;
       color: #fff;
-      border: none;
+    }
+    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .host {
+      font-size: 0.85rem;
+      color: #FF2D20;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      margin: 0 0 1rem;
+      word-break: break-all;
+    }
+    p {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin: 0 0 1.5rem;
+      line-height: 1.5;
+    }
+    .actions { display: flex; gap: 0.5rem; }
+    a, button {
+      flex: 1;
+      display: inline-block;
+      text-decoration: none;
+      text-align: center;
       border-radius: 8px;
-      padding: 0.7rem 0;
-      font-size: 0.95rem;
+      padding: 0.6rem 0;
+      font-size: 0.85rem;
       font-weight: 500;
       cursor: pointer;
-      width: 100%;
       transition: background 0.15s;
+      border: none;
     }
-    button:hover:not(:disabled) { background: #4338ca; }
-    button:disabled { background: #374151; cursor: not-allowed; }
-    .status {
-      margin-top: 1rem;
-      font-size: 0.78rem;
-      color: #9ca3af;
-      min-height: 1.1em;
-    }
-    .error { color: #ef4444; }
+    .btn-primary { background: #FF2D20; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #e02419; }
+    .btn-primary:disabled { background: #374151; cursor: not-allowed; color: #9ca3af; }
+    .btn-secondary { background: #262a36; color: #e5e7eb; border: 1px solid #2d3142; }
+    .btn-secondary:hover { background: #2d3142; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">⏸</div>
-    <h1>{{.Name}}</h1>
-    <p class="domain">{{.Domain}}</p>
-    <button id="btn" onclick="resume()">Resume Site</button>
-    <p class="status" id="status"></p>
+    <div class="logo">L</div>
+    <h1>Site Paused</h1>
+    <p class="host" id="host"></p>
+    <p>This site has been paused. Resume it to restore the application and restart any workers.</p>
+    <div class="actions">
+      <button id="btn" class="btn-primary" onclick="resume()">Resume</button>
+      <a href="http://lerd.localhost" class="btn-secondary">Dashboard</a>
+    </div>
   </div>
   <script>
+    document.getElementById('host').textContent = location.hostname;
     async function resume() {
       const btn = document.getElementById('btn');
-      const status = document.getElementById('status');
       btn.disabled = true;
       btn.textContent = 'Resuming\u2026';
-      status.textContent = '';
-      status.className = 'status';
       try {
-        const r = await fetch('http://127.0.0.1:7073/api/sites/{{.ResumeDomain}}/unpause', { method: 'POST' });
+        const r = await fetch('http://127.0.0.1:7073/api/sites/' + location.hostname + '/unpause', { method: 'POST' });
         const data = await r.json();
         if (data.ok) {
-          status.textContent = 'Resumed! Redirecting\u2026';
-          setTimeout(() => { window.location.href = '{{.Scheme}}://{{.Domain}}'; }, 1200);
+          btn.textContent = 'Redirecting\u2026';
+          setTimeout(() => location.reload(), 1200);
         } else {
           throw new Error(data.error || 'unknown error');
         }
       } catch (e) {
         btn.disabled = false;
-        btn.textContent = 'Resume Site';
-        status.textContent = 'Error: ' + e.message;
-        status.className = 'status error';
+        btn.textContent = 'Resume';
+        alert('Error: ' + e.message);
       }
     }
   </script>
 </body>
 </html>
-`))
+`
 
-type pausedPageData struct {
-	Name         string
-	Domain       string
-	ResumeDomain string // domain used in the API unpause call (parent site for worktrees)
-	Scheme       string
-}
-
-// writePausedHTML renders and writes the landing page HTML for a paused site.
-func writePausedHTML(site *config.Site) error {
-	if err := os.MkdirAll(config.PausedDir(), 0755); err != nil {
+// writePausedHTML ensures the shared paused landing page exists.
+func writePausedHTML(_ *config.Site) error {
+	dir := config.PausedDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-
-	scheme := "http"
-	if site.Secured {
-		scheme = "https"
-	}
-
-	var buf bytes.Buffer
-	if err := pausedPageTmpl.Execute(&buf, pausedPageData{
-		Name:         site.Name,
-		Domain:       site.Domain,
-		ResumeDomain: site.Domain,
-		Scheme:       scheme,
-	}); err != nil {
-		return err
-	}
-
-	htmlPath := filepath.Join(config.PausedDir(), site.Domain+".html")
-	return os.WriteFile(htmlPath, buf.Bytes(), 0644)
+	return os.WriteFile(filepath.Join(dir, "paused.html"), []byte(pausedPageHTML), 0644)
 }
 
 // pauseWorktrees generates paused HTML and nginx vhosts for every worktree of
 // a site that is being paused. The resume button on each worktree page unpauses
 // the parent site (which restores all worktree vhosts as well).
 func pauseWorktrees(site *config.Site) {
-	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	if err != nil || len(worktrees) == 0 {
 		return
 	}
@@ -438,7 +458,7 @@ func pauseWorktrees(site *config.Site) {
 			fmt.Printf("  [WARN] paused page for worktree %s: %v\n", wt.Domain, err)
 			continue
 		}
-		if err := nginx.GeneratePausedWorktreeVhost(wt.Domain, site.Domain, config.PausedDir(), site.Secured); err != nil {
+		if err := nginx.GeneratePausedWorktreeVhost(wt.Domain, site.PrimaryDomain(), config.PausedDir(), site.Secured); err != nil {
 			fmt.Printf("  [WARN] paused vhost for worktree %s: %v\n", wt.Domain, err)
 		}
 	}
@@ -447,47 +467,24 @@ func pauseWorktrees(site *config.Site) {
 // unpauseWorktrees restores the normal nginx vhosts for every worktree of a
 // site that has just been unpaused and removes their paused HTML files.
 func unpauseWorktrees(site *config.Site, phpVersion string) {
-	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	if err != nil || len(worktrees) == 0 {
 		return
 	}
 	for _, wt := range worktrees {
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.Domain)
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
 		} else {
 			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
 		}
 		if vhostErr != nil {
 			fmt.Printf("  [WARN] restoring worktree vhost %s: %v\n", wt.Domain, vhostErr)
 		}
-		_ = os.Remove(filepath.Join(config.PausedDir(), wt.Domain+".html"))
 	}
 }
 
-// writePausedWorktreeHTML renders the paused landing page for a worktree checkout.
-// The resume button targets the parent site's domain so that unpausing restores
-// all worktree vhosts at once.
-func writePausedWorktreeHTML(wt gitpkg.Worktree, parent *config.Site) error {
-	if err := os.MkdirAll(config.PausedDir(), 0755); err != nil {
-		return err
-	}
-
-	scheme := "http"
-	if parent.Secured {
-		scheme = "https"
-	}
-
-	var buf bytes.Buffer
-	if err := pausedPageTmpl.Execute(&buf, pausedPageData{
-		Name:         wt.Branch,
-		Domain:       wt.Domain,
-		ResumeDomain: parent.Domain,
-		Scheme:       scheme,
-	}); err != nil {
-		return err
-	}
-
-	htmlPath := filepath.Join(config.PausedDir(), wt.Domain+".html")
-	return os.WriteFile(htmlPath, buf.Bytes(), 0644)
+// writePausedWorktreeHTML ensures the shared paused landing page exists (same file).
+func writePausedWorktreeHTML(_ gitpkg.Worktree, parent *config.Site) error {
+	return writePausedHTML(parent)
 }

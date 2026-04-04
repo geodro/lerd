@@ -73,6 +73,34 @@ func ReadKey(path, key string) string {
 	return ""
 }
 
+// ReadKeys returns all non-comment key names from the .env file at path,
+// in the order they appear.
+func ReadKeys(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var keys []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		k, _, _ := strings.Cut(line, "=")
+		k = strings.TrimSpace(k)
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
 // UpdateAppURL sets APP_URL in the project's .env to scheme://domain.
 // Silently does nothing if no .env exists.
 func UpdateAppURL(projectPath, scheme, domain string) error {

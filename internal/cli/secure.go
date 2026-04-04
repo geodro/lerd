@@ -60,7 +60,7 @@ func runSecure(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("site %q not found — run 'lerd link' first", name)
 	}
 
-	fmt.Printf("Issuing certificate for %s...\n", site.Domain)
+	fmt.Printf("Issuing certificate for %s...\n", site.PrimaryDomain())
 
 	if err := certs.SecureSite(*site); err != nil {
 		return err
@@ -71,14 +71,14 @@ func runSecure(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("updating site registry: %w", err)
 	}
 
-	updateEnvAppURL(site.Path, "https", site.Domain)
+	updateEnvAppURL(site.Path, "https", site.PrimaryDomain())
 	syncProjectConfigSecured(site.Path, true)
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 	restartStripeIfActive(site)
-	fmt.Printf("Secured: https://%s\n", site.Domain)
+	fmt.Printf("Secured: https://%s\n", site.PrimaryDomain())
 	return nil
 }
 
@@ -93,7 +93,7 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("site %q not found — run 'lerd link' first", name)
 	}
 
-	fmt.Printf("Removing certificate for %s...\n", site.Domain)
+	fmt.Printf("Removing certificate for %s...\n", site.PrimaryDomain())
 
 	if err := certs.UnsecureSite(*site); err != nil {
 		return err
@@ -104,14 +104,14 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("updating site registry: %w", err)
 	}
 
-	updateEnvAppURL(site.Path, "http", site.Domain)
+	updateEnvAppURL(site.Path, "http", site.PrimaryDomain())
 	syncProjectConfigSecured(site.Path, false)
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 	restartStripeIfActive(site)
-	fmt.Printf("Unsecured: http://%s\n", site.Domain)
+	fmt.Printf("Unsecured: http://%s\n", site.PrimaryDomain())
 	return nil
 }
 
@@ -140,7 +140,7 @@ func restartStripeIfActive(site *config.Site) {
 	if site.Secured {
 		scheme = "https"
 	}
-	baseURL := scheme + "://" + site.Domain
+	baseURL := scheme + "://" + site.PrimaryDomain()
 	if err := StripeStartForSite(site.Name, site.Path, baseURL); err != nil {
 		fmt.Printf("[WARN] updating stripe listener unit: %v\n", err)
 		return

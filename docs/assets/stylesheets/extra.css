@@ -1,0 +1,111 @@
+/* -----------------------------------------------------------------------
+   Lerd docs — custom theme to match the app's dark aesthetic
+   ----------------------------------------------------------------------- */
+
+:root,
+[data-md-color-scheme="slate"] {
+  /* Near-black backgrounds matching the app */
+  --md-default-bg-color:           #0d0e10;
+  --md-default-bg-color--light:    #111315;
+  --md-default-bg-color--lighter:  #161819;
+  --md-default-bg-color--lightest: #1b1d1f;
+
+  /* Code blocks */
+  --md-code-bg-color:              #111315;
+  --md-code-fg-color:              #cdd6f4;
+
+  /* Slightly soften default text from pure white */
+  --md-typeset-color:              rgba(255, 255, 255, 0.87);
+
+  /* Tighten table / admonition borders */
+  --md-typeset-table-color:        rgba(255, 255, 255, 0.06);
+}
+
+/* Header — use the same near-black as the app title bar */
+.md-header {
+  background-color: #0a0b0d;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Nav tabs (top navigation bar) */
+.md-tabs {
+  background-color: #0a0b0d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Sidebar */
+.md-sidebar {
+  background-color: #0a0b0d;
+}
+
+.md-nav {
+  background-color: transparent;
+}
+
+/* Active nav item highlight — red left border like the app's active row */
+.md-nav__item--active > .md-nav__link,
+.md-nav__link--active {
+  border-left: 2px solid var(--md-primary-fg-color);
+  padding-left: calc(0.6rem - 2px);
+  color: var(--md-primary-fg-color);
+}
+
+/* Nav section titles */
+.md-nav__title {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Footer */
+.md-footer {
+  background-color: #0a0b0d;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Code blocks — slightly rounded, tighter feel */
+.highlight pre,
+code {
+  border-radius: 4px;
+}
+
+/* Admonitions — darken the body */
+.md-typeset .admonition,
+.md-typeset details {
+  background-color: #111315;
+  border-radius: 4px;
+}
+
+/* Table of contents — dim inactive links */
+.md-nav--secondary .md-nav__link {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.md-nav--secondary .md-nav__link--active {
+  color: var(--md-primary-fg-color);
+}
+
+/* Search bar */
+.md-search__input {
+  background-color: #1b1d1f;
+}
+
+/* Scrollbar — subtle dark style */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0b0d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}

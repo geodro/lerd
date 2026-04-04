@@ -63,7 +63,8 @@ func TestFreeSiteName_unused(t *testing.T) {
 func TestFreeSiteName_samePath_rerelink(t *testing.T) {
 	setupSitesYAML(t, `sites:
   - name: myapp
-    domain: myapp.test
+    domains:
+      - myapp.test
     path: /projects/myapp
     php_version: "8.3"
     node_version: "22"
@@ -78,7 +79,8 @@ func TestFreeSiteName_samePath_rerelink(t *testing.T) {
 func TestFreeSiteName_collision_differentPath(t *testing.T) {
 	setupSitesYAML(t, `sites:
   - name: myapp
-    domain: myapp.test
+    domains:
+      - myapp.test
     path: /projects/other-myapp
     php_version: "8.3"
     node_version: "22"
@@ -93,12 +95,14 @@ func TestFreeSiteName_collision_differentPath(t *testing.T) {
 func TestFreeSiteName_multipleCollisions(t *testing.T) {
 	setupSitesYAML(t, `sites:
   - name: myapp
-    domain: myapp.test
+    domains:
+      - myapp.test
     path: /projects/one
     php_version: "8.3"
     node_version: "22"
   - name: myapp-2
-    domain: myapp-2.test
+    domains:
+      - myapp-2.test
     path: /projects/two
     php_version: "8.3"
     node_version: "22"
@@ -107,5 +111,20 @@ func TestFreeSiteName_multipleCollisions(t *testing.T) {
 	got := freeSiteName("myapp", "/projects/three")
 	if got != "myapp-3" {
 		t.Errorf("got %q, want %q", got, "myapp-3")
+	}
+}
+
+func TestFreeSiteName_legacyDomainField(t *testing.T) {
+	// Legacy sites.yaml with "domain:" instead of "domains:" should still work
+	setupSitesYAML(t, `sites:
+  - name: myapp
+    domain: myapp.test
+    path: /projects/other
+    php_version: "8.3"
+    node_version: "22"
+`)
+	got := freeSiteName("myapp", "/projects/new")
+	if got != "myapp-2" {
+		t.Errorf("got %q, want %q", got, "myapp-2")
 	}
 }

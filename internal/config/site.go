@@ -9,8 +9,8 @@ import (
 
 // Site represents a single registered Lerd site.
 type Site struct {
-	Name          string   `yaml:"name"`
-	Domain        string   `yaml:"domain"`
+	Name          string   `yaml:"-"`
+	Domains       []string `yaml:"-"`
 	Path          string   `yaml:"path"`
 	PHPVersion    string   `yaml:"php_version"`
 	NodeVersion   string   `yaml:"node_version"`
@@ -22,14 +22,89 @@ type Site struct {
 	PublicDir     string   `yaml:"public_dir,omitempty"`
 }
 
+// PrimaryDomain returns the first (primary) domain for the site.
+func (s *Site) PrimaryDomain() string {
+	if len(s.Domains) > 0 {
+		return s.Domains[0]
+	}
+	return ""
+}
+
+// HasDomain returns true if the site has the given domain.
+func (s *Site) HasDomain(domain string) bool {
+	for _, d := range s.Domains {
+		if d == domain {
+			return true
+		}
+	}
+	return false
+}
+
 // IsLaravel returns true if this site uses the Laravel framework.
 func (s *Site) IsLaravel() bool {
 	return s.Framework == "laravel"
 }
 
+// siteYAML is the on-disk YAML representation of a Site, supporting both the
+// legacy single "domain" field and the new "domains" array.
+type siteYAML struct {
+	Name          string   `yaml:"name"`
+	Domain        string   `yaml:"domain,omitempty"`  // legacy single domain
+	Domains       []string `yaml:"domains,omitempty"` // new multi-domain
+	Path          string   `yaml:"path"`
+	PHPVersion    string   `yaml:"php_version"`
+	NodeVersion   string   `yaml:"node_version"`
+	Secured       bool     `yaml:"secured"`
+	Ignored       bool     `yaml:"ignored,omitempty"`
+	Paused        bool     `yaml:"paused,omitempty"`
+	PausedWorkers []string `yaml:"paused_workers,omitempty"`
+	Framework     string   `yaml:"framework,omitempty"`
+	PublicDir     string   `yaml:"public_dir,omitempty"`
+}
+
+func (s Site) toYAML() siteYAML {
+	return siteYAML{
+		Name:          s.Name,
+		Domains:       s.Domains,
+		Path:          s.Path,
+		PHPVersion:    s.PHPVersion,
+		NodeVersion:   s.NodeVersion,
+		Secured:       s.Secured,
+		Ignored:       s.Ignored,
+		Paused:        s.Paused,
+		PausedWorkers: s.PausedWorkers,
+		Framework:     s.Framework,
+		PublicDir:     s.PublicDir,
+	}
+}
+
+func (sy siteYAML) toSite() Site {
+	domains := sy.Domains
+	if len(domains) == 0 && sy.Domain != "" {
+		domains = []string{sy.Domain}
+	}
+	return Site{
+		Name:          sy.Name,
+		Domains:       domains,
+		Path:          sy.Path,
+		PHPVersion:    sy.PHPVersion,
+		NodeVersion:   sy.NodeVersion,
+		Secured:       sy.Secured,
+		Ignored:       sy.Ignored,
+		Paused:        sy.Paused,
+		PausedWorkers: sy.PausedWorkers,
+		Framework:     sy.Framework,
+		PublicDir:     sy.PublicDir,
+	}
+}
+
 // SiteRegistry holds all registered sites.
 type SiteRegistry struct {
-	Sites []Site `yaml:"sites"`
+	Sites []Site
+}
+
+type siteRegistryYAML struct {
+	Sites []siteYAML `yaml:"sites"`
 }
 
 // LoadSites reads sites.yaml, returning an empty registry if the file does not exist.
@@ -42,11 +117,15 @@ func LoadSites() (*SiteRegistry, error) {
 		return nil, err
 	}
 
-	var reg SiteRegistry
-	if err := yaml.Unmarshal(data, &reg); err != nil {
+	var raw siteRegistryYAML
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	return &reg, nil
+	reg := &SiteRegistry{Sites: make([]Site, len(raw.Sites))}
+	for i, sy := range raw.Sites {
+		reg.Sites[i] = sy.toSite()
+	}
+	return reg, nil
 }
 
 // SaveSites writes the registry to sites.yaml.
@@ -55,7 +134,12 @@ func SaveSites(reg *SiteRegistry) error {
 		return err
 	}
 
-	data, err := yaml.Marshal(reg)
+	raw := siteRegistryYAML{Sites: make([]siteYAML, len(reg.Sites))}
+	for i, s := range reg.Sites {
+		raw.Sites[i] = s.toYAML()
+	}
+
+	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return err
 	}
@@ -145,7 +229,8 @@ func FindSiteByPath(path string) (*Site, error) {
 	return nil, fmt.Errorf("site with path %q not found", path)
 }
 
-// FindSiteByDomain returns the site with the given domain, or an error if not found.
+// FindSiteByDomain returns the site that has the given domain (checks all domains),
+// or an error if not found.
 func FindSiteByDomain(domain string) (*Site, error) {
 	reg, err := LoadSites()
 	if err != nil {
@@ -153,10 +238,27 @@ func FindSiteByDomain(domain string) (*Site, error) {
 	}
 
 	for _, s := range reg.Sites {
-		if s.Domain == domain {
+		if s.HasDomain(domain) {
 			s := s
 			return &s, nil
 		}
 	}
 	return nil, fmt.Errorf("site with domain %q not found", domain)
+}
+
+// IsDomainUsed checks if any site already uses this domain.
+// Returns the site that uses it, or nil if the domain is free.
+func IsDomainUsed(domain string) (*Site, error) {
+	reg, err := LoadSites()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, s := range reg.Sites {
+		if s.HasDomain(domain) {
+			s := s
+			return &s, nil
+		}
+	}
+	return nil, nil
 }
