@@ -170,7 +170,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	if err == nil {
 		hasSecured := false
 		for _, s := range reg.Sites {
-			if !s.Secured {
+			if s.Ignored || !s.Secured {
 				continue
 			}
 			hasSecured = true
