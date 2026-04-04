@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -40,51 +41,49 @@ func runUninstall(force bool) error {
 		}
 	}
 
+	// DNS teardown and all stdin reads must happen before NewStepRunner().
+	// StepRunner puts the terminal in raw mode and its keyreader goroutine
+	// consumes stdin, breaking sudo prompts and bufio reads after r.Close().
+	fmt.Print("  --> Removing DNS configuration ... ")
+	dns.Teardown()
+	fmt.Println("OK")
+
+	// Ask about data removal now, before raw mode starts.
+	fmt.Println()
+	removeData := force || confirmRemoveData()
+	fmt.Println()
+
 	r := NewStepRunner()
 
-	quadletDir := config.QuadletDir()
-
-	r.Run("Removing DNS configuration", func(_ io.Writer) error { //nolint:errcheck
-		dns.Teardown()
-		return nil
-	})
-
 	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
-		var units []string
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				units = append(units, strings.TrimSuffix(filepath.Base(f), ".container"))
-			}
-		}
+		units := services.Mgr.ListContainerUnits("lerd-*")
 		units = append(units, "lerd-watcher", "lerd-ui")
 		for _, unit := range units {
-			status, _ := podman.UnitStatus(unit)
+			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" {
-				_ = podman.StopUnit(unit)
+				_ = services.Mgr.Stop(unit)
 			}
-			_ = disableUnit(unit)
+			_ = services.Mgr.Disable(unit)
 		}
 		return nil
 	})
 
-	r.Run("Removing quadlet units", func(_ io.Writer) error { //nolint:errcheck
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				os.Remove(f) //nolint:errcheck
-			}
+	r.Run("Removing container units", func(_ io.Writer) error { //nolint:errcheck
+		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
+			services.Mgr.RemoveContainerUnit(unit) //nolint:errcheck
 		}
 		return nil
 	})
 
-	r.Run("Removing systemd user services", func(_ io.Writer) error { //nolint:errcheck
-		for _, svc := range []string{"lerd-watcher.service", "lerd-ui.service"} {
-			os.Remove(filepath.Join(config.SystemdUserDir(), svc)) //nolint:errcheck
+	r.Run("Removing service files", func(_ io.Writer) error { //nolint:errcheck
+		for _, name := range []string{"lerd-watcher", "lerd-ui"} {
+			services.Mgr.RemoveServiceUnit(name) //nolint:errcheck
 		}
 		return nil
 	})
 
-	r.Run("Reloading systemd daemon", func(_ io.Writer) error { //nolint:errcheck
-		_ = podman.DaemonReload()
+	r.Run("Reloading service manager", func(_ io.Writer) error { //nolint:errcheck
+		_ = services.Mgr.DaemonReload()
 		return nil
 	})
 
@@ -93,22 +92,23 @@ func runUninstall(force bool) error {
 		return nil
 	})
 
-	r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
-		removeShellEntry()
-		return nil
-	})
+	if runtime.GOOS != "darwin" {
+		r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
+			removeShellEntry()
+			return nil
+		})
 
-	r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
-		if self, err := selfPath(); err == nil {
-			os.Remove(self) //nolint:errcheck
-		}
-		return nil
-	})
+		r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
+			if self, err := selfPath(); err == nil {
+				os.Remove(self) //nolint:errcheck
+			}
+			return nil
+		})
+	}
 
 	r.Close()
 
-	fmt.Println()
-	if force || confirmRemoveData() {
+	if removeData {
 		fmt.Print("  --> Removing config and data directories ... ")
 		os.RemoveAll(config.ConfigDir())
 		os.RemoveAll(config.DataDir())
@@ -116,6 +116,14 @@ func runUninstall(force bool) error {
 	} else {
 		fmt.Printf("  Config kept at %s\n", config.ConfigDir())
 		fmt.Printf("  Data kept at   %s\n", config.DataDir())
+	}
+
+	if runtime.GOOS == "darwin" {
+		fmt.Println("\n  To remove the lerd binary, run:")
+		fmt.Println("    brew uninstall lerd")
+		fmt.Println()
+		fmt.Println("  Tip: if you ever run `brew uninstall` first, clean up with:")
+		fmt.Println("    ~/.local/bin/lerd-cleanup")
 	}
 
 	fmt.Println("\nLerd uninstalled.")
@@ -134,10 +142,6 @@ func readYes() bool {
 	return strings.EqualFold(ans, "y") || strings.EqualFold(ans, "yes")
 }
 
-func disableUnit(name string) error {
-	return runSystemctlUser("disable", name)
-}
-
 func removeShellEntry() {
 	const marker = "# Added by Lerd installer"
 	home, _ := os.UserHomeDir()
@@ -151,11 +155,6 @@ func removeShellEntry() {
 	for _, rc := range candidates {
 		removeMarkedBlock(rc, marker)
 	}
-}
-
-func runSystemctlUser(args ...string) error {
-	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
-	return cmd.Run()
 }
 
 // removeMarkedBlock removes the marker line and the line immediately after it.

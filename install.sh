@@ -33,10 +33,18 @@ header()  { echo -e "\n${BOLD}$*${RESET}"; }
 ask()     { echo -en "  ${BOLD}?${RESET}  $* [y/N] "; read -r _ans </dev/tty 2>/dev/null || true; [[ "$_ans" =~ ^[Yy]$ ]]; }
 
 # ── Platform detection ───────────────────────────────────────────────────────
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) echo "darwin" ;;
+    Linux)  echo "linux"  ;;
+    *) die "Unsupported OS: $(uname -s)" ;;
+  esac
+}
+
 detect_arch() {
   case "$(uname -m)" in
-    x86_64)  echo "amd64" ;;
-    aarch64) echo "arm64" ;;
+    x86_64)          echo "amd64" ;;
+    aarch64|arm64)   echo "arm64" ;;
     *) die "Unsupported architecture: $(uname -m)" ;;
   esac
 }
@@ -95,6 +103,36 @@ check_nm() {
   fi
 }
 
+ensure_podman_macos() {
+  # Install Podman via Homebrew if missing.
+  if ! command -v podman &>/dev/null; then
+    if ! command -v brew &>/dev/null; then
+      die "Homebrew is required to install Podman on macOS.\nInstall it from https://brew.sh then re-run this script."
+    fi
+    info "Installing Podman via Homebrew ..."
+    brew install podman
+    success "Podman installed"
+  else
+    success "podman found ($(command -v podman))"
+  fi
+
+  # Initialise the machine if it doesn't exist yet.
+  if ! podman machine list --format '{{.Name}}' 2>/dev/null | grep -q .; then
+    info "Initialising Podman Machine (one-time setup) ..."
+    podman machine init
+    success "Podman Machine initialised"
+  fi
+
+  # Start the machine if it isn't running.
+  if ! podman machine list --format '{{.Running}}' 2>/dev/null | grep -q true; then
+    info "Starting Podman Machine ..."
+    podman machine start
+    success "Podman Machine running"
+  else
+    success "Podman Machine running"
+  fi
+}
+
 check_certutil() {
   if command -v certutil &>/dev/null; then
     success "certutil found (needed for mkcert CA trust in browsers)"
@@ -127,12 +165,19 @@ check_podman_rootless() {
 check_prerequisites() {
   header "Checking prerequisites"
 
-  check_cmd podman podman "container runtime"
-  check_cmd unzip unzip "needed to extract fnm"
-  check_nm
-  check_systemd_user
-  check_podman_rootless
-  check_certutil
+  if [ "$(detect_os)" = "darwin" ]; then
+    # On macOS: install Podman + start Machine automatically.
+    ensure_podman_macos
+    check_cmd unzip unzip "needed to extract binaries"
+    check_certutil
+  else
+    check_cmd podman podman "container runtime"
+    check_cmd unzip unzip "needed to extract binaries"
+    check_nm
+    check_systemd_user
+    check_podman_rootless
+    check_certutil
+  fi
 
   if [ ${#MISSING_PKGS[@]} -eq 0 ]; then
     success "All prerequisites met"
@@ -151,7 +196,7 @@ check_prerequisites() {
     install_packages "${installable[@]}"
   fi
 
-  # Handle special cases
+  # Handle special cases (Linux only at this point)
   for p in "${MISSING_PKGS[@]}"; do
     case "$p" in
       _systemd_linger)
@@ -253,12 +298,13 @@ latest_version() {
 # All output goes to stderr — nothing is printed to stdout.
 download_binary() {
   local version="$1" arch="$2" destdir="$3"
-  local filename="lerd_${version}_linux_${arch}.tar.gz"
+  local os; os="$(detect_os)"
+  local filename="lerd_${version}_${os}_${arch}.tar.gz"
   local url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
 
   info "Downloading lerd v${version} (${arch}) via $(_download_tool) ..."
   if ! fetch "$url" "${destdir}/${filename}"; then
-    die "Download failed (HTTP 404).\nNo release v${version} found at:\n  ${url}\n\nIf you built lerd locally, use:\n  bash install.sh --local ./build/lerd"
+    die "Download failed.\nNo release v${version} found at:\n  ${url}\n\nIf you built lerd locally, use:\n  bash install.sh --local ./path/to/lerd"
   fi
 
   if ! tar -xzf "${destdir}/${filename}" -C "$destdir" 2>&1; then
@@ -333,16 +379,24 @@ cmd_install() {
   local local_binary="${1:-}"
   header "Installing Lerd"
 
+  if [ "$(detect_os)" = "darwin" ]; then
+    echo ""
+    echo "  Lerd on macOS is distributed via Homebrew."
+    echo ""
+    echo "    brew tap geodro/lerd"
+    echo "    brew install lerd"
+    echo ""
+    echo "  After install, run:  lerd install"
+    echo ""
+    exit 0
+  fi
+
   # Validate local binary path before running any checks so the error is clear.
   if [ -n "$local_binary" ]; then
     [ -f "$local_binary" ] || die "File not found: $local_binary"
   fi
 
   check_prerequisites
-
-  if ! command -v podman &>/dev/null; then
-    die "podman is required but not installed. Install it and re-run this script."
-  fi
 
   mkdir -p "$INSTALL_DIR"
 
@@ -386,6 +440,14 @@ cmd_install() {
 cmd_update() {
   header "Updating Lerd"
 
+  if [ "$(detect_os)" = "darwin" ]; then
+    echo ""
+    echo "  Lerd on macOS is managed by Homebrew."
+    echo "  To upgrade, run:  brew upgrade lerd"
+    echo ""
+    exit 0
+  fi
+
   local arch; arch="$(detect_arch)"
   local latest; latest="$(latest_version)"
   [ -n "$latest" ] || die "Could not fetch latest version."
@@ -410,34 +472,49 @@ cmd_update() {
 cmd_uninstall() {
   header "Uninstalling Lerd"
 
-  # Stop and remove systemd units — discover from quadlet files on disk
-  local quadlet_dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
-  local systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-
-  if [ -d "$quadlet_dir" ]; then
-    for f in "$quadlet_dir"/lerd-*.container; do
-      [ -f "$f" ] || continue
-      local unit; unit="$(basename "$f" .container)"
-      if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
-        info "Stopping $unit ..."
-        systemctl --user stop "$unit" 2>/dev/null || true
-      fi
-      systemctl --user disable "$unit" 2>/dev/null || true
-    done
-    rm -f "$quadlet_dir"/lerd-*.container
-    info "Removed Quadlet units from $quadlet_dir"
-  fi
-
-  # Stop and remove user service unit files
-  for svc in lerd-watcher lerd-ui; do
-    if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-      systemctl --user stop "$svc" 2>/dev/null || true
+  if [ "$(detect_os)" = "darwin" ]; then
+    # ── macOS: stop and remove launchd plists ──────────────────────────────
+    local launch_agents="$HOME/Library/LaunchAgents"
+    local uid_domain="gui/$(id -u)"
+    if [ -d "$launch_agents" ]; then
+      for f in "$launch_agents"/lerd-*.plist; do
+        [ -f "$f" ] || continue
+        local label; label="com.lerd.$(basename "$f" .plist)"
+        info "Stopping $(basename "$f" .plist) ..."
+        launchctl bootout "${uid_domain}/${label}" 2>/dev/null || true
+        launchctl disable "${uid_domain}/${label}" 2>/dev/null || true
+        rm -f "$f"
+      done
     fi
-    systemctl --user disable "$svc" 2>/dev/null || true
-    rm -f "$systemd_user_dir/${svc}.service"
-  done
+  else
+    # ── Linux: stop and remove systemd units ──────────────────────────────
+    local quadlet_dir="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
+    local systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-  systemctl --user daemon-reload 2>/dev/null || true
+    if [ -d "$quadlet_dir" ]; then
+      for f in "$quadlet_dir"/lerd-*.container; do
+        [ -f "$f" ] || continue
+        local unit; unit="$(basename "$f" .container)"
+        if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+          info "Stopping $unit ..."
+          systemctl --user stop "$unit" 2>/dev/null || true
+        fi
+        systemctl --user disable "$unit" 2>/dev/null || true
+      done
+      rm -f "$quadlet_dir"/lerd-*.container
+      info "Removed Quadlet units from $quadlet_dir"
+    fi
+
+    for svc in lerd-watcher lerd-ui; do
+      if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+        systemctl --user stop "$svc" 2>/dev/null || true
+      fi
+      systemctl --user disable "$svc" 2>/dev/null || true
+      rm -f "$systemd_user_dir/${svc}.service"
+    done
+
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
 
   # Remove binary
   if [ -f "${INSTALL_DIR}/${BINARY}" ]; then
@@ -450,6 +527,15 @@ cmd_uninstall() {
 
   # Optionally remove data
   if ask "Remove all Lerd data and config? (~/.config/lerd, ~/.local/share/lerd)"; then
+    # On macOS, stop any lerd containers still running inside Podman Machine
+    # before removing volume data (avoids virtiofs file-lock hangs).
+    if [ "$(detect_os)" = "darwin" ] && command -v podman &>/dev/null; then
+      local running; running="$(podman ps --format '{{.Names}}' 2>/dev/null | grep '^lerd-' || true)"
+      if [ -n "$running" ]; then
+        info "Stopping running lerd containers ..."
+        echo "$running" | xargs podman stop 2>/dev/null || true
+      fi
+    fi
     rm -rf "$LERD_CONFIG_DIR"
     rm -rf "$LERD_DATA_DIR"
     success "Removed config and data directories"
@@ -471,7 +557,7 @@ main() {
   echo "  ███████╗███████╗██║  ██║██████╔╝"
   echo "  ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ "
   echo -e "${RESET}"
-  echo "  Laravel Herd for Linux — Podman-native dev environment"
+  echo "  Herd-like Podman dev environment for Linux and macOS"
   echo "  https://github.com/${REPO}"
   echo ""
 

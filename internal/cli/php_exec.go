@@ -58,7 +58,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 	composerBin := filepath.Join(composerHome, "vendor", "bin")
 
 	if running, _ := podman.ContainerRunning(container); !running {
-		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
+		return fmt.Errorf("PHP %s FPM service is not running — start it with: %s", version, serviceStartHint(container))
 	}
 
 	ensureServicesForCwd(cwd)
@@ -93,7 +93,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 	)
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdin = stdinReader
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

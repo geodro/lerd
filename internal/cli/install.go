@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -35,9 +35,18 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
+	// Install the port forwarding helper and configure unprivileged ports before
+	// starting Podman Machine so that gvproxy starts with the helper already in
+	// place and can forward ports 80/443 from the macOS host on first run.
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
 	}
+	if err := ensurePortForwarding(); err != nil {
+		return err
+	}
+
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
 
 	// 1. Directories
 	step("Creating directories")
@@ -60,6 +69,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// 2. Podman network
 	step("Creating lerd podman network")
 	if err := podman.EnsureNetwork("lerd"); err != nil {
+		if strings.Contains(err.Error(), "connect:") || strings.Contains(err.Error(), "podman.sock") {
+			return fmt.Errorf("cannot connect to Podman — make sure Podman Desktop or Podman Machine is installed and running.\n\n  Install Podman: https://podman-desktop.io\n\n  Original error: %w", err)
+		}
 		return err
 	}
 	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
@@ -137,29 +149,27 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing nginx quadlet")
+	step("Writing nginx service config")
 	if content, err := podman.GetQuadletTemplate("lerd-nginx.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-nginx", content); err != nil {
+		if err := services.Mgr.WriteContainerUnit("lerd-nginx", content); err != nil {
 			return err
 		}
 	}
 	ok()
 
-	step("Writing DNS quadlet")
-	if content, err := podman.GetQuadletTemplate("lerd-dns.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-dns", content); err != nil {
-			return err
-		}
+	step("Writing DNS service")
+	if err := writeDNSUnit(os.Stdout); err != nil {
+		return err
 	}
 	ok()
 
-	step("Refreshing service quadlets")
+	step("Refreshing service configs")
 	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"} {
-		if !podman.QuadletInstalled("lerd-" + svc) {
+		if !services.Mgr.ContainerUnitInstalled("lerd-" + svc) {
 			continue
 		}
 		if content, err := podman.GetQuadletTemplate("lerd-" + svc + ".container"); err == nil {
-			podman.WriteQuadlet("lerd-"+svc, content) //nolint:errcheck
+			services.Mgr.WriteContainerUnit("lerd-"+svc, content) //nolint:errcheck
 		}
 	}
 	ok()
@@ -169,16 +179,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/nginx:alpine")
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
-		{
-			Label: "Pulling alpine:latest",
-			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
+				cmd := exec.Command(podman.PodmanBin(), "pull", "docker.io/library/nginx:alpine")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -188,7 +189,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			Label: "Building dnsmasq",
 			Run: func(w io.Writer) error {
 				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-				cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+				cmd := exec.Command(podman.PodmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
 				cmd.Stdin = strings.NewReader(containerfile)
 				cmd.Stdout = w
 				cmd.Stderr = w
@@ -197,15 +198,15 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		},
 	})
 
-	// 8. Systemd / services
-	step("Reloading systemd daemon")
-	if err := podman.DaemonReload(); err != nil {
+	// 8. Reload service manager
+	step("Reloading service manager")
+	if err := podman.DaemonReloadFn(); err != nil {
 		return err
 	}
 	ok()
 
 	step("Starting lerd-dns")
-	if err := podman.RestartUnit("lerd-dns"); err != nil {
+	if err := services.Mgr.Restart("lerd-dns"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
@@ -222,48 +223,56 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	step("Starting lerd-nginx")
-	if err := podman.RestartUnit("lerd-nginx"); err != nil {
+	if err := services.Mgr.Restart("lerd-nginx"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-watcher", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
 			return err
 		}
-		if err := lerdSystemd.EnableService("lerd-watcher"); err != nil {
+		if err := services.Mgr.Enable("lerd-watcher"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 	}
 	ok()
 
 	step("Restarting watcher service")
-	if err := podman.RestartUnit("lerd-watcher"); err != nil {
+	if err := services.Mgr.Restart("lerd-watcher"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-ui", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
 			return err
 		}
-		if err := lerdSystemd.EnableService("lerd-ui"); err != nil {
+		if err := services.Mgr.Enable("lerd-ui"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 	}
 	ok()
 
 	step("Starting lerd-ui")
-	if err := podman.RestartUnit("lerd-ui"); err != nil {
+	if err := services.Mgr.Restart("lerd-ui"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
 
+	step("Enabling autostart on login")
+	installAutostart()
+	ok()
+
+	step("Installing cleanup script")
+	installCleanupScript()
+	ok()
+
 	// Restart tray if running.
-	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		_ = lerdSystemd.RestartService("lerd-tray")
+	if services.Mgr.IsEnabled("lerd-tray") {
+		_ = services.Mgr.Restart("lerd-tray")
 	} else {
 		killTray()
 		if exe, err := os.Executable(); err == nil {
@@ -315,57 +324,6 @@ func ensureUnprivilegedPorts() error {
 		}
 	}
 	fmt.Println("OK")
-	return nil
-}
-
-func downloadBinaries(w io.Writer) error {
-	arch := runtime.GOARCH
-	binDir := config.BinDir()
-
-	// composer
-	composerPharPath := filepath.Join(binDir, "composer.phar")
-	if _, err := os.Stat(composerPharPath); os.IsNotExist(err) {
-		if err := downloadFile("https://getcomposer.org/composer-stable.phar", composerPharPath, 0755, w); err != nil {
-			return fmt.Errorf("composer download: %w", err)
-		}
-	}
-
-	// fnm
-	fnmPath := filepath.Join(binDir, "fnm")
-	if _, err := os.Stat(fnmPath); os.IsNotExist(err) {
-		fnmZip := filepath.Join(binDir, "fnm-linux.zip")
-		if err := downloadFile(
-			"https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip",
-			fnmZip, 0644, w,
-		); err != nil {
-			return fmt.Errorf("fnm download: %w", err)
-		}
-		extractCmd := exec.Command("unzip", "-o", fnmZip, "fnm", "-d", binDir)
-		extractCmd.Stdout = w
-		extractCmd.Stderr = w
-		if err := extractCmd.Run(); err != nil {
-			return fmt.Errorf("fnm extract: %w", err)
-		}
-		os.Remove(fnmZip)
-		os.Chmod(fnmPath, 0755) //nolint:errcheck
-	}
-
-	// mkcert
-	mkcertPath := certs.MkcertPath()
-	if _, err := os.Stat(mkcertPath); os.IsNotExist(err) {
-		mkcertArch := "amd64"
-		if arch == "arm64" {
-			mkcertArch = "arm64"
-		}
-		mkcertURL := fmt.Sprintf(
-			"https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-%s",
-			mkcertArch,
-		)
-		if err := downloadFile(mkcertURL, mkcertPath, 0755, w); err != nil {
-			return fmt.Errorf("mkcert download: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -426,7 +384,10 @@ func (p *progressReader) Read(b []byte) (int, error) {
 func addShellShims() error {
 	home, _ := os.UserHomeDir()
 	binDir := config.BinDir()
-	lerdBin := filepath.Join(home, ".local", "bin", "lerd")
+	lerdBin, err := os.Executable()
+	if err != nil {
+		lerdBin = filepath.Join(home, ".local", "bin", "lerd")
+	}
 	fnmBin := filepath.Join(binDir, "fnm")
 
 	// Write php shim

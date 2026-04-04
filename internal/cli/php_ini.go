@@ -8,6 +8,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -68,7 +69,7 @@ func runPhpIni(_ *cobra.Command, args []string) error {
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
 	fmt.Printf("Saved. Restarting %s...\n", unit)
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := services.Mgr.Restart(unit); err != nil {
 		return fmt.Errorf("restarting %s: %w", unit, err)
 	}
 	fmt.Println("Done.")

@@ -4,13 +4,37 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
 
+// PodmanBin returns the full path to the podman binary, searching well-known
+// Homebrew locations when PATH is restricted (e.g. launchd services on macOS).
+func PodmanBin() string {
+	return podmanBin()
+}
+
+// podmanBin returns the full path to the podman binary, searching well-known
+// Homebrew locations when PATH is restricted (e.g. launchd services on macOS).
+func podmanBin() string {
+	if p, err := exec.LookPath("podman"); err == nil {
+		return p
+	}
+	for _, candidate := range []string{
+		"/opt/homebrew/bin/podman", // Apple Silicon Homebrew
+		"/usr/local/bin/podman",    // Intel Homebrew
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "podman"
+}
+
 // Run executes podman with the given arguments and returns stdout.
 func Run(args ...string) (string, error) {
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command(podmanBin(), args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -34,7 +58,7 @@ func ImageExists(image string) bool {
 
 // PullImageTo pulls the named image, writing progress output to w.
 func PullImageTo(image string, w io.Writer) error {
-	cmd := exec.Command("podman", "pull", image)
+	cmd := exec.Command(podmanBin(), "pull", image)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

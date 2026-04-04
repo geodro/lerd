@@ -37,9 +37,46 @@ jobs:
       - name: Format
         run: test -z "$(gofmt -l .)"
 
+  build-darwin-tray:
+    name: Build macOS tray (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build lerd-tray
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p dist/lerd-tray_darwin_${{ matrix.arch }}
+          CGO_ENABLED=1 go build \
+            -ldflags="-s -w \
+              -X github.com/geodro/lerd/internal/version.Version=${VERSION} \
+              -X github.com/geodro/lerd/internal/version.Commit=${COMMIT} \
+              -X github.com/geodro/lerd/internal/version.Date=${DATE}" \
+            -o dist/lerd-tray_darwin_${{ matrix.arch }}/lerd-tray \
+            ./cmd/lerd-tray
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lerd-tray-darwin-${{ matrix.arch }}
+          path: dist/lerd-tray_darwin_${{ matrix.arch }}/lerd-tray
+          retention-days: 1
+
   release:
     name: GoReleaser
-    needs: ci
+    needs: [ci, build-darwin-tray]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,6 +95,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --fix-missing libappindicator3-dev
 
+      - name: Download macOS tray binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lerd-tray-darwin-*
+          path: dist-tray
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -66,3 +109,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

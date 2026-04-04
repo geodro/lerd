@@ -12,6 +12,7 @@ import (
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -321,5 +322,5 @@ func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 		return err
 	}
 
-	return podman.StartUnit(unitName)
+	return services.Mgr.Start(unitName)
 }

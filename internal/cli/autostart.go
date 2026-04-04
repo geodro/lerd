@@ -2,10 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -31,10 +29,10 @@ func newAutostartEnableCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := lerdSystemd.WriteService("lerd-autostart", content); err != nil {
+			if err := services.Mgr.WriteServiceUnit("lerd-autostart", content); err != nil {
 				return fmt.Errorf("writing autostart service: %w", err)
 			}
-			if err := lerdSystemd.EnableService("lerd-autostart"); err != nil {
+			if err := services.Mgr.Enable("lerd-autostart"); err != nil {
 				return fmt.Errorf("enabling autostart service: %w", err)
 			}
 			fmt.Println("Autostart enabled — lerd will start automatically on login.")
@@ -48,12 +46,10 @@ func newAutostartDisableCmd() *cobra.Command {
 		Use:   "disable",
 		Short: "Disable lerd autostart on login",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if err := lerdSystemd.DisableService("lerd-autostart"); err != nil {
+			if err := services.Mgr.Disable("lerd-autostart"); err != nil {
 				return fmt.Errorf("disabling autostart service: %w", err)
 			}
-			// Remove the unit file
-			unitPath := filepath.Join(config.SystemdUserDir(), "lerd-autostart.service")
-			if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+			if err := services.Mgr.RemoveServiceUnit("lerd-autostart"); err != nil {
 				return fmt.Errorf("removing autostart service file: %w", err)
 			}
 			fmt.Println("Autostart disabled — lerd will not start automatically on login.")
@@ -81,10 +77,10 @@ func newAutostartTrayEnableCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := lerdSystemd.WriteService("lerd-tray", content); err != nil {
+			if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
 				return fmt.Errorf("writing tray service: %w", err)
 			}
-			if err := lerdSystemd.EnableService("lerd-tray"); err != nil {
+			if err := services.Mgr.Enable("lerd-tray"); err != nil {
 				return fmt.Errorf("enabling tray service: %w", err)
 			}
 			fmt.Println("Tray autostart enabled — lerd tray will start automatically on login.")
@@ -98,11 +94,10 @@ func newAutostartTrayDisableCmd() *cobra.Command {
 		Use:   "disable",
 		Short: "Disable lerd tray autostart on login",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if err := lerdSystemd.DisableService("lerd-tray"); err != nil {
+			if err := services.Mgr.Disable("lerd-tray"); err != nil {
 				return fmt.Errorf("disabling tray service: %w", err)
 			}
-			unitPath := filepath.Join(config.SystemdUserDir(), "lerd-tray.service")
-			if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+			if err := services.Mgr.RemoveServiceUnit("lerd-tray"); err != nil {
 				return fmt.Errorf("removing tray service file: %w", err)
 			}
 			fmt.Println("Tray autostart disabled.")

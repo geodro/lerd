@@ -2,14 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"github.com/geodro/lerd/internal/podman"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +33,7 @@ func NewHorizonStopCmd() *cobra.Command { return newHorizonStopCmd("horizon:stop
 func newHorizonStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start Laravel Horizon for the current site as a systemd service",
+		Short: "Start Laravel Horizon for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -89,11 +89,11 @@ func newHorizonStopCmd(use string) *cobra.Command {
 	}
 }
 
-// HorizonStartForSite starts Laravel Horizon for the named site as a systemd service.
+// HorizonStartForSite starts Laravel Horizon for the named site as a background service.
 // If a queue worker is running for the same site it is stopped first, since Horizon
 // manages queues and the two must not run simultaneously.
 func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
-	if status, _ := podman.UnitStatus("lerd-queue-" + siteName); status == "active" {
+	if status, _ := podman.UnitStatusFn("lerd-queue-" + siteName); status == "active" {
 		if err := QueueStopForSite(siteName); err != nil {
 			fmt.Printf("[WARN] stopping queue worker before horizon: %v\n", err)
 		}
@@ -112,25 +112,26 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan horizon
+ExecStart=%s exec -w %s %s php artisan horizon
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
+		if err := services.Mgr.DaemonReload(); err != nil {
 			return fmt.Errorf("daemon-reload: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	waitForFPMContainer(container)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting horizon: %w", err)
 	}
 	fmt.Printf("Horizon started for %s\n", siteName)
@@ -141,15 +142,14 @@ WantedBy=default.target
 // HorizonStopForSite stops and removes the Horizon unit for the named site.
 func HorizonStopForSite(siteName string) error {
 	unitName := "lerd-horizon-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 	fmt.Printf("Horizon stopped for %s\n", siteName)

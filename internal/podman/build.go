@@ -12,6 +12,41 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// WriteContainerUnitFn writes a container unit file for the given name and content.
+// Defaults to writing a systemd quadlet (.container) file.
+// Override this on macOS to write a launchd plist instead.
+var WriteContainerUnitFn func(name, content string) error = WriteQuadlet
+
+// DaemonReloadFn reloads the service manager after a unit file change.
+// Defaults to systemctl --user daemon-reload.
+// Override this on macOS with a no-op.
+var DaemonReloadFn func() error = DaemonReload
+
+// StartUnitFn starts a service unit.
+// Defaults to systemctl --user start.
+// Override this on macOS to use launchd.
+var StartUnitFn func(name string) error = StartUnit
+
+// StopUnitFn stops a service unit.
+// Defaults to systemctl --user stop.
+// Override this on macOS to use launchd.
+var StopUnitFn func(name string) error = StopUnit
+
+// RestartUnitFn restarts a service unit.
+// Defaults to systemctl --user restart.
+// Override this on macOS to use launchd.
+var RestartUnitFn func(name string) error = RestartUnit
+
+// UnitStatusFn returns the active state of a service unit.
+// Defaults to systemctl --user is-active.
+// Override this on macOS to use launchd.
+var UnitStatusFn func(name string) (string, error) = UnitStatus
+
+// SkipQuadletUpToDateCheck disables the early-return optimisation in
+// WriteFPMQuadlet that skips writing when the .container file is unchanged.
+// Set to true on macOS where the unit file is a launchd plist, not a quadlet.
+var SkipQuadletUpToDateCheck bool
+
 // mkcertPath returns the path to the mkcert binary managed by lerd.
 func mkcertPath() string {
 	return filepath.Join(config.BinDir(), "mkcert")
@@ -72,6 +107,21 @@ func StoreFPMHash() error {
 		return err
 	}
 	return os.WriteFile(config.PHPImageHashFile(), []byte(hash), 0644)
+}
+
+// EnsureDNSImage builds the lerd-dnsmasq:local image if it doesn't already exist.
+// This image is small and fast to build (Alpine + dnsmasq).  It must be
+// re-built after a Podman Machine restart when the VM's image storage is reset.
+func EnsureDNSImage() error {
+	if exec.Command(podmanBin(), "image", "exists", "lerd-dnsmasq:local").Run() == nil {
+		return nil // already present
+	}
+	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
+	cmd := exec.Command(podmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
+	cmd.Stdin = strings.NewReader(containerfile)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
 }
 
 // BuildFPMImage builds the lerd PHP-FPM image for the given version if it doesn't exist.
@@ -156,7 +206,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	}
 	args = append(args, ref)
 
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command(PodmanBin(), args...)
 	cmd.Stdout = w
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
@@ -172,7 +222,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, w io.
 
 	if !force {
 		// Skip if image already exists
-		if exec.Command("podman", "image", "exists", imageName).Run() == nil {
+		if exec.Command(podmanBin(), "image", "exists", imageName).Run() == nil {
 			return nil
 		}
 	}
@@ -221,7 +271,7 @@ build:
 	}
 
 	buildArgs = append(buildArgs, "-f", cfPath, tmp)
-	cmd := exec.Command("podman", buildArgs...)
+	cmd := exec.Command(podmanBin(), buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {
@@ -302,15 +352,18 @@ func WriteFPMQuadlet(version string) error {
 	// Unnecessary daemon-reloads cause Podman's quadlet generator to regenerate
 	// all service files, which can briefly disrupt lerd-dns and cause
 	// systemd-resolved to mark 127.0.0.1:5300 as failed (breaking .test resolution).
-	existingPath := filepath.Join(config.QuadletDir(), unitName+".container")
-	if existing, err := os.ReadFile(existingPath); err == nil && string(existing) == content {
-		return nil
+	// On macOS the unit file is a launchd plist (not a quadlet), so the check is skipped.
+	if !SkipQuadletUpToDateCheck {
+		existingPath := filepath.Join(config.QuadletDir(), unitName+".container")
+		if existing, err := os.ReadFile(existingPath); err == nil && string(existing) == content {
+			return nil
+		}
 	}
 
-	if err := WriteQuadlet(unitName, content); err != nil {
+	if err := WriteContainerUnitFn(unitName, content); err != nil {
 		return err
 	}
-	return DaemonReload()
+	return DaemonReloadFn()
 }
 
 // EnsureUserIni creates the per-version user php.ini with defaults if it doesn't exist.

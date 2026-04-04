@@ -3,16 +3,32 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// waitForFPMContainer blocks until the named FPM container is running and
+// accepting exec sessions, or until the timeout is reached.
+// This prevents "container state improper" errors when launchd starts worker
+// services in parallel with the FPM container on boot/machine restart.
+func waitForFPMContainer(container string) {
+	for range 30 {
+		if running, _ := podman.ContainerRunning(container); running {
+			// Container is running — verify exec works before returning.
+			if err := podman.RunSilent("exec", container, "true"); err == nil {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
 
 // NewWorkerCmd returns the worker parent command with start/stop/list subcommands.
 func NewWorkerCmd() *cobra.Command {
@@ -29,7 +45,7 @@ func NewWorkerCmd() *cobra.Command {
 func newWorkerStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start <name>",
-		Short: "Start a framework worker as a systemd service",
+		Short: "Start a framework worker as a background service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			workerName := args[0]
@@ -183,26 +199,27 @@ BindsTo=%s.service
 Type=simple
 Restart=%s
 RestartSec=5
-ExecStart=podman exec -w %s %s %s
+ExecStart=%s exec -w %s %s %s
 
 [Install]
 WantedBy=default.target
-`, label, siteName, fpmUnit, fpmUnit, restart, sitePath, container, w.Command)
+`, label, siteName, fpmUnit, fpmUnit, restart, podman.PodmanBin(), sitePath, container, w.Command)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
+		if err := services.Mgr.DaemonReload(); err != nil {
 			return fmt.Errorf("daemon-reload: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
 
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	waitForFPMContainer(container)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting %s worker: %w", workerName, err)
 	}
 
@@ -214,15 +231,14 @@ WantedBy=default.target
 // WorkerStopForSite stops and removes the named worker unit for the given site.
 func WorkerStopForSite(siteName, workerName string) error {
 	unitName := "lerd-" + workerName + "-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 

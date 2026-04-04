@@ -51,7 +51,7 @@ func runConsole(_ *cobra.Command, args []string) error {
 	container := "lerd-php" + short + "-fpm"
 
 	if running, _ := podman.ContainerRunning(container); !running {
-		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
+		return fmt.Errorf("PHP %s FPM service is not running — start it with: %s", version, serviceStartHint(container))
 	}
 
 	ensureServicesForCwd(cwd)
@@ -63,7 +63,7 @@ func runConsole(_ *cobra.Command, args []string) error {
 	cmdArgs := append(execFlags, "-w", cwd, container, "php", consoleCmd)
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
