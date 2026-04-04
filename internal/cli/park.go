@@ -221,6 +221,16 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 	name := freeSiteName(baseName, projectDir)
 	domain = name + "." + cfg.DNS.TLD
 
+	// Build domains list from .lerd.yaml if present, else from auto-generated name.
+	var domains []string
+	if proj, pErr := config.LoadProjectConfig(projectDir); pErr == nil && len(proj.Domains) > 0 {
+		for _, d := range proj.Domains {
+			domains = append(domains, strings.ToLower(d)+"."+cfg.DNS.TLD)
+		}
+	} else {
+		domains = []string{domain}
+	}
+
 	phpVersion, err := phpDet.DetectVersion(projectDir)
 	if err != nil {
 		phpVersion = cfg.PHP.DefaultVersion
@@ -240,7 +250,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 
 	site := config.Site{
 		Name:        name,
-		Domain:      domain,
+		Domains:     domains,
 		Path:        projectDir,
 		PHPVersion:  phpVersion,
 		NodeVersion: nodeVersion,
@@ -265,7 +275,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 	if frameworkLabel == "" {
 		frameworkLabel = "unknown (public: " + detectedPublicDir + ")"
 	}
-	fmt.Printf("  + %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, domain, phpVersion, nodeVersion, frameworkLabel)
+	fmt.Printf("  + %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 	return true, nil
 }
 

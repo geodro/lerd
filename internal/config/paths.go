@@ -131,6 +131,11 @@ func PausedDir() string {
 	return filepath.Join(DataDir(), "paused")
 }
 
+// ErrorPagesDir returns the directory where nginx error page HTML files are stored.
+func ErrorPagesDir() string {
+	return filepath.Join(DataDir(), "error-pages")
+}
+
 // ContainerHostsFile returns the path to the shared hosts file mounted into PHP containers.
 func ContainerHostsFile() string {
 	return filepath.Join(DataDir(), "hosts")

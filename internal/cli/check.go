@@ -75,6 +75,85 @@ func runCheck(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  OK    secured: true\n")
 	}
 
+	// Domains
+	if len(cfg.Domains) > 0 {
+		fmt.Printf("  OK    domains: %v\n", cfg.Domains)
+	}
+
+	// Workers
+	if len(cfg.Workers) > 0 {
+		fwName := cfg.Framework
+		if fwName == "" {
+			fwName, _ = config.DetectFramework(cwd)
+		}
+		fw, hasFw := config.GetFramework(fwName)
+
+		hasQueue := false
+		hasHorizon := false
+		for _, w := range cfg.Workers {
+			if w == "queue" {
+				hasQueue = true
+			}
+			if w == "horizon" {
+				hasHorizon = true
+			}
+
+			switch w {
+			case "horizon":
+				if !SiteHasHorizon(cwd) {
+					fmt.Printf("  WARN  worker: %s — laravel/horizon is not installed\n", w)
+					warnings++
+				} else {
+					fmt.Printf("  OK    worker: %s\n", w)
+				}
+			case "reverb":
+				if !SiteUsesReverb(cwd) {
+					fmt.Printf("  WARN  worker: %s — reverb is not configured (no laravel/reverb in composer.json and no BROADCAST_CONNECTION=reverb in .env)\n", w)
+					warnings++
+				} else {
+					fmt.Printf("  OK    worker: %s\n", w)
+				}
+			case "queue", "schedule":
+				if hasFw && fw.Workers != nil {
+					if _, ok := fw.Workers[w]; ok {
+						fmt.Printf("  OK    worker: %s\n", w)
+					} else {
+						fmt.Printf("  WARN  worker: %q is not defined for framework %s\n", w, fwName)
+						warnings++
+					}
+				} else if fwName != "" {
+					fmt.Printf("  WARN  worker: %q — framework %s has no worker definitions\n", w, fwName)
+					warnings++
+				} else {
+					fmt.Printf("  WARN  worker: %q — no framework detected\n", w)
+					warnings++
+				}
+			default:
+				if hasFw && fw.Workers != nil {
+					if _, ok := fw.Workers[w]; ok {
+						fmt.Printf("  OK    worker: %s (custom)\n", w)
+					} else {
+						fmt.Printf("  FAIL  worker: %q is not defined for framework %s\n", w, fwName)
+						errors++
+					}
+				} else {
+					fmt.Printf("  FAIL  worker: %q — no framework worker definition found\n", w)
+					errors++
+				}
+			}
+		}
+
+		if hasQueue && hasHorizon {
+			fmt.Printf("  WARN  workers: both queue and horizon are listed — horizon manages queues, queue worker will be skipped\n")
+			warnings++
+		}
+
+		if hasQueue && SiteHasHorizon(cwd) {
+			fmt.Printf("  WARN  workers: queue is listed but laravel/horizon is installed — horizon will be started instead\n")
+			warnings++
+		}
+	}
+
 	// Services
 	for _, svc := range cfg.Services {
 		if svc.Custom != nil {

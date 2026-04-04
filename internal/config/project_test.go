@@ -119,6 +119,128 @@ func TestProjectConfig_ServiceNames(t *testing.T) {
 	}
 }
 
+func TestProjectConfig_Domains(t *testing.T) {
+	input := `domains:
+  - myapp
+  - api
+php_version: "8.4"
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(cfg.Domains) != 2 {
+		t.Fatalf("want 2 domains, got %d", len(cfg.Domains))
+	}
+	if cfg.Domains[0] != "myapp" || cfg.Domains[1] != "api" {
+		t.Errorf("Domains = %v", cfg.Domains)
+	}
+}
+
+func TestProjectConfig_Domains_RoundTrip(t *testing.T) {
+	cfg := ProjectConfig{
+		Domains:    []string{"myapp", "admin"},
+		PHPVersion: "8.4",
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Domains) != 2 || restored.Domains[0] != "myapp" || restored.Domains[1] != "admin" {
+		t.Errorf("round-trip Domains = %v", restored.Domains)
+	}
+}
+
+func TestProjectConfig_NoDomains(t *testing.T) {
+	input := `php_version: "8.4"
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Domains) != 0 {
+		t.Errorf("expected no domains, got %v", cfg.Domains)
+	}
+}
+
+func TestProjectConfig_Workers(t *testing.T) {
+	input := `php_version: "8.4"
+workers:
+  - queue
+  - schedule
+  - reverb
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(cfg.Workers) != 3 {
+		t.Fatalf("want 3 workers, got %d", len(cfg.Workers))
+	}
+	want := []string{"queue", "schedule", "reverb"}
+	for i, w := range want {
+		if cfg.Workers[i] != w {
+			t.Errorf("Workers[%d] = %q, want %q", i, cfg.Workers[i], w)
+		}
+	}
+}
+
+func TestProjectConfig_Workers_RoundTrip(t *testing.T) {
+	cfg := ProjectConfig{
+		PHPVersion: "8.4",
+		Workers:    []string{"queue", "horizon"},
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Workers) != 2 || restored.Workers[0] != "queue" || restored.Workers[1] != "horizon" {
+		t.Errorf("round-trip Workers = %v", restored.Workers)
+	}
+}
+
+func TestProjectConfig_NoWorkers(t *testing.T) {
+	input := `php_version: "8.4"
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Workers) != 0 {
+		t.Errorf("expected no workers, got %v", cfg.Workers)
+	}
+}
+
+func TestProjectConfig_DomainsAndWorkers(t *testing.T) {
+	cfg := ProjectConfig{
+		Domains:  []string{"myapp", "api"},
+		Workers:  []string{"queue", "schedule"},
+		Secured:  true,
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Domains) != 2 || len(restored.Workers) != 2 {
+		t.Errorf("Domains=%v, Workers=%v", restored.Domains, restored.Workers)
+	}
+	if !restored.Secured {
+		t.Error("expected Secured=true")
+	}
+}
+
 func TestProjectConfig_OldFormatCompat(t *testing.T) {
 	// Old .lerd.yaml used services: [mysql, redis] — must still parse.
 	input := `php_version: "8.3"

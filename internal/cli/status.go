@@ -174,16 +174,16 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				continue
 			}
 			hasSecured = true
-			certPath := filepath.Join(config.CertsDir(), "sites", s.Domain+".crt")
+			certPath := filepath.Join(config.CertsDir(), "sites", s.PrimaryDomain()+".crt")
 			if exp, err := certExpiry(certPath); err != nil {
-				fail2(s.Domain, "cannot read cert", "run: lerd secure "+s.Domain)
+				fail2(s.PrimaryDomain(), "cannot read cert", "run: lerd secure "+s.PrimaryDomain())
 			} else {
 				remaining := time.Until(exp)
 				days := int(remaining.Hours() / 24)
 				if days < 30 {
-					warn2(s.Domain, fmt.Sprintf("expires in %d days", days))
+					warn2(s.PrimaryDomain(), fmt.Sprintf("expires in %d days", days))
 				} else {
-					ok2(fmt.Sprintf("%s (expires in %d days)", s.Domain, days))
+					ok2(fmt.Sprintf("%s (expires in %d days)", s.PrimaryDomain(), days))
 				}
 			}
 		}

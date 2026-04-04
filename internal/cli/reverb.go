@@ -54,7 +54,13 @@ func newReverbStartCmd(use string) *cobra.Command {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
-			return ReverbStartForSite(siteName, cwd, phpVersion)
+			if err := ReverbStartForSite(siteName, cwd, phpVersion); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }
@@ -75,7 +81,13 @@ func newReverbStopCmd(use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ReverbStopForSite(siteName)
+			if err := ReverbStopForSite(siteName); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }

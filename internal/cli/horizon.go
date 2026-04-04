@@ -51,7 +51,13 @@ func newHorizonStartCmd(use string) *cobra.Command {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
-			return HorizonStartForSite(siteName, cwd, phpVersion)
+			if err := HorizonStartForSite(siteName, cwd, phpVersion); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }
@@ -72,7 +78,13 @@ func newHorizonStopCmd(use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return HorizonStopForSite(siteName)
+			if err := HorizonStopForSite(siteName); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }

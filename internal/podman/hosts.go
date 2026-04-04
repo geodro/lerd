@@ -25,8 +25,8 @@ func WriteContainerHosts() error {
 	sb.WriteString("169.254.1.2 host.containers.internal host.docker.internal\n")
 
 	for _, site := range reg.Sites {
-		if site.Domain != "" {
-			fmt.Fprintf(&sb, "169.254.1.2 %s\n", site.Domain)
+		for _, domain := range site.Domains {
+			fmt.Fprintf(&sb, "169.254.1.2 %s\n", domain)
 		}
 	}
 

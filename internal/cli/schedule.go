@@ -51,7 +51,13 @@ func newScheduleStartCmd(use string) *cobra.Command {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
-			return ScheduleStartForSite(siteName, cwd, phpVersion)
+			if err := ScheduleStartForSite(siteName, cwd, phpVersion); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }
@@ -72,7 +78,13 @@ func newScheduleStopCmd(use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ScheduleStopForSite(siteName)
+			if err := ScheduleStopForSite(siteName); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }

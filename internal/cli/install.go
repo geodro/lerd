@@ -116,16 +116,16 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			}
 			if site.Secured {
 				if err := nginx.GenerateSSLVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.Domain, err)
+					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
 					continue
 				}
-				sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
-				mainConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+				sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+				mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 				os.Remove(mainConf)          //nolint:errcheck
 				os.Rename(sslConf, mainConf) //nolint:errcheck
 			} else {
 				if err := nginx.GenerateVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.Domain, err)
+					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
 				}
 			}
 		}

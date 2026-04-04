@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
 	nodeDet "github.com/geodro/lerd/internal/node"
@@ -16,21 +17,18 @@ import (
 
 // NewLinkCmd returns the link command.
 func NewLinkCmd() *cobra.Command {
-	var domain string
-
-	cmd := &cobra.Command{
-		Use:   "link [name]",
+	return &cobra.Command{
+		Use:   "link [domain]",
 		Short: "Link the current directory as a site",
+		Long:  "Register the current directory as a lerd site. The optional argument is the domain name without the TLD (e.g. 'myapp' becomes myapp.test). Defaults to the directory name.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLink(args, domain)
+			return runLink(args)
 		},
 	}
-	cmd.Flags().StringVar(&domain, "domain", "", "Custom domain (defaults to <name>.test)")
-	return cmd
 }
 
-func runLink(args []string, customDomain string) error {
+func runLink(args []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -75,13 +73,43 @@ func runLink(args []string, customDomain string) error {
 
 	baseName, _ := siteNameAndDomain(rawName, cfg.DNS.TLD)
 	name := freeSiteName(baseName, cwd)
-	domain := name + "." + cfg.DNS.TLD
-	if customDomain != "" {
-		domain = strings.ToLower(customDomain)
+
+	// Build the domains list.
+	// 1. Start from .lerd.yaml domains if present, else auto-generate from name.
+	// 2. If an explicit arg is given, ensure it is the primary (first) domain.
+	var domains []string
+	if proj != nil && len(proj.Domains) > 0 {
+		for _, d := range proj.Domains {
+			domains = append(domains, strings.ToLower(d)+"."+cfg.DNS.TLD)
+		}
+	} else {
+		domains = []string{name + "." + cfg.DNS.TLD}
 	}
 
-	if isReservedDomain(domain) {
-		return fmt.Errorf("domain %q is reserved for internal Lerd use", domain)
+	// If the user passed an explicit domain, make it the primary.
+	if len(args) > 0 {
+		explicit := strings.ToLower(args[0]) + "." + cfg.DNS.TLD
+		// Remove it from the list if already present, then prepend.
+		var filtered []string
+		for _, d := range domains {
+			if d != explicit {
+				filtered = append(filtered, d)
+			}
+		}
+		domains = append([]string{explicit}, filtered...)
+	}
+
+	// Validate that none of the domains are already used by another site.
+	for _, d := range domains {
+		if isReservedDomain(d) {
+			return fmt.Errorf("domain %q is reserved for internal Lerd use", d)
+		}
+		if existing, err := config.IsDomainUsed(d); err == nil && existing != nil {
+			// Allow re-linking the same site (same path).
+			if existing.Path != cwd {
+				return fmt.Errorf("domain %q is already used by site %q", d, existing.Name)
+			}
+		}
 	}
 
 	phpVersion, err := phpDet.DetectVersion(cwd)
@@ -103,15 +131,25 @@ func runLink(args []string, customDomain string) error {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 
-	// Preserve Secured state if the same site is being re-linked.
+	// Check if this path already has registered sites (re-link scenario).
+	// Carry over secured state and clean up any old registrations at this path.
 	secured := false
-	if existing, err := config.FindSite(name); err == nil && existing != nil && existing.Path == cwd {
-		secured = existing.Secured
+	if reg, err := config.LoadSites(); err == nil {
+		for _, existing := range reg.Sites {
+			if existing.Path != cwd {
+				continue
+			}
+			secured = secured || existing.Secured
+			if existing.Name != name {
+				_ = nginx.RemoveVhost(existing.PrimaryDomain())
+				_ = config.RemoveSite(existing.Name)
+			}
+		}
 	}
 
 	site := config.Site{
 		Name:        name,
-		Domain:      domain,
+		Domains:     domains,
 		Path:        cwd,
 		PHPVersion:  phpVersion,
 		NodeVersion: nodeVersion,
@@ -124,16 +162,24 @@ func runLink(args []string, customDomain string) error {
 		return fmt.Errorf("registering site: %w", err)
 	}
 
-	if secured {
-		// Regenerate SSL vhost in place, reusing the existing cert.
-		if err := nginx.GenerateSSLVhost(site, phpVersion); err != nil {
-			return fmt.Errorf("generating SSL vhost: %w", err)
+	// Write domains to .lerd.yaml (creates or updates).
+	{
+		proj, _ := config.LoadProjectConfig(cwd)
+		suffix := "." + cfg.DNS.TLD
+		var names []string
+		for _, d := range site.Domains {
+			names = append(names, strings.TrimSuffix(d, suffix))
 		}
-		sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
-		_ = os.Remove(mainConf)
-		if err := os.Rename(sslConf, mainConf); err != nil {
-			return fmt.Errorf("installing SSL vhost: %w", err)
+		proj.Domains = names
+		if err := config.SaveProjectConfig(cwd, proj); err != nil {
+			fmt.Printf("[WARN] writing .lerd.yaml: %v\n", err)
+		}
+	}
+
+	if secured {
+		// Reissue cert for the (possibly new) domain and regenerate SSL vhost.
+		if err := certs.SecureSite(site); err != nil {
+			return fmt.Errorf("securing site: %w", err)
 		}
 	} else {
 		if err := nginx.GenerateVhost(site, phpVersion); err != nil {
@@ -153,7 +199,7 @@ func runLink(args []string, customDomain string) error {
 	if frameworkLabel == "" {
 		frameworkLabel = "unknown (public: " + detectedPublicDir + ")"
 	}
-	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, domain, phpVersion, nodeVersion, frameworkLabel)
+	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
@@ -194,9 +240,55 @@ func runLink(args []string, customDomain string) error {
 				fmt.Printf("[WARN] service %s: %v\n", svc.Name, err)
 			}
 		}
+
+		// Start workers listed in .lerd.yaml.
+		if len(proj.Workers) > 0 {
+			startWorkersForSite(&site, proj.Workers, phpVersion)
+		}
 	}
 
 	return nil
+}
+
+// startWorkersForSite starts the named workers for a site.
+// It applies the same detection as the init wizard: if horizon is installed,
+// "queue" is upgraded to "horizon"; if reverb is not configured, it is skipped.
+func startWorkersForSite(site *config.Site, workers []string, phpVersion string) {
+	hasHorizon := SiteHasHorizon(site.Path)
+	hasReverb := SiteUsesReverb(site.Path)
+	fw, hasFw := config.GetFramework(site.Framework)
+
+	for _, w := range workers {
+		// If horizon is installed, start horizon instead of queue.
+		if w == "queue" && hasHorizon {
+			w = "horizon"
+		}
+		// Skip reverb if not configured in the project.
+		if w == "reverb" && !hasReverb {
+			continue
+		}
+
+		var err error
+		switch w {
+		case "queue":
+			err = QueueStartForSite(site.Name, site.Path, phpVersion)
+		case "schedule":
+			err = ScheduleStartForSite(site.Name, site.Path, phpVersion)
+		case "reverb":
+			err = ReverbStartForSite(site.Name, site.Path, phpVersion)
+		case "horizon":
+			err = HorizonStartForSite(site.Name, site.Path, phpVersion)
+		default:
+			if hasFw && fw.Workers != nil {
+				if worker, ok := fw.Workers[w]; ok {
+					err = WorkerStartForSite(site.Name, site.Path, phpVersion, w, worker)
+				}
+			}
+		}
+		if err != nil {
+			fmt.Printf("[WARN] starting worker %s: %v\n", w, err)
+		}
+	}
 }
 
 // resolveFramework returns the framework name for the project at dir.

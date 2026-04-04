@@ -76,7 +76,7 @@ func TestGetTemplate_missing(t *testing.T) {
 
 func TestGenerateVhost_createsConfFile(t *testing.T) {
 	confD := setupConfD(t)
-	site := config.Site{Name: "myapp", Domain: "myapp.test", Path: "/srv/myapp"}
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test"}, Path: "/srv/myapp"}
 	if err := GenerateVhost(site, "8.3"); err != nil {
 		t.Fatalf("GenerateVhost: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestGenerateVhost_createsConfFile(t *testing.T) {
 
 func TestGenerateVhost_phpVersionShort(t *testing.T) {
 	setupConfD(t)
-	site := config.Site{Name: "app", Domain: "app.test", Path: "/srv/app"}
+	site := config.Site{Name: "app", Domains: []string{"app.test"}, Path: "/srv/app"}
 	if err := GenerateVhost(site, "8.4"); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestGenerateVhost_phpVersionShort(t *testing.T) {
 
 func TestGenerateSSLVhost_createsSSLConfFile(t *testing.T) {
 	confD := setupConfD(t)
-	site := config.Site{Name: "myapp", Domain: "myapp.test", Path: "/srv/myapp"}
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test"}, Path: "/srv/myapp"}
 	if err := GenerateSSLVhost(site, "8.3"); err != nil {
 		t.Fatalf("GenerateSSLVhost: %v", err)
 	}
@@ -124,13 +124,61 @@ func TestGenerateSSLVhost_createsSSLConfFile(t *testing.T) {
 	if !strings.Contains(content, "ssl_certificate") {
 		t.Errorf("expected ssl_certificate in:\n%s", content)
 	}
-	// CertDomain defaults to site.Domain for own sites
+	// CertDomain defaults to site.PrimaryDomain() for own sites
 	if !strings.Contains(content, "myapp.test.crt") {
 		t.Errorf("expected cert file named after domain in:\n%s", content)
 	}
 	// HTTP→HTTPS redirect server block
 	if !strings.Contains(content, "return 302 https://") {
 		t.Errorf("expected HTTP redirect in:\n%s", content)
+	}
+}
+
+// ── Multi-domain vhost ───────────────────────────────────────────────────────
+
+func TestGenerateVhost_multiDomain(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test", "api.test", "admin.test"}, Path: "/srv/myapp"}
+	if err := GenerateVhost(site, "8.4"); err != nil {
+		t.Fatalf("GenerateVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "myapp.test.conf"))
+	// server_name should list all domains plus wildcards
+	if !strings.Contains(content, "server_name myapp.test *.myapp.test api.test *.api.test admin.test *.admin.test") {
+		t.Errorf("expected all domains with wildcards in server_name, got:\n%s", content)
+	}
+}
+
+func TestGenerateSSLVhost_multiDomain(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test", "api.test"}, Path: "/srv/myapp"}
+	if err := GenerateSSLVhost(site, "8.4"); err != nil {
+		t.Fatalf("GenerateSSLVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "myapp.test-ssl.conf"))
+	// Both server blocks should list all domains with wildcards
+	if !strings.Contains(content, "server_name myapp.test *.myapp.test api.test *.api.test") {
+		t.Errorf("expected all domains with wildcards in server_name, got:\n%s", content)
+	}
+	// Cert should be named after primary domain only
+	if !strings.Contains(content, "myapp.test.crt") {
+		t.Errorf("expected cert named after primary domain, got:\n%s", content)
+	}
+}
+
+func TestGenerateVhost_confFileNamedAfterPrimary(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "myapp", Domains: []string{"primary.test", "alias.test"}, Path: "/srv/myapp"}
+	if err := GenerateVhost(site, "8.3"); err != nil {
+		t.Fatal(err)
+	}
+	// File should be named after primary domain
+	if _, err := os.Stat(filepath.Join(confD, "primary.test.conf")); err != nil {
+		t.Error("expected conf file named primary.test.conf")
+	}
+	// Should NOT create a file for the alias
+	if _, err := os.Stat(filepath.Join(confD, "alias.test.conf")); !os.IsNotExist(err) {
+		t.Error("should not create separate conf file for alias domain")
 	}
 }
 
@@ -208,10 +256,15 @@ func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	if !strings.Contains(content, "default_server") {
 		t.Errorf("expected default_server in:\n%s", content)
 	}
-	if !strings.Contains(content, "return 444") {
-		t.Errorf("expected return 444 in:\n%s", content)
+	if !strings.Contains(content, "404.html") {
+		t.Errorf("expected 404.html error page reference in:\n%s", content)
 	}
 	if !strings.Contains(content, "ssl_reject_handshake on") {
 		t.Errorf("expected ssl_reject_handshake in:\n%s", content)
+	}
+	// Verify error page HTML was written
+	errorPage := filepath.Join(os.Getenv("XDG_DATA_HOME"), "lerd", "error-pages", "404.html")
+	if _, err := os.Stat(errorPage); err != nil {
+		t.Errorf("expected error page at %s", errorPage)
 	}
 }

@@ -46,7 +46,8 @@ type nginxConfData struct {
 
 // VhostData is the data passed to vhost templates.
 type VhostData struct {
-	Domain          string
+	Domain          string // primary domain (used for config file naming)
+	ServerNames     string // space-separated list of all domains for server_name directive
 	Path            string
 	PHPVersion      string
 	PHPVersionShort string
@@ -84,6 +85,18 @@ func resolvePublicDir(site config.Site) string {
 	return "public"
 }
 
+// serverNamesWithWildcards returns a space-separated list of all domains plus
+// a *.domain wildcard for each, so subdomains are routed to the site too.
+// Worktree subdomains take priority because they have their own vhost with an
+// exact server_name (nginx prefers exact over wildcard).
+func serverNamesWithWildcards(domains []string) string {
+	var parts []string
+	for _, d := range domains {
+		parts = append(parts, d, "*."+d)
+	}
+	return strings.Join(parts, " ")
+}
+
 // GenerateVhost renders the HTTP vhost template and writes it to conf.d.
 func GenerateVhost(site config.Site, phpVersion string) error {
 	tmplData, err := GetTemplate("vhost.conf.tmpl")
@@ -97,9 +110,11 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 	}
 
 	publicDir := resolvePublicDir(site)
+	serverNames := serverNamesWithWildcards(site.Domains)
 
 	data := VhostData{
-		Domain:          site.Domain,
+		Domain:          site.PrimaryDomain(),
+		ServerNames:     serverNames,
 		Path:            site.Path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
@@ -116,7 +131,7 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
 		return err
 	}
-	confPath := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 	return os.WriteFile(confPath, buf.Bytes(), 0644)
 }
 
@@ -133,13 +148,15 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 	}
 
 	publicDir := resolvePublicDir(site)
+	serverNames := serverNamesWithWildcards(site.Domains)
 
 	data := VhostData{
-		Domain:          site.Domain,
+		Domain:          site.PrimaryDomain(),
+		ServerNames:     serverNames,
 		Path:            site.Path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
-		CertDomain:      site.Domain,
+		CertDomain:      site.PrimaryDomain(),
 		PublicDir:       publicDir,
 		Reverb:          detectSiteReverb(site.Path),
 		ReverbPort:      detectSiteReverbPort(site.Path),
@@ -153,7 +170,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
 		return err
 	}
-	confPath := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
+	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
 	return os.WriteFile(confPath, buf.Bytes(), 0644)
 }
 
@@ -172,6 +189,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 
 	data := VhostData{
 		Domain:          domain,
+		ServerNames:     domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
@@ -205,6 +223,7 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 
 	data := VhostData{
 		Domain:          domain,
+		ServerNames:     domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
@@ -233,7 +252,8 @@ func GeneratePausedVhost(site config.Site) error {
 	}
 
 	pausedDir := config.PausedDir()
-	htmlFile := "/" + site.Domain + ".html"
+	htmlFile := "/" + site.PrimaryDomain() + ".html"
+	serverNames := serverNamesWithWildcards(site.Domains)
 
 	var conf string
 	if site.Secured {
@@ -254,7 +274,7 @@ server {
         default_type text/html;
     }
 }
-`, site.Domain, site.Domain, site.Domain, site.Domain, pausedDir, htmlFile)
+`, serverNames, serverNames, site.PrimaryDomain(), site.PrimaryDomain(), pausedDir, htmlFile)
 	} else {
 		conf = fmt.Sprintf(`server {
     listen 80;
@@ -265,17 +285,17 @@ server {
         default_type text/html;
     }
 }
-`, site.Domain, pausedDir, htmlFile)
+`, serverNames, pausedDir, htmlFile)
 	}
 
-	confPath := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
 		return err
 	}
 	// For secured sites the SSL vhost lives in a separate file; remove it so
 	// nginx doesn't still route HTTPS requests to PHP-FPM while the site is paused.
 	if site.Secured {
-		_ = os.Remove(filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf"))
+		_ = os.Remove(filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf"))
 	}
 	return nil
 }
@@ -381,15 +401,140 @@ func Reload() error {
 	return err
 }
 
-// EnsureDefaultVhost writes a catch-all default server that returns 444 for any
-// request that doesn't match a registered site. This prevents nginx from falling
-// back to the first alphabetical vhost for unknown hostnames.
+// EnsureDefaultVhost writes a catch-all default server that shows a branded
+// error page for any request that doesn't match a registered site.
 func EnsureDefaultVhost() error {
 	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
 		return err
 	}
-	content := "server {\n    listen 80 default_server;\n    return 444;\n}\nserver {\n    listen 443 default_server ssl;\n    ssl_reject_handshake on;\n}\n"
+
+	// Write the error page HTML.
+	if err := writeErrorPages(); err != nil {
+		return fmt.Errorf("writing error pages: %w", err)
+	}
+
+	errorDir := config.ErrorPagesDir()
+	content := fmt.Sprintf(`server {
+    listen 80 default_server;
+    root %s;
+    location / {
+        try_files /404.html =404;
+        default_type text/html;
+    }
+}
+server {
+    listen 443 default_server ssl;
+    ssl_reject_handshake on;
+}
+`, errorDir)
 	return os.WriteFile(filepath.Join(config.NginxConfD(), "_default.conf"), []byte(content), 0644)
+}
+
+const errorPageHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Site Not Found — Lerd</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      background: #0f1117;
+      color: #e5e7eb;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3142;
+      border-radius: 14px;
+      padding: 2.5rem 3rem;
+      max-width: 420px;
+      width: calc(100% - 2rem);
+      text-align: center;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1.25rem;
+      background: #FF2D20;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: #fff;
+    }
+    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .host {
+      font-size: 0.85rem;
+      color: #FF2D20;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      margin: 0 0 1rem;
+      word-break: break-all;
+    }
+    p {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin: 0 0 1.5rem;
+      line-height: 1.5;
+    }
+    code {
+      background: #262a36;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      color: #e5e7eb;
+    }
+    .actions { display: flex; gap: 0.5rem; }
+    a, button {
+      flex: 1;
+      display: inline-block;
+      text-decoration: none;
+      text-align: center;
+      border-radius: 8px;
+      padding: 0.6rem 0;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: none;
+    }
+    .btn-primary { background: #FF2D20; color: #fff; }
+    .btn-primary:hover { background: #e02419; }
+    .btn-secondary { background: #262a36; color: #e5e7eb; border: 1px solid #2d3142; }
+    .btn-secondary:hover { background: #2d3142; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">L</div>
+    <h1>Site Not Found</h1>
+    <p class="host" id="host"></p>
+    <p>This domain is not linked to any site. Run <code>lerd link</code> in your project directory to register it.</p>
+    <div class="actions">
+      <a href="http://lerd.localhost" class="btn-primary">Open Dashboard</a>
+      <button class="btn-secondary" onclick="location.reload()">Retry</button>
+    </div>
+  </div>
+  <script>document.getElementById('host').textContent = location.hostname;</script>
+</body>
+</html>
+`
+
+// writeErrorPages ensures the error page HTML files exist in the error pages directory.
+func writeErrorPages() error {
+	dir := config.ErrorPagesDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "404.html"), []byte(errorPageHTML), 0644)
 }
 
 // EnsureLerdVhost generates the nginx proxy vhost for lerd.localhost → host:7073.

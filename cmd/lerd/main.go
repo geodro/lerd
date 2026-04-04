@@ -98,6 +98,7 @@ func main() {
 		root.AddCommand(cmd)
 	}
 	root.AddCommand(cli.NewShareCmd())
+	root.AddCommand(cli.NewDomainCmd())
 	root.AddCommand(cli.NewFrameworkCmd())
 	root.AddCommand(cli.NewWorkerCmd())
 	root.AddCommand(cli.NewNewCmd())
@@ -240,7 +241,7 @@ func newWatchCmd() *cobra.Command {
 						if site.Paused {
 							return
 						}
-						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.Domain)
+						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.PrimaryDomain())
 						if err != nil {
 							return
 						}
@@ -250,7 +251,7 @@ func newWatchCmd() *cobra.Command {
 								gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
 								var vhostErr error
 								if site.Secured {
-									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.Domain)
+									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
 								} else {
 									vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
 								}
@@ -363,7 +364,7 @@ func newWatchCmd() *cobra.Command {
 					return // not a registered site
 				}
 				fmt.Printf("Project deleted: %s (%s)\n", site.Name, removedPath)
-				_ = nginx.RemoveVhost(site.Domain)
+				_ = nginx.RemoveVhost(site.PrimaryDomain())
 				if err := config.RemoveSite(site.Name); err != nil {
 					fmt.Printf("[WARN] removing site %s: %v\n", site.Name, err)
 					return
@@ -406,7 +407,7 @@ func scanWorktrees() bool {
 		if s.Ignored || s.Paused {
 			continue
 		}
-		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.Domain)
+		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
 		if err != nil || len(worktrees) == 0 {
 			continue
 		}
@@ -414,7 +415,7 @@ func scanWorktrees() bool {
 			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
 			var vhostErr error
 			if s.Secured {
-				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.Domain)
+				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain())
 			} else {
 				vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, s.PHPVersion)
 			}
@@ -437,7 +438,7 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 	if err != nil {
 		return false
 	}
-	suffix := "." + site.Domain + ".conf"
+	suffix := "." + site.PrimaryDomain() + ".conf"
 	changed := false
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), suffix) {
@@ -446,11 +447,11 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 		}
 	}
 	// Re-generate for worktrees still present
-	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	for _, wt := range worktrees {
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.Domain)
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.PrimaryDomain())
 		} else {
 			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, site.PHPVersion)
 		}
@@ -486,7 +487,7 @@ func removeStale(cfg *config.GlobalConfig) bool {
 		}
 		if _, statErr := os.Stat(site.Path); os.IsNotExist(statErr) {
 			fmt.Printf("Removing stale site: %s (%s)\n", site.Name, site.Path)
-			_ = nginx.RemoveVhost(site.Domain)
+			_ = nginx.RemoveVhost(site.PrimaryDomain())
 			_ = config.RemoveSite(site.Name)
 			removed = true
 		}

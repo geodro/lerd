@@ -25,26 +25,30 @@ func InstallCA() error {
 	return nil
 }
 
-// IssueCert issues a TLS certificate for the given domain using mkcert.
-func IssueCert(domain, certsDir string) error {
+// IssueCert issues a TLS certificate covering all the given domains using mkcert.
+// The cert files are named after primaryDomain. Each domain also gets a wildcard entry.
+func IssueCert(primaryDomain string, allDomains []string, certsDir string) error {
 	if err := os.MkdirAll(certsDir, 0755); err != nil {
 		return err
 	}
 
-	certFile := filepath.Join(certsDir, domain+".crt")
-	keyFile := filepath.Join(certsDir, domain+".key")
-	wildcard := "*." + domain
+	certFile := filepath.Join(certsDir, primaryDomain+".crt")
+	keyFile := filepath.Join(certsDir, primaryDomain+".key")
 
-	cmd := exec.Command(
-		MkcertPath(),
-		"-cert-file", certFile,
-		"-key-file", keyFile,
-		domain, wildcard,
-	)
+	// Build the list of SANs: each domain + its wildcard.
+	var sans []string
+	for _, d := range allDomains {
+		sans = append(sans, d, "*."+d)
+	}
+
+	args := []string{"-cert-file", certFile, "-key-file", keyFile}
+	args = append(args, sans...)
+
+	cmd := exec.Command(MkcertPath(), args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("mkcert for %s: %w", domain, err)
+		return fmt.Errorf("mkcert for %s: %w", primaryDomain, err)
 	}
 	return nil
 }

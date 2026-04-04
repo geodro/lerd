@@ -88,7 +88,7 @@ func PauseSite(name string) error {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)
 	}
 
-	fmt.Printf("Paused: %s (%s)\n", name, site.Domain)
+	fmt.Printf("Paused: %s (%s)\n", name, site.PrimaryDomain())
 	if len(running) > 0 {
 		fmt.Printf("  Workers stopped: %s\n", strings.Join(running, ", "))
 	}
@@ -125,8 +125,8 @@ func UnpauseSite(name string) error {
 		if err := nginx.GenerateSSLVhost(*site, phpVersion); err != nil {
 			return fmt.Errorf("generating SSL vhost: %w", err)
 		}
-		sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+		sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+		mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 		_ = os.Remove(mainConf)
 		if err := os.Rename(sslConf, mainConf); err != nil {
 			return fmt.Errorf("installing SSL vhost: %w", err)
@@ -156,9 +156,9 @@ func UnpauseSite(name string) error {
 		return fmt.Errorf("updating registry: %w", err)
 	}
 
-	_ = os.Remove(filepath.Join(config.PausedDir(), site.Domain+".html"))
+	_ = os.Remove(filepath.Join(config.PausedDir(), site.PrimaryDomain()+".html"))
 
-	fmt.Printf("Resumed: %s (%s)\n", name, site.Domain)
+	fmt.Printf("Resumed: %s (%s)\n", name, site.PrimaryDomain())
 	if len(resumed) > 0 {
 		fmt.Printf("  Workers restarted: %s\n", strings.Join(resumed, ", "))
 	}
@@ -213,6 +213,30 @@ func startServicesForSiteNoticed(sitePath, siteName string) {
 			fmt.Printf("  [WARN] could not start %s: %v\n", name, err)
 		}
 	}
+}
+
+// SyncLerdYAMLWorkers updates the workers list in .lerd.yaml if the file exists.
+func SyncLerdYAMLWorkers(site *config.Site) {
+	lerdYAML := filepath.Join(site.Path, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(site.Path)
+	proj.Workers = CollectRunningWorkerNames(site)
+	_ = config.SaveProjectConfig(site.Path, proj)
+}
+
+// CollectRunningWorkerNames returns the names of active workers for the site,
+// excluding stripe (which is not a framework worker). Used to sync .lerd.yaml.
+func CollectRunningWorkerNames(site *config.Site) []string {
+	all := collectRunningWorkers(site)
+	var workers []string
+	for _, w := range all {
+		if w != "stripe" {
+			workers = append(workers, w)
+		}
+	}
+	return workers
 }
 
 // collectRunningWorkers returns the names of all active workers for the site.
@@ -283,7 +307,7 @@ func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
 		if site.Secured {
 			scheme = "https"
 		}
-		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.Domain) //nolint:errcheck
+		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
 	default:
 		fw, ok := config.GetFramework(site.Framework)
 		if !ok || fw.Workers == nil {
@@ -414,14 +438,14 @@ func writePausedHTML(site *config.Site) error {
 	var buf bytes.Buffer
 	if err := pausedPageTmpl.Execute(&buf, pausedPageData{
 		Name:         site.Name,
-		Domain:       site.Domain,
-		ResumeDomain: site.Domain,
+		Domain:       site.PrimaryDomain(),
+		ResumeDomain: site.PrimaryDomain(),
 		Scheme:       scheme,
 	}); err != nil {
 		return err
 	}
 
-	htmlPath := filepath.Join(config.PausedDir(), site.Domain+".html")
+	htmlPath := filepath.Join(config.PausedDir(), site.PrimaryDomain()+".html")
 	return os.WriteFile(htmlPath, buf.Bytes(), 0644)
 }
 
@@ -429,7 +453,7 @@ func writePausedHTML(site *config.Site) error {
 // a site that is being paused. The resume button on each worktree page unpauses
 // the parent site (which restores all worktree vhosts as well).
 func pauseWorktrees(site *config.Site) {
-	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	if err != nil || len(worktrees) == 0 {
 		return
 	}
@@ -438,7 +462,7 @@ func pauseWorktrees(site *config.Site) {
 			fmt.Printf("  [WARN] paused page for worktree %s: %v\n", wt.Domain, err)
 			continue
 		}
-		if err := nginx.GeneratePausedWorktreeVhost(wt.Domain, site.Domain, config.PausedDir(), site.Secured); err != nil {
+		if err := nginx.GeneratePausedWorktreeVhost(wt.Domain, site.PrimaryDomain(), config.PausedDir(), site.Secured); err != nil {
 			fmt.Printf("  [WARN] paused vhost for worktree %s: %v\n", wt.Domain, err)
 		}
 	}
@@ -447,14 +471,14 @@ func pauseWorktrees(site *config.Site) {
 // unpauseWorktrees restores the normal nginx vhosts for every worktree of a
 // site that has just been unpaused and removes their paused HTML files.
 func unpauseWorktrees(site *config.Site, phpVersion string) {
-	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.Domain)
+	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	if err != nil || len(worktrees) == 0 {
 		return
 	}
 	for _, wt := range worktrees {
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.Domain)
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
 		} else {
 			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
 		}
@@ -482,7 +506,7 @@ func writePausedWorktreeHTML(wt gitpkg.Worktree, parent *config.Site) error {
 	if err := pausedPageTmpl.Execute(&buf, pausedPageData{
 		Name:         wt.Branch,
 		Domain:       wt.Domain,
-		ResumeDomain: parent.Domain,
+		ResumeDomain: parent.PrimaryDomain(),
 		Scheme:       scheme,
 	}); err != nil {
 		return err

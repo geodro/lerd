@@ -478,27 +478,58 @@ func toolList() []mcpTool {
 					},
 					"name": {
 						Type:        "string",
-						Description: "Site name (defaults to the directory name, cleaned up)",
-					},
-					"domain": {
-						Type:        "string",
-						Description: "Custom domain (defaults to <name>.test)",
+						Description: "Domain name without TLD (e.g. 'myapp' becomes myapp.test). Defaults to the directory name, cleaned up.",
 					},
 				},
 			},
 		},
 		{
 			Name:        "site_unlink",
-			Description: "Unregister a lerd site and remove its nginx vhost. The project files are NOT deleted.",
+			Description: "Unregister a lerd site and remove its nginx vhost (all domains). The project files are NOT deleted.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {
+					"path": {
 						Type:        "string",
-						Description: "Site name as shown by the sites tool",
+						Description: "Absolute path to the project directory. Defaults to LERD_SITE_PATH when omitted.",
 					},
 				},
-				Required: []string{"site"},
+			},
+		},
+		{
+			Name:        "site_domain_add",
+			Description: "Add an additional domain to a lerd site. The domain name should not include the .test TLD.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project directory. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"domain": {
+						Type:        "string",
+						Description: "Domain name to add (without .test TLD, e.g. 'api')",
+					},
+				},
+				Required: []string{"domain"},
+			},
+		},
+		{
+			Name:        "site_domain_remove",
+			Description: "Remove a domain from a lerd site. Cannot remove the last domain.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project directory. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"domain": {
+						Type:        "string",
+						Description: "Domain name to remove (without .test TLD, e.g. 'api')",
+					},
+				},
+				Required: []string{"domain"},
 			},
 		},
 		{
@@ -1281,6 +1312,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execSiteLink(args)
 	case "site_unlink":
 		return execSiteUnlink(args)
+	case "site_domain_add":
+		return execSiteDomainAdd(args)
+	case "site_domain_remove":
+		return execSiteDomainRemove(args)
 	case "secure":
 		return execSecure(args)
 	case "unsecure":
@@ -1458,6 +1493,7 @@ func execSites() (any, *rpcError) {
 	type siteInfo struct {
 		Name        string         `json:"name"`
 		Domain      string         `json:"domain"`
+		Domains     []string       `json:"domains"`
 		Path        string         `json:"path"`
 		PHPVersion  string         `json:"php_version"`
 		NodeVersion string         `json:"node_version"`
@@ -1490,7 +1526,8 @@ func execSites() (any, *rpcError) {
 
 		out = append(out, siteInfo{
 			Name:        s.Name,
-			Domain:      s.Domain,
+			Domain:      s.PrimaryDomain(),
+			Domains:     s.Domains,
 			Path:        s.Path,
 			PHPVersion:  s.PHPVersion,
 			NodeVersion: s.NodeVersion,
@@ -1848,7 +1885,7 @@ func execStripeListen(args map[string]any) (any, *rpcError) {
 	if site.Secured {
 		scheme = "https"
 	}
-	forwardTo := scheme + "://" + site.Domain + webhookPath
+	forwardTo := scheme + "://" + site.PrimaryDomain() + webhookPath
 	unitName := "lerd-stripe-" + siteName
 	containerName := unitName
 
@@ -2397,8 +2434,13 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		rawName = filepath.Base(projectPath)
 	}
 	name, domain := siteLinkNameAndDomain(rawName, cfg.DNS.TLD)
-	if custom := strArg(args, "domain"); custom != "" {
-		domain = strings.ToLower(custom)
+	domains := []string{domain}
+
+	// Validate domains are not used by other sites.
+	for _, d := range domains {
+		if existing, err := config.IsDomainUsed(d); err == nil && existing != nil && existing.Path != projectPath {
+			return toolErr(fmt.Sprintf("domain %q is already used by site %q", d, existing.Name)), nil
+		}
 	}
 
 	phpVersion, err := phpDet.DetectVersion(projectPath)
@@ -2411,14 +2453,25 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		nodeVersion = cfg.Node.DefaultVersion
 	}
 
+	// Check if this path already has registered sites (re-link scenario).
+	// Carry over secured state and clean up any old registrations at this path.
 	secured := false
-	if existing, err := config.FindSite(name); err == nil {
-		secured = existing.Secured
+	if reg, err := config.LoadSites(); err == nil {
+		for _, existing := range reg.Sites {
+			if existing.Path != projectPath {
+				continue
+			}
+			secured = secured || existing.Secured
+			if existing.Name != name {
+				_ = nginx.RemoveVhost(existing.PrimaryDomain())
+				_ = config.RemoveSite(existing.Name)
+			}
+		}
 	}
 
 	site := config.Site{
 		Name:        name,
-		Domain:      domain,
+		Domains:     domains,
 		Path:        projectPath,
 		PHPVersion:  phpVersion,
 		NodeVersion: nodeVersion,
@@ -2429,7 +2482,11 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		return toolErr("registering site: " + err.Error()), nil
 	}
 
-	if err := nginx.GenerateVhost(site, phpVersion); err != nil {
+	if site.Secured {
+		if err := certs.SecureSite(site); err != nil {
+			return toolErr("securing site: " + err.Error()), nil
+		}
+	} else if err := nginx.GenerateVhost(site, phpVersion); err != nil {
 		return toolErr("generating vhost: " + err.Error()), nil
 	}
 
@@ -2445,24 +2502,24 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 	}
 
 	if err := nginx.Reload(); err != nil {
-		return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)\n[WARN] nginx reload: %v", name, domain, phpVersion, nodeVersion, err)), nil
+		return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)\n[WARN] nginx reload: %v", name, strings.Join(domains, ", "), phpVersion, nodeVersion, err)), nil
 	}
 
-	return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)", name, domain, phpVersion, nodeVersion)), nil
+	return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)", name, strings.Join(domains, ", "), phpVersion, nodeVersion)), nil
 }
 
 func execSiteUnlink(args map[string]any) (any, *rpcError) {
-	siteName := strArg(args, "site")
-	if siteName == "" {
-		return toolErr("site is required"), nil
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
-	site, err := config.FindSite(siteName)
+	site, err := config.FindSiteByPath(projectPath)
 	if err != nil {
-		return toolErr(fmt.Sprintf("site %q not found", siteName)), nil
+		return toolErr(fmt.Sprintf("no site registered for %s", projectPath)), nil
 	}
 
-	if err := nginx.RemoveVhost(site.Domain); err != nil {
+	if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
 		// Non-fatal — vhost may already be gone.
 		_ = err
 	}
@@ -2479,17 +2536,164 @@ func execSiteUnlink(args map[string]any) (any, *rpcError) {
 	}
 
 	if isParked {
-		if err := config.IgnoreSite(siteName); err != nil {
+		if err := config.IgnoreSite(site.Name); err != nil {
 			return toolErr("ignoring site: " + err.Error()), nil
 		}
 	} else {
-		if err := config.RemoveSite(siteName); err != nil {
+		if err := config.RemoveSite(site.Name); err != nil {
 			return toolErr("removing site: " + err.Error()), nil
 		}
 	}
 
 	_ = nginx.Reload()
-	return toolOK(fmt.Sprintf("Unlinked %s (%s)", siteName, site.Domain)), nil
+	_ = podman.WriteContainerHosts()
+	return toolOK(fmt.Sprintf("Unlinked %s (%s)", site.Name, strings.Join(site.Domains, ", "))), nil
+}
+
+func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	domainName := strArg(args, "domain")
+	if domainName == "" {
+		return toolErr("domain is required"), nil
+	}
+
+	site, err := config.FindSiteByPath(projectPath)
+	if err != nil {
+		return toolErr(fmt.Sprintf("no site registered for %s", projectPath)), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	fullDomain := strings.ToLower(domainName) + "." + cfg.DNS.TLD
+
+	if site.HasDomain(fullDomain) {
+		return toolErr(fmt.Sprintf("site %q already has domain %q", site.Name, fullDomain)), nil
+	}
+	if existing, err := config.IsDomainUsed(fullDomain); err == nil && existing != nil {
+		return toolErr(fmt.Sprintf("domain %q is already used by site %q", fullDomain, existing.Name)), nil
+	}
+
+	oldPrimary := site.PrimaryDomain()
+	site.Domains = append(site.Domains, fullDomain)
+
+	if err := config.AddSite(*site); err != nil {
+		return toolErr("updating site: " + err.Error()), nil
+	}
+
+	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+
+	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
+		return toolErr("regenerating vhost: " + err.Error()), nil
+	}
+
+	if site.Secured {
+		certsDir := filepath.Join(config.CertsDir(), "sites")
+		_ = certs.IssueCert(site.PrimaryDomain(), site.Domains, certsDir)
+	}
+
+	_ = podman.WriteContainerHosts()
+	_ = nginx.Reload()
+
+	return toolOK(fmt.Sprintf("Added domain %s to site %s", fullDomain, site.Name)), nil
+}
+
+func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	domainName := strArg(args, "domain")
+	if domainName == "" {
+		return toolErr("domain is required"), nil
+	}
+
+	site, err := config.FindSiteByPath(projectPath)
+	if err != nil {
+		return toolErr(fmt.Sprintf("no site registered for %s", projectPath)), nil
+	}
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return toolErr("loading config: " + err.Error()), nil
+	}
+
+	fullDomain := strings.ToLower(domainName) + "." + cfg.DNS.TLD
+
+	if !site.HasDomain(fullDomain) {
+		return toolErr(fmt.Sprintf("site %q does not have domain %q", site.Name, fullDomain)), nil
+	}
+	if len(site.Domains) <= 1 {
+		return toolErr(fmt.Sprintf("cannot remove the last domain from site %q", site.Name)), nil
+	}
+
+	oldPrimary := site.PrimaryDomain()
+	var newDomains []string
+	for _, d := range site.Domains {
+		if d != fullDomain {
+			newDomains = append(newDomains, d)
+		}
+	}
+	site.Domains = newDomains
+
+	if err := config.AddSite(*site); err != nil {
+		return toolErr("updating site: " + err.Error()), nil
+	}
+
+	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+
+	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
+		return toolErr("regenerating vhost: " + err.Error()), nil
+	}
+
+	if site.Secured {
+		certsDir := filepath.Join(config.CertsDir(), "sites")
+		_ = certs.IssueCert(site.PrimaryDomain(), site.Domains, certsDir)
+	}
+
+	_ = podman.WriteContainerHosts()
+	_ = nginx.Reload()
+
+	return toolOK(fmt.Sprintf("Removed domain %s from site %s", fullDomain, site.Name)), nil
+}
+
+// mcpRegenerateSiteVhost regenerates the nginx vhost for a site after a domain change.
+func mcpRegenerateSiteVhost(site *config.Site, oldPrimary string) error {
+	newPrimary := site.PrimaryDomain()
+	if oldPrimary != newPrimary {
+		_ = nginx.RemoveVhost(oldPrimary)
+	}
+	if site.Secured {
+		if err := nginx.GenerateSSLVhost(*site, site.PHPVersion); err != nil {
+			return err
+		}
+		sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
+		mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
+		_ = os.Remove(mainConf)
+		return os.Rename(sslConf, mainConf)
+	}
+	return nginx.GenerateVhost(*site, site.PHPVersion)
+}
+
+// mcpSyncLerdYAMLDomains updates domains in .lerd.yaml (name-only, no TLD).
+func mcpSyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
+	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(lerdYAML); err != nil {
+		return
+	}
+	proj, _ := config.LoadProjectConfig(projectPath)
+	suffix := "." + tld
+	var names []string
+	for _, d := range fullDomains {
+		names = append(names, strings.TrimSuffix(d, suffix))
+	}
+	proj.Domains = names
+	_ = config.SaveProjectConfig(projectPath, proj)
 }
 
 func execSecure(args map[string]any) (any, *rpcError) {
@@ -2513,7 +2717,7 @@ func execSecure(args map[string]any) (any, *rpcError) {
 	}
 
 	if err := envfile.ApplyUpdates(site.Path, map[string]string{
-		"APP_URL": "https://" + site.Domain,
+		"APP_URL": "https://" + site.PrimaryDomain(),
 	}); err != nil {
 		// Non-fatal — .env may not exist.
 		_ = err
@@ -2525,7 +2729,7 @@ func execSecure(args map[string]any) (any, *rpcError) {
 		return toolErr("reloading nginx: " + err.Error()), nil
 	}
 
-	return toolOK(fmt.Sprintf("Secured: https://%s", site.Domain)), nil
+	return toolOK(fmt.Sprintf("Secured: https://%s", site.PrimaryDomain())), nil
 }
 
 func execUnsecure(args map[string]any) (any, *rpcError) {
@@ -2549,7 +2753,7 @@ func execUnsecure(args map[string]any) (any, *rpcError) {
 	}
 
 	if err := envfile.ApplyUpdates(site.Path, map[string]string{
-		"APP_URL": "http://" + site.Domain,
+		"APP_URL": "http://" + site.PrimaryDomain(),
 	}); err != nil {
 		_ = err
 	}
@@ -2560,7 +2764,7 @@ func execUnsecure(args map[string]any) (any, *rpcError) {
 		return toolErr("reloading nginx: " + err.Error()), nil
 	}
 
-	return toolOK(fmt.Sprintf("Unsecured: http://%s", site.Domain)), nil
+	return toolOK(fmt.Sprintf("Unsecured: http://%s", site.PrimaryDomain())), nil
 }
 
 func execXdebugToggle(args map[string]any, enable bool) (any, *rpcError) {

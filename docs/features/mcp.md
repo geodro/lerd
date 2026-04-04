@@ -80,7 +80,9 @@ Once the MCP server is connected, your AI assistant has access to:
 | `node_uninstall` | Uninstall a Node.js version via fnm |
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
 | `site_link` | Register a directory as a lerd site — generates nginx vhost and `.test` domain |
-| `site_unlink` | Unregister a site and remove its nginx vhost |
+| `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |
+| `site_domain_add` | Add an additional domain to a site (without TLD) |
+| `site_domain_remove` | Remove a domain from a site (cannot remove last) |
 | `park` | Register a parent directory — scans subdirectories and auto-registers any PHP projects as sites |
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |

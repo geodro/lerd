@@ -1,17 +1,17 @@
 server {
     listen 80;
-    server_name {{.Domain}};
+    server_name {{.ServerNames}};
     return 302 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name {{.Domain}};
+    server_name {{.ServerNames}};
     root {{.Path}}/public;
     index index.php index.html;
 
-    ssl_certificate /etc/nginx/certs/{{.Domain}}.crt;
-    ssl_certificate_key /etc/nginx/certs/{{.Domain}}.key;
+    ssl_certificate /etc/nginx/certs/{{.CertDomain}}.crt;
+    ssl_certificate_key /etc/nginx/certs/{{.CertDomain}}.key;
 
     location / {
         try_files $uri $uri/ /index.php?$query_string;

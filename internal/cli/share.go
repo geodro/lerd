@@ -88,7 +88,7 @@ func runShare(args []string, useNgrok, useCloudflare, useExpose, useServeo, useL
 		return err
 	}
 
-	fmt.Printf("Sharing %s...\n", site.Domain)
+	fmt.Printf("Sharing %s...\n", site.PrimaryDomain())
 	fmt.Println("Press Ctrl+C to stop.")
 	fmt.Println()
 
@@ -96,11 +96,11 @@ func runShare(args []string, useNgrok, useCloudflare, useExpose, useServeo, useL
 	switch tool.mode {
 	case shareModeNgrok:
 		cmd = exec.Command("ngrok", "http", fmt.Sprintf("%d", port),
-			"--host-header="+site.Domain)
+			"--host-header="+site.PrimaryDomain())
 	case shareModeExpose:
-		shareURL := fmt.Sprintf("http://%s", site.Domain)
+		shareURL := fmt.Sprintf("http://%s", site.PrimaryDomain())
 		if port != 80 {
-			shareURL = fmt.Sprintf("http://%s:%d", site.Domain, port)
+			shareURL = fmt.Sprintf("http://%s:%d", site.PrimaryDomain(), port)
 		}
 		cmd = exec.Command("expose", "share", shareURL)
 	case shareModeCloudflare:
@@ -108,7 +108,7 @@ func runShare(args []string, useNgrok, useCloudflare, useExpose, useServeo, useL
 		if httpsPort == 0 {
 			httpsPort = 443
 		}
-		proxyPort, stop, err := startHostProxy(site.Domain, port, httpsPort, site.Secured)
+		proxyPort, stop, err := startHostProxy(site.PrimaryDomain(), port, httpsPort, site.Secured)
 		if err != nil {
 			return fmt.Errorf("starting local proxy: %w", err)
 		}
@@ -121,13 +121,13 @@ func runShare(args []string, useNgrok, useCloudflare, useExpose, useServeo, useL
 			httpsPort = 443
 		}
 		// Start a local reverse proxy that rewrites Host so nginx routes correctly.
-		proxyPort, stop, err := startHostProxy(site.Domain, port, httpsPort, site.Secured)
+		proxyPort, stop, err := startHostProxy(site.PrimaryDomain(), port, httpsPort, site.Secured)
 		if err != nil {
 			return fmt.Errorf("starting local proxy: %w", err)
 		}
 		defer stop()
 
-		fmt.Printf("Local proxy started on port %d (Host: %s → nginx:%d)\n\n", proxyPort, site.Domain, port)
+		fmt.Printf("Local proxy started on port %d (Host: %s → nginx:%d)\n\n", proxyPort, site.PrimaryDomain(), port)
 
 		cmd = exec.Command("ssh",
 			"-o", "StrictHostKeyChecking=no",

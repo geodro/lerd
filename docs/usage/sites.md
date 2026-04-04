@@ -8,9 +8,11 @@
 | `lerd init --fresh` | Re-run the wizard with existing `.lerd.yaml` values as defaults |
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
-| `lerd link [name]` | Register the current directory as a site |
-| `lerd link [name] --domain foo.test` | Register with a custom domain |
-| `lerd unlink [name]` | Stop serving the site |
+| `lerd link [domain]` | Register the current directory as a site (domain name without TLD, defaults to directory name) |
+| `lerd unlink` | Unlink the current directory site (removes all domains) |
+| `lerd domain add <name>` | Add an additional domain to the current site |
+| `lerd domain remove <name>` | Remove a domain from the current site |
+| `lerd domain list` | List all domains for the current site |
 | `lerd sites` | Table view of all registered sites |
 | `lerd open [name]` | Open the site in the default browser |
 | `lerd share [name]` | Expose the site publicly via ngrok or Expose (auto-detected) |
@@ -73,6 +75,66 @@ lerd init --fresh
 Directories with real TLDs are automatically normalised — dots are replaced with dashes and the TLD is stripped before appending `.test`.
 
 For example: `admin.astrolov.com` → `admin-astrolov.test`
+
+---
+
+## Multiple domains
+
+A site can respond to multiple domains. The argument to `lerd link` is the domain name without the `.test` TLD — it is appended automatically from the global config.
+
+```bash
+lerd link myapp                # links as myapp.test
+```
+
+After linking, you can add more domains:
+
+```bash
+lerd domain add api            # adds api.test
+lerd domain add admin          # adds admin.test
+lerd domain list
+#   myapp.test (primary)
+#   api.test
+#   admin.test
+lerd domain remove api         # removes api.test
+```
+
+Domains are stored in `.lerd.yaml` as an array (without the TLD) so the file stays portable across machines with different TLD configurations:
+
+```yaml
+domains:
+  - myapp
+  - admin
+```
+
+You can also add and remove domains from the web UI by clicking the **+** button next to the domain name in the site detail header.
+
+When a site is secured with HTTPS, the certificate is automatically reissued to cover all domains.
+
+Subdomains (e.g. `anything.myapp.test`) are automatically routed to the same site. Git worktree subdomains take priority when they exist.
+
+---
+
+## Workers
+
+The `lerd init` wizard includes a workers step that lets you select which workers to auto-start when linking. Available workers depend on the framework and what's installed:
+
+- **queue** — shown when the framework defines a queue worker (replaced by horizon when `laravel/horizon` is installed)
+- **horizon** — shown only when `laravel/horizon` is in `composer.json`
+- **schedule** — the task scheduler
+- **reverb** — shown only when `laravel/reverb` is installed or `BROADCAST_CONNECTION=reverb` is in `.env`
+- **custom workers** — any additional workers defined in the framework definition
+
+Selected workers are saved to `.lerd.yaml`:
+
+```yaml
+workers:
+  - horizon
+  - schedule
+```
+
+When `lerd link` runs, workers listed in `.lerd.yaml` are started automatically. Toggling workers from the CLI (`lerd queue:start`, `lerd schedule:stop`, etc.) or the web UI also syncs the running state back to `.lerd.yaml` when the file exists.
+
+`lerd check` validates that listed workers are valid for the detected framework.
 
 ---
 

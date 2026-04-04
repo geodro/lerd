@@ -35,7 +35,7 @@ func runIsolate(_ *cobra.Command, args []string) error {
 
 	// Re-link if the site is registered so nginx picks up the new version.
 	if _, err := config.FindSiteByPath(cwd); err == nil {
-		if err := runLink([]string{}, ""); err != nil {
+		if err := runLink([]string{}); err != nil {
 			fmt.Printf("[WARN] re-linking site: %v\n", err)
 		}
 	}

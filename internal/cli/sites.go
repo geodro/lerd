@@ -42,6 +42,9 @@ func runSites(_ *cobra.Command, _ []string) error {
 	width := termWidth()
 
 	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
 		fwName := s.Framework
 		if fwName == "" {
 			fwName, _ = config.DetectFramework(s.Path)
@@ -53,22 +56,31 @@ func runSites(_ *cobra.Command, _ []string) error {
 
 		var worktrees []gitpkg.Worktree
 		if gitpkg.IsMainRepo(s.Path) {
-			worktrees, _ = gitpkg.DetectWorktrees(s.Path, s.Domain)
+			worktrees, _ = gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
 		}
 
 		switch {
 		case width >= 120:
 			printSiteWide(s, fwLabel)
+			for _, d := range s.Domains[1:] {
+				printAliasDomainWide(d)
+			}
 			for _, wt := range worktrees {
 				printWorktreeWide(wt, s)
 			}
 		case width >= 80:
 			printSiteMedium(s, fwLabel)
+			for _, d := range s.Domains[1:] {
+				printAliasDomainMedium(d)
+			}
 			for _, wt := range worktrees {
 				printWorktreeMedium(wt, s)
 			}
 		default:
 			printSiteCompact(s, fwLabel)
+			for _, d := range s.Domains[1:] {
+				printAliasDomainCompact(d)
+			}
 			for _, wt := range worktrees {
 				printWorktreeCompact(wt, s)
 			}
@@ -101,8 +113,13 @@ func printSiteWide(s config.Site, fwLabel string) {
 		statusCol = pausedTag() + "  "
 	}
 	fmt.Printf("%-22s %-32s %-6s %-6s %-4s %-10s %s %s\n",
-		truncate(s.Name, 22), truncate(s.Domain, 32),
+		truncate(s.Name, 22), truncate(s.PrimaryDomain(), 32),
 		s.PHPVersion, s.NodeVersion, tls, fwLabel, statusCol, s.Path)
+}
+
+func printAliasDomainWide(domain string) {
+	fmt.Printf("  %-20s %-32s\n",
+		"↳ alias", truncate(domain, 32))
 }
 
 func printWorktreeWide(wt gitpkg.Worktree, s config.Site) {
@@ -131,7 +148,12 @@ func printSiteMedium(s config.Site, fwLabel string) {
 		statusCol = pausedTag() + "  "
 	}
 	fmt.Printf("%-28s %-6s %-4s %-10s %s %s\n",
-		truncate(s.Domain, 28), s.PHPVersion, tls, fwLabel, statusCol, s.Path)
+		truncate(s.PrimaryDomain(), 28), s.PHPVersion, tls, fwLabel, statusCol, s.Path)
+}
+
+func printAliasDomainMedium(domain string) {
+	fmt.Printf("  %-26s\n",
+		"↳ "+truncate(domain, 24))
 }
 
 func printWorktreeMedium(wt gitpkg.Worktree, s config.Site) {
@@ -153,11 +175,15 @@ func printSiteCompact(s config.Site, fwLabel string) {
 	if fwLabel != "" {
 		meta += " · " + fwLabel
 	}
-	fmt.Printf("%s%s%s\n", s.Domain, tls, status)
+	fmt.Printf("%s%s%s\n", s.PrimaryDomain(), tls, status)
 	fmt.Printf("  %s\n", truncate(s.Path, 76))
 	if meta != "" {
 		fmt.Printf("  \033[2m%s\033[0m\n", meta)
 	}
+}
+
+func printAliasDomainCompact(domain string) {
+	fmt.Printf("  ↳ %s\n", domain)
 }
 
 func printWorktreeCompact(wt gitpkg.Worktree, s config.Site) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	nodeDet "github.com/geodro/lerd/internal/node"
@@ -44,16 +45,16 @@ func runWhich(_ *cobra.Command, _ []string) error {
 	}
 
 	docRoot := filepath.Join(site.Path, publicDir)
-	nginxConf := filepath.Join(config.NginxConfD(), site.Domain+".conf")
+	nginxConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
 
-	fmt.Printf("  Site         %s\n", site.Domain)
+	fmt.Printf("  Site         %s\n", strings.Join(site.Domains, ", "))
 	fmt.Printf("  PHP          %s\n", phpVersion)
 	fmt.Printf("  Node         %s\n", nodeVersion)
 	fmt.Printf("  Document root  %s\n", docRoot)
 	fmt.Printf("  Nginx config   %s\n", nginxConf)
 
 	if site.Secured {
-		sslConf := filepath.Join(config.NginxConfD(), site.Domain+"-ssl.conf")
+		sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
 		fmt.Printf("  Nginx SSL      %s\n", sslConf)
 	}
 
