@@ -51,7 +51,6 @@ func runUpdate(currentVersion string, beta bool) error {
 		return nil
 	}
 
-
 	fmt.Println("==> Checking for updates")
 
 	var latest string
