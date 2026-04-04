@@ -100,6 +100,16 @@ This ensures queue workers and nginx stay in sync after deploys or PHP version c
 
 ---
 
+## Failing and restarting workers
+
+`lerd status` includes a Workers section that lists all active, restarting, or failed workers across sites. Paused sites are excluded from this list.
+
+Workers that are crash-looping (repeatedly failing and restarting) are detected automatically. When you unlink a site, lerd stops any crash-looping workers for that site to prevent them from consuming resources after the site is gone.
+
+In the web UI, a failing worker shows a pulsing red toggle and its log tab appears with a **!** indicator so you can inspect the error output immediately.
+
+---
+
 ## Web UI control
 
 Queue workers and Horizon are controllable from the **Sites tab** in the web UI:

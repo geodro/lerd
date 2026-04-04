@@ -21,7 +21,9 @@ Linked: my-app -> my-app.test (PHP 8.4, Node 22, Framework: laravel)
 
 The services list includes both built-in services and any custom services already registered with `lerd service add`.
 
-After the wizard, a checkbox list appears with all available steps pre-selected based on the current project state:
+The init wizard also includes a workers step that lets you select which workers to auto-start. Available workers depend on the framework — Horizon is shown automatically when `laravel/horizon` is detected in `composer.json`, replacing the generic queue option.
+
+After the wizard, a checkbox list appears with all available steps pre-selected based on the current project state. Worker steps are pre-selected based on the `.lerd.yaml` workers list:
 
 ```
 ? Select setup steps to run:
@@ -42,7 +44,9 @@ The `lerd secure` step is omitted entirely when HTTPS was already enabled in the
 
 On a machine where `.lerd.yaml` already exists the wizard is skipped and the saved configuration is applied silently before the step selector appears.
 
-`lerd link` also applies `.lerd.yaml` when the file is present, so cloning a repo and running `lerd link` is enough to restore the full environment without running `lerd setup` or `lerd init` first. See [Configuration](../reference/configuration.md#per-project-config-lerdyaml) for the full field reference including inline service definitions and custom frameworks.
+`lerd link` also applies `.lerd.yaml` when the file is present, so cloning a repo and running `lerd link` is enough to restore the full environment without running `lerd setup` or `lerd init` first. When workers are configured in `.lerd.yaml` but not yet running, `lerd link` prompts to run `lerd setup` so you can install dependencies, run migrations, and start workers in the right order.
+
+See [Configuration](../reference/configuration.md#per-project-config-lerdyaml) for the full field reference including inline service definitions and custom frameworks.
 
 ---
 

@@ -115,6 +115,40 @@ lerd normally pulls a pre-built base image from ghcr.io and finishes in ~30 seco
 lerd handles this automatically since v1.3.4 by always pulling anonymously. If you are on an older version, running `podman logout ghcr.io` before the build will fix it.
 :::
 
+::: details Port conflicts on `lerd start`
+`lerd start` checks for port conflicts before starting containers. If another process is already using a required port, you'll see a warning:
+
+```
+Port conflicts detected:
+  WARN: port 80 (nginx HTTP) already in use — may fail to start (check: ss -tlnp sport = :80)
+```
+
+Common culprits are Apache, another nginx instance, or a previously running lerd that wasn't stopped cleanly. Find and stop the conflicting process:
+
+```bash
+ss -tlnp sport = :80    # show what's listening on port 80
+```
+
+`lerd doctor` also checks for port conflicts as part of its full diagnostic.
+:::
+
+::: details Workers failing or crash-looping
+Check `lerd status` — the Workers section lists all active, restarting, or failed workers. In the web UI, failing workers show a pulsing red toggle and a **!** on their log tab.
+
+To inspect the error:
+
+```bash
+journalctl --user -u lerd-queue-my-app -f    # or lerd-horizon-my-app, lerd-schedule-my-app
+```
+
+Common causes:
+- Missing Redis when `QUEUE_CONNECTION=redis` — start it with `lerd service start redis`
+- Missing dependencies after a fresh clone — run `lerd setup` to install them
+- Bad `.env` values — run `lerd env` to reset service connection settings
+
+When you unlink a site, crash-looping workers are automatically detected and stopped.
+:::
+
 ::: details Error: NetworkUpdate is not supported for backend CNI: invalid argument
 Your system is likely configured to use the older CNI backend, which lacks support for the requested network operation. Edit or create the Podman configuration file at `/etc/containers/containers.conf` and add or modify the `network_backend` setting to `netavark`:
 
