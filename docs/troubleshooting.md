@@ -115,6 +115,27 @@ lerd normally pulls a pre-built base image from ghcr.io and finishes in ~30 seco
 lerd handles this automatically since v1.3.4 by always pulling anonymously. If you are on an older version, running `podman logout ghcr.io` before the build will fix it.
 :::
 
+::: details Nginx fails to start (missing certificates)
+`lerd start` automatically detects SSL vhosts that reference missing certificate files and repairs them before starting nginx:
+
+- **Registered sites** — the site is switched back to HTTP and the vhost is regenerated. The registry is updated (`Secured = false`).
+- **Orphan SSL vhosts** — configs left behind by unlinked sites with missing certs are removed.
+
+Repaired items are printed as warnings during startup:
+
+```
+  WARN: missing TLS certificate for myapp.test — switched to HTTP
+```
+
+To re-enable HTTPS after the automatic repair, run `lerd secure <name>`.
+
+If nginx still fails to start, check the logs:
+
+```bash
+journalctl --user -u lerd-nginx -n 30 --no-pager
+```
+:::
+
 ::: details Port conflicts on `lerd start`
 `lerd start` checks for port conflicts before starting containers. If another process is already using a required port, you'll see a warning:
 

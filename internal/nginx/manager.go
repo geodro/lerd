@@ -252,7 +252,6 @@ func GeneratePausedVhost(site config.Site) error {
 	}
 
 	pausedDir := config.PausedDir()
-	htmlFile := "/" + site.PrimaryDomain() + ".html"
 	serverNames := serverNamesWithWildcards(site.Domains)
 
 	var conf string
@@ -270,22 +269,22 @@ server {
     ssl_certificate_key /etc/nginx/certs/%s.key;
     root %s;
     location / {
-        try_files %s =503;
+        try_files /paused.html =503;
         default_type text/html;
     }
 }
-`, serverNames, serverNames, site.PrimaryDomain(), site.PrimaryDomain(), pausedDir, htmlFile)
+`, serverNames, serverNames, site.PrimaryDomain(), site.PrimaryDomain(), pausedDir)
 	} else {
 		conf = fmt.Sprintf(`server {
     listen 80;
     server_name %s;
     root %s;
     location / {
-        try_files %s =503;
+        try_files /paused.html =503;
         default_type text/html;
     }
 }
-`, serverNames, pausedDir, htmlFile)
+`, serverNames, pausedDir)
 	}
 
 	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
@@ -307,8 +306,6 @@ func GeneratePausedWorktreeVhost(domain, certDomain, pausedDir string, secured b
 		return err
 	}
 
-	htmlFile := "/" + domain + ".html"
-
 	var conf string
 	if secured {
 		conf = fmt.Sprintf(`server {
@@ -324,22 +321,22 @@ server {
     ssl_certificate_key /etc/nginx/certs/%s.key;
     root %s;
     location / {
-        try_files %s =503;
+        try_files /paused.html =503;
         default_type text/html;
     }
 }
-`, domain, domain, certDomain, certDomain, pausedDir, htmlFile)
+`, domain, domain, certDomain, certDomain, pausedDir)
 	} else {
 		conf = fmt.Sprintf(`server {
     listen 80;
     server_name %s;
     root %s;
     location / {
-        try_files %s =503;
+        try_files /paused.html =503;
         default_type text/html;
     }
 }
-`, domain, pausedDir, htmlFile)
+`, domain, pausedDir)
 	}
 
 	confPath := filepath.Join(config.NginxConfD(), domain+".conf")
@@ -399,6 +396,108 @@ func GenerateProxyVhost(domain, upstreamHost string, upstreamPort int) error {
 func Reload() error {
 	_, err := podman.Run("exec", "lerd-nginx", "nginx", "-s", "reload")
 	return err
+}
+
+// VhostRepair describes a single vhost that was repaired during pre-flight.
+type VhostRepair struct {
+	Domain string
+	Reason string // "missing-cert" or "orphan-ssl"
+}
+
+// RepairVhosts performs pre-flight validation of nginx vhost configs before start.
+// It fixes SSL vhosts that reference cert files that don't exist on the host:
+//
+//   - If the domain belongs to a registered site, the vhost is regenerated as
+//     plain HTTP and the site registry is updated (Secured = false).
+//   - If no matching site exists (orphan SSL vhost), the config is removed.
+//
+// Plain HTTP vhosts are left untouched even if they don't match any site — they
+// are harmless and may belong to worktrees, parked sites, or ignored sites.
+func RepairVhosts() []VhostRepair {
+	certsDir := filepath.Join(config.CertsDir(), "sites")
+	confDir := config.NginxConfD()
+	entries, err := os.ReadDir(confDir)
+	if err != nil {
+		return nil
+	}
+
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+
+	var repairs []VhostRepair
+	dirty := false
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".conf") {
+			continue
+		}
+		// Skip internal configs (default catch-all and lerd dashboard proxy).
+		if entry.Name() == "_default.conf" || entry.Name() == "lerd.localhost.conf" {
+			continue
+		}
+
+		confPath := filepath.Join(confDir, entry.Name())
+		domain := strings.TrimSuffix(entry.Name(), ".conf")
+
+		data, err := os.ReadFile(confPath)
+		if err != nil {
+			continue
+		}
+
+		// Only act on vhosts with missing TLS certificates — those crash nginx.
+		if !hasMissingCert(string(data), certsDir) {
+			continue
+		}
+
+		repaired := false
+		for i, site := range reg.Sites {
+			if site.PrimaryDomain() != domain || !site.Secured {
+				continue
+			}
+			// Regenerate as plain HTTP vhost.
+			if err := GenerateVhost(site, site.PHPVersion); err != nil {
+				continue
+			}
+			reg.Sites[i].Secured = false
+			dirty = true
+			repaired = true
+			repairs = append(repairs, VhostRepair{Domain: domain, Reason: "missing-cert"})
+			os.Remove(filepath.Join(certsDir, domain+".crt")) //nolint:errcheck
+			os.Remove(filepath.Join(certsDir, domain+".key")) //nolint:errcheck
+			break
+		}
+		if !repaired {
+			// No matching site — orphan SSL vhost with missing cert, remove it.
+			os.Remove(confPath) //nolint:errcheck
+			repairs = append(repairs, VhostRepair{Domain: domain, Reason: "orphan-ssl"})
+		}
+	}
+
+	if dirty {
+		config.SaveSites(reg) //nolint:errcheck
+	}
+
+	return repairs
+}
+
+// hasMissingCert returns true if the vhost content contains an ssl_certificate
+// directive pointing to a cert file that doesn't exist on the host.
+func hasMissingCert(content, certsDir string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ssl_certificate ") {
+			continue
+		}
+		certPath := strings.TrimSuffix(strings.TrimPrefix(line, "ssl_certificate "), ";")
+		certPath = strings.TrimSpace(certPath)
+		hostPath := filepath.Join(certsDir, filepath.Base(certPath))
+		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureDefaultVhost writes a catch-all default server that shows a branded

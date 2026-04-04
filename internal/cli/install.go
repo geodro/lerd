@@ -110,6 +110,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if err == nil {
 		cfg, _ := config.LoadGlobal()
 		for _, site := range reg.Sites {
+			// Skip paused and ignored sites — they have their own vhosts
+			// (landing page or none) that should not be overwritten.
+			if site.Paused || site.Ignored {
+				continue
+			}
 			phpVer := site.PHPVersion
 			if phpVer == "" && cfg != nil {
 				phpVer = cfg.PHP.DefaultVersion

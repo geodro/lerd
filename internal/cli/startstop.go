@@ -331,6 +331,18 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  WARN: container hosts file: %v\n", err)
 	}
 
+	// Pre-flight: repair SSL vhosts with missing cert files so nginx can start.
+	if repairs := nginx.RepairVhosts(); len(repairs) > 0 {
+		for _, r := range repairs {
+			switch r.Reason {
+			case "missing-cert":
+				fmt.Printf("  WARN: missing TLS certificate for %s — switched to HTTP\n", r.Domain)
+			case "orphan-ssl":
+				fmt.Printf("  WARN: removed orphan SSL vhost for %s\n", r.Domain)
+			}
+		}
+	}
+
 	units = append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui", "lerd-watcher")
 	units = append(units, registeredQueueUnits()...)

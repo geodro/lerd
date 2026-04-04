@@ -7,6 +7,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.5.1] — 2026-04-04
+
+### Fixed
+
+- **Nginx fails to start when TLS certificates are missing** — `lerd start` now detects SSL vhosts referencing missing cert files before starting nginx, switches affected sites back to HTTP, and removes orphan SSL configs. Previously a single missing certificate would prevent all sites from loading.
+- **Paused sites bypass landing page after update** — `lerd install` (called by `lerd update`) was regenerating vhosts for all sites, overwriting paused landing pages with the full site config. Paused and ignored sites are now skipped during vhost regeneration.
+- **Paused landing page redesigned** — the paused page now matches the branded "Site Not Found" page with the Lerd logo, red accent, and Resume + Dashboard buttons. Uses a single shared HTML file instead of generating one per site.
+
+---
+
 ## [1.5.0] — 2026-04-04
 
 ### Added

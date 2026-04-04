@@ -247,6 +247,203 @@ func TestRemoveVhost_noError_whenMissing(t *testing.T) {
 
 // ── EnsureDefaultVhost ────────────────────────────────────────────────────────
 
+// ── RepairVhosts ─────────────────────────────────────────────────────────────
+
+// setupRepairEnv creates a temp dir with XDG env vars, conf.d and certs dirs,
+// and writes sites.yaml. Returns confD and certsDir paths.
+func setupRepairEnv(t *testing.T, sitesYAML string) (confD, certsDir string) {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+
+	confD = filepath.Join(tmp, "lerd", "nginx", "conf.d")
+	certsDir = filepath.Join(tmp, "lerd", "certs", "sites")
+	os.MkdirAll(confD, 0755)
+	os.MkdirAll(certsDir, 0755)
+
+	sitesDir := filepath.Join(tmp, "lerd")
+	os.MkdirAll(sitesDir, 0755)
+	os.WriteFile(filepath.Join(sitesDir, "sites.yaml"), []byte(sitesYAML), 0644)
+	return confD, certsDir
+}
+
+func TestRepairVhosts_missingCertSwitchesToHTTP(t *testing.T) {
+	confD, _ := setupRepairEnv(t, `sites:
+- name: myapp
+  domains:
+    - myapp.test
+  path: /srv/myapp
+  php_version: "8.4"
+  secured: true
+`)
+
+	// Write an SSL vhost config that references a missing cert.
+	sslConf := `server {
+    listen 80;
+    server_name myapp.test *.myapp.test;
+    return 302 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name myapp.test *.myapp.test;
+    root /srv/myapp/public;
+    ssl_certificate /etc/nginx/certs/myapp.test.crt;
+    ssl_certificate_key /etc/nginx/certs/myapp.test.key;
+}
+`
+	os.WriteFile(filepath.Join(confD, "myapp.test.conf"), []byte(sslConf), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 1 || repairs[0].Domain != "myapp.test" || repairs[0].Reason != "missing-cert" {
+		t.Fatalf("expected [{myapp.test missing-cert}], got %v", repairs)
+	}
+
+	// Verify the vhost was regenerated as HTTP.
+	content := readConf(t, filepath.Join(confD, "myapp.test.conf"))
+	if strings.Contains(content, "ssl_certificate") {
+		t.Error("expected SSL directives to be removed after repair")
+	}
+	if !strings.Contains(content, "server_name myapp.test") {
+		t.Error("expected server_name to be preserved")
+	}
+
+	// Verify site registry was updated.
+	reg, err := config.LoadSites()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range reg.Sites {
+		if s.Name == "myapp" && s.Secured {
+			t.Error("expected site.Secured to be false after repair")
+		}
+	}
+}
+
+func TestRepairVhosts_noOpWhenCertExists(t *testing.T) {
+	confD, certsDir := setupRepairEnv(t, `sites:
+- name: good
+  domains:
+    - good.test
+  path: /srv/good
+  php_version: "8.4"
+  secured: true
+`)
+
+	sslConf := `server {
+    listen 443 ssl;
+    server_name good.test *.good.test;
+    ssl_certificate /etc/nginx/certs/good.test.crt;
+    ssl_certificate_key /etc/nginx/certs/good.test.key;
+}
+`
+	os.WriteFile(filepath.Join(confD, "good.test.conf"), []byte(sslConf), 0644)
+	os.WriteFile(filepath.Join(certsDir, "good.test.crt"), []byte("cert"), 0644)
+	os.WriteFile(filepath.Join(certsDir, "good.test.key"), []byte("key"), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 0 {
+		t.Fatalf("expected no repairs, got %v", repairs)
+	}
+
+	content := readConf(t, filepath.Join(confD, "good.test.conf"))
+	if !strings.Contains(content, "ssl_certificate") {
+		t.Error("SSL vhost should not be modified when cert exists")
+	}
+}
+
+func TestRepairVhosts_removesOrphanSSLVhost(t *testing.T) {
+	confD, _ := setupRepairEnv(t, "sites: []\n")
+
+	sslConf := `server {
+    listen 443 ssl;
+    server_name orphan.test;
+    ssl_certificate /etc/nginx/certs/orphan.test.crt;
+}
+`
+	os.WriteFile(filepath.Join(confD, "orphan.test.conf"), []byte(sslConf), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 1 || repairs[0].Domain != "orphan.test" || repairs[0].Reason != "orphan-ssl" {
+		t.Fatalf("expected [{orphan.test orphan-ssl}], got %v", repairs)
+	}
+
+	if _, err := os.Stat(filepath.Join(confD, "orphan.test.conf")); !os.IsNotExist(err) {
+		t.Error("expected orphan SSL vhost to be removed")
+	}
+}
+
+func TestRepairVhosts_preservesOrphanHTTPVhost(t *testing.T) {
+	confD, _ := setupRepairEnv(t, "sites: []\n")
+
+	// An HTTP vhost for an unregistered domain — harmless, should NOT be removed.
+	httpConf := `server {
+    listen 80;
+    server_name stale.test;
+    root /srv/stale/public;
+}
+`
+	os.WriteFile(filepath.Join(confD, "stale.test.conf"), []byte(httpConf), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 0 {
+		t.Fatalf("expected no repairs for orphan HTTP vhost, got %v", repairs)
+	}
+
+	if _, err := os.Stat(filepath.Join(confD, "stale.test.conf")); err != nil {
+		t.Error("orphan HTTP vhost should be preserved")
+	}
+}
+
+func TestRepairVhosts_preservesInternalVhosts(t *testing.T) {
+	confD, _ := setupRepairEnv(t, "sites: []\n")
+
+	// Write internal vhosts that should never be removed.
+	os.WriteFile(filepath.Join(confD, "_default.conf"), []byte("server {}"), 0644)
+	os.WriteFile(filepath.Join(confD, "lerd.localhost.conf"), []byte("server { server_name lerd.localhost; }"), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 0 {
+		t.Fatalf("expected no repairs for internal vhosts, got %v", repairs)
+	}
+	if _, err := os.Stat(filepath.Join(confD, "_default.conf")); err != nil {
+		t.Error("_default.conf should be preserved")
+	}
+	if _, err := os.Stat(filepath.Join(confD, "lerd.localhost.conf")); err != nil {
+		t.Error("lerd.localhost.conf should be preserved")
+	}
+}
+
+func TestRepairVhosts_preservesIgnoredSiteVhost(t *testing.T) {
+	confD, _ := setupRepairEnv(t, `sites:
+- name: ignored
+  domains:
+    - ignored.test
+  path: /srv/ignored
+  php_version: "8.4"
+  ignored: true
+`)
+
+	os.WriteFile(filepath.Join(confD, "ignored.test.conf"), []byte("server { server_name ignored.test; }"), 0644)
+
+	repairs := RepairVhosts()
+
+	if len(repairs) != 0 {
+		t.Fatalf("expected no repairs for ignored site HTTP vhost, got %v", repairs)
+	}
+
+	if _, err := os.Stat(filepath.Join(confD, "ignored.test.conf")); err != nil {
+		t.Error("ignored site HTTP vhost should be preserved")
+	}
+}
+
+// ── EnsureDefaultVhost ────────────────────────────────────────────────────────
+
 func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	confD := setupConfD(t)
 	if err := EnsureDefaultVhost(); err != nil {
