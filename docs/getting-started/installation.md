@@ -115,8 +115,7 @@ Binaries are published to the Homebrew tap as pre-releases.
 ### macOS
 
 ```bash
-brew tap geodro/lerd
-brew install lerd
+brew install geodro/lerd/lerd
 lerd install
 ```
 

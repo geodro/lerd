@@ -78,8 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
 macOS support is in beta. Install via Homebrew:
 
 ```bash
-brew tap geodro/lerd
-brew install lerd
+brew install geodro/lerd/lerd
 lerd install
 ```
 
