@@ -106,7 +106,7 @@ domains:
   - admin
 ```
 
-You can also add and remove domains from the web UI by clicking the **+** button next to the domain name in the site detail header.
+You can also manage domains from the web UI — click the pencil icon next to the domain in the site header to open the domain management modal.
 
 When a site is secured with HTTPS, the certificate is automatically reissued to cover all domains.
 
@@ -132,9 +132,15 @@ workers:
   - schedule
 ```
 
-When `lerd link` runs, workers listed in `.lerd.yaml` are started automatically. Toggling workers from the CLI (`lerd queue:start`, `lerd schedule:stop`, etc.) or the web UI also syncs the running state back to `.lerd.yaml` when the file exists.
+When `lerd link` runs and workers are configured but not yet running, it prompts to run `lerd setup` so you can install dependencies, run migrations, and start workers in the right order. If workers are already running (re-link), they are left as-is.
+
+`lerd setup` pre-selects worker steps based on the `.lerd.yaml` workers list. Workers not in the list still appear in the step selector but are unchecked.
+
+Toggling workers from the CLI (`lerd queue:start`, `lerd schedule:stop`, etc.) or the web UI syncs the running state back to `.lerd.yaml` when the file exists.
 
 `lerd check` validates that listed workers are valid for the detected framework.
+
+`lerd status` includes a Workers section showing all active, restarting, or failed workers across sites. In the web UI, failing workers show a pulsing red toggle and their log tab appears with a "!" indicator.
 
 ---
 
@@ -147,7 +153,19 @@ When a directory is parked or linked and another site is already registered with
 
 ---
 
-## Unlink behaviour for parked sites
+## Linking from the web UI
+
+You can link a new site directly from the dashboard by clicking the **+** button in the sites panel header. A directory browser modal lets you navigate to the project folder and click **Link This Directory**. After linking, the site's `.env` is auto-configured and the UI switches to the new site's settings.
+
+---
+
+## Unlinked domains
+
+When you visit a `.test` domain that isn't linked to any site, lerd shows a branded "Site Not Found" page with a link to the dashboard and a retry button. This replaces the browser's generic connection error.
+
+---
+
+## Unlink behaviour
 
 When you unlink a site that lives inside a parked directory, the vhost is removed but the registry entry is kept and marked as *ignored* — the watcher will not re-register it on its next scan. Running `lerd link` in that directory clears the ignored flag and restores the site.
 
