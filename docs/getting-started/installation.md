@@ -115,7 +115,8 @@ Binaries are published to the Homebrew tap as pre-releases.
 ### macOS
 
 ```bash
-brew install geodro/lerd/lerd
+brew tap geodro/lerd
+brew install lerd
 lerd install
 ```
 
@@ -126,6 +127,7 @@ Podman Machine, DNS, and nginx on first run.
 
 ```bash
 brew upgrade lerd
+lerd install
 ```
 
 **Uninstall:**
