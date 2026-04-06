@@ -2,6 +2,8 @@
 
 package cli
 
+import "github.com/geodro/lerd/internal/dns"
+
 func serviceStartHint(unit string) string {
 	return "systemctl --user start " + unit
 }
@@ -11,7 +13,7 @@ func serviceStatusHint(unit string) string {
 }
 
 func dnsRestartHint() string {
-	return "run 'lerd install' or: sudo systemctl restart NetworkManager"
+	return "run 'lerd install' or: " + dns.ResolverHint()
 }
 
 func podmanDaemonHint() string {
