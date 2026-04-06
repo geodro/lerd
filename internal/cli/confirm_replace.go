@@ -16,22 +16,31 @@ var (
 	metaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")) // blue
 )
 
-// confirmReplace compares existing and replacement by marshalling both to YAML.
-// If they are identical it returns true immediately (no prompt needed).
-// If they differ it prints a unified diff and asks the user whether to replace.
-// Returns true if the replacement should be applied, false to skip.
-func confirmReplace(kind, name string, existing, replacement interface{}) (bool, error) {
+// replaceAction represents the user's choice when a definition conflict is found.
+type replaceAction int
+
+const (
+	replaceSkip        replaceAction = iota // keep both as-is
+	replaceFromProject                      // apply .lerd.yaml → disk
+	replaceFromDisk                         // apply disk → .lerd.yaml
+)
+
+// confirmReplace compares existing (on disk) and replacement (from .lerd.yaml)
+// by marshalling both to YAML. If they are identical it returns replaceSkip
+// immediately. Otherwise it prints a unified diff and asks the user which
+// direction to sync, or to skip.
+func confirmReplace(kind, name string, existing, replacement interface{}) (replaceAction, error) {
 	oldYAML, err := yaml.Marshal(existing)
 	if err != nil {
-		return false, err
+		return replaceSkip, err
 	}
 	newYAML, err := yaml.Marshal(replacement)
 	if err != nil {
-		return false, err
+		return replaceSkip, err
 	}
 
 	if string(oldYAML) == string(newYAML) {
-		return true, nil // identical — nothing to do
+		return replaceSkip, nil // identical — nothing to do
 	}
 
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
@@ -42,7 +51,7 @@ func confirmReplace(kind, name string, existing, replacement interface{}) (bool,
 		Context:  3,
 	})
 	if err != nil {
-		return false, err
+		return replaceSkip, err
 	}
 
 	fmt.Printf("\n%s %s/%s already exists and differs:\n\n", metaStyle.Render("~"), kind, name)
@@ -60,16 +69,21 @@ func confirmReplace(kind, name string, existing, replacement interface{}) (bool,
 	}
 	fmt.Println()
 
-	replace := false
+	choice := 0
 	if err := huh.NewForm(
 		huh.NewGroup(
-			huh.NewConfirm().
-				Title(fmt.Sprintf("Replace %s/%s with the version from .lerd.yaml?", kind, name)).
-				Value(&replace),
+			huh.NewSelect[int]().
+				Title(fmt.Sprintf("How to resolve %s/%s?", kind, name)).
+				Options(
+					huh.NewOption("Use version from .lerd.yaml (update local definition)", int(replaceFromProject)),
+					huh.NewOption("Use local definition (update .lerd.yaml)", int(replaceFromDisk)),
+					huh.NewOption("Skip (keep both as-is)", int(replaceSkip)),
+				).
+				Value(&choice),
 		),
 	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
-		return false, err
+		return replaceSkip, err
 	}
 
-	return replace, nil
+	return replaceAction(choice), nil
 }

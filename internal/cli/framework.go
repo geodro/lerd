@@ -65,6 +65,7 @@ func newFrameworkAddCmd() *cobra.Command {
 		composer       string
 		npm            string
 		create         string
+		setupCmds      []string
 	)
 
 	cmd := &cobra.Command{
@@ -90,7 +91,15 @@ YAML file format:
     format: dotenv
   composer: auto
   npm: auto
-  create: composer create-project myvendor/myfw`,
+  create: composer create-project myvendor/myfw
+  setup:
+    - label: "Run migrations"
+      command: "php bin/console doctrine:migrations:migrate --no-interaction"
+      default: true
+    - label: "Load fixtures"
+      command: "php bin/console doctrine:fixtures:load --no-interaction"
+      check:
+        composer: doctrine/doctrine-fixtures-bundle`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			var fw config.Framework
@@ -131,6 +140,18 @@ YAML file format:
 						Format:      envFormat,
 					}
 				}
+
+				for _, raw := range setupCmds {
+					cmdLabel, command, found := strings.Cut(raw, ":")
+					if !found {
+						return fmt.Errorf("invalid --setup %q: expected \"label:command\"", raw)
+					}
+					fw.Setup = append(fw.Setup, config.FrameworkSetupCmd{
+						Label:   strings.TrimSpace(cmdLabel),
+						Command: strings.TrimSpace(command),
+						Default: true,
+					})
+				}
 			}
 
 			if fw.PublicDir == "" && fw.Name != "laravel" {
@@ -162,6 +183,7 @@ YAML file format:
 	cmd.Flags().StringVar(&composer, "composer", "", "Run composer install: auto, true, or false")
 	cmd.Flags().StringVar(&npm, "npm", "", "Run npm install: auto, true, or false")
 	cmd.Flags().StringVar(&create, "create", "", "Scaffold command for 'lerd new' (target dir is appended automatically, e.g. \"composer create-project myvendor/myfw\")")
+	cmd.Flags().StringArrayVar(&setupCmds, "setup", nil, `Setup command as "label:command" (repeatable, e.g. --setup "Run migrations:php bin/console doctrine:migrations:migrate")`)
 
 	return cmd
 }

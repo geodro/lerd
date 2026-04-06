@@ -117,7 +117,11 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	hasReverb := SiteUsesReverb(cwd)
 	var workerOptions []string
 	if fw, ok := config.GetFramework(framework); ok && fw.Workers != nil {
-		for name := range fw.Workers {
+		for name, wDef := range fw.Workers {
+			// Skip workers whose check doesn't pass.
+			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+				continue
+			}
 			// Skip queue when horizon is installed — horizon manages queues.
 			if name == "queue" && hasHorizon {
 				continue

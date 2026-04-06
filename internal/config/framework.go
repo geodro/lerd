@@ -19,6 +19,7 @@ type Framework struct {
 	Composer  string                     `yaml:"composer,omitempty"` // auto | true | false
 	NPM       string                     `yaml:"npm,omitempty"`      // auto | true | false
 	Workers   map[string]FrameworkWorker `yaml:"workers,omitempty"`
+	Setup     []FrameworkSetupCmd        `yaml:"setup,omitempty"`
 	// Console is the console command to run (without 'php' prefix).
 	// Example: "artisan", "bin/console"
 	Console string `yaml:"console,omitempty"`
@@ -30,9 +31,18 @@ type Framework struct {
 // FrameworkWorker describes a long-running process managed as a systemd service.
 // The Command is executed inside the PHP-FPM container for the site.
 type FrameworkWorker struct {
-	Label   string `yaml:"label,omitempty"`
-	Command string `yaml:"command"`
-	Restart string `yaml:"restart,omitempty"` // always | on-failure (default: always)
+	Label   string         `yaml:"label,omitempty"`
+	Command string         `yaml:"command"`
+	Restart string         `yaml:"restart,omitempty"` // always | on-failure (default: always)
+	Check   *FrameworkRule `yaml:"check,omitempty"`   // only show when check passes (file exists or composer package installed)
+}
+
+// FrameworkSetupCmd describes a one-off bootstrap command run during project setup.
+type FrameworkSetupCmd struct {
+	Label   string         `yaml:"label"`
+	Command string         `yaml:"command"`
+	Default bool           `yaml:"default,omitempty"`
+	Check   *FrameworkRule `yaml:"check,omitempty"` // only show when check passes (file exists or composer package installed)
 }
 
 // FrameworkRule is a single detection rule for a framework.
@@ -144,6 +154,11 @@ var laravelFramework = &Framework{
 			Restart: "on-failure",
 		},
 	},
+	Setup: []FrameworkSetupCmd{
+		{Label: "php artisan storage:link", Command: "php artisan storage:link", Default: true},
+		{Label: "php artisan migrate", Command: "php artisan migrate", Default: true},
+		{Label: "php artisan db:seed", Command: "php artisan db:seed", Default: false},
+	},
 }
 
 // GetFramework returns the framework definition for the given name.
@@ -163,13 +178,16 @@ func GetFramework(name string) (*Framework, bool) {
 		for k, v := range laravelFramework.Workers {
 			mergedWorkers[k] = v
 		}
-		// Merge user-defined workers (user additions/overrides win)
+		// Merge user-defined workers and setup commands (user additions/overrides win)
 		path := filepath.Join(FrameworksDir(), "laravel.yaml")
 		if data, err := os.ReadFile(path); err == nil {
 			var userFw Framework
 			if yaml.Unmarshal(data, &userFw) == nil {
 				for k, v := range userFw.Workers {
 					mergedWorkers[k] = v
+				}
+				if userFw.Setup != nil {
+					merged.Setup = userFw.Setup
 				}
 			}
 		}
@@ -266,8 +284,8 @@ func SaveFramework(fw *Framework) error {
 	}
 	toSave := fw
 	if fw.Name == "laravel" {
-		// Only persist workers — built-in handles everything else
-		toSave = &Framework{Name: fw.Name, Workers: fw.Workers}
+		// Only persist workers and setup — built-in handles everything else
+		toSave = &Framework{Name: fw.Name, Workers: fw.Workers, Setup: fw.Setup}
 	}
 	data, err := yaml.Marshal(toSave)
 	if err != nil {
@@ -316,6 +334,21 @@ func GetConsoleCommand(projectDir string) (string, error) {
 // removes the user workers overlay (the built-in definition remains).
 func RemoveFramework(name string) error {
 	return os.Remove(filepath.Join(FrameworksDir(), name+".yaml"))
+}
+
+// MatchesRule returns true if the given rule matches the project directory.
+func MatchesRule(dir string, rule FrameworkRule) bool {
+	if rule.File != "" {
+		if _, err := os.Stat(filepath.Join(dir, rule.File)); err == nil {
+			return true
+		}
+	}
+	if rule.Composer != "" {
+		if composerHasPackage(dir, rule.Composer) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesFramework(dir string, fw *Framework) bool {

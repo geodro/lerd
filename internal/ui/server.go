@@ -454,9 +454,12 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		var fwWorkers []WorkerStatus
 		if hasFw && fw.Workers != nil {
 			names := make([]string, 0, len(fw.Workers))
-			for n := range fw.Workers {
+			for n, wDef := range fw.Workers {
 				switch n {
 				case "queue", "schedule", "reverb":
+					continue
+				}
+				if wDef.Check != nil && !config.MatchesRule(s.Path, *wDef.Check) {
 					continue
 				}
 				names = append(names, n)

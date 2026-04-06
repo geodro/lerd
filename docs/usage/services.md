@@ -223,6 +223,10 @@ site_init:
 |---|---|
 | `{{site}}` | Project site handle (derived from the registered site name or directory name, hyphens converted to underscores) |
 | `{{site_testing}}` | Same as `{{site}}` with `_testing` appended |
+| `{{mysql_version}}` | Major version of the MySQL service image (e.g. `8.0`) |
+| `{{postgres_version}}` | Major version of the PostgreSQL service image (e.g. `16`) |
+| `{{redis_version}}` | Major version of the Redis service image (e.g. `7`) |
+| `{{meilisearch_version}}` | Version of the Meilisearch service image (e.g. `1.7`) |
 
 These are not limited to database names — use them anywhere a per-project identifier is needed (a bucket name, a queue prefix, a namespace, etc.).
 

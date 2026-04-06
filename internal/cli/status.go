@@ -196,9 +196,12 @@ func runStatus(_ *cobra.Command, _ []string) error {
 					fwName, _ = config.DetectFramework(s.Path)
 				}
 				if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
-					for wName := range fw.Workers {
+					for wName, wDef := range fw.Workers {
 						switch wName {
 						case "queue", "schedule", "reverb":
+							continue
+						}
+						if wDef.Check != nil && !config.MatchesRule(s.Path, *wDef.Check) {
 							continue
 						}
 						unit := "lerd-" + wName + "-" + s.Name

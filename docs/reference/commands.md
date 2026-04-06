@@ -46,6 +46,8 @@
 | `lerd setup --all` | Run init (or apply saved `.lerd.yaml`) and all steps without prompting (useful in CI) |
 | `lerd setup --skip-open` | Same as above but don't open the browser at the end |
 
+Setup steps include common tasks (composer install, npm install, lerd env) plus framework-specific commands defined in the framework's `setup` field (e.g. migrations, storage links). See [Frameworks & Workers](/usage/frameworks) for how to define custom setup commands.
+
 ## Site management
 
 | Command | Description |

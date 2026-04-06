@@ -500,10 +500,18 @@ func artisanIn(dir string, args ...string) error {
 	return cmd.Run()
 }
 
-// applySiteHandle replaces {{site}} and {{site_testing}} placeholders in s.
+// applySiteHandle replaces {{site}}, {{site_testing}}, and service version
+// placeholders (e.g. {{mysql_version}}, {{postgres_version}}) in s.
 func applySiteHandle(s, site string) string {
 	s = strings.ReplaceAll(s, "{{site}}", site)
 	s = strings.ReplaceAll(s, "{{site_testing}}", site+"_testing")
+	// Lazy-resolve service version placeholders only when present.
+	for _, svc := range []string{"mysql", "postgres", "redis", "meilisearch"} {
+		placeholder := "{{" + svc + "_version}}"
+		if strings.Contains(s, placeholder) {
+			s = strings.ReplaceAll(s, placeholder, podman.ServiceVersion("lerd-"+svc))
+		}
+	}
 	return s
 }
 

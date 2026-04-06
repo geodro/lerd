@@ -91,7 +91,10 @@ func newWorkerListCmd() *cobra.Command {
 				return nil
 			}
 			names := make([]string, 0, len(fw.Workers))
-			for n := range fw.Workers {
+			for n, wDef := range fw.Workers {
+				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+					continue
+				}
 				names = append(names, n)
 			}
 			sort.Strings(names)
