@@ -37,6 +37,66 @@ func TestParseComposerPHP(t *testing.T) {
 	}
 }
 
+// ── satisfiesConstraint ───────────────────────────────────────────────────────
+
+func TestSatisfiesConstraint(t *testing.T) {
+	cases := []struct {
+		version    string
+		constraint string
+		want       bool
+	}{
+		// caret
+		{"8.3", "^8.3", true},
+		{"8.4", "^8.3", true},
+		{"8.2", "^8.3", false},
+		{"9.0", "^8.3", false},
+		// tilde
+		{"8.3", "~8.3", true},
+		{"8.4", "~8.3", true},
+		{"8.2", "~8.3", false},
+		{"8.3", "~8.3.0", true},
+		{"8.4", "~8.3.0", false}, // ~8.3.0 means <8.4
+		// comparison
+		{"8.4", ">=8.3", true},
+		{"8.3", ">=8.3", true},
+		{"8.2", ">=8.3", false},
+		{"8.4", ">8.3", true},
+		{"8.3", ">8.3", false},
+		{"8.2", "<8.3", true},
+		{"8.3", "<8.3", false},
+		{"8.3", "<=8.3", true},
+		{"8.4", "<=8.3", false},
+		{"8.4", "!=8.3", true},
+		{"8.3", "!=8.3", false},
+		// wildcard
+		{"8.3", "8.*", true},
+		{"8.4", "8.*", true},
+		{"9.0", "8.*", false},
+		// exact
+		{"8.3", "8.3", true},
+		{"8.4", "8.3", false},
+		{"8.3", "8.3.0", true},
+		// OR
+		{"7.4", "^7.4 || ^8.0", true},
+		{"8.3", "^7.4 || ^8.0", true},
+		{"7.3", "^7.4 || ^8.0", false},
+		// AND (space-separated)
+		{"8.3", ">=8.1 <8.5", true},
+		{"8.5", ">=8.1 <8.5", false},
+		{"8.0", ">=8.1 <8.5", false},
+		// AND (comma-separated)
+		{"8.3", ">=8.1,<8.5", true},
+		// star
+		{"8.4", "*", true},
+	}
+	for _, c := range cases {
+		got := satisfiesConstraint(c.version, c.constraint)
+		if got != c.want {
+			t.Errorf("satisfiesConstraint(%q, %q) = %v, want %v", c.version, c.constraint, got, c.want)
+		}
+	}
+}
+
 // ── DetectVersion ─────────────────────────────────────────────────────────────
 
 func TestDetectVersion_DotLerdYaml(t *testing.T) {

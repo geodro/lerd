@@ -66,7 +66,7 @@ func BuildRegistry() []Page {
 		if err != nil {
 			return nil
 		}
-		content := string(data)
+		content := stripFrontmatter(string(data))
 
 		bySection[section] = append(bySection[section], Page{
 			Title:   extractTitle(content, slug),
@@ -117,6 +117,20 @@ func extractTitle(content, fallback string) string {
 		}
 	}
 	return toTitle(strings.ReplaceAll(fallback, "-", " "))
+}
+
+// stripFrontmatter removes YAML frontmatter (--- delimited) from markdown content.
+func stripFrontmatter(content string) string {
+	if !strings.HasPrefix(content, "---") {
+		return content
+	}
+	// Find the closing --- after the opening one.
+	rest := content[3:]
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return content
+	}
+	return strings.TrimLeft(rest[idx+4:], "\n")
 }
 
 func toTitle(s string) string {

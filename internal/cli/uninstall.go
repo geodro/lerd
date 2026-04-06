@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,23 +40,30 @@ func runUninstall(force bool) error {
 		}
 	}
 
-	// DNS teardown and all stdin reads must happen before NewStepRunner().
-	// StepRunner puts the terminal in raw mode and its keyreader goroutine
-	// consumes stdin, breaking sudo prompts and bufio reads after r.Close().
-	fmt.Print("  --> Removing DNS configuration ... ")
-	dns.Teardown()
-	fmt.Println("OK")
-
-	// Ask about data removal now, before raw mode starts.
-	fmt.Println()
+	// Ask about data removal up front before DNS teardown, which may prompt for sudo.
 	removeData := force || confirmRemoveData()
-	fmt.Println()
 
-	r := NewStepRunner()
+	// DNS teardown runs outside the step runner because it may prompt for sudo.
+	fmt.Println("  --> Removing DNS configuration")
+	dns.Teardown()
 
-	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
-		units := services.Mgr.ListContainerUnits("lerd-*")
-		units = append(units, "lerd-watcher", "lerd-ui")
+	step("Stopping containers and services")
+	{
+		// Collect all lerd-* units from both container and service managers.
+		seen := map[string]bool{}
+		var units []string
+		for _, u := range services.Mgr.ListContainerUnits("lerd-*") {
+			if !seen[u] {
+				seen[u] = true
+				units = append(units, u)
+			}
+		}
+		for _, u := range services.Mgr.ListServiceUnits("lerd-*") {
+			if !seen[u] {
+				seen[u] = true
+				units = append(units, u)
+			}
+		}
 		for _, unit := range units {
 			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" {
@@ -65,48 +71,39 @@ func runUninstall(force bool) error {
 			}
 			_ = services.Mgr.Disable(unit)
 		}
-		return nil
-	})
+	}
+	ok()
 
-	r.Run("Removing container units", func(_ io.Writer) error { //nolint:errcheck
-		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
-			services.Mgr.RemoveContainerUnit(unit) //nolint:errcheck
-		}
-		return nil
-	})
+	step("Removing units and service files")
+	for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
+		services.Mgr.RemoveContainerUnit(unit) //nolint:errcheck
+	}
+	for _, unit := range services.Mgr.ListServiceUnits("lerd-*") {
+		services.Mgr.RemoveServiceUnit(unit) //nolint:errcheck
+	}
+	ok()
 
-	r.Run("Removing service files", func(_ io.Writer) error { //nolint:errcheck
-		for _, name := range []string{"lerd-watcher", "lerd-ui"} {
-			services.Mgr.RemoveServiceUnit(name) //nolint:errcheck
-		}
-		return nil
-	})
+	step("Reloading service manager")
+	_ = services.Mgr.DaemonReload()
+	ok()
 
-	r.Run("Reloading service manager", func(_ io.Writer) error { //nolint:errcheck
-		_ = services.Mgr.DaemonReload()
-		return nil
-	})
-
-	r.Run("Removing lerd Podman network", func(_ io.Writer) error { //nolint:errcheck
-		_ = podman.RunSilent("network", "rm", "lerd")
-		return nil
-	})
+	step("Removing lerd Podman network")
+	_ = podman.RunSilent("network", "rm", "lerd")
+	ok()
 
 	if runtime.GOOS != "darwin" {
-		r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
-			removeShellEntry()
-			return nil
-		})
+		step("Removing shell PATH entry")
+		removeShellEntry()
+		ok()
 
-		r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
-			if self, err := selfPath(); err == nil {
-				os.Remove(self) //nolint:errcheck
-			}
-			return nil
-		})
+		step("Removing lerd binary")
+		if self, err := selfPath(); err == nil {
+			os.Remove(self) //nolint:errcheck
+		}
+		ok()
 	}
 
-	r.Close()
+	fmt.Println()
 
 	if removeData {
 		fmt.Print("  --> Removing config and data directories ... ")

@@ -174,6 +174,60 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
+	// Always ensure the default PHP-FPM is available (needed for lerd new on fresh installs).
+	// Then restore quadlets for any additional PHP versions and services from registered sites.
+	{
+		cfg, _ := config.LoadGlobal()
+		seenPHP := map[string]bool{}
+		seenSvc := map[string]bool{}
+
+		if cfg != nil && cfg.PHP.DefaultVersion != "" {
+			seenPHP[cfg.PHP.DefaultVersion] = true
+			if err := ensureFPMQuadlet(cfg.PHP.DefaultVersion); err != nil {
+				fmt.Printf("  WARN: default PHP %s FPM quadlet: %v\n", cfg.PHP.DefaultVersion, err)
+			}
+		}
+
+		reg, regErr := config.LoadSites()
+		if regErr == nil {
+
+			for _, s := range reg.Sites {
+				if s.Paused || s.Ignored {
+					continue
+				}
+
+				// Restore FPM quadlet.
+				v := s.PHPVersion
+				if v == "" && cfg != nil {
+					v = cfg.PHP.DefaultVersion
+				}
+				if v != "" && !seenPHP[v] {
+					seenPHP[v] = true
+					if err := ensureFPMQuadlet(v); err != nil {
+						fmt.Printf("  WARN: PHP %s FPM quadlet: %v\n", v, err)
+					}
+				}
+
+				// Restore service quadlets from .lerd.yaml.
+				proj, _ := config.LoadProjectConfig(s.Path)
+				if proj == nil {
+					continue
+				}
+				for _, svc := range proj.Services {
+					if seenSvc[svc.Name] {
+						continue
+					}
+					seenSvc[svc.Name] = true
+					if svc.Custom != nil {
+						ensureCustomServiceQuadlet(svc.Custom) //nolint:errcheck
+					} else {
+						ensureServiceQuadlet(svc.Name) //nolint:errcheck
+					}
+				}
+			}
+		}
+	}
+
 	// 7. Pull images in parallel, then build dnsmasq.
 	RunParallel([]BuildJob{ //nolint:errcheck
 		{
@@ -269,6 +323,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	step("Installing cleanup script")
 	installCleanupScript()
 	ok()
+
+	// Start restored services (mysql, redis, etc.) and workers.
+	// Service quadlets were written earlier; now pull images and start them.
+	// Then restore worker units from .lerd.yaml so everything comes back up.
+	startRestoredServices()
+	restoreSiteInfrastructure()
 
 	// Restart tray if running.
 	if services.Mgr.IsEnabled("lerd-tray") {

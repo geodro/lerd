@@ -4,17 +4,33 @@ All containers join the rootless Podman network `lerd`. Communication between Ng
 
 ## Request flow
 
-```mermaid
-graph TD
-    Browser["Browser"] -->|port 80/443| Nginx["lerd-nginx<br/>(nginx:alpine)"]
-    Nginx -->|fastcgi_pass :9000| FPM["lerd-php84-fpm<br/>(locally built image)"]
-    FPM -->|reads| Files["~/Lerd/my-app<br/>(bind-mounted read-only)"]
-
-    DNS["*.test DNS"] -->|resolves to| Loopback["127.0.0.1"]
-    Loopback --> Nginx
-
-    NM["NetworkManager"] -->|forwards .test queries| DNSMASQ["lerd-dns<br/>(dnsmasq, port 5300)"]
-    DNSMASQ -->|returns| Loopback
+```
+                          *.test DNS
+                              │
+                   ┌──────────┴──────────┐
+                   │   DNS resolver      │
+                   │ (NM or resolved)    │
+                   └──────────┬──────────┘
+                              │ forwards .test queries
+                   ┌──────────┴──────────┐
+                   │      lerd-dns       │
+                   │  (dnsmasq, :5300)   │
+                   └──────────┬──────────┘
+                              │ resolves to 127.0.0.1
+                              ▼
+  Browser ──── port 80/443 ──▶ lerd-nginx
+                              (nginx:alpine)
+                                  │
+                      fastcgi_pass :9000
+                                  │
+                                  ▼
+                            lerd-php84-fpm
+                          (locally built image)
+                                  │
+                              reads (bind mount)
+                                  │
+                                  ▼
+                          ~/Lerd/my-app
 ```
 
 ## Components
@@ -28,12 +44,12 @@ graph TD
 | Composer | `composer.phar` via bundled PHP CLI |
 | Node | [fnm](https://github.com/Schniz/fnm) binary, version per project |
 | Services | Podman Quadlet containers |
-| DNS | dnsmasq container + NetworkManager integration |
+| DNS | dnsmasq container + NetworkManager or systemd-resolved integration |
 | TLS | [mkcert](https://github.com/FiloSottile/mkcert) — locally trusted CA |
 
 ## Key design decisions
 
-**Rootless Podman** — all containers run without root privileges. The only operations requiring `sudo` are DNS setup (writes to `/etc/NetworkManager/`) and the initial `net.ipv4.ip_unprivileged_port_start=80` sysctl.
+**Rootless Podman** — all containers run without root privileges. The only operations requiring `sudo` are DNS setup (configures NetworkManager or systemd-resolved to route `.test` queries) and the initial `net.ipv4.ip_unprivileged_port_start=80` sysctl.
 
 **Podman Quadlets** — containers are defined as systemd unit files (`.container` files) managed by the Quadlet generator. This means `systemctl --user start lerd-nginx` works like any other systemd service, and containers restart on failure and at login.
 

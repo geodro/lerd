@@ -41,6 +41,7 @@ A portable, self-contained description of a project's local environment. Created
 | `framework_def` | Full framework definition — embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
 | `secured` | When `true`, HTTPS is enabled on apply |
 | `services` | Services to start on apply. Accepts built-in names, custom service names, or full inline definitions |
+| `workers` | Active worker names for the site (e.g. `queue`, `horizon`, `schedule`, `reverb`, `stripe`). Automatically kept in sync by start/stop commands. Used by `lerd start` to restore workers after reinstall |
 
 ### Basic example
 

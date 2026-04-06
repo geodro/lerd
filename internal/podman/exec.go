@@ -82,6 +82,38 @@ func ServiceImage(quadletName string) string {
 	return ""
 }
 
+// ServiceVersion extracts the major version from a built-in service's image tag.
+// For example: mysql:8.0 → "8.0", postgis/postgis:16-3.5-alpine → "16",
+// redis:7-alpine → "7", meilisearch:v1.7 → "1.7".
+// Returns "" if the version cannot be determined.
+func ServiceVersion(quadletName string) string {
+	image := ServiceImage(quadletName)
+	if image == "" {
+		return ""
+	}
+	// Extract tag after the last colon.
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 {
+		return ""
+	}
+	tag := image[idx+1:]
+	// Strip leading "v" prefix.
+	tag = strings.TrimPrefix(tag, "v")
+	// Take only the version part (before any dash-separated suffix like "-alpine").
+	if dash := strings.Index(tag, "-"); dash > 0 {
+		// Keep if it looks like a version (e.g. "8.0"), drop suffix like "-alpine".
+		candidate := tag[:dash]
+		if len(candidate) > 0 && candidate[0] >= '0' && candidate[0] <= '9' {
+			return candidate
+		}
+	}
+	// Return as-is if it starts with a digit.
+	if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
+		return tag
+	}
+	return ""
+}
+
 // ContainerRunning returns true if the named container is running.
 func ContainerRunning(name string) (bool, error) {
 	out, err := Run("inspect", "--format={{.State.Running}}", name)

@@ -133,7 +133,106 @@ func TestWriteDnsmasqConfig_noUpstreams(t *testing.T) {
 	}
 }
 
-// --- helpers (linux-specific) ---
+// --- lerdDNSInterfaces parsing ---
+
+func TestLerdDNSInterfaces_multipleLinks(t *testing.T) {
+	// Simulate resolvectl status output with lerd DNS on some interfaces.
+	output := `Global
+           Protocols: +LLMNR +mDNS
+    resolv.conf mode: foreign
+
+Link 2 (enp14s0)
+    Current Scopes: DNS
+Current DNS Server: 192.168.0.151
+       DNS Servers: 192.168.0.151
+
+Link 3 (wlan0)
+    Current Scopes: none
+
+Link 4 (virbr0)
+    Current Scopes: DNS
+Current DNS Server: 127.0.0.1:5300
+       DNS Servers: 127.0.0.1:5300
+        DNS Domain: ~test ~.
+
+Link 6 (vnet1)
+    Current Scopes: DNS
+Current DNS Server: 127.0.0.1:5300
+       DNS Servers: 127.0.0.1:5300
+        DNS Domain: ~test ~.
+`
+	ifaces := parseLerdDNSInterfaces(output)
+	want := []string{"virbr0", "vnet1"}
+	assertSliceEqual(t, ifaces, want)
+}
+
+func TestLerdDNSInterfaces_none(t *testing.T) {
+	output := `Link 2 (enp14s0)
+Current DNS Server: 192.168.0.151
+       DNS Servers: 192.168.0.151
+`
+	ifaces := parseLerdDNSInterfaces(output)
+	if len(ifaces) != 0 {
+		t.Errorf("expected empty, got %v", ifaces)
+	}
+}
+
+// --- ResolverHint ---
+
+func TestResolverHint_NetworkManager(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return true }
+	isSystemdResolvedActive = func() bool { return true }
+
+	got := ResolverHint()
+	if got != "sudo systemctl restart NetworkManager" {
+		t.Errorf("expected NM hint, got %q", got)
+	}
+}
+
+func TestResolverHint_SystemdResolvedOnly(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return false }
+	isSystemdResolvedActive = func() bool { return true }
+
+	got := ResolverHint()
+	if got != "sudo systemctl restart systemd-resolved" {
+		t.Errorf("expected systemd-resolved hint, got %q", got)
+	}
+}
+
+func TestResolverHint_NoResolver(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return false }
+	isSystemdResolvedActive = func() bool { return false }
+
+	got := ResolverHint()
+	if got != "restart your DNS resolver" {
+		t.Errorf("expected generic hint, got %q", got)
+	}
+}
+
+// --- helpers ---
+
+func writeTempFile(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "resolv-*.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(content)
+	f.Close()
+	return f.Name()
+}
 
 func readFile(t *testing.T, path string) string {
 	t.Helper()

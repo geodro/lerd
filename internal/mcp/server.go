@@ -455,7 +455,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_setup",
-			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY, and sets APP_URL. Run this once after cloning a project.",
+			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1036,12 +1036,12 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "framework_list",
-			Description: "List all available framework definitions (laravel built-in plus any user-defined YAMLs), including their defined workers. Use this before framework_add to see what is already defined.",
+			Description: "List all available framework definitions (laravel built-in plus any user-defined YAMLs), including their defined workers and setup commands. Use this before framework_add to see what is already defined.",
 			InputSchema: mcpSchema{Type: "object", Properties: map[string]mcpProp{}},
 		},
 		mcpTool{
 			Name:        "framework_add",
-			Description: "Create or update a framework definition. For laravel, only the workers field is used (built-in settings are always preserved). For other frameworks, creates a full definition at ~/.config/lerd/frameworks/<name>.yaml.",
+			Description: "Create or update a framework definition. For laravel, only the workers and setup fields are used (built-in settings are always preserved). For other frameworks, creates a full definition at ~/.config/lerd/frameworks/<name>.yaml.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1083,7 +1083,11 @@ func toolList() []mcpTool {
 					},
 					"workers": {
 						Type:        "object",
-						Description: `Map of worker name → {label, command, restart} definitions, e.g. {"horizon": {"label": "Horizon", "command": "php artisan horizon", "restart": "always"}}`,
+						Description: `Map of worker name → {label, command, restart, check} definitions. "check" is optional — an object with "file" or "composer" field; the worker is only shown when the check passes. e.g. {"messenger": {"label": "Messenger", "command": "php bin/console messenger:consume async", "restart": "always", "check": {"composer": "symfony/messenger"}}}`,
+					},
+					"setup": {
+						Type:        "array",
+						Description: `List of one-off setup commands shown in "lerd setup" wizard. Each element is an object with "label" (string), "command" (string), optional "default" (boolean, pre-selected in wizard), and optional "check" (object with "file" or "composer" field — command is only shown when the check passes). e.g. [{"label": "Load fixtures", "command": "php bin/console doctrine:fixtures:load", "check": {"composer": "doctrine/doctrine-fixtures-bundle"}}]`,
 					},
 				},
 				Required: []string{"name"},
@@ -2979,10 +2983,21 @@ func siteLinkNameAndDomain(dirName, tld string) (string, string) {
 
 func execFrameworkList() (any, *rpcError) {
 	frameworks := config.ListFrameworks()
+	type checkInfo struct {
+		File     string `json:"file,omitempty"`
+		Composer string `json:"composer,omitempty"`
+	}
 	type workerInfo struct {
-		Label   string `json:"label,omitempty"`
-		Command string `json:"command"`
-		Restart string `json:"restart,omitempty"`
+		Label   string     `json:"label,omitempty"`
+		Command string     `json:"command"`
+		Restart string     `json:"restart,omitempty"`
+		Check   *checkInfo `json:"check,omitempty"`
+	}
+	type setupInfo struct {
+		Label   string     `json:"label"`
+		Command string     `json:"command"`
+		Default bool       `json:"default,omitempty"`
+		Check   *checkInfo `json:"check,omitempty"`
 	}
 	type frameworkInfo struct {
 		Name      string                `json:"name"`
@@ -2992,6 +3007,7 @@ func execFrameworkList() (any, *rpcError) {
 		EnvFormat string                `json:"env_format"`
 		BuiltIn   bool                  `json:"built_in"`
 		Workers   map[string]workerInfo `json:"workers,omitempty"`
+		Setup     []setupInfo           `json:"setup,omitempty"`
 	}
 	var result []frameworkInfo
 	for _, fw := range frameworks {
@@ -3014,8 +3030,20 @@ func execFrameworkList() (any, *rpcError) {
 		if len(merged.Workers) > 0 {
 			workers = make(map[string]workerInfo, len(merged.Workers))
 			for n, w := range merged.Workers {
-				workers[n] = workerInfo{Label: w.Label, Command: w.Command, Restart: w.Restart}
+				wi := workerInfo{Label: w.Label, Command: w.Command, Restart: w.Restart}
+				if w.Check != nil {
+					wi.Check = &checkInfo{File: w.Check.File, Composer: w.Check.Composer}
+				}
+				workers[n] = wi
 			}
+		}
+		var setup []setupInfo
+		for _, sc := range merged.Setup {
+			si := setupInfo{Label: sc.Label, Command: sc.Command, Default: sc.Default}
+			if sc.Check != nil {
+				si.Check = &checkInfo{File: sc.Check.File, Composer: sc.Check.Composer}
+			}
+			setup = append(setup, si)
 		}
 		result = append(result, frameworkInfo{
 			Name:      merged.Name,
@@ -3025,6 +3053,7 @@ func execFrameworkList() (any, *rpcError) {
 			EnvFormat: efmt,
 			BuiltIn:   merged.Name == "laravel",
 			Workers:   workers,
+			Setup:     setup,
 		})
 	}
 	if result == nil {
@@ -3050,26 +3079,72 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 					label, _ := wobj["label"].(string)
 					command, _ := wobj["command"].(string)
 					restart, _ := wobj["restart"].(string)
-					workers[wname] = config.FrameworkWorker{Label: label, Command: command, Restart: restart}
+					w := config.FrameworkWorker{Label: label, Command: command, Restart: restart}
+					if chk, ok := wobj["check"].(map[string]any); ok {
+						rule := &config.FrameworkRule{}
+						rule.File, _ = chk["file"].(string)
+						rule.Composer, _ = chk["composer"].(string)
+						if rule.File != "" || rule.Composer != "" {
+							w.Check = rule
+						}
+					}
+					workers[wname] = w
+				}
+			}
+		}
+	}
+
+	// Parse setup commands if provided
+	var setup []config.FrameworkSetupCmd
+	if raw, ok := args["setup"]; ok {
+		if arr, ok := raw.([]any); ok {
+			for _, item := range arr {
+				if obj, ok := item.(map[string]any); ok {
+					label, _ := obj["label"].(string)
+					command, _ := obj["command"].(string)
+					dflt, _ := obj["default"].(bool)
+					if label != "" && command != "" {
+						sc := config.FrameworkSetupCmd{Label: label, Command: command, Default: dflt}
+						if chk, ok := obj["check"].(map[string]any); ok {
+							rule := &config.FrameworkRule{}
+							rule.File, _ = chk["file"].(string)
+							rule.Composer, _ = chk["composer"].(string)
+							if rule.File != "" || rule.Composer != "" {
+								sc.Check = rule
+							}
+						}
+						setup = append(setup, sc)
+					}
 				}
 			}
 		}
 	}
 
 	if name == "laravel" {
-		// For Laravel, only persist custom workers (built-in handles everything else)
-		if len(workers) == 0 {
-			return toolErr("workers is required when adding custom workers to laravel"), nil
+		// For Laravel, only persist custom workers and setup (built-in handles everything else)
+		if len(workers) == 0 && len(setup) == 0 {
+			return toolErr("workers or setup is required when customising laravel"), nil
 		}
-		fw := &config.Framework{Name: "laravel", Workers: workers}
+		fw := &config.Framework{Name: "laravel", Workers: workers, Setup: setup}
 		if err := config.SaveFramework(fw); err != nil {
 			return toolErr(fmt.Sprintf("saving framework: %v", err)), nil
 		}
-		names := make([]string, 0, len(workers))
-		for n := range workers {
-			names = append(names, n)
+		var parts []string
+		if len(workers) > 0 {
+			names := make([]string, 0, len(workers))
+			for n := range workers {
+				names = append(names, n)
+			}
+			parts = append(parts, "Workers: "+strings.Join(names, ", "))
 		}
-		return toolOK(fmt.Sprintf("Custom workers added to Laravel: %s\nThese are merged with the built-in queue/schedule/reverb workers.", strings.Join(names, ", "))), nil
+		if len(setup) > 0 {
+			names := make([]string, 0, len(setup))
+			for _, s := range setup {
+				names = append(names, s.Label)
+			}
+			parts = append(parts, "Setup commands: "+strings.Join(names, ", "))
+		}
+		return toolOK(fmt.Sprintf("Laravel customisations saved: %s\nWorkers are merged with built-in queue/schedule/reverb. Setup commands replace built-in storage:link/migrate/db:seed.", strings.Join(parts, ". "))), nil
 	}
 
 	label := strArg(args, "label")
@@ -3084,6 +3159,7 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 		Composer:  "auto",
 		NPM:       "auto",
 		Workers:   workers,
+		Setup:     setup,
 	}
 	if fw.PublicDir == "" {
 		fw.PublicDir = "public"

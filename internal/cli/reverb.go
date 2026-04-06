@@ -43,6 +43,9 @@ func newReverbStartCmd(use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !SiteHasReverb(cwd) {
+				return fmt.Errorf("laravel/reverb is not installed in this project\nInstall it with: composer require laravel/reverb\nSee https://laravel.com/docs/13.x/broadcasting")
+			}
 			if err := requireFrameworkWorker(cwd, "reverb"); err != nil {
 				return err
 			}
@@ -74,6 +77,9 @@ func newReverbStopCmd(use string) *cobra.Command {
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
+			}
+			if !SiteHasReverb(cwd) {
+				return fmt.Errorf("laravel/reverb is not installed in this project\nInstall it with: composer require laravel/reverb\nSee https://laravel.com/docs/13.x/broadcasting")
 			}
 			if err := requireFrameworkWorker(cwd, "reverb"); err != nil {
 				return err

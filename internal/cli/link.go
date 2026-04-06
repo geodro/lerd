@@ -55,10 +55,16 @@ func runLink(args []string) error {
 			// Does not exist locally — save without prompting.
 			_ = config.SaveFramework(proj.FrameworkDef)
 		} else {
-			if ok, err := confirmReplace("framework", proj.Framework, existing, proj.FrameworkDef); err != nil {
+			action, err := confirmReplace("framework", proj.Framework, existing, proj.FrameworkDef)
+			if err != nil {
 				return err
-			} else if ok {
+			}
+			switch action {
+			case replaceFromProject:
 				_ = config.SaveFramework(proj.FrameworkDef)
+			case replaceFromDisk:
+				proj.FrameworkDef = existing
+				_ = config.SaveProjectConfig(cwd, proj)
 			}
 		}
 	}
@@ -226,15 +232,33 @@ func runLink(args []string) error {
 			if svc.Custom != nil {
 				svc.Custom.Name = svc.Name
 				existing, loadErr := config.LoadCustomService(svc.Name)
-				save := true
+				shouldSave := true
 				if loadErr == nil {
-					var err error
-					save, err = confirmReplace("service", svc.Name, existing, svc.Custom)
+					action, err := confirmReplace("service", svc.Name, existing, svc.Custom)
 					if err != nil {
 						return err
 					}
+					switch action {
+					case replaceFromProject:
+						shouldSave = true
+					case replaceFromDisk:
+						svc.Custom = existing
+						shouldSave = false
+						// Update .lerd.yaml so the diff doesn't recur on next link.
+						if p, _ := config.LoadProjectConfig(cwd); p != nil {
+							for i, s := range p.Services {
+								if s.Name == svc.Name {
+									p.Services[i].Custom = existing
+									_ = config.SaveProjectConfig(cwd, p)
+									break
+								}
+							}
+						}
+					default:
+						shouldSave = false
+					}
 				}
-				if save {
+				if shouldSave {
 					if err := config.SaveCustomService(svc.Custom); err != nil {
 						fmt.Printf("[WARN] registering service %s: %v\n", svc.Name, err)
 						continue

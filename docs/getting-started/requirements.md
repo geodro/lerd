@@ -1,8 +1,8 @@
 # Requirements
 
-- **Linux** — Arch, Debian/Ubuntu, or Fedora-based
+- **Linux** — Arch, Debian/Ubuntu, Fedora-based, or omarchy
 - **[Podman](https://podman.io/)** — rootless, with systemd user session active
-- **[NetworkManager](https://networkmanager.dev/)** — for `.test` DNS
+- **DNS resolver** — [NetworkManager](https://networkmanager.dev/) or [systemd-resolved](https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html) (at least one is required for `.test` DNS)
 - **`systemctl --user` functional** — run `loginctl enable-linger $USER` if needed
 
 ::: warning Linger must be enabled

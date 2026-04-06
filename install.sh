@@ -94,11 +94,13 @@ check_systemd_user() {
   fi
 }
 
-check_nm() {
+check_dns_resolver() {
   if systemctl is-active --quiet NetworkManager 2>/dev/null; then
     success "NetworkManager running"
+  elif systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+    success "systemd-resolved running"
   else
-    warn "NetworkManager not running — required for .test DNS"
+    warn "No supported DNS resolver running (need NetworkManager or systemd-resolved)"
     MISSING_PKGS+=("networkmanager")
   fi
 }
@@ -172,8 +174,8 @@ check_prerequisites() {
     check_certutil
   else
     check_cmd podman podman "container runtime"
-    check_cmd unzip unzip "needed to extract binaries"
-    check_nm
+    check_cmd unzip unzip "needed to extract fnm"
+    check_dns_resolver
     check_systemd_user
     check_podman_rootless
     check_certutil

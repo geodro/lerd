@@ -210,7 +210,7 @@ env:
         - key: DATABASE_URL
           value_prefix: "mysql://"
       vars:
-        - "DATABASE_URL=mysql://root:lerd@lerd-mysql:3306/{{site}}"
+        - "DATABASE_URL=mysql://root:lerd@lerd-mysql:3306/{{site}}?serverVersion={{mysql_version}}"
     redis:
       detect:
         - key: REDIS_URL
@@ -234,6 +234,20 @@ workers:
     label: Messenger               # display name (optional)
     command: php bin/console messenger:consume async --time-limit=3600
     restart: always               # always | on-failure (default: always)
+    check:                         # only shown when check passes (optional)
+      composer: symfony/messenger
+
+# One-off setup commands shown in `lerd setup` wizard
+setup:
+  - label: "Run migrations"                     # display name and identifier
+    command: "php bin/console doctrine:migrations:migrate --no-interaction"
+    default: true                               # pre-selected in the wizard
+    check:                                      # only shown when check passes (optional)
+      composer: doctrine/doctrine-migrations-bundle
+  - label: "Load fixtures"
+    command: "php bin/console doctrine:fixtures:load --no-interaction"
+    check:
+      composer: doctrine/doctrine-fixtures-bundle  # skipped if package not installed
 ```
 
 ---
@@ -288,7 +302,7 @@ env:
         - key: DATABASE_URL
           value_prefix: "mariadb://"
       vars:
-        - "DATABASE_URL=mysql://root:lerd@lerd-mysql:3306/{{site}}"
+        - "DATABASE_URL=mysql://root:lerd@lerd-mysql:3306/{{site}}?serverVersion={{mysql_version}}"
     postgres:
       detect:
         - key: DATABASE_URL
@@ -296,7 +310,7 @@ env:
         - key: DATABASE_URL
           value_prefix: "postgres://"
       vars:
-        - "DATABASE_URL=postgresql://postgres:lerd@lerd-postgres:5432/{{site}}"
+        - "DATABASE_URL=postgresql://postgres:lerd@lerd-postgres:5432/{{site}}?serverVersion={{postgres_version}}"
     redis:
       detect:
         - key: REDIS_URL
@@ -321,11 +335,27 @@ workers:
     label: Messenger
     command: php bin/console messenger:consume async --time-limit=3600
     restart: always
+    check:
+      composer: symfony/messenger
+setup:
+  - label: "Run migrations"
+    command: "php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration"
+    default: true
+    check:
+      composer: doctrine/doctrine-migrations-bundle
+  - label: "Load fixtures"
+    command: "php bin/console doctrine:fixtures:load --no-interaction"
+    check:
+      composer: doctrine/doctrine-fixtures-bundle
+  - label: "Clear cache"
+    command: "php bin/console cache:clear"
+    default: true
 ```
 
 ```bash
 lerd framework add symfony --from-file ~/.config/lerd/frameworks/symfony.yaml
 lerd link                          # auto-detected as Symfony
+lerd setup                         # shows migrations, fixtures, and other steps
 lerd worker start messenger        # starts lerd-messenger-<sitename>
 ```
 

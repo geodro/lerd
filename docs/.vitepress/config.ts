@@ -7,6 +7,7 @@ export default defineConfig({
   title: 'Lerd',
   description: 'Open-source Herd-like local PHP development environment for Linux. Automatic .test domains, PHP 8.2–8.4, rootless Podman. Works on Ubuntu, Fedora, Arch, and Debian.',
   base: '/lerd/',
+  cleanUrls: true,
 
   sitemap: {
     hostname: SITE_URL,
@@ -28,7 +29,7 @@ export default defineConfig({
   ],
 
   transformPageData(pageData, { siteConfig }) {
-    const canonicalUrl = `${SITE_URL}/${pageData.relativePath.replace(/\.md$/, '.html').replace(/index\.html$/, '')}`
+    const canonicalUrl = `${SITE_URL}/${pageData.relativePath.replace(/\.md$/, '').replace(/index$/, '')}`
     const description = pageData.frontmatter.description ?? pageData.description ?? siteConfig.site.description
     const title = pageData.frontmatter.title ?? pageData.title ?? siteConfig.site.title
     pageData.frontmatter.head ??= []
@@ -50,6 +51,7 @@ export default defineConfig({
       { text: 'Usage', link: '/usage/sites' },
       { text: 'Features', link: '/features/web-ui' },
       { text: 'Reference', link: '/reference/commands' },
+      { text: 'Contributing', link: '/contributing/building' },
       { text: 'Changelog', link: '/changelog' },
     ],
 
@@ -76,6 +78,7 @@ export default defineConfig({
             { text: 'Database', link: '/usage/database' },
             { text: 'Frameworks & Workers', link: '/usage/frameworks' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
+            { text: 'Stripe', link: '/usage/stripe' },
           ],
         },
       ],
@@ -101,6 +104,19 @@ export default defineConfig({
             { text: 'Configuration', link: '/reference/configuration' },
             { text: 'Directory Layout', link: '/reference/directory-layout' },
             { text: 'Architecture', link: '/reference/architecture' },
+            { text: 'Troubleshooting', link: '/troubleshooting' },
+          ],
+        },
+      ],
+      '/troubleshooting': [
+        {
+          text: 'Reference',
+          items: [
+            { text: 'Command Reference', link: '/reference/commands' },
+            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Directory Layout', link: '/reference/directory-layout' },
+            { text: 'Architecture', link: '/reference/architecture' },
+            { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },
       ],

@@ -102,15 +102,19 @@ func runSetup(allSteps, skipOpen bool) error {
 	hasLockFile := lockMissing == nil || shrinkMissing == nil
 	buildScript := detectBuildScript(cwd + "/package.json")
 
+	// Always run lerd env first — it configures .env, starts services, and
+	// creates databases before any other step that may depend on them.
+	fmt.Println("\n→ Running: lerd env")
+	if err := runEnv(nil, nil); err != nil {
+		fmt.Printf("  [WARN] lerd env: %v\n", err)
+	}
+
 	steps := []setupStep{
 		{
 			label:   "composer install",
 			enabled: os.IsNotExist(vendorMissing),
 			run: func() error {
-				cmd := exec.Command("composer", "install")
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				return cmd.Run()
+				return composerInContainer(cwd, "install")
 			},
 		},
 		{
@@ -121,13 +125,6 @@ func runSetup(allSteps, skipOpen bool) error {
 					return runWithFnm("npm", []string{"ci"})
 				}
 				return runWithFnm("npm", []string{"install"})
-			},
-		},
-		{
-			label:   "lerd env",
-			enabled: true,
-			run: func() error {
-				return runEnv(nil, nil)
 			},
 		},
 		{
@@ -146,28 +143,33 @@ func runSetup(allSteps, skipOpen bool) error {
 		},
 	}
 
-	if isLaravel {
-		steps = append(steps, setupStep{
-			label:   "php artisan storage:link",
-			enabled: siteNeedsStorageLink(cwd),
-			run: func() error {
-				return artisanIn(cwd, "storage:link")
-			},
-		})
-		steps = append(steps, setupStep{
-			label:   "php artisan migrate",
-			enabled: true,
-			run: func() error {
-				return artisanIn(cwd, "migrate")
-			},
-		})
-		steps = append(steps, setupStep{
-			label:   "php artisan db:seed",
-			enabled: false,
-			run: func() error {
-				return artisanIn(cwd, "db:seed")
-			},
-		})
+	// Framework setup commands (one-off bootstrap steps like migrations, storage:link, etc.)
+	if site != nil {
+		fwName := site.Framework
+		if fwName == "" {
+			fwName, _ = config.DetectFramework(cwd)
+		}
+		if fw, ok := config.GetFramework(fwName); ok {
+			for _, sc := range fw.Setup {
+				// Skip commands whose check doesn't pass.
+				if sc.Check != nil && !config.MatchesRule(cwd, *sc.Check) {
+					continue
+				}
+				setupCmd := sc
+				enabled := setupCmd.Default
+				// Laravel dynamic default: only enable storage:link when actually needed.
+				if fwName == "laravel" && strings.Contains(setupCmd.Command, "storage:link") {
+					enabled = siteNeedsStorageLink(cwd)
+				}
+				steps = append(steps, setupStep{
+					label:   setupCmd.Label,
+					enabled: enabled,
+					run: func() error {
+						return execInContainer(cwd, setupCmd.Command)
+					},
+				})
+			}
+		}
 	}
 
 	// Only offer the secure step when the site isn't already secured by lerd init.
@@ -295,6 +297,9 @@ func runSetup(allSteps, skipOpen bool) error {
 		}
 		if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
 			for wName, wDef := range fw.Workers {
+				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+					continue
+				}
 				if isLaravel {
 					switch wName {
 					case "queue", "schedule", "reverb":
@@ -451,6 +456,54 @@ func siteHasStripeSecret(cwd string) bool {
 		}
 	}
 	return false
+}
+
+// execInContainer runs an arbitrary command string inside the site's PHP-FPM container.
+// composerInContainer runs composer inside the project's PHP-FPM container,
+// ensuring the correct PHP version is used for dependency resolution.
+func composerInContainer(dir string, args ...string) error {
+	version, err := phpDet.DetectVersion(dir)
+	if err != nil {
+		cfg, _ := config.LoadGlobal()
+		version = cfg.PHP.DefaultVersion
+	}
+	short := strings.ReplaceAll(version, ".", "")
+	container := "lerd-php" + short + "-fpm"
+
+	home := os.Getenv("HOME")
+	composerPhar := filepath.Join(config.BinDir(), "composer.phar")
+
+	cmdArgs := []string{"exec", "-i", "-w", dir,
+		"--env", "HOME=" + home,
+		"--env", "COMPOSER_HOME=" + filepath.Join(home, ".config", "composer"),
+		container, "php", composerPhar,
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.Command("podman", cmdArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func execInContainer(dir, command string) error {
+	version, err := phpDet.DetectVersion(dir)
+	if err != nil {
+		cfg, _ := config.LoadGlobal()
+		version = cfg.PHP.DefaultVersion
+	}
+	short := strings.ReplaceAll(version, ".", "")
+	container := "lerd-php" + short + "-fpm"
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return fmt.Errorf("empty setup command")
+	}
+	cmdArgs := append([]string{"exec", "-i", "-w", dir, container}, parts...)
+	cmd := exec.Command("podman", cmdArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // promptContinue asks the user whether to continue after a step failure.

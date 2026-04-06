@@ -1517,8 +1517,8 @@ function lerdApp() {
     sites: [],
     sitesLoading: false,
     selectedSiteDomain: null,
-    domainModal: { open: false, site: null, domains: [], newDomain: '', editIndex: -1, editValue: '', error: '', loading: false },
-    linkModal: { open: false, currentDir: '', dirs: [], loading: false, linking: false, error: '' },
+    domainModal: { open: false, site: null, domains: [], newDomain: '', editIndex: -1, editValue: '', error: '', flash: '', loading: false, dirty: false },
+    linkModal: { open: false, currentDir: '', dirs: [], loading: false, linking: false, error: '', logs: [] },
     phpVersions: [],
     nodeVersions: [],
     services: [],
@@ -1712,8 +1712,10 @@ function lerdApp() {
           this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', horizonLoading: false, horizonError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) }));
         } else {
           raw.forEach(s => {
-            const e = this.sites.find(x => x.domain === s.domain);
+            const e = this.sites.find(x => x.name === s.name);
             if (e) {
+              e.domain = s.domain;
+              e.domains = s.domains;
               e.php_version = s.php_version;
               e.node_version = s.node_version;
               e.tls = s.tls;
@@ -1746,7 +1748,7 @@ function lerdApp() {
               this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', horizonLoading: false, horizonError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) });
             }
           });
-          this.sites = this.sites.filter(e => raw.some(s => s.domain === e.domain));
+          this.sites = this.sites.filter(e => raw.some(s => s.name === e.name));
         }
       } catch (_) {
         if (firstLoad) this.sites = [];
@@ -2150,7 +2152,9 @@ function lerdApp() {
         editIndex: -1,
         editValue: '',
         error: '',
+        flash: '',
         loading: false,
+        dirty: false,
       };
     },
 
@@ -2166,7 +2170,7 @@ function lerdApp() {
     },
 
     async openLinkModal() {
-      this.linkModal = { open: true, currentDir: '', dirs: [], loading: true, linking: false, error: '' };
+      this.linkModal = { open: true, currentDir: '', dirs: [], loading: true, linking: false, error: '', logs: [] };
       await this.browseDir('');
     },
 
@@ -2192,14 +2196,49 @@ function lerdApp() {
       const m = this.linkModal;
       m.linking = true;
       m.error = '';
+      m.logs = [];
       try {
         const res = await fetch(`/api/sites/link?path=${encodeURIComponent(m.currentDir)}`, { method: 'POST' });
-        const data = await res.json();
-        if (!data.ok) { m.error = data.error; m.linking = false; return; }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let result = null;
+        let eventType = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7);
+            } else if (line.startsWith('data: ')) {
+              const payload = line.slice(6);
+              if (eventType === 'done') {
+                try { result = JSON.parse(payload); } catch (_) {}
+              } else {
+                m.logs.push(payload);
+                this.$nextTick(() => {
+                  const el = document.getElementById('link-log-area');
+                  if (el) el.scrollTop = el.scrollHeight;
+                });
+              }
+              eventType = '';
+            } else if (line === '') {
+              eventType = '';
+            }
+          }
+        }
+        if (!result || !result.ok) {
+          m.error = (result && result.error) || 'Link failed';
+          m.linking = false;
+          return;
+        }
         m.open = false;
         await this.loadSites();
-        if (data.domain) {
-          const site = this.sites.find(s => s.domain === data.domain);
+        if (result.domain) {
+          const site = this.sites.find(s => s.domain === result.domain);
           if (site) this.selectSite(site);
         }
       } catch (e) { m.error = e.message; }
@@ -2207,6 +2246,12 @@ function lerdApp() {
     },
 
     closeDomainModal() {
+      if (this.domainModal.dirty) {
+        const updated = this.sites.find(s => s.name === this.domainModal.site.name);
+        if (updated) {
+          this.selectedSiteDomain = updated.domain;
+        }
+      }
       this.domainModal.open = false;
     },
 
@@ -2238,6 +2283,9 @@ function lerdApp() {
         m.editValue = '';
         await this.loadSites();
         this._refreshDomainModal(siteName);
+        m.dirty = true;
+        m.flash = 'Domain updated';
+        setTimeout(() => { m.flash = ''; }, 3000);
       } catch (e) { m.error = e.message; }
       m.loading = false;
     },
@@ -2256,6 +2304,9 @@ function lerdApp() {
         m.newDomain = '';
         await this.loadSites();
         this._refreshDomainModal(siteName);
+        m.dirty = true;
+        m.flash = 'Domain added';
+        setTimeout(() => { m.flash = ''; }, 3000);
       } catch (e) { m.error = e.message; }
       m.loading = false;
     },
@@ -2274,6 +2325,9 @@ function lerdApp() {
         if (m.editIndex === index) this.domainModalCancelEdit();
         await this.loadSites();
         this._refreshDomainModal(siteName);
+        m.dirty = true;
+        m.flash = 'Domain removed';
+        setTimeout(() => { m.flash = ''; }, 3000);
       } catch (e) { m.error = e.message; }
       m.loading = false;
     },
@@ -2868,7 +2922,7 @@ function lerdApp() {
       </div>
 
       <!-- Directory browser -->
-      <div class="px-5 py-2 max-h-72 overflow-y-auto">
+      <div x-show="!linkModal.linking" class="px-5 py-2 max-h-72 overflow-y-auto">
         <div x-show="linkModal.loading" class="py-4 text-center text-xs text-gray-400">Loading...</div>
         <div x-show="!linkModal.loading">
           <template x-for="d in linkModal.dirs" :key="d.path">
@@ -2883,6 +2937,16 @@ function lerdApp() {
         </div>
       </div>
 
+      <!-- Linking logs -->
+      <div x-show="linkModal.linking" class="px-5 py-3">
+        <div id="link-log-area" class="bg-gray-50 dark:bg-black/30 rounded-lg p-3 max-h-56 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
+          <template x-for="(line, i) in linkModal.logs" :key="i">
+            <div x-text="line"></div>
+          </template>
+          <div x-show="linkModal.logs.length === 0" class="text-gray-400 dark:text-gray-500">Waiting for output...</div>
+        </div>
+      </div>
+
       <!-- Error -->
       <template x-if="linkModal.error">
         <div class="px-5 py-2">
@@ -2892,7 +2956,7 @@ function lerdApp() {
 
       <!-- Footer -->
       <div class="px-5 py-4 border-t border-gray-100 dark:border-lerd-border flex items-center justify-end gap-2">
-        <button @click="closeLinkModal()"
+        <button x-show="!linkModal.linking" @click="closeLinkModal()"
           class="text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-3 py-1.5 transition-colors">
           Cancel
         </button>
@@ -2974,7 +3038,10 @@ function lerdApp() {
         </div>
       </div>
 
-      <!-- Error -->
+      <!-- Flash / Error -->
+      <div x-show="domainModal.flash" class="px-5 py-2 border-t border-gray-100 dark:border-lerd-border">
+        <p class="text-xs text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg px-2 py-1.5 text-center" x-text="domainModal.flash"></p>
+      </div>
       <template x-if="domainModal.error">
         <div class="px-5 py-2 border-t border-gray-100 dark:border-lerd-border">
           <p class="text-xs text-red-500" x-text="domainModal.error"></p>

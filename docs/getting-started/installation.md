@@ -104,3 +104,49 @@ lerd uninstall --force
 ```bash
 bash install.sh --check
 ```
+
+---
+
+## Beta (macOS preview)
+
+macOS support is currently in beta on the [`macos-compat`](https://github.com/geodro/lerd/tree/macos-compat) branch.
+Binaries are published to the Homebrew tap as pre-releases.
+
+### macOS
+
+```bash
+brew install geodro/lerd/lerd
+lerd install
+```
+
+Podman is installed automatically as a Homebrew dependency. `lerd install` sets up
+Podman Machine, DNS, and nginx on first run.
+
+**Update:**
+
+```bash
+brew upgrade lerd
+lerd install
+```
+
+**Uninstall:**
+
+```bash
+lerd uninstall
+brew uninstall lerd
+```
+
+### Linux (beta)
+
+Build from source off the beta branch:
+
+```bash
+git clone -b macos-compat https://github.com/geodro/lerd
+cd lerd
+make build
+bash install.sh --local ./build/lerd
+```
+
+::: warning Beta software
+These builds may have rough edges. Please [open an issue](https://github.com/geodro/lerd/issues) if you encounter problems.
+:::

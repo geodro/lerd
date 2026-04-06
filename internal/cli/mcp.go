@@ -300,7 +300,8 @@ In practice, you can almost always omit ` + bt + `path` + bt + ` — just open C
 - Custom services (MongoDB, RabbitMQ, …) can be added with ` + bt + `service_add` + bt + ` and managed identically to built-in ones
 - Node.js versions are managed by **fnm** (Fast Node Manager); pin per-project with a ` + bt + `.node-version` + bt + ` file
 - Framework workers (queue, schedule, reverb, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + ` (e.g. ` + bt + `lerd-queue-myapp` + bt + `, ` + bt + `lerd-messenger-myapp` + bt + `)
-- Worker commands are defined per-framework in YAML definitions; Laravel has built-in queue/schedule/reverb workers; custom frameworks can add any workers
+- Worker commands are defined per-framework in YAML definitions; Laravel has built-in queue/schedule/reverb workers; custom frameworks can add any workers; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies
+- Framework definitions can include ` + bt + `setup` + bt + ` commands (one-off bootstrap steps like migrations, storage links) shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
 - DNS resolves ` + bt + `*.test` + bt + ` to ` + bt + `127.0.0.1` + bt + `
 
@@ -567,10 +568,10 @@ cd myapp && lerd link && lerd setup
 ` + "```" + `
 
 ### ` + bt + `framework_list` + bt + `
-List all available framework definitions (Laravel built-in plus any user-defined YAMLs at ` + bt + `~/.config/lerd/frameworks/` + bt + `), including their defined workers. Call this before ` + bt + `framework_add` + bt + ` to see what already exists.
+List all available framework definitions (Laravel built-in plus any user-defined YAMLs at ` + bt + `~/.config/lerd/frameworks/` + bt + `), including their defined workers and setup commands. Call this before ` + bt + `framework_add` + bt + ` to see what already exists.
 
 ### ` + bt + `framework_add` + bt + `
-Create or update a framework definition. For ` + bt + `laravel` + bt + `, only the ` + bt + `workers` + bt + ` field is accepted (built-in settings are always preserved). For other frameworks, creates a full definition.
+Create or update a framework definition. For ` + bt + `laravel` + bt + `, only the ` + bt + `workers` + bt + ` and ` + bt + `setup` + bt + ` fields are accepted (built-in settings are always preserved). For other frameworks, creates a full definition.
 
 Arguments:
 - ` + bt + `name` + bt + ` (required): framework slug (e.g. ` + bt + `"symfony"` + bt + `). Use ` + bt + `"laravel"` + bt + ` to add custom workers to the built-in Laravel definition (e.g. ` + bt + `horizon` + bt + `, ` + bt + `pulse` + bt + `)
@@ -580,7 +581,8 @@ Arguments:
 - ` + bt + `detect_packages` + bt + ` (optional): array of Composer packages that signal this framework
 - ` + bt + `env_file` + bt + ` (optional): primary env file path (default: ` + bt + `".env"` + bt + `)
 - ` + bt + `env_format` + bt + ` (optional): ` + bt + `"dotenv"` + bt + ` or ` + bt + `"php-const"` + bt + `
-- ` + bt + `workers` + bt + ` (optional): map of worker name → ` + bt + `{label, command, restart}` + bt + `
+- ` + bt + `workers` + bt + ` (optional): map of worker name → ` + bt + `{label, command, restart, check}` + bt + ` — ` + bt + `check` + bt + ` is optional (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `), worker only shown when check passes
+- ` + bt + `setup` + bt + ` (optional): array of one-off setup commands shown in ` + bt + `lerd setup` + bt + ` wizard, each with ` + bt + `{label, command, default, check}` + bt + ` — ` + bt + `check` + bt + ` is optional, same format as workers
 
 Example — add Horizon to Laravel:
 ` + "```" + `
@@ -603,7 +605,7 @@ framework_add(
 ` + "```" + `
 
 ### ` + bt + `framework_remove` + bt + `
-Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only the custom worker additions (built-in queue/schedule/reverb remain). Takes ` + bt + `name` + bt + ` (required).
+Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only custom worker and setup command additions (built-in queue/schedule/reverb workers and storage:link/migrate/db:seed setup remain). Takes ` + bt + `name` + bt + ` (required).
 
 ### ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + `
 Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required) and ` + bt + `version` + bt + ` (required).
@@ -693,7 +695,7 @@ runtime_versions()   // see PHP and Node.js versions available
 ` + "```" + `
 composer(args: ["create-project", "laravel/laravel", "."])
 site_link()           // registers the cwd as a lerd site
-env_setup()           // configures .env, starts services, creates DB, generates APP_KEY
+env_setup()           // configures .env, starts services, creates DB, generates APP_KEY (even before composer install)
 artisan(args: ["migrate"])
 ` + "```" + `
 
@@ -857,11 +859,13 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 
 ### Architecture
 
-- PHP runs in Podman containers named ` + bt + `lerd-php<version>-fpm` + bt + ` (e.g. ` + bt + `lerd-php84-fpm` + bt + `); each container includes composer and node/npm
+- PHP runs in Podman containers named ` + bt + `lerd-php<version>-fpm` + bt + ` (e.g. ` + bt + `lerd-php84-fpm` + bt + `); each container includes composer and node/npm; the PHP version is resolved from ` + bt + `.lerd.yaml` + bt + ` → ` + bt + `.php-version` + bt + ` → ` + bt + `composer.json` + bt + ` ` + bt + `require.php` + bt + ` constraint (matched against installed versions) → global default
 - Nginx routes ` + bt + `*.test` + bt + ` domains to the correct PHP-FPM container
 - Services (MySQL, Redis, PostgreSQL, etc.) and custom services run as Podman containers via systemd quadlets
 - Node.js versions are managed by fnm; per-project version is set via a ` + bt + `.node-version` + bt + ` file
-- Framework workers (queue, schedule, reverb, horizon, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML definitions; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed
+- Framework workers (queue, schedule, reverb, horizon, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML definitions; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies
+- Framework setup commands (one-off bootstrap steps like migrations, storage links) are defined in the framework YAML and shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed; custom frameworks can define their own
+- Service version placeholders (` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + `) are available in framework env vars and are resolved from the service image tag at ` + bt + `lerd env` + bt + ` time
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
 
 ### Available MCP tools
@@ -913,9 +917,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `worker_stop` + bt + ` | Stop a named framework worker |
 | ` + bt + `worker_list` + bt + ` | List all workers defined for a site's framework with running status |
 | ` + bt + `project_new` + bt + ` | Scaffold a new PHP project (runs the framework's create command); follow with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` |
-| ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers |
-| ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers to Laravel |
-| ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker additions |
+| ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers and setup commands |
+| ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers or setup commands to Laravel |
+| ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker and setup additions |
 | ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost |
 | ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed |
 | ` + bt + `site_pause` + bt + ` | Pause a site: stop all its workers and replace its vhost with a landing page |
@@ -947,6 +951,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
 - ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
+- ` + bt + `framework_add` + bt + ` accepts ` + bt + `workers` + bt + ` (map) and ` + bt + `setup` + bt + ` (array) — both support an optional ` + bt + `check` + bt + ` field (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `) to conditionally show based on project deps; for Laravel, custom setup commands replace built-in storage:link/migrate/db:seed
+- Framework env vars support service version placeholders: ` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + ` — resolved from the running service image tag
 - ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + ` rebuild the FPM image and restart the container — may take a minute; ` + bt + `version` + bt + ` defaults to the project or global PHP version
 - ` + bt + `db_import` + bt + ` requires the database service to be running; pipe the file by absolute path — it reads connection info from ` + bt + `.env` + bt + `
 - ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist

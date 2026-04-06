@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	crand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -316,11 +317,21 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 6. Generate APP_KEY if missing or empty (Laravel only)
+	// 6. Generate APP_KEY if missing or empty (Laravel only).
+	// Prefer artisan key:generate when vendor/ exists; otherwise write a
+	// random base64 key directly so composer post-install scripts can boot.
 	if isLaravel && strings.TrimSpace(envMap["APP_KEY"]) == "" {
-		fmt.Println("  Generating APP_KEY...")
-		if err := artisanIn(cwd, "key:generate"); err != nil {
-			fmt.Printf("  [WARN] key:generate failed: %v\n", err)
+		if _, statErr := os.Stat(filepath.Join(cwd, "vendor")); statErr == nil {
+			fmt.Println("  Generating APP_KEY...")
+			if err := artisanIn(cwd, "key:generate"); err != nil {
+				fmt.Printf("  [WARN] key:generate failed: %v\n", err)
+			}
+		} else {
+			fmt.Println("  Generating APP_KEY (vendor not installed yet)...")
+			key := generateLaravelAppKey()
+			if err := envfile.ApplyUpdates(envPath, map[string]string{"APP_KEY": key}); err != nil {
+				fmt.Printf("  [WARN] writing APP_KEY: %v\n", err)
+			}
 		}
 	}
 
@@ -522,6 +533,15 @@ func parseEnvMap(path string) (map[string]string, error) {
 }
 
 // artisanIn runs php artisan <args> in the given directory using the project's PHP container.
+// generateLaravelAppKey generates a base64-encoded 32-byte random key in the
+// format Laravel expects (base64:...). Used when vendor/ is not installed yet
+// and artisan key:generate cannot run.
+func generateLaravelAppKey() string {
+	key := make([]byte, 32)
+	crand.Read(key) //nolint:errcheck
+	return "base64:" + base64.StdEncoding.EncodeToString(key)
+}
+
 func artisanIn(dir string, args ...string) error {
 	version, err := phpDet.DetectVersion(dir)
 	if err != nil {
@@ -541,10 +561,18 @@ func artisanIn(dir string, args ...string) error {
 	return cmd.Run()
 }
 
-// applySiteHandle replaces {{site}} and {{site_testing}} placeholders in s.
+// applySiteHandle replaces {{site}}, {{site_testing}}, and service version
+// placeholders (e.g. {{mysql_version}}, {{postgres_version}}) in s.
 func applySiteHandle(s, site string) string {
 	s = strings.ReplaceAll(s, "{{site}}", site)
 	s = strings.ReplaceAll(s, "{{site_testing}}", site+"_testing")
+	// Lazy-resolve service version placeholders only when present.
+	for _, svc := range []string{"mysql", "postgres", "redis", "meilisearch"} {
+		placeholder := "{{" + svc + "_version}}"
+		if strings.Contains(s, placeholder) {
+			s = strings.ReplaceAll(s, placeholder, podman.ServiceVersion("lerd-"+svc))
+		}
+	}
 	return s
 }
 

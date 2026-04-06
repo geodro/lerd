@@ -18,14 +18,19 @@ Run the DNS check first:
 lerd dns:check
 ```
 
-If it fails, restart NetworkManager and check again:
+If it fails, restart your DNS resolver and check again:
 
 ```bash
+# NetworkManager systems:
 sudo systemctl restart NetworkManager
+
+# systemd-resolved only (e.g. omarchy):
+sudo systemctl restart systemd-resolved
+
 lerd dns:check
 ```
 
-On systems using systemd-resolved (Ubuntu), check that the per-interface DNS configuration was applied:
+On systems using systemd-resolved, check that the DNS configuration was applied:
 
 ```bash
 resolvectl status
@@ -151,6 +156,15 @@ ss -tlnp sport = :80    # show what's listening on port 80
 ```
 
 `lerd doctor` also checks for port conflicts as part of its full diagnostic.
+:::
+
+::: details Workers missing after reinstall
+If you ran `lerd uninstall` and then reinstalled, worker units and service quadlets are deleted during uninstall. Running `lerd start` after reinstalling automatically restores them from the `workers` list saved in each site's `.lerd.yaml`. If `.lerd.yaml` does not exist or was not committed, you will need to start workers again manually (`lerd queue:start`, etc.).
+
+To check what was restored:
+```bash
+lerd status   # shows all active workers and services
+```
 :::
 
 ::: details Workers failing or crash-looping
