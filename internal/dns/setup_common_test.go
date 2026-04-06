@@ -3,7 +3,6 @@
 package dns
 
 import (
-	"os"
 	"testing"
 )
 
