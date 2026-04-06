@@ -330,16 +330,8 @@ func setupNMWithResolved() error {
 	if !isFileContent(dispatcherScript, []byte(nmDispatcherScript)) {
 		fmt.Println("  [sudo required] Configuring NetworkManager dispatcher for .test DNS resolution")
 
-		if err := sudoWriteFile(dispatcherScript, []byte(nmDispatcherScript)); err != nil {
+		if err := sudoWriteFile(dispatcherScript, []byte(nmDispatcherScript), 0755); err != nil {
 			return fmt.Errorf("writing NM dispatcher script: %w", err)
-		}
-
-		chmodCmd := exec.Command("sudo", "chmod", "755", dispatcherScript)
-		chmodCmd.Stdin = os.Stdin
-		chmodCmd.Stdout = os.Stdout
-		chmodCmd.Stderr = os.Stderr
-		if err := chmodCmd.Run(); err != nil {
-			return fmt.Errorf("chmod dispatcher script: %w", err)
 		}
 	}
 
@@ -412,12 +404,14 @@ func setupSystemdResolved() error {
 	dropin := "/etc/systemd/resolved.conf.d/lerd.conf"
 
 	if isFileContent(dropin, []byte(resolvedDropin)) {
-		return nil
+		if info, err := os.Stat(dropin); err == nil && info.Mode().Perm() == 0644 {
+			return nil
+		}
 	}
 
 	fmt.Println("  [sudo required] Configuring systemd-resolved for .test DNS resolution")
 
-	if err := sudoWriteFile(dropin, []byte(resolvedDropin)); err != nil {
+	if err := sudoWriteFile(dropin, []byte(resolvedDropin), 0644); err != nil {
 		return fmt.Errorf("writing resolved drop-in: %w", err)
 	}
 
@@ -442,11 +436,11 @@ func setupNetworkManager() error {
 
 	fmt.Println("  [sudo required] Configuring NetworkManager for .test DNS resolution")
 
-	if err := sudoWriteFile(nmConfFile, []byte(nmDnsConf)); err != nil {
+	if err := sudoWriteFile(nmConfFile, []byte(nmDnsConf), 0644); err != nil {
 		return fmt.Errorf("writing NetworkManager conf: %w", err)
 	}
 
-	if err := sudoWriteFile(nmDnsmasqFile, []byte(nmDnsmasqConf)); err != nil {
+	if err := sudoWriteFile(nmDnsmasqFile, []byte(nmDnsmasqConf), 0644); err != nil {
 		return fmt.Errorf("writing NetworkManager dnsmasq conf: %w", err)
 	}
 
@@ -578,8 +572,12 @@ func InstallSudoers() error {
 			"%s ALL=(root) NOPASSWD: /usr/bin/resolvectl dns *, /usr/bin/resolvectl domain *, /usr/bin/resolvectl revert *\n"+
 			"%s ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/NetworkManager/dispatcher.d\n"+
 			"%s ALL=(root) NOPASSWD: /usr/bin/cp /tmp/lerd-sudo-* /etc/NetworkManager/dispatcher.d/99-lerd-dns\n"+
-			"%s ALL=(root) NOPASSWD: /usr/bin/chmod 755 /etc/NetworkManager/dispatcher.d/99-lerd-dns\n",
-		user, user, user, user,
+			"%s ALL=(root) NOPASSWD: /usr/bin/chmod 755 /etc/NetworkManager/dispatcher.d/99-lerd-dns\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/systemd/resolved.conf.d\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/cp /tmp/lerd-sudo-* /etc/systemd/resolved.conf.d/lerd.conf\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/chmod 644 /etc/systemd/resolved.conf.d/lerd.conf\n"+
+			"%s ALL=(root) NOPASSWD: /usr/bin/systemctl restart systemd-resolved\n",
+		user, user, user, user, user, user, user, user,
 	)
 
 	const sudoersPath = "/etc/sudoers.d/lerd"
@@ -587,24 +585,16 @@ func InstallSudoers() error {
 		return nil
 	}
 
-	if err := sudoWriteFile(sudoersPath, []byte(content)); err != nil {
+	if err := sudoWriteFile(sudoersPath, []byte(content), 0440); err != nil {
 		return fmt.Errorf("writing sudoers drop-in: %w", err)
-	}
-
-	// sudoers files must not be world-writable or group-writable
-	chmodCmd := exec.Command("sudo", "chmod", "440", sudoersPath)
-	chmodCmd.Stdin = os.Stdin
-	chmodCmd.Stdout = os.Stdout
-	chmodCmd.Stderr = os.Stderr
-	if err := chmodCmd.Run(); err != nil {
-		return fmt.Errorf("chmod sudoers: %w", err)
 	}
 	return nil
 }
 
 // sudoWriteFile writes content to a system path by writing to a temp file
 // then using sudo cp, so sudo can prompt for a password on the terminal.
-func sudoWriteFile(path string, content []byte) error {
+// The mode parameter sets the file permissions (e.g. 0644, 0755).
+func sudoWriteFile(path string, content []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp("", "lerd-sudo-*")
 	if err != nil {
 		return err
@@ -631,6 +621,14 @@ func sudoWriteFile(path string, content []byte) error {
 	cpCmd.Stderr = os.Stderr
 	if err := cpCmd.Run(); err != nil {
 		return fmt.Errorf("cp to %s: %w", path, err)
+	}
+
+	chmodCmd := exec.Command("sudo", "chmod", fmt.Sprintf("%o", mode), path)
+	chmodCmd.Stdin = os.Stdin
+	chmodCmd.Stdout = os.Stdout
+	chmodCmd.Stderr = os.Stderr
+	if err := chmodCmd.Run(); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
