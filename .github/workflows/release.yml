@@ -20,19 +20,19 @@ jobs:
       - name: Install tray build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --fix-missing libappindicator3-dev
+          sudo apt-get install -y --fix-missing libayatana-appindicator3-dev
 
       - name: Download dependencies
         run: go mod download
 
       - name: Build
-        run: CGO_ENABLED=1 go build -tags legacy_appindicator -o /dev/null ./cmd/lerd
+        run: CGO_ENABLED=1 go build -o /dev/null ./cmd/lerd
 
       - name: Test
-        run: CGO_ENABLED=1 go test -tags legacy_appindicator ./...
+        run: CGO_ENABLED=1 go test ./...
 
       - name: Vet
-        run: CGO_ENABLED=1 go vet -tags legacy_appindicator ./...
+        run: CGO_ENABLED=1 go vet ./...
 
       - name: Format
         run: test -z "$(gofmt -l .)"
@@ -93,7 +93,7 @@ jobs:
       - name: Install tray build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --fix-missing libappindicator3-dev
+          sudo apt-get install -y --fix-missing libayatana-appindicator3-dev
 
       - name: Download macOS tray binaries
         uses: actions/download-artifact@v4

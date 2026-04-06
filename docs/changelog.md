@@ -11,6 +11,20 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.3] — 2026-04-06
+
+### Changed
+
+- **Tray switched to libayatana-appindicator** — the system tray now uses the actively maintained ayatana fork instead of the legacy libappindicator3. No behavior change; ayatana is the default backend in getlantern/systray and is already present on Ubuntu desktops.
+- **`lerd update` defaults to yes** — pressing Enter now confirms the update instead of cancelling.
+
+### Fixed
+
+- **DNS broken on systems without NetworkManager** — the resolved drop-in file was written with 0600 permissions (unreadable by systemd-resolved), breaking `.test` domain resolution on omarchy and similar systems. Fixed by setting correct permissions (0644) via `sudoWriteFile`.
+- **Sudoers missing resolved paths** — extended the sudoers drop-in to cover systemd-resolved config paths for passwordless install/start on resolved-only systems.
+
+---
+
 ## [1.6.2] — 2026-04-06
 
 ### Fixed

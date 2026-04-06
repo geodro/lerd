@@ -71,25 +71,25 @@ The tray uses the **StatusNotifierItem (SNI) / AppIndicator** protocol (DBus-bas
 
 ## Build requirements
 
-The tray uses CGO and requires `libappindicator3` at build time:
+The tray uses CGO and requires `libayatana-appindicator` at build time:
 
 ::: code-group
 
-```bash [Arch]
-sudo pacman -S libappindicator-gtk3
+```bash [Arch / CachyOS / omarchy]
+sudo pacman -S libayatana-appindicator
 ```
 
 ```bash [Debian / Ubuntu]
-sudo apt install libappindicator3-dev
+sudo apt install libayatana-appindicator3-dev
 ```
 
 ```bash [Fedora]
-sudo dnf install libappindicator-gtk3-devel
+sudo dnf install libayatana-appindicator-gtk3
 ```
 
 :::
 
-For headless / CI builds without AppIndicator:
+For headless / CI builds without the tray:
 
 ```bash
 make build-nogui   # produces ./build/lerd-nogui — lerd tray returns an error
