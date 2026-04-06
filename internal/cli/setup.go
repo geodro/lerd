@@ -198,8 +198,7 @@ func runSetup(allSteps, skipOpen bool) error {
 					if phpVersion == "" {
 						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 							phpVersion = detected
-						} else {
-							cfg, _ := config.LoadGlobal()
+						} else if cfg, _ := config.LoadGlobal(); cfg != nil {
 							phpVersion = cfg.PHP.DefaultVersion
 						}
 					}
@@ -219,8 +218,7 @@ func runSetup(allSteps, skipOpen bool) error {
 					if phpVersion == "" {
 						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 							phpVersion = detected
-						} else {
-							cfg, _ := config.LoadGlobal()
+						} else if cfg, _ := config.LoadGlobal(); cfg != nil {
 							phpVersion = cfg.PHP.DefaultVersion
 						}
 					}
@@ -258,8 +256,9 @@ func runSetup(allSteps, skipOpen bool) error {
 					if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 						phpVersion = detected
 					} else {
-						cfg, _ := config.LoadGlobal()
-						phpVersion = cfg.PHP.DefaultVersion
+						if cfg, _ := config.LoadGlobal(); cfg != nil {
+							phpVersion = cfg.PHP.DefaultVersion
+						}
 					}
 				}
 				return ScheduleStartForSite(s.Name, cwd, phpVersion)
@@ -279,8 +278,9 @@ func runSetup(allSteps, skipOpen bool) error {
 					if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 						phpVersion = detected
 					} else {
-						cfg, _ := config.LoadGlobal()
-						phpVersion = cfg.PHP.DefaultVersion
+						if cfg, _ := config.LoadGlobal(); cfg != nil {
+							phpVersion = cfg.PHP.DefaultVersion
+						}
 					}
 				}
 				return ReverbStartForSite(s.Name, cwd, phpVersion)
@@ -320,8 +320,7 @@ func runSetup(allSteps, skipOpen bool) error {
 						if phpVersion == "" {
 							if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 								phpVersion = detected
-							} else {
-								cfg, _ := config.LoadGlobal()
+							} else if cfg, _ := config.LoadGlobal(); cfg != nil {
 								phpVersion = cfg.PHP.DefaultVersion
 							}
 						}
@@ -464,8 +463,9 @@ func siteHasStripeSecret(cwd string) bool {
 func composerInContainer(dir string, args ...string) error {
 	version, err := phpDet.DetectVersion(dir)
 	if err != nil {
-		cfg, _ := config.LoadGlobal()
-		version = cfg.PHP.DefaultVersion
+		if cfg, _ := config.LoadGlobal(); cfg != nil {
+			version = cfg.PHP.DefaultVersion
+		}
 	}
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
@@ -490,8 +490,9 @@ func composerInContainer(dir string, args ...string) error {
 func execInContainer(dir, command string) error {
 	version, err := phpDet.DetectVersion(dir)
 	if err != nil {
-		cfg, _ := config.LoadGlobal()
-		version = cfg.PHP.DefaultVersion
+		if cfg, _ := config.LoadGlobal(); cfg != nil {
+			version = cfg.PHP.DefaultVersion
+		}
 	}
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
