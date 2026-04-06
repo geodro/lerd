@@ -40,10 +40,10 @@ func runUninstall(force bool) error {
 		}
 	}
 
-	// Ask about data removal up front before DNS teardown, which may prompt for sudo.
+	// Ask about data removal before DNS teardown: DNS may prompt for sudo,
+	// and both need to happen before any step that consumes stdin.
 	removeData := force || confirmRemoveData()
 
-	// DNS teardown runs outside the step runner because it may prompt for sudo.
 	fmt.Println("  --> Removing DNS configuration")
 	dns.Teardown()
 
