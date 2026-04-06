@@ -5,12 +5,10 @@ package dns
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/geodro/lerd/internal/config"
 )
