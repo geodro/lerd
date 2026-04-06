@@ -18,14 +18,19 @@ Run the DNS check first:
 lerd dns:check
 ```
 
-If it fails, restart NetworkManager and check again:
+If it fails, restart your DNS resolver and check again:
 
 ```bash
+# NetworkManager systems:
 sudo systemctl restart NetworkManager
+
+# systemd-resolved only (e.g. omarchy):
+sudo systemctl restart systemd-resolved
+
 lerd dns:check
 ```
 
-On systems using systemd-resolved (Ubuntu), check that the per-interface DNS configuration was applied:
+On systems using systemd-resolved, check that the DNS configuration was applied:
 
 ```bash
 resolvectl status

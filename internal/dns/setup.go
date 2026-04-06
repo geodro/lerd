@@ -90,7 +90,7 @@ func isFileContent(path string, content []byte) bool {
 }
 
 // isSystemdResolvedActive returns true if systemd-resolved is the active DNS resolver.
-func isSystemdResolvedActive() bool {
+var isSystemdResolvedActive = func() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "systemd-resolved")
 	if err := cmd.Run(); err != nil {
 		return false
@@ -104,9 +104,20 @@ func isSystemdResolvedActive() bool {
 }
 
 // isNetworkManagerActive returns true if NetworkManager is running.
-func isNetworkManagerActive() bool {
+var isNetworkManagerActive = func() bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", "NetworkManager")
 	return cmd.Run() == nil
+}
+
+// ResolverHint returns a user-facing hint for restarting the active DNS resolver.
+func ResolverHint() string {
+	if isNetworkManagerActive() {
+		return "sudo systemctl restart NetworkManager"
+	}
+	if isSystemdResolvedActive() {
+		return "sudo systemctl restart systemd-resolved"
+	}
+	return "restart your DNS resolver"
 }
 
 // defaultInterface returns the name of the default network interface (e.g. "enp1s0").

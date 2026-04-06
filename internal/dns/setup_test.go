@@ -184,6 +184,50 @@ func TestWriteDnsmasqConfig_noUpstreams(t *testing.T) {
 	}
 }
 
+// --- ResolverHint ---
+
+func TestResolverHint_NetworkManager(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return true }
+	isSystemdResolvedActive = func() bool { return true }
+
+	got := ResolverHint()
+	if got != "sudo systemctl restart NetworkManager" {
+		t.Errorf("expected NM hint, got %q", got)
+	}
+}
+
+func TestResolverHint_SystemdResolvedOnly(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return false }
+	isSystemdResolvedActive = func() bool { return true }
+
+	got := ResolverHint()
+	if got != "sudo systemctl restart systemd-resolved" {
+		t.Errorf("expected systemd-resolved hint, got %q", got)
+	}
+}
+
+func TestResolverHint_NoResolver(t *testing.T) {
+	origNM := isNetworkManagerActive
+	origResolved := isSystemdResolvedActive
+	defer func() { isNetworkManagerActive = origNM; isSystemdResolvedActive = origResolved }()
+
+	isNetworkManagerActive = func() bool { return false }
+	isSystemdResolvedActive = func() bool { return false }
+
+	got := ResolverHint()
+	if got != "restart your DNS resolver" {
+		t.Errorf("expected generic hint, got %q", got)
+	}
+}
+
 // --- helpers ---
 
 func writeTempFile(t *testing.T, content string) string {

@@ -8,7 +8,8 @@ All containers join the rootless Podman network `lerd`. Communication between Ng
                           *.test DNS
                               │
                    ┌──────────┴──────────┐
-                   │    NetworkManager    │
+                   │   DNS resolver      │
+                   │ (NM or resolved)    │
                    └──────────┬──────────┘
                               │ forwards .test queries
                    ┌──────────┴──────────┐
@@ -43,12 +44,12 @@ All containers join the rootless Podman network `lerd`. Communication between Ng
 | Composer | `composer.phar` via bundled PHP CLI |
 | Node | [fnm](https://github.com/Schniz/fnm) binary, version per project |
 | Services | Podman Quadlet containers |
-| DNS | dnsmasq container + NetworkManager integration |
+| DNS | dnsmasq container + NetworkManager or systemd-resolved integration |
 | TLS | [mkcert](https://github.com/FiloSottile/mkcert) — locally trusted CA |
 
 ## Key design decisions
 
-**Rootless Podman** — all containers run without root privileges. The only operations requiring `sudo` are DNS setup (writes to `/etc/NetworkManager/`) and the initial `net.ipv4.ip_unprivileged_port_start=80` sysctl.
+**Rootless Podman** — all containers run without root privileges. The only operations requiring `sudo` are DNS setup (configures NetworkManager or systemd-resolved to route `.test` queries) and the initial `net.ipv4.ip_unprivileged_port_start=80` sysctl.
 
 **Podman Quadlets** — containers are defined as systemd unit files (`.container` files) managed by the Quadlet generator. This means `systemctl --user start lerd-nginx` works like any other systemd service, and containers restart on failure and at login.
 

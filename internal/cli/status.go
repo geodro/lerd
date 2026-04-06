@@ -59,7 +59,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	} else {
 		fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
 			"not resolving",
-			"run 'lerd install' to reconfigure, or: sudo systemctl restart NetworkManager")
+			"run 'lerd install' to reconfigure, or: "+dns.ResolverHint())
 	}
 
 	// Nginx

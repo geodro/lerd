@@ -152,7 +152,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 			ok(fmt.Sprintf(".%s resolves to 127.0.0.1", tld))
 		} else {
 			fail(fmt.Sprintf(".%s resolution", tld), "not resolving to 127.0.0.1",
-				"run 'lerd install' or: sudo systemctl restart NetworkManager")
+				"run 'lerd install' or: "+dns.ResolverHint())
 		}
 	}
 
