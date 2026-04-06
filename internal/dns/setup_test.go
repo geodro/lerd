@@ -223,16 +223,7 @@ func TestResolverHint_NoResolver(t *testing.T) {
 
 // --- helpers ---
 
-func writeTempFile(t *testing.T, content string) string {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "resolv-*.conf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.WriteString(content)
-	f.Close()
-	return f.Name()
-}
+// writeTempFile is defined in setup_common_test.go (shared across platforms).
 
 func readFile(t *testing.T, path string) string {
 	t.Helper()
