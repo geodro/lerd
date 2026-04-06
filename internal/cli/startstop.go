@@ -504,8 +504,9 @@ func restoreSiteInfrastructure() {
 		// Restore FPM quadlet for this site's PHP version.
 		phpVer := s.PHPVersion
 		if phpVer == "" {
-			cfg, _ := config.LoadGlobal()
-			phpVer = cfg.PHP.DefaultVersion
+			if cfg, _ := config.LoadGlobal(); cfg != nil {
+				phpVer = cfg.PHP.DefaultVersion
+			}
 		}
 		if phpVer != "" && !seenPHP[phpVer] {
 			seenPHP[phpVer] = true
@@ -540,8 +541,9 @@ func restoreSiteInfrastructure() {
 			// Recreate the worker unit by starting it (which writes the unit file).
 			phpVersion := s.PHPVersion
 			if phpVersion == "" {
-				cfg, _ := config.LoadGlobal()
-				phpVersion = cfg.PHP.DefaultVersion
+				if cfg, _ := config.LoadGlobal(); cfg != nil {
+					phpVersion = cfg.PHP.DefaultVersion
+				}
 			}
 			switch w {
 			case "queue":
