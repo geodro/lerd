@@ -425,6 +425,55 @@ func runStart(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
+// startRestoredServices pulls images and starts service units that have a quadlet
+// installed but are not yet running. Called from lerd install to bring back services
+// (mysql, redis, etc.) that were restored from .lerd.yaml.
+func startRestoredServices() {
+	units := installedServiceUnits()
+	if len(units) == 0 {
+		return
+	}
+
+	// Pull missing images first.
+	var pullJobs []BuildJob
+	seen := map[string]bool{}
+	for _, unit := range units {
+		image := quadletImage(unit)
+		if image == "" || seen[image] {
+			continue
+		}
+		seen[image] = true
+		if podman.RunSilent("image", "exists", image) == nil {
+			continue
+		}
+		img := image
+		pullJobs = append(pullJobs, BuildJob{
+			Label: "Pulling " + img,
+			Run: func(w io.Writer) error {
+				cmd := exec.Command("podman", "pull", img)
+				cmd.Stdout = w
+				cmd.Stderr = w
+				return cmd.Run()
+			},
+		})
+	}
+	if len(pullJobs) > 0 {
+		RunParallel(pullJobs) //nolint:errcheck
+	}
+
+	// Start the services.
+	var startJobs []BuildJob
+	for _, u := range units {
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		startJobs = append(startJobs, BuildJob{
+			Label: label,
+			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+		})
+	}
+	RunParallel(startJobs) //nolint:errcheck
+}
+
 // killTray kills any running lerd tray process (launched directly or as lerd-tray binary).
 func killTray() {
 	exec.Command("pkill", "-f", "lerd tray").Run()
@@ -452,9 +501,14 @@ func restoreSiteInfrastructure() {
 		}
 
 		// Restore FPM quadlet for this site's PHP version.
-		if s.PHPVersion != "" && !seenPHP[s.PHPVersion] {
-			seenPHP[s.PHPVersion] = true
-			ensureFPMQuadlet(s.PHPVersion) //nolint:errcheck
+		phpVer := s.PHPVersion
+		if phpVer == "" {
+			cfg, _ := config.LoadGlobal()
+			phpVer = cfg.PHP.DefaultVersion
+		}
+		if phpVer != "" && !seenPHP[phpVer] {
+			seenPHP[phpVer] = true
+			ensureFPMQuadlet(phpVer) //nolint:errcheck
 		}
 
 		// Read .lerd.yaml for service and worker info.

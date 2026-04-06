@@ -7,6 +7,19 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.1] — 2026-04-06
+
+### Fixed
+
+- **Fresh install missing default PHP-FPM** — `lerd install` now always builds and starts the default PHP version, even with no registered sites. Previously `lerd new` would fail on a fresh install because no PHP-FPM container existed.
+- **Install not restoring services** — `lerd install` now restores service quadlets (mysql, redis, custom services) from `.lerd.yaml`, pulls missing images, and starts them. Workers no longer fail on reinstall because their dependencies are running.
+- **Install not restoring workers** — `lerd install` now calls `restoreSiteInfrastructure` to recreate worker units from `.lerd.yaml` after services are started.
+- **FPM not restored for sites using default PHP** — both `lerd install` and `lerd start` now fall back to the configured default PHP version when a site has no explicit `PHPVersion`, instead of skipping it.
+- **UI stripe toggle not syncing `.lerd.yaml`** — toggling the Stripe listener from the web UI now writes the workers list to `.lerd.yaml`, matching the behaviour of all other worker toggles.
+- **Uninstall spinner with no expandable output** — replaced the StepRunner spinner (Ctrl+O did nothing) with the same `step()`/`ok()` output style used by install.
+
+---
+
 ## [1.6.0] — 2026-04-06
 
 ### Added

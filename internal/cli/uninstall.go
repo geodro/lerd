@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,11 +47,10 @@ func runUninstall(force bool) error {
 	fmt.Println("  --> Removing DNS configuration")
 	dns.Teardown()
 
-	r := NewStepRunner()
-
 	quadletDir := config.QuadletDir()
 
-	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
+	step("Stopping containers and services")
+	{
 		var units []string
 		// Quadlet containers (nginx, dns, mysql, redis, etc.)
 		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
@@ -73,46 +71,39 @@ func runUninstall(force bool) error {
 			}
 			_ = disableUnit(unit)
 		}
-		return nil
-	})
+	}
+	ok()
 
-	r.Run("Removing quadlet units and services", func(_ io.Writer) error { //nolint:errcheck
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				os.Remove(f) //nolint:errcheck
-			}
+	step("Removing quadlet units and services")
+	if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
+		for _, f := range entries {
+			os.Remove(f) //nolint:errcheck
 		}
-		if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
-			for _, f := range entries {
-				os.Remove(f) //nolint:errcheck
-			}
+	}
+	if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
+		for _, f := range entries {
+			os.Remove(f) //nolint:errcheck
 		}
-		return nil
-	})
+	}
+	ok()
 
-	r.Run("Reloading systemd daemon", func(_ io.Writer) error { //nolint:errcheck
-		_ = podman.DaemonReload()
-		return nil
-	})
+	step("Reloading systemd daemon")
+	_ = podman.DaemonReload()
+	ok()
 
-	r.Run("Removing lerd Podman network", func(_ io.Writer) error { //nolint:errcheck
-		_ = podman.RunSilent("network", "rm", "lerd")
-		return nil
-	})
+	step("Removing lerd Podman network")
+	_ = podman.RunSilent("network", "rm", "lerd")
+	ok()
 
-	r.Run("Removing shell PATH entry", func(_ io.Writer) error { //nolint:errcheck
-		removeShellEntry()
-		return nil
-	})
+	step("Removing shell PATH entry")
+	removeShellEntry()
+	ok()
 
-	r.Run("Removing lerd binary", func(_ io.Writer) error { //nolint:errcheck
-		if self, err := selfPath(); err == nil {
-			os.Remove(self) //nolint:errcheck
-		}
-		return nil
-	})
-
-	r.Close()
+	step("Removing lerd binary")
+	if self, err := selfPath(); err == nil {
+		os.Remove(self) //nolint:errcheck
+	}
+	ok()
 
 	fmt.Println()
 	if removeData {
