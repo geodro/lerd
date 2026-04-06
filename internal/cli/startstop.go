@@ -347,46 +347,22 @@ func runStart(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	units = append(coreUnits(), installedServiceUnits()...)
-	units = append(units, "lerd-ui", "lerd-watcher")
-	units = append(units, registeredQueueUnits()...)
-	units = append(units, registeredStripeUnits()...)
-	units = append(units, registeredScheduleUnits()...)
-	units = append(units, registeredReverbUnits()...)
-
+	// Start lerd-dns first on its own so we can run ConfigureResolver (which
+	// may prompt for sudo) before RunParallel puts the terminal in raw mode.
 	fmt.Println("Starting Lerd...")
-
-	jobs := make([]BuildJob, len(units))
-	for i, u := range units {
-		unit := u
-		label := strings.TrimPrefix(unit, "lerd-")
-		jobs[i] = BuildJob{
-			Label: label,
-			Run: func(w io.Writer) error {
-				if unit == "lerd-dns" {
-					// Always restart lerd-dns to pick up the refreshed dnsmasq config
-					// and clear any stale cached DNS entries.
-					return podman.RestartUnitFn(unit)
-				}
-				return podman.StartUnitFn(unit)
-			},
-		}
+	fmt.Print("  --> dns ... ")
+	if err := podman.RestartUnitFn("lerd-dns"); err != nil {
+		fmt.Printf("WARN (%v)\n", err)
+	} else {
+		fmt.Println("OK")
 	}
-	RunParallel(jobs) //nolint:errcheck
 
-	// Sync the pasta DNS proxy (169.254.1.1) as the aardvark-dns upstream for the lerd
-	// network. This address chains through systemd-resolved, which resolves both .test
-	// domains (via lerd-dns) and internet domains. Using 169.254.1.1 instead of the
-	// host's real upstream avoids NXDOMAIN for .test while retaining internet access.
+	// Sync the pasta DNS proxy upstream for the lerd network.
 	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
 		fmt.Printf("  WARN: network DNS: %v\n", err)
 	}
 
 	// Wait for lerd-dns to be ready before configuring the resolver.
-	// systemctl start returns when the unit is active, but dnsmasq inside the
-	// container may not be listening yet. If we set resolvectl to use port 5300
-	// before it's up, systemd-resolved marks it failed and falls back to the
-	// upstream DNS server, breaking .test resolution until manually fixed.
 	fmt.Print("  --> lerd-dns ready check ... ")
 	if err := dns.WaitReady(10 * time.Second); err != nil {
 		fmt.Printf("WARN (%v)\n", err)
@@ -394,12 +370,37 @@ func runStart(_ *cobra.Command, _ []string) error {
 		fmt.Println("OK")
 	}
 
-	// Re-apply DNS routing so .test resolves via lerd-dns on every start.
-	// resolvectl settings are ephemeral and reset on reboot; the NM dispatcher
-	// script fires on interface "up" but that event precedes lerd-dns starting.
+	// Configure the OS resolver now — before RunParallel — so any sudo prompt
+	// runs with the terminal in normal (cooked) mode.
 	if err := dns.ConfigureResolver(); err != nil {
 		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
 	}
+
+	// Start all remaining services in parallel.
+	units = append(coreUnits(), installedServiceUnits()...)
+	units = append(units, "lerd-ui", "lerd-watcher")
+	units = append(units, registeredQueueUnits()...)
+	units = append(units, registeredStripeUnits()...)
+	units = append(units, registeredScheduleUnits()...)
+	units = append(units, registeredReverbUnits()...)
+	// Remove lerd-dns — already started above.
+	filtered := units[:0]
+	for _, u := range units {
+		if u != "lerd-dns" {
+			filtered = append(filtered, u)
+		}
+	}
+
+	jobs := make([]BuildJob, len(filtered))
+	for i, u := range filtered {
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		jobs[i] = BuildJob{
+			Label: label,
+			Run:   func(w io.Writer) error { return podman.StartUnitFn(unit) },
+		}
+	}
+	RunParallel(jobs) //nolint:errcheck
 
 	autoStopUnusedFPMs()
 

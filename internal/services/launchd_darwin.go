@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,16 @@ import (
 
 	"github.com/geodro/lerd/internal/podman"
 )
+
+// launchctlExitCode returns the numeric exit code from a launchctl error,
+// or -1 if err is nil or not an *exec.ExitError.
+func launchctlExitCode(err error) int {
+	var e *exec.ExitError
+	if errors.As(err, &e) {
+		return e.ExitCode()
+	}
+	return -1
+}
 
 // launchctl runs a launchctl command with a 15-second timeout so a throttled
 // or unresponsive service can never hang lerd indefinitely.
@@ -400,16 +411,23 @@ func (m *darwinServiceManager) Start(name string) error {
 	out, err := launchctl("bootstrap", domain, p)
 	if err != nil {
 		s := string(out)
+		bcode := launchctlExitCode(err)
 		// 36 = already bootstrapped; "Bootstrap failed: 5" = EBUSY / I-O error
 		// (macOS Ventura+ race after a rapid bootout+bootstrap) — both mean the
 		// job is already in the domain, kick it to (re)start with the current plist.
-		if strings.Contains(s, "36") || strings.Contains(s, "Bootstrap failed: 5") ||
+		// 113 = launchd can't find the service in its database yet (timing race on
+		// first-write); kickstart will also fail — treat as a successful write and
+		// let the caller's subsequent Restart() bring the service up.
+		if bcode == 113 || strings.Contains(s, "Could not find service") {
+			return nil
+		}
+		if bcode == 36 || strings.Contains(s, "Bootstrap failed: 5") ||
 			strings.Contains(s, "already bootstrapped") ||
 			strings.Contains(s, "service already loaded") {
 			if kout, kerr := launchctl("kickstart", "-k", domain+"/"+label); kerr != nil {
-				ks := string(kout)
+				kcode := launchctlExitCode(kerr)
 				// 37 = EALREADY — job is already running, treat as success.
-				if strings.Contains(ks, "37") || strings.Contains(ks, "already running") {
+				if kcode == 37 || strings.Contains(string(kout), "already running") {
 					return nil
 				}
 				return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, kerr, kout)
@@ -442,8 +460,9 @@ func (m *darwinServiceManager) Stop(name string) error {
 	out, err := launchctl("bootout", domain+"/"+label)
 	if err != nil {
 		s := string(out)
+		code := launchctlExitCode(err)
 		// 36 = not loaded / already gone — treat as success
-		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
+		if code == 36 || code == 113 || strings.Contains(s, "No such process") ||
 			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
 			return nil
 		}
@@ -460,13 +479,14 @@ func (m *darwinServiceManager) Restart(name string) error {
 	out, err := launchctl("kickstart", "-k", domain+"/"+label)
 	if err != nil {
 		s := string(out)
+		code := launchctlExitCode(err)
 		// Not loaded yet — fall back to a full bootstrap
-		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
+		if code == 36 || code == 113 || strings.Contains(s, "No such process") ||
 			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
 			return m.Start(name)
 		}
 		// 37 = EALREADY — job is already running, treat as success.
-		if strings.Contains(s, "37") || strings.Contains(s, "already running") {
+		if code == 37 || strings.Contains(s, "already running") {
 			return nil
 		}
 		return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, err, out)

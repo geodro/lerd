@@ -10,20 +10,23 @@ import (
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 )
 
-// installAutostart enables the lerd-autostart launchd service on macOS so that
-// lerd starts automatically on every login. On macOS this is on by default
-// (matching Herd's behaviour); on Linux it is opt-in via `lerd autostart enable`.
+// installAutostart enables the lerd-autostart and lerd-tray launchd services on
+// macOS so that lerd and its tray applet start automatically on every login.
+// On macOS this is on by default (matching Herd's behaviour); on Linux it is
+// opt-in via `lerd autostart enable`.
 func installAutostart() {
-	content, err := lerdSystemd.GetUnit("lerd-autostart")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "  WARN: autostart unit: %v\n", err)
-		return
-	}
-	if err := services.Mgr.WriteServiceUnit("lerd-autostart", content); err != nil {
-		fmt.Fprintf(os.Stderr, "  WARN: writing autostart service: %v\n", err)
-		return
-	}
-	if err := services.Mgr.Enable("lerd-autostart"); err != nil {
-		fmt.Fprintf(os.Stderr, "  WARN: enabling autostart: %v\n", err)
+	for _, unit := range []string{"lerd-autostart", "lerd-tray"} {
+		content, err := lerdSystemd.GetUnit(unit)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  WARN: %s unit: %v\n", unit, err)
+			continue
+		}
+		if err := services.Mgr.WriteServiceUnit(unit, content); err != nil {
+			fmt.Fprintf(os.Stderr, "  WARN: writing %s service: %v\n", unit, err)
+			continue
+		}
+		if err := services.Mgr.Enable(unit); err != nil {
+			fmt.Fprintf(os.Stderr, "  WARN: enabling %s: %v\n", unit, err)
+		}
 	}
 }
