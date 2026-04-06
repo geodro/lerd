@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,6 +74,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		return err
 	}
 	ok()
+
+	// Ask before RunParallel steals stdin.
+	wantLaravelInstaller := confirmInstallPrompt("Install Laravel installer (laravel new)?")
 
 	// 4. mkcert CA — interactive (may prompt for sudo)
 	fmt.Println("  --> Installing mkcert CA")
@@ -321,6 +325,15 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	startRestoredServices()
 	restoreSiteInfrastructure()
 
+	if wantLaravelInstaller {
+		fmt.Print("  --> Installing Laravel installer ... ")
+		if err := installLaravelInstaller(); err != nil {
+			fmt.Printf("WARN: %v\n", err)
+		} else {
+			ok()
+		}
+	}
+
 	// Restart tray if running.
 	if lerdSystemd.IsServiceEnabled("lerd-tray") {
 		_ = lerdSystemd.RestartService("lerd-tray")
@@ -429,6 +442,26 @@ func downloadBinaries(w io.Writer) error {
 	return nil
 }
 
+// installLaravelInstaller runs composer global require laravel/installer using
+// the composer shim so the `laravel` CLI is available for scaffolding new apps.
+func installLaravelInstaller() error {
+	composerBin := filepath.Join(config.BinDir(), "composer")
+	cmd := exec.Command(composerBin, "global", "require", "laravel/installer")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// confirmInstallPrompt asks a [Y/n] question. Must be called before any
+// RunParallel invocation, which leaves a goroutine reading from os.Stdin.
+func confirmInstallPrompt(question string) bool {
+	fmt.Printf("  --> %s [Y/n] ", question)
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer != "n" && answer != "no"
+}
+
 // downloadFile downloads a URL to a local file, printing a progress bar to w.
 func downloadFile(url, dest string, mode os.FileMode, w io.Writer) error {
 	fmt.Fprintf(w, "\n      Downloading %s\n      ", url)
@@ -499,6 +532,20 @@ func addShellShims() error {
 	composerShim := fmt.Sprintf("#!/bin/sh\nexec %s php %s/.local/share/lerd/bin/composer.phar \"$@\"\n", lerdBin, home)
 	if err := os.WriteFile(filepath.Join(binDir, "composer"), []byte(composerShim), 0755); err != nil {
 		return fmt.Errorf("writing composer shim: %w", err)
+	}
+
+	// Write laravel shim (laravel/installer global package)
+	composerHome := os.Getenv("COMPOSER_HOME")
+	if composerHome == "" {
+		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfig == "" {
+			xdgConfig = filepath.Join(home, ".config")
+		}
+		composerHome = filepath.Join(xdgConfig, "composer")
+	}
+	laravelShim := fmt.Sprintf("#!/bin/sh\nexec %s php %s/vendor/bin/laravel \"$@\"\n", lerdBin, composerHome)
+	if err := os.WriteFile(filepath.Join(binDir, "laravel"), []byte(laravelShim), 0755); err != nil {
+		return fmt.Errorf("writing laravel shim: %w", err)
 	}
 
 	// Write node/npm/npx shims — use fnm directly so they work inside containers
