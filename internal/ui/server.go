@@ -241,6 +241,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
+func mustJSON(v any) string {
+	b, _ := json.Marshal(v) //nolint:errcheck
+	return string(b)
+}
+
 // StatusResponse is the response for GET /api/status.
 type StatusResponse struct {
 	DNS            DNSStatus    `json:"dns"`
@@ -2107,6 +2112,7 @@ func handleBrowse(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSiteLink links a directory as a site via POST /api/sites/link.
+// It streams command output as SSE events and sends a final "done" event.
 func handleSiteLink(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -2126,34 +2132,82 @@ func handleSiteLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run lerd link in the target directory.
 	self, err := os.Executable()
 	if err != nil {
 		writeJSON(w, SiteActionResponse{Error: "resolving executable: " + err.Error()})
 		return
 	}
-	cmd := exec.Command(self, "link")
-	cmd.Dir = path
-	var out strings.Builder
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		writeJSON(w, SiteActionResponse{Error: "link failed: " + out.String()})
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
-	// Run env setup (non-fatal — may not be a Laravel project).
-	envCmd := exec.Command(self, "env")
-	envCmd.Dir = path
-	_ = envCmd.Run()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// streamCmd runs a command and streams its output as SSE data events.
+	// Returns the combined output and whether the command failed.
+	streamCmd := func(name string, args ...string) (string, bool) {
+		cmd := exec.CommandContext(r.Context(), name, args...)
+		cmd.Dir = path
+
+		pr, pw := io.Pipe()
+		cmd.Stdout = pw
+		cmd.Stderr = pw
+
+		if startErr := cmd.Start(); startErr != nil {
+			msg := startErr.Error()
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			flusher.Flush()
+			return msg, true
+		}
+
+		go func() {
+			cmd.Wait() //nolint:errcheck
+			pw.Close()
+		}()
+
+		var out strings.Builder
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			out.WriteString(line)
+			out.WriteByte('\n')
+			escaped := strings.ReplaceAll(line, "\\", "\\\\")
+			fmt.Fprintf(w, "data: %s\n\n", escaped)
+			flusher.Flush()
+		}
+		return out.String(), cmd.ProcessState != nil && cmd.ProcessState.ExitCode() != 0
+	}
+
+	// Run lerd link.
+	fmt.Fprintf(w, "data: → Linking site...\n\n")
+	flusher.Flush()
+	out, failed := streamCmd(self, "link")
+	if failed {
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(map[string]any{"ok": false, "error": "link failed: " + out}))
+		flusher.Flush()
+		return
+	}
+
+	// Run env setup (non-fatal).
+	fmt.Fprintf(w, "data: → Setting up environment...\n\n")
+	flusher.Flush()
+	streamCmd(self, "env") //nolint:errcheck
 
 	// Find the newly linked site to return its domain.
 	site, err := config.FindSiteByPath(path)
 	if err != nil {
-		writeJSON(w, SiteActionResponse{OK: true})
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(map[string]any{"ok": true}))
+		flusher.Flush()
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "domain": site.PrimaryDomain()})
+	fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(map[string]any{"ok": true, "domain": site.PrimaryDomain()}))
+	flusher.Flush()
 }
 
 // syncLerdYAMLWorkersDelayed waits briefly for the worker unit to start, then syncs.
