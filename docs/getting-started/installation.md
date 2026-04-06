@@ -126,6 +126,7 @@ Podman Machine, DNS, and nginx on first run.
 
 ```bash
 brew upgrade lerd
+lerd install
 ```
 
 **Uninstall:**

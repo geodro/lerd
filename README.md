@@ -82,6 +82,13 @@ brew install geodro/lerd/lerd
 lerd install
 ```
 
+Or if already installed:
+
+```bash
+brew upgrade lerd
+lerd install
+```
+
 > [!NOTE]
 > See the [beta installation docs](https://geodro.github.io/lerd/getting-started/installation/#beta-macos-preview) for details.
 
