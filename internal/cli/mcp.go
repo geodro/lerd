@@ -695,7 +695,7 @@ runtime_versions()   // see PHP and Node.js versions available
 ` + "```" + `
 composer(args: ["create-project", "laravel/laravel", "."])
 site_link()           // registers the cwd as a lerd site
-env_setup()           // configures .env, starts services, creates DB, generates APP_KEY
+env_setup()           // configures .env, starts services, creates DB, generates APP_KEY (even before composer install)
 artisan(args: ["migrate"])
 ` + "```" + `
 
@@ -859,7 +859,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 
 ### Architecture
 
-- PHP runs in Podman containers named ` + bt + `lerd-php<version>-fpm` + bt + ` (e.g. ` + bt + `lerd-php84-fpm` + bt + `); each container includes composer and node/npm
+- PHP runs in Podman containers named ` + bt + `lerd-php<version>-fpm` + bt + ` (e.g. ` + bt + `lerd-php84-fpm` + bt + `); each container includes composer and node/npm; the PHP version is resolved from ` + bt + `.lerd.yaml` + bt + ` → ` + bt + `.php-version` + bt + ` → ` + bt + `composer.json` + bt + ` ` + bt + `require.php` + bt + ` constraint (matched against installed versions) → global default
 - Nginx routes ` + bt + `*.test` + bt + ` domains to the correct PHP-FPM container
 - Services (MySQL, Redis, PostgreSQL, etc.) and custom services run as Podman containers via systemd quadlets
 - Node.js versions are managed by fnm; per-project version is set via a ` + bt + `.node-version` + bt + ` file

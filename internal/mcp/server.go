@@ -455,7 +455,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_setup",
-			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY, and sets APP_URL. Run this once after cloning a project.",
+			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{

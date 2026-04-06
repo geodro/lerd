@@ -17,7 +17,7 @@ lerd env
 4. **Creates the project database** (and a `<name>_testing` database) inside the running service container; reports if they already exist
 5. **Starts any referenced service** that is not already running
 6. **Sets the app URL** (`APP_URL` for Laravel; the `url_key` defined in the framework for others) to the project's registered `.test` domain
-7. **Generates `APP_KEY`** via `php artisan key:generate` if the key is missing or empty (Laravel only)
+7. **Generates `APP_KEY`** if the key is missing or empty (Laravel only). Uses `php artisan key:generate` when `vendor/` is installed; on a fresh project before `composer install`, writes a random base64 key directly so post-install scripts can boot without a `MissingAppKeyException`
 8. **Generates `REVERB_*` values** — if `BROADCAST_CONNECTION=reverb` is detected, generates `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` using random secure values for secrets. Also assigns a unique `REVERB_SERVER_PORT` so multiple Reverb-enabled sites can run simultaneously without port collisions (starts at `8080`, increments per site). `REVERB_HOST`, `REVERB_PORT`, and `REVERB_SCHEME` are set to `localhost`, the assigned server port, and `http` respectively — the queue worker runs inside the PHP-FPM container alongside Reverb and connects directly. `VITE_REVERB_HOST`, `VITE_REVERB_PORT`, and `VITE_REVERB_SCHEME` are set to the site's domain and external port so the browser connects through the nginx WebSocket proxy
 
 ---

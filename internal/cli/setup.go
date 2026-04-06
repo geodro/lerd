@@ -114,10 +114,7 @@ func runSetup(allSteps, skipOpen bool) error {
 			label:   "composer install",
 			enabled: os.IsNotExist(vendorMissing),
 			run: func() error {
-				cmd := exec.Command("composer", "install")
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				return cmd.Run()
+				return composerInContainer(cwd, "install")
 			},
 		},
 		{
@@ -462,6 +459,34 @@ func siteHasStripeSecret(cwd string) bool {
 }
 
 // execInContainer runs an arbitrary command string inside the site's PHP-FPM container.
+// composerInContainer runs composer inside the project's PHP-FPM container,
+// ensuring the correct PHP version is used for dependency resolution.
+func composerInContainer(dir string, args ...string) error {
+	version, err := phpDet.DetectVersion(dir)
+	if err != nil {
+		cfg, _ := config.LoadGlobal()
+		version = cfg.PHP.DefaultVersion
+	}
+	short := strings.ReplaceAll(version, ".", "")
+	container := "lerd-php" + short + "-fpm"
+
+	home := os.Getenv("HOME")
+	composerPhar := filepath.Join(config.BinDir(), "composer.phar")
+
+	cmdArgs := []string{"exec", "-i", "-w", dir,
+		"--env", "HOME=" + home,
+		"--env", "COMPOSER_HOME=" + filepath.Join(home, ".config", "composer"),
+		container, "php", composerPhar,
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.Command("podman", cmdArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func execInContainer(dir, command string) error {
 	version, err := phpDet.DetectVersion(dir)
 	if err != nil {
