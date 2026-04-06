@@ -26,7 +26,7 @@ make test
 ### Vet
 
 ```bash
-CGO_ENABLED=1 go vet -tags legacy_appindicator ./...
+CGO_ENABLED=1 go vet ./...
 ```
 
 ## CI checks

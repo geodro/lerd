@@ -17,7 +17,7 @@ build:
 	CGO_ENABLED=0 go build -tags nogui -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/lerd
 
 build-tray:
-	CGO_ENABLED=1 go build -tags legacy_appindicator -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/lerd-tray ./cmd/lerd-tray
+	CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/lerd-tray ./cmd/lerd-tray
 
 install: build build-tray
 	install -Dm755 $(BUILD_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)

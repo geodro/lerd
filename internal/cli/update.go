@@ -86,11 +86,11 @@ func runUpdate(currentVersion string, beta bool) error {
 	}
 
 	// Ask for confirmation.
-	fmt.Printf("\nUpdate to v%s? [y/N] ", lat)
+	fmt.Printf("\nUpdate to v%s? [Y/n] ", lat)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer != "y" && answer != "yes" {
+	if answer == "n" || answer == "no" {
 		fmt.Println("Update cancelled.")
 		return nil
 	}

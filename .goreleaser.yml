@@ -41,7 +41,7 @@ builds:
       - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
       - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
 
-  # lerd-tray is a separate CGO binary that links libappindicator3.
+  # lerd-tray is a separate CGO binary that links libayatana-appindicator.
   # lerd (nogui) execs it at runtime; if the library is missing the tray
   # is silently skipped and everything else continues to work.
   - id: lerd-tray-amd64
@@ -49,8 +49,6 @@ builds:
     binary: lerd-tray
     env:
       - CGO_ENABLED=1
-    flags:
-      - -tags=legacy_appindicator
     goos:
       - linux
     goarch:
