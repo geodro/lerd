@@ -471,7 +471,7 @@ func startRestoredServices() {
 		label := strings.TrimPrefix(unit, "lerd-")
 		startJobs = append(startJobs, BuildJob{
 			Label: label,
-			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+			Run:   func(_ io.Writer) error { return services.Mgr.Start(unit) },
 		})
 	}
 	RunParallel(startJobs) //nolint:errcheck
