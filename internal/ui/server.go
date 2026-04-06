@@ -1328,6 +1328,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			scheme = "https"
 		}
 		go cli.StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
+		go syncLerdYAMLWorkersDelayed(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "stripe:stop":
@@ -1335,6 +1336,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
+		syncLerdYAMLWorkers(site)
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "schedule:start":
