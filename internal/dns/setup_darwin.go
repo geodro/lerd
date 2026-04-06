@@ -39,7 +39,7 @@ func ConfigureResolver() error {
 	}
 
 	fmt.Println("  [sudo required] Configuring /etc/resolver for ." + tld + " DNS resolution")
-	return sudoWriteFile(resolverFile, content)
+	return sudoWriteFile(resolverFile, content, 0644)
 }
 
 // Teardown removes the /etc/resolver/<tld> file written by ConfigureResolver.
