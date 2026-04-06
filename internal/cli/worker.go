@@ -45,7 +45,11 @@ func newWorkerStartCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("framework %q has no worker named %q\nRun 'lerd worker list' to see available workers", fw.Label, workerName)
 			}
-			return WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker)
+			if err := WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker); err != nil {
+				return err
+			}
+			SyncLerdYAMLWorkers(site)
+			return nil
 		},
 	}
 }
@@ -68,7 +72,11 @@ func newWorkerStopCmd() *cobra.Command {
 			if _, ok := fw.Workers[workerName]; !ok {
 				return fmt.Errorf("framework %q has no worker named %q\nRun 'lerd worker list' to see available workers", fw.Label, workerName)
 			}
-			return WorkerStopForSite(site.Name, workerName)
+			if err := WorkerStopForSite(site.Name, workerName); err != nil {
+				return err
+			}
+			SyncLerdYAMLWorkers(site)
+			return nil
 		},
 	}
 }

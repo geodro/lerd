@@ -214,7 +214,12 @@ func startServicesForSiteNoticed(sitePath, siteName string) {
 }
 
 // SyncLerdYAMLWorkers updates the workers list in .lerd.yaml if the file exists.
+// Skips paused sites so that stopping workers during pause does not erase the
+// saved worker list (which is needed to restore them on unpause).
 func SyncLerdYAMLWorkers(site *config.Site) {
+	if site.Paused {
+		return
+	}
 	lerdYAML := filepath.Join(site.Path, ".lerd.yaml")
 	if _, err := os.Stat(lerdYAML); err != nil {
 		return
@@ -225,16 +230,9 @@ func SyncLerdYAMLWorkers(site *config.Site) {
 }
 
 // CollectRunningWorkerNames returns the names of active workers for the site,
-// excluding stripe (which is not a framework worker). Used to sync .lerd.yaml.
+// including stripe. Used to sync .lerd.yaml.
 func CollectRunningWorkerNames(site *config.Site) []string {
-	all := collectRunningWorkers(site)
-	var workers []string
-	for _, w := range all {
-		if w != "stripe" {
-			workers = append(workers, w)
-		}
-	}
-	return workers
+	return collectRunningWorkers(site)
 }
 
 // collectRunningWorkers returns the names of all active or restarting workers

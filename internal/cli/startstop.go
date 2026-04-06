@@ -304,6 +304,10 @@ func checkPortConflicts(units []string) {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
+	// Restore quadlets and worker units that may be missing after an
+	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
+	restoreSiteInfrastructure()
+
 	// Pre-flight port conflict check.
 	units := append(coreUnits(), installedServiceUnits()...)
 	checkPortConflicts(units)
@@ -429,6 +433,93 @@ func killTray() {
 
 // registeredStripeUnits returns unit names for all lerd-stripe-* service files
 // present in the systemd user dir (i.e. started via `lerd stripe:listen`).
+// restoreSiteInfrastructure ensures FPM quadlets, service quadlets, and worker
+// units exist for all registered (non-paused) sites. This repairs state after
+// an uninstall/reinstall cycle where unit files were deleted but site configs
+// (sites.yaml, .lerd.yaml) were preserved.
+func restoreSiteInfrastructure() {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return
+	}
+
+	seenPHP := map[string]bool{}
+	seenSvc := map[string]bool{}
+
+	for _, s := range reg.Sites {
+		if s.Paused || s.Ignored {
+			continue
+		}
+
+		// Restore FPM quadlet for this site's PHP version.
+		if s.PHPVersion != "" && !seenPHP[s.PHPVersion] {
+			seenPHP[s.PHPVersion] = true
+			ensureFPMQuadlet(s.PHPVersion) //nolint:errcheck
+		}
+
+		// Read .lerd.yaml for service and worker info.
+		proj, _ := config.LoadProjectConfig(s.Path)
+		if proj == nil {
+			continue
+		}
+
+		// Restore service quadlets.
+		for _, svc := range proj.Services {
+			if seenSvc[svc.Name] {
+				continue
+			}
+			seenSvc[svc.Name] = true
+			if svc.Custom != nil {
+				ensureCustomServiceQuadlet(svc.Custom) //nolint:errcheck
+			} else {
+				ensureServiceQuadlet(svc.Name) //nolint:errcheck
+			}
+		}
+
+		// Restore worker units from saved worker names.
+		for _, w := range proj.Workers {
+			unitName := "lerd-" + w + "-" + s.Name
+			unitPath := filepath.Join(config.SystemdUserDir(), unitName+".service")
+			if _, statErr := os.Stat(unitPath); statErr == nil {
+				continue // unit file already exists
+			}
+			// Recreate the worker unit by starting it (which writes the unit file).
+			phpVersion := s.PHPVersion
+			if phpVersion == "" {
+				cfg, _ := config.LoadGlobal()
+				phpVersion = cfg.PHP.DefaultVersion
+			}
+			switch w {
+			case "queue":
+				QueueStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
+			case "schedule":
+				ScheduleStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
+			case "reverb":
+				ReverbStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
+			case "horizon":
+				HorizonStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
+			case "stripe":
+				base := siteURL(s.Path)
+				if base != "" {
+					StripeStartForSite(s.Name, s.Path, base) //nolint:errcheck
+				}
+			default:
+				// Custom framework worker — look up definition.
+				fwName := s.Framework
+				if fwName == "" {
+					fwName, _ = config.DetectFramework(s.Path)
+				}
+				if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
+					if wDef, ok := fw.Workers[w]; ok {
+						WorkerStartForSite(s.Name, s.Path, phpVersion, w, wDef) //nolint:errcheck
+					}
+				}
+			}
+		}
+	}
+	podman.DaemonReload() //nolint:errcheck
+}
+
 func registeredStripeUnits() []string {
 	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-stripe-*.service"))
 	units := make([]string, 0, len(entries))

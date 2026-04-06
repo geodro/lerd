@@ -184,6 +184,50 @@ func TestWriteDnsmasqConfig_noUpstreams(t *testing.T) {
 	}
 }
 
+// --- lerdDNSInterfaces parsing ---
+
+func TestLerdDNSInterfaces_multipleLinks(t *testing.T) {
+	// Simulate resolvectl status output with lerd DNS on some interfaces.
+	output := `Global
+           Protocols: +LLMNR +mDNS
+    resolv.conf mode: foreign
+
+Link 2 (enp14s0)
+    Current Scopes: DNS
+Current DNS Server: 192.168.0.151
+       DNS Servers: 192.168.0.151
+
+Link 3 (wlan0)
+    Current Scopes: none
+
+Link 4 (virbr0)
+    Current Scopes: DNS
+Current DNS Server: 127.0.0.1:5300
+       DNS Servers: 127.0.0.1:5300
+        DNS Domain: ~test ~.
+
+Link 6 (vnet1)
+    Current Scopes: DNS
+Current DNS Server: 127.0.0.1:5300
+       DNS Servers: 127.0.0.1:5300
+        DNS Domain: ~test ~.
+`
+	ifaces := parseLerdDNSInterfaces(output)
+	want := []string{"virbr0", "vnet1"}
+	assertSliceEqual(t, ifaces, want)
+}
+
+func TestLerdDNSInterfaces_none(t *testing.T) {
+	output := `Link 2 (enp14s0)
+Current DNS Server: 192.168.0.151
+       DNS Servers: 192.168.0.151
+`
+	ifaces := parseLerdDNSInterfaces(output)
+	if len(ifaces) != 0 {
+		t.Errorf("expected empty, got %v", ifaces)
+	}
+}
+
 // --- ResolverHint ---
 
 func TestResolverHint_NetworkManager(t *testing.T) {

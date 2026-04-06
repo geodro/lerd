@@ -55,7 +55,13 @@ func newStripeListenCmd() *cobra.Command {
 				return err
 			}
 
-			return stripeStartExplicit(siteName, apiKey, base+webhookPath)
+			if err := stripeStartExplicit(siteName, apiKey, base+webhookPath); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "Stripe API key (defaults to $STRIPE_SECRET)")
@@ -77,7 +83,13 @@ func newStripeListenStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return StripeStopForSite(siteName)
+			if err := StripeStopForSite(siteName); err != nil {
+				return err
+			}
+			if site, err := config.FindSite(siteName); err == nil {
+				SyncLerdYAMLWorkers(site)
+			}
+			return nil
 		},
 	}
 }

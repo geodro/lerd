@@ -89,6 +89,17 @@ lerd queue:start --queue=emails,default --tries=5 --timeout=120
 
 ---
 
+## Worker state in `.lerd.yaml`
+
+Every start/stop command (`queue:start`, `queue:stop`, `horizon:start`, `schedule:start`, `reverb:start`, `stripe:listen`, `worker start`, etc.) automatically updates the `workers` list in `.lerd.yaml` when the file exists. This means:
+
+- Cloning a project and running `lerd link` or `lerd setup` restores all workers.
+- After an uninstall/reinstall cycle, `lerd start` reads `.lerd.yaml` and recreates missing worker units automatically — no need to re-run each start command manually.
+
+The `workers` field is maintained automatically. You do not need to edit it by hand.
+
+---
+
 ## Auto-restart on config changes
 
 The lerd watcher daemon monitors `.env`, `composer.json`, `composer.lock`, and `.php-version` for every registered site. When any of those files change it:

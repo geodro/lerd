@@ -158,6 +158,15 @@ ss -tlnp sport = :80    # show what's listening on port 80
 `lerd doctor` also checks for port conflicts as part of its full diagnostic.
 :::
 
+::: details Workers missing after reinstall
+If you ran `lerd uninstall` and then reinstalled, worker units and service quadlets are deleted during uninstall. Running `lerd start` after reinstalling automatically restores them from the `workers` list saved in each site's `.lerd.yaml`. If `.lerd.yaml` does not exist or was not committed, you will need to start workers again manually (`lerd queue:start`, etc.).
+
+To check what was restored:
+```bash
+lerd status   # shows all active workers and services
+```
+:::
+
 ::: details Workers failing or crash-looping
 Check `lerd status` — the Workers section lists all active, restarting, or failed workers. In the web UI, failing workers show a pulsing red toggle and a **!** on their log tab.
 

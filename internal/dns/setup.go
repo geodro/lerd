@@ -120,6 +120,42 @@ func ResolverHint() string {
 	return "restart your DNS resolver"
 }
 
+// lerdDNSInterfaces returns all network interfaces that currently have
+// 127.0.0.1:5300 configured as a DNS server (set by the lerd dispatcher).
+func lerdDNSInterfaces() []string {
+	out, err := exec.Command("resolvectl", "status").Output()
+	if err != nil {
+		// Fallback to just the default interface.
+		if iface := defaultInterface(); iface != "" {
+			return []string{iface}
+		}
+		return nil
+	}
+	return parseLerdDNSInterfaces(string(out))
+}
+
+// parseLerdDNSInterfaces extracts interface names from resolvectl status output
+// that have 127.0.0.1:5300 configured as a DNS server.
+func parseLerdDNSInterfaces(output string) []string {
+	var ifaces []string
+	var currentIface string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Link ") {
+			if start := strings.Index(line, "("); start >= 0 {
+				if end := strings.Index(line, ")"); end > start {
+					currentIface = line[start+1 : end]
+				}
+			}
+		}
+		if currentIface != "" && strings.Contains(line, "127.0.0.1:5300") {
+			ifaces = append(ifaces, currentIface)
+			currentIface = ""
+		}
+	}
+	return ifaces
+}
+
 // defaultInterface returns the name of the default network interface (e.g. "enp1s0").
 func defaultInterface() string {
 	out, err := exec.Command("ip", "route", "show", "default").Output()
@@ -460,8 +496,11 @@ func Teardown() {
 		}
 	}
 
-	// Revert per-interface resolvectl settings so NM re-applies its own DNS.
-	if iface := defaultInterface(); iface != "" {
+	// Revert ALL interfaces that have lerd DNS (127.0.0.1:5300) configured.
+	// The dispatcher script applies DNS to every interface on "up", not just
+	// the default one, so reverting only the default leaves virtual bridges
+	// (virbr0, vnet*) pointing at the dead dnsmasq port.
+	for _, iface := range lerdDNSInterfaces() {
 		revertCmd := exec.Command("sudo", "resolvectl", "revert", iface)
 		revertCmd.Stdin = os.Stdin
 		revertCmd.Stdout = os.Stdout
@@ -469,9 +508,29 @@ func Teardown() {
 		revertCmd.Run() //nolint:errcheck
 	}
 
-	// Restart the resolver to apply the removal.
+	// Restart the resolver to apply the removal and re-establish upstream DNS.
 	if isNetworkManagerActive() {
-		exec.Command("sudo", "systemctl", "restart", "NetworkManager").Run() //nolint:errcheck
+		fmt.Println("  Restarting NetworkManager (may take a moment)...")
+		cmd := exec.Command("sudo", "systemctl", "restart", "NetworkManager")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run() //nolint:errcheck
+
+		// NM restart doesn't always re-push DHCP DNS to resolved after a
+		// resolvectl revert. Explicitly apply the DHCP-assigned servers so
+		// internet DNS works immediately after uninstall.
+		if iface := defaultInterface(); iface != "" {
+			upstreams := nmcliDNSFunc()
+			if len(upstreams) > 0 {
+				args := append([]string{"sudo", "resolvectl", "dns", iface}, upstreams...)
+				pushCmd := exec.Command(args[0], args[1:]...)
+				pushCmd.Stdin = os.Stdin
+				pushCmd.Stdout = os.Stdout
+				pushCmd.Stderr = os.Stderr
+				pushCmd.Run() //nolint:errcheck
+			}
+		}
 	} else if isSystemdResolvedActive() {
 		exec.Command("sudo", "systemctl", "restart", "systemd-resolved").Run() //nolint:errcheck
 	}

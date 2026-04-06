@@ -7,6 +7,46 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.0] — 2026-04-06
+
+### Added
+
+- **Framework setup commands** — framework definitions now support a `setup` field with one-off bootstrap commands (migrations, storage links, fixtures) shown in `lerd setup`. Laravel's hardcoded storage:link/migrate/db:seed steps are now part of the built-in framework definition. Custom frameworks define their own via YAML.
+- **Conditional checks on workers and setup commands** — both `workers` and `setup` entries support an optional `check` field (`file` or `composer`) to conditionally show them based on project dependencies (e.g. messenger worker only shown when `symfony/messenger` is installed).
+- **Service version placeholders** — framework env vars support <code v-pre>{{mysql_version}}</code>, <code v-pre>{{postgres_version}}</code>, <code v-pre>{{redis_version}}</code>, and <code v-pre>{{meilisearch_version}}</code> placeholders, resolved from the running service image tag at `lerd env` time.
+- **`--setup` flag for `lerd framework add`** — define setup commands via CLI flags in addition to YAML.
+- **Link modal streaming logs** — the web UI link modal now streams `lerd link` and `lerd env` output line-by-line instead of showing only a spinner.
+- **Domain modal success feedback** — add/edit/remove domain operations in the web UI now show a flash message on success.
+- **omarchy OS support** — systems with systemd-resolved but no NetworkManager can now install and run lerd. The installer accepts either resolver.
+- **Reverb prerequisite check** — `lerd reverb:start` and `lerd reverb:stop` now check for `laravel/reverb` in composer.json before proceeding, with install instructions and a link to the Laravel Broadcasting docs.
+
+### Changed
+
+- **Worker state synced to `.lerd.yaml`** — all worker start/stop commands (`queue`, `schedule`, `reverb`, `horizon`, `stripe:listen`, `worker start/stop`) now persist the active workers list in `.lerd.yaml` when the file exists. Previously `worker start/stop` and `stripe:listen` did not update the file.
+- **`lerd start` restores site infrastructure** — after an uninstall/reinstall cycle, `lerd start` reads `.lerd.yaml` from each active site and recreates missing FPM quadlets, service quadlets, and worker units automatically.
+- **`lerd install` restores FPM quadlets** — reinstalling now restores PHP-FPM quadlets for all PHP versions used by registered sites, not just the default version.
+- **Improved `lerd uninstall`** — stops all `lerd-*` systemd units (workers, stripe listeners, etc.) instead of only the hardcoded watcher and UI services. DNS teardown and the data-removal prompt now run before the step runner to avoid stdin conflicts.
+
+### Fixed
+
+- **DNS teardown leaves stale DNS on virtual interfaces** — `lerd uninstall` now reverts all network interfaces that have lerd DNS configured (e.g. `virbr0`, `vnet*`), not just the default interface.
+- **Internet DNS broken after uninstall** — after reverting interfaces and restarting NetworkManager, lerd now explicitly pushes the DHCP-assigned upstream DNS servers so name resolution works immediately.
+- **Domain modal stale state** — the web UI domain modal now properly updates the domain list after add/edit/remove operations. The site list merge was matching by domain (which changes) instead of name (stable).
+- **`lerd env` runs automatically in setup** — `lerd env` now runs at the start of `lerd setup` instead of being a selectable step, ensuring `.env` is configured before `composer install` triggers post-install scripts.
+- **Definition conflict resolution** — when `.lerd.yaml` and the local framework/service definition differ, lerd now offers a three-way choice: use .lerd.yaml version, use local definition, or skip. Both sync directions persist immediately.
+- **Improved horizon/reverb error messages** — error messages now include install commands and docs links instead of generic text.
+- **Dynamic DNS resolver hints** — `lerd doctor` and `lerd status` now show the correct restart command based on the active resolver instead of always suggesting "restart NetworkManager".
+
+### Docs
+
+- Added contributing section to nav bar, stripe page to usage sidebar, troubleshooting to reference sidebar
+- Fixed `{{site}}` placeholders being swallowed by VitePress (Vue template interpolation)
+- Replaced non-rendering mermaid chart with ASCII diagram on architecture page
+- Added reverb prerequisite note to commands reference
+- Updated requirements, architecture, and troubleshooting for systemd-resolved support
+
+---
+
 ## [1.5.1] — 2026-04-04
 
 ### Fixed

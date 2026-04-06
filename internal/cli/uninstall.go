@@ -40,23 +40,32 @@ func runUninstall(force bool) error {
 		}
 	}
 
+	// Ask about data removal up front — the StepRunner puts stdin into raw
+	// mode and its reader goroutine would consume bytes meant for this prompt.
+	removeData := force || confirmRemoveData()
+
+	// DNS teardown runs outside the step runner because it may prompt for sudo.
+	fmt.Println("  --> Removing DNS configuration")
+	dns.Teardown()
+
 	r := NewStepRunner()
 
 	quadletDir := config.QuadletDir()
 
-	r.Run("Removing DNS configuration", func(_ io.Writer) error { //nolint:errcheck
-		dns.Teardown()
-		return nil
-	})
-
 	r.Run("Stopping containers and services", func(_ io.Writer) error { //nolint:errcheck
 		var units []string
+		// Quadlet containers (nginx, dns, mysql, redis, etc.)
 		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
 			for _, f := range entries {
 				units = append(units, strings.TrimSuffix(filepath.Base(f), ".container"))
 			}
 		}
-		units = append(units, "lerd-watcher", "lerd-ui")
+		// Systemd user services (workers, watcher, ui, autostart, stripe, etc.)
+		if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
+			for _, f := range entries {
+				units = append(units, strings.TrimSuffix(filepath.Base(f), ".service"))
+			}
+		}
 		for _, unit := range units {
 			status, _ := podman.UnitStatus(unit)
 			if status == "active" {
@@ -67,18 +76,16 @@ func runUninstall(force bool) error {
 		return nil
 	})
 
-	r.Run("Removing quadlet units", func(_ io.Writer) error { //nolint:errcheck
+	r.Run("Removing quadlet units and services", func(_ io.Writer) error { //nolint:errcheck
 		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
 			for _, f := range entries {
 				os.Remove(f) //nolint:errcheck
 			}
 		}
-		return nil
-	})
-
-	r.Run("Removing systemd user services", func(_ io.Writer) error { //nolint:errcheck
-		for _, svc := range []string{"lerd-watcher.service", "lerd-ui.service"} {
-			os.Remove(filepath.Join(config.SystemdUserDir(), svc)) //nolint:errcheck
+		if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
+			for _, f := range entries {
+				os.Remove(f) //nolint:errcheck
+			}
 		}
 		return nil
 	})
@@ -108,7 +115,7 @@ func runUninstall(force bool) error {
 	r.Close()
 
 	fmt.Println()
-	if force || confirmRemoveData() {
+	if removeData {
 		fmt.Print("  --> Removing config and data directories ... ")
 		os.RemoveAll(config.ConfigDir())
 		os.RemoveAll(config.DataDir())

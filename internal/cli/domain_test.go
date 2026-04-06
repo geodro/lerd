@@ -142,6 +142,23 @@ func TestSyncLerdYAMLWorkers_writes_empty(t *testing.T) {
 	}
 }
 
+func TestSyncLerdYAMLWorkers_skips_paused(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("php_version: \"8.4\"\nworkers:\n  - queue\n  - schedule\n"), 0644)
+
+	site := &config.Site{Name: "myapp", Path: dir, Paused: true}
+	SyncLerdYAMLWorkers(site)
+
+	proj, err := config.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Workers should be preserved since the site is paused
+	if len(proj.Workers) != 2 {
+		t.Errorf("expected 2 workers preserved, got %v", proj.Workers)
+	}
+}
+
 // ── ProjectConfig Workers field ─────────────────────────────────────────────
 
 func TestProjectConfig_Workers_SaveLoad(t *testing.T) {

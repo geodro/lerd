@@ -164,6 +164,24 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
+	// Restore PHP-FPM quadlets for all PHP versions used by registered sites.
+	if reg, err := config.LoadSites(); err == nil {
+		seen := map[string]bool{}
+		for _, s := range reg.Sites {
+			v := s.PHPVersion
+			if v == "" {
+				continue
+			}
+			if seen[v] {
+				continue
+			}
+			seen[v] = true
+			if err := ensureFPMQuadlet(v); err != nil {
+				fmt.Printf("  WARN: PHP %s FPM quadlet: %v\n", v, err)
+			}
+		}
+	}
+
 	// 7. Pull images in parallel, then build dnsmasq.
 	RunParallel([]BuildJob{ //nolint:errcheck
 		{
