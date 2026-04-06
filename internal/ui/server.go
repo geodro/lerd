@@ -17,6 +17,7 @@ import (
 	_ "embed"
 
 	"github.com/geodro/lerd/internal/certs"
+	"github.com/geodro/lerd/internal/applog"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
@@ -132,6 +133,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/schedule/", withCORS(handleScheduleLogs))
 	mux.HandleFunc("/api/reverb/", withCORS(handleReverbLogs))
 	mux.HandleFunc("/api/worker/", withCORS(handleWorkerLogs))
+	mux.HandleFunc("/api/app-logs/", withCORS(handleAppLogs))
 	mux.HandleFunc("/api/watcher/logs", withCORS(handleWatcherLogs))
 	mux.HandleFunc("/api/watcher/start", withCORS(handleWatcherStart))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
@@ -351,6 +353,8 @@ type SiteResponse struct {
 	HasQueueWorker    bool               `json:"has_queue_worker"`
 	HasScheduleWorker bool               `json:"has_schedule_worker"`
 	FrameworkWorkers  []WorkerStatus     `json:"framework_workers,omitempty"`
+	HasAppLogs        bool               `json:"has_app_logs"`
+	LatestLogTime     string             `json:"latest_log_time,omitempty"`
 	Paused            bool               `json:"paused"`
 	Branch            string             `json:"branch"`
 	Worktrees         []WorktreeResponse `json:"worktrees"`
@@ -520,6 +524,8 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			HasQueueWorker:    hasQueueWorker,
 			HasScheduleWorker: hasScheduleWorker,
 			FrameworkWorkers:  fwWorkers,
+			HasAppLogs:        hasFw && len(fw.Logs) > 0,
+			LatestLogTime:     latestLogTime(hasFw, fw, s.Path),
 			Paused:            s.Paused,
 			Branch:            mainBranch,
 			Worktrees:         worktreeResponses,
@@ -1986,6 +1992,95 @@ func handleWatcherStart(w http.ResponseWriter, r *http.Request) {
 
 func handleWatcherLogs(w http.ResponseWriter, r *http.Request) {
 	streamUnitLogs(w, r, "lerd-watcher")
+}
+
+// latestLogTime returns the ISO 8601 timestamp of the most recently modified
+// log file for a site, or empty string if no log files exist.
+func latestLogTime(hasFw bool, fw *config.Framework, projectPath string) string {
+	if !hasFw || len(fw.Logs) == 0 {
+		return ""
+	}
+	t := applog.LatestModTime(projectPath, fw.Logs)
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// handleAppLogs serves application-level log files (e.g. Laravel's storage/logs/*.log).
+//
+//	GET /api/app-logs/{domain}            → list available log files
+//	GET /api/app-logs/{domain}/{filename} → parsed log entries
+func handleAppLogs(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/app-logs/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	domain := parts[0]
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	fwName := site.Framework
+	if fwName == "" {
+		fwName, _ = config.DetectFramework(site.Path)
+	}
+	fw, hasFw := config.GetFramework(fwName)
+	if !hasFw || len(fw.Logs) == 0 {
+		writeJSON(w, map[string]any{"files": []any{}, "entries": []any{}})
+		return
+	}
+
+	if len(parts) == 1 {
+		// List available log files
+		files, _ := applog.DiscoverLogFiles(site.Path, fw.Logs)
+		if files == nil {
+			files = []applog.LogFile{}
+		}
+		writeJSON(w, map[string]any{"files": files})
+		return
+	}
+
+	// Parse entries for a specific file
+	filename := parts[1]
+	// Validate filename: only safe characters
+	for _, c := range filename {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+			http.NotFound(w, r)
+			return
+		}
+	}
+
+	fullPath := applog.ResolveLogFilePath(site.Path, fw.Logs, filename)
+	if fullPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	maxEntries := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &maxEntries); err != nil || n != 1 {
+			maxEntries = 100
+		}
+		if maxEntries <= 0 {
+			maxEntries = 0 // 0 means unlimited
+		}
+	}
+
+	format := applog.FormatForFile(fw.Logs, filename)
+	entries, err := applog.ParseFile(fullPath, format, maxEntries)
+	if err != nil {
+		writeJSON(w, map[string]any{"entries": []any{}, "error": err.Error()})
+		return
+	}
+	if entries == nil {
+		entries = []applog.LogEntry{}
+	}
+	writeJSON(w, map[string]any{"entries": entries})
 }
 
 func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {

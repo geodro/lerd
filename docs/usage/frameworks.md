@@ -248,6 +248,11 @@ setup:
     command: "php bin/console doctrine:fixtures:load --no-interaction"
     check:
       composer: doctrine/doctrine-fixtures-bundle  # skipped if package not installed
+
+# Application log files shown in the UI "App Logs" tab
+logs:
+  - path: "var/log/*.log"             # glob relative to project root
+    format: raw                       # monolog | raw (plain text, default)
 ```
 
 ---
@@ -268,6 +273,48 @@ The **first match wins**. Detection rules are OR-based — any single matching r
 If no framework matches and no `--public-dir` is specified, lerd tries these candidate directories in order, accepting the first that contains an `index.php`:
 
 `public` → `web` → `webroot` → `pub` → `www` → `htdocs` → `.` (project root)
+
+---
+
+## Log viewer
+
+Frameworks can define application log file locations so they appear in the UI's **App Logs** tab. Laravel has this built-in (`storage/logs/*.log` with Monolog parsing). Custom frameworks can add their own:
+
+```yaml
+logs:
+  - path: "var/log/*.log"
+    format: raw
+```
+
+The `path` is a glob relative to the project root. The `format` controls parsing:
+
+| Format | Description |
+|---|---|
+| `monolog` | Monolog format: `[date] channel.LEVEL: message {context}` with stacktrace grouping |
+| `raw` | Plain text, each line shown as a separate entry (default) |
+
+The App Logs tab is the first tab in the site detail view. When the UI opens it automatically selects the site with the most recent log activity, so you immediately see logs from the project you last visited in your browser.
+
+Features:
+
+- **File selector** — switch between available log files (e.g. `laravel.log`, `worker.log`), sorted by modification time with the newest file pre-selected
+- **Latest / All toggle** — "Latest" shows the last 100 entries (default), "All" reads the entire file
+- **Search** — filter entries by message, level, date, or stacktrace content
+- **Expandable entries** — click any entry to expand and see the full detail and stacktrace
+- **Auto-refresh** — polls every 5 seconds while the tab is active, keeping the expanded entry open
+- **Color-coded levels** — entries are color-coded by severity (red for ERROR/CRITICAL/EMERGENCY/ALERT, yellow for WARNING, blue for INFO/NOTICE, grey for DEBUG)
+
+To customise Laravel's log paths (e.g. add a custom channel log):
+
+```yaml
+# ~/.config/lerd/frameworks/laravel.yaml
+name: laravel
+logs:
+  - path: "storage/logs/*.log"
+    format: monolog
+  - path: "storage/logs/custom/*.log"
+    format: monolog
+```
 
 ---
 

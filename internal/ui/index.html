@@ -602,7 +602,7 @@
                   <select
                     x-model="selectedSite.php_version"
                     @change="setSiteVersion(selectedSite, 'php', selectedSite.php_version)"
-                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors [&>option]:bg-white [&>option]:dark:bg-lerd-card [&>option]:text-gray-900 [&>option]:dark:text-gray-200"
                     :disabled="selectedSite.versionLoading"
                   >
                     <option value="" disabled>— PHP —</option>
@@ -613,7 +613,7 @@
                   <select
                     x-model="selectedSite.node_version"
                     @change="setSiteVersion(selectedSite, 'node', selectedSite.node_version)"
-                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors [&>option]:bg-white [&>option]:dark:bg-lerd-card [&>option]:text-gray-900 [&>option]:dark:text-gray-200"
                     :disabled="selectedSite.versionLoading"
                   >
                     <option value="">Node default</option>
@@ -755,6 +755,9 @@
               <!-- Logs -->
               <div class="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div class="flex items-center gap-0 border-b border-gray-100 dark:border-lerd-border px-3 sm:px-5 pt-3 shrink-0">
+                  <template x-if="selectedSite && selectedSite.has_app_logs">
+                    <button @click="setSiteLogsTab('app')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='app' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">App Logs</button>
+                  </template>
                   <button @click="setSiteLogsTab('fpm')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='fpm' ? 'border-lerd-red text-lerd-red' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">PHP-FPM</button>
                   <template x-if="selectedSite && (selectedSite.queue_running || selectedSite.queue_failing)">
                     <button @click="setSiteLogsTab('queue')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='queue' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : selectedSite.queue_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.queue_failing ? 'Queue !' : 'Queue'"></button>
@@ -859,6 +862,68 @@
                   <div x-ref="siteWorkerLogScroll" class="flex-1 overflow-y-auto bg-gray-50 dark:bg-lerd-bg px-4 py-3 font-mono text-[11px] leading-relaxed space-y-0.5">
                     <template x-if="siteWorkerLogs.lines.length === 0"><div class="text-gray-400 dark:text-gray-700 italic">Waiting for log output...</div></template>
                     <template x-for="(line, i) in siteWorkerLogs.lines" :key="i"><div class="whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400" x-text="line"></div></template>
+                  </div>
+                </div>
+
+                <!-- App Logs (application log files) -->
+                <div x-show="siteLogsTab === 'app'" class="flex-1 flex flex-col overflow-hidden min-h-0">
+                  <div class="flex items-center gap-2 px-3 sm:px-5 py-2 shrink-0 border-b border-gray-100 dark:border-lerd-border">
+                    <select x-model="appLogs.selectedFile" @change="loadAppLogEntries()"
+                      class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-orange-500/50 cursor-pointer transition-colors [&>option]:bg-white [&>option]:dark:bg-lerd-card [&>option]:text-gray-900 [&>option]:dark:text-gray-200">
+                      <template x-for="f in appLogs.files" :key="f.name">
+                        <option :value="f.name" x-text="f.name"></option>
+                      </template>
+                    </select>
+                    <div class="flex items-center rounded border border-gray-200 dark:border-lerd-border overflow-hidden shrink-0">
+                      <button @click="appLogs.showAll = false; loadAppLogEntries()"
+                        class="text-[11px] px-2 py-1 transition-colors"
+                        :class="!appLogs.showAll ? 'bg-orange-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5'">Latest</button>
+                      <button @click="appLogs.showAll = true; loadAppLogEntries()"
+                        class="text-[11px] px-2 py-1 transition-colors border-l border-gray-200 dark:border-lerd-border"
+                        :class="appLogs.showAll ? 'bg-orange-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5'">All</button>
+                    </div>
+                    <div class="relative flex-1 max-w-xs">
+                      <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                      <input type="text" x-model="appLogs.search" placeholder="Search logs..."
+                        class="w-full text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded pl-7 pr-2 py-1 text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-600 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-orange-500/50 transition-colors">
+                    </div>
+                    <button @click="loadAppLogEntries()"
+                      class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                      Refresh
+                    </button>
+                    <svg x-show="appLogs.loading" class="animate-spin w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                  </div>
+                  <div class="flex-1 overflow-y-auto">
+                    <template x-if="appLogs.entries.length === 0 && !appLogs.loading">
+                      <div class="text-gray-400 dark:text-gray-600 italic text-xs p-4">No log entries found.</div>
+                    </template>
+                    <template x-for="(entry, i) in appLogs.entries.filter(e => !appLogs.search || (e.message && e.message.toLowerCase().includes(appLogs.search.toLowerCase())) || (e.level && e.level.toLowerCase().includes(appLogs.search.toLowerCase())) || (e.detail && e.detail.toLowerCase().includes(appLogs.search.toLowerCase())) || (e.date && e.date.includes(appLogs.search)))" :key="i">
+                      <div class="border-b border-gray-100 dark:border-lerd-border/50">
+                        <button @click="appLogs.expandedIdx = appLogs.expandedIdx === i ? -1 : i"
+                          class="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors">
+                          <span class="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded leading-tight"
+                            :class="{
+                              'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400': ['ERROR','CRITICAL','EMERGENCY','ALERT'].includes(entry.level),
+                              'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400': entry.level === 'WARNING',
+                              'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400': ['INFO','NOTICE'].includes(entry.level),
+                              'bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400': !['ERROR','CRITICAL','EMERGENCY','ALERT','WARNING','INFO','NOTICE'].includes(entry.level)
+                            }"
+                            x-text="entry.level || 'LOG'"></span>
+                          <span class="shrink-0 text-[11px] text-gray-400 font-mono w-[135px]" x-text="entry.date"></span>
+                          <span class="text-xs text-gray-700 dark:text-gray-300 truncate flex-1" x-text="entry.message"></span>
+                          <svg class="w-3 h-3 shrink-0 ml-auto text-gray-400 transition-transform duration-150"
+                            :class="appLogs.expandedIdx === i ? 'rotate-180' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                          </svg>
+                        </button>
+                        <div x-show="appLogs.expandedIdx === i" x-collapse
+                          class="px-4 py-3 bg-gray-50 dark:bg-lerd-bg border-t border-gray-100 dark:border-lerd-border/30 font-mono text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed"
+                          x-text="entry.detail || entry.message">
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </div>
 
@@ -1609,6 +1674,7 @@ function lerdApp() {
       _source: null,
     },
     siteLogsTab: 'fpm',
+    appLogs: { files: [], selectedFile: '', entries: [], loading: false, expandedIdx: -1, search: '', showAll: false },
 
     applyTheme(t) {
       const isDark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -1730,6 +1796,8 @@ function lerdApp() {
               e.has_horizon = s.has_horizon;
               e.has_queue_worker = s.has_queue_worker;
               e.has_schedule_worker = s.has_schedule_worker;
+              e.has_app_logs = s.has_app_logs;
+              e.latest_log_time = s.latest_log_time;
               e.branch = s.branch;
               e.paused = s.paused;
               if (s.framework_workers) {
@@ -1753,13 +1821,23 @@ function lerdApp() {
       } catch (_) {
         if (firstLoad) this.sites = [];
       } finally {
-        if (firstLoad) this.sitesLoading = false;
+        if (firstLoad) {
+          this.sitesLoading = false;
+          // Auto-select site with the most recent app log activity
+          if (!this.selectedSiteDomain) {
+            const withLogs = this.sites.filter(s => s.has_app_logs && s.latest_log_time);
+            if (withLogs.length > 0) {
+              withLogs.sort((a, b) => b.latest_log_time.localeCompare(a.latest_log_time));
+              this.selectSite(withLogs[0]);
+            }
+          }
+        }
       }
     },
 
     selectSite(site) {
       this.selectedSiteDomain = site.domain;
-      this.siteLogsTab = 'fpm';
+      this.siteLogsTab = site.has_app_logs ? 'app' : 'fpm';
       this.mobileShowDetail = true;
       this.closeSiteQueueLogs();
       this.closeSiteHorizonLogs();
@@ -1767,6 +1845,11 @@ function lerdApp() {
       this.closeSiteScheduleLogs();
       this.closeSiteReverbLogs();
       this.closeSiteWorkerLogs();
+      this.stopAppLogPolling();
+      this.appLogs = { files: [], selectedFile: '', entries: [], loading: false, expandedIdx: -1, search: '', showAll: false };
+      if (site.has_app_logs) {
+        this.loadAppLogFiles(site);
+      }
       this.openSiteLogs(site);
     },
 
@@ -1927,6 +2010,58 @@ function lerdApp() {
       this.siteWorkerLogs.connected = false;
     },
 
+    async loadAppLogFiles(site) {
+      if (!site) site = this.selectedSite;
+      if (!site) return;
+      this.appLogs.loading = true;
+      try {
+        const res = await fetch(`/api/app-logs/${site.domain}`);
+        const data = await res.json();
+        this.appLogs.files = data.files || [];
+        if (this.appLogs.files.length > 0) {
+          // Always select the most recently modified file
+          this.appLogs.selectedFile = this.appLogs.files[0].name;
+        }
+        if (this.appLogs.selectedFile) {
+          await this.loadAppLogEntries();
+        } else {
+          this.appLogs.loading = false;
+        }
+      } catch (e) {
+        this.appLogs.loading = false;
+      }
+      this.startAppLogPolling();
+    },
+
+    async loadAppLogEntries() {
+      const site = this.selectedSite;
+      if (!site || !this.appLogs.selectedFile) return;
+      this.appLogs.loading = true;
+      try {
+        const limit = this.appLogs.showAll ? 0 : 100;
+        const res = await fetch(`/api/app-logs/${site.domain}/${this.appLogs.selectedFile}?limit=${limit}`);
+        const data = await res.json();
+        this.appLogs.entries = data.entries || [];
+      } catch (e) {
+        this.appLogs.entries = [];
+      } finally {
+        this.appLogs.loading = false;
+      }
+    },
+
+    startAppLogPolling() {
+      this.stopAppLogPolling();
+      this._appLogInterval = setInterval(() => {
+        if (this.siteLogsTab === 'app' && this.selectedSite && this.appLogs.selectedFile && !this.appLogs.loading) {
+          this.loadAppLogEntries();
+        }
+      }, 5000);
+    },
+
+    stopAppLogPolling() {
+      if (this._appLogInterval) { clearInterval(this._appLogInterval); this._appLogInterval = null; }
+    },
+
     setSiteLogsTab(tab) {
       this.siteLogsTab = tab;
       const site = this.selectedSite;
@@ -1937,6 +2072,7 @@ function lerdApp() {
       if (tab === 'schedule') this.openSiteScheduleLogs(site);
       if (tab === 'reverb') this.openSiteReverbLogs(site);
       if (tab.startsWith('worker:')) this.openSiteWorkerLogs(site, tab.slice(7));
+      if (tab === 'app') this.loadAppLogFiles(site);
     },
 
     async loadPHPVersions() {

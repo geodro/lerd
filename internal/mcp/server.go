@@ -1089,6 +1089,10 @@ func toolList() []mcpTool {
 						Type:        "array",
 						Description: `List of one-off setup commands shown in "lerd setup" wizard. Each element is an object with "label" (string), "command" (string), optional "default" (boolean, pre-selected in wizard), and optional "check" (object with "file" or "composer" field — command is only shown when the check passes). e.g. [{"label": "Load fixtures", "command": "php bin/console doctrine:fixtures:load", "check": {"composer": "doctrine/doctrine-fixtures-bundle"}}]`,
 					},
+					"logs": {
+						Type:        "array",
+						Description: `List of log source definitions for the app log viewer. Each element is an object with "path" (glob relative to project root, e.g. "storage/logs/*.log") and optional "format" ("monolog" for Monolog format, "raw" for plain text; default: "raw"). e.g. [{"path": "storage/logs/*.log", "format": "monolog"}]`,
+					},
 				},
 				Required: []string{"name"},
 			},
@@ -3000,6 +3004,10 @@ func execFrameworkList() (any, *rpcError) {
 		Default bool       `json:"default,omitempty"`
 		Check   *checkInfo `json:"check,omitempty"`
 	}
+	type logSourceInfo struct {
+		Path   string `json:"path"`
+		Format string `json:"format,omitempty"`
+	}
 	type frameworkInfo struct {
 		Name      string                `json:"name"`
 		Label     string                `json:"label"`
@@ -3009,6 +3017,7 @@ func execFrameworkList() (any, *rpcError) {
 		BuiltIn   bool                  `json:"built_in"`
 		Workers   map[string]workerInfo `json:"workers,omitempty"`
 		Setup     []setupInfo           `json:"setup,omitempty"`
+		Logs      []logSourceInfo       `json:"logs,omitempty"`
 	}
 	var result []frameworkInfo
 	for _, fw := range frameworks {
@@ -3046,6 +3055,10 @@ func execFrameworkList() (any, *rpcError) {
 			}
 			setup = append(setup, si)
 		}
+		var logSources []logSourceInfo
+		for _, ls := range merged.Logs {
+			logSources = append(logSources, logSourceInfo{Path: ls.Path, Format: ls.Format})
+		}
 		result = append(result, frameworkInfo{
 			Name:      merged.Name,
 			Label:     merged.Label,
@@ -3055,6 +3068,7 @@ func execFrameworkList() (any, *rpcError) {
 			BuiltIn:   merged.Name == "laravel",
 			Workers:   workers,
 			Setup:     setup,
+			Logs:      logSources,
 		})
 	}
 	if result == nil {
@@ -3121,12 +3135,28 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	if name == "laravel" {
-		// For Laravel, only persist custom workers and setup (built-in handles everything else)
-		if len(workers) == 0 && len(setup) == 0 {
-			return toolErr("workers or setup is required when customising laravel"), nil
+	// Parse logs sources if provided
+	var logs []config.FrameworkLogSource
+	if raw, ok := args["logs"]; ok {
+		if arr, ok := raw.([]any); ok {
+			for _, item := range arr {
+				if obj, ok := item.(map[string]any); ok {
+					path, _ := obj["path"].(string)
+					format, _ := obj["format"].(string)
+					if path != "" {
+						logs = append(logs, config.FrameworkLogSource{Path: path, Format: format})
+					}
+				}
+			}
 		}
-		fw := &config.Framework{Name: "laravel", Workers: workers, Setup: setup}
+	}
+
+	if name == "laravel" {
+		// For Laravel, only persist custom workers, setup, and logs (built-in handles everything else)
+		if len(workers) == 0 && len(setup) == 0 && len(logs) == 0 {
+			return toolErr("workers, setup, or logs is required when customising laravel"), nil
+		}
+		fw := &config.Framework{Name: "laravel", Workers: workers, Setup: setup, Logs: logs}
 		if err := config.SaveFramework(fw); err != nil {
 			return toolErr(fmt.Sprintf("saving framework: %v", err)), nil
 		}
@@ -3161,6 +3191,7 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 		NPM:       "auto",
 		Workers:   workers,
 		Setup:     setup,
+		Logs:      logs,
 	}
 	if fw.PublicDir == "" {
 		fw.PublicDir = "public"
