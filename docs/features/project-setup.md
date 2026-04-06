@@ -66,7 +66,7 @@ No hooks or per-project setup needed — it works for every linked site out of t
 
 | Step | Default | Condition |
 |---|---|---|
-| `composer install` | - [x] on | only if `vendor/` is missing |
+| `composer install` | - [x] on | only if `vendor/` is missing; runs inside the project's PHP-FPM container to match the `composer.json` PHP constraint |
 | `npm ci` | - [x] on | only if `node_modules/` is missing and `package.json` exists |
 | `lerd env` | - [x] on | always |
 | `lerd mcp:inject` | - [ ] off | opt-in |

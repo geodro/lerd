@@ -38,7 +38,7 @@ When serving a request, Lerd picks the PHP version for a project in this order:
 
 1. `.lerd.yaml` in the project root — `php_version` field (explicit lerd override)
 2. `.php-version` file in the project root (plain text, e.g. `8.2`)
-3. `composer.json` — `require.php` constraint (e.g. `^8.4` → `8.4`)
+3. `composer.json` — `require.php` constraint, resolved to the best installed version (e.g. `^8.3` with PHP 8.3 and 8.4 installed → `8.4`)
 4. Global default in `~/.config/lerd/config.yaml`
 
 When `.php-version` changes on disk, the lerd watcher automatically updates the site registry and regenerates the nginx vhost — no manual reload needed.
@@ -54,8 +54,10 @@ This writes `.php-version: 8.4` (so CLI `php`, asdf, and other tools see the rig
 
 The UI PHP version selector and the MCP `site_php` tool follow the same rules — they always write both files when applicable.
 
+The composer constraint is matched against all installed PHP versions using full semver rules (`^`, `~`, `>=`, `<`, `||`, `*`). The highest installed version that satisfies the constraint wins. If no installed version matches, the literal minimum from the constraint is used (and the FPM will be built on first use).
+
 ::: tip Overriding a `composer.json` constraint
-If `composer.json` requires `^8.3` but you need to run the project on PHP 8.4, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
+If `composer.json` requires `^8.3` but you need to run the project on a specific version, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
 :::
 
 To change the global default (applies to all projects that don't have a per-project pin):

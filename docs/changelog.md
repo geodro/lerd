@@ -11,6 +11,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.2] — 2026-04-06
+
+### Fixed
+
+- **MissingAppKeyException on fresh project** — `lerd env` now generates `APP_KEY` directly in `.env` when `vendor/` does not exist yet, instead of failing silently on `artisan key:generate`. This prevents Laravel's `MissingAppKeyException` during `composer install` post-install scripts in the `lerd new` → `lerd link` → `lerd setup` flow.
+- **`composer install` using wrong PHP version in setup** — `lerd setup` now runs `composer install` inside the project's PHP-FPM container, matching the `composer.json` PHP constraint. Previously it used the host composer shim which could resolve to the global default PHP version.
+- **PHP version detection from `composer.json` ignores installed versions** — the constraint resolver now picks the highest installed PHP version satisfying the `composer.json` `require.php` constraint (e.g. `^8.3` with 8.3 and 8.4 installed → 8.4). Supports `^`, `~`, `>=`, `<`, `||`, `*`, and AND constraints. Falls back to the literal minimum when no installed version matches.
+
+---
+
 ## [1.6.1] — 2026-04-06
 
 ### Fixed
