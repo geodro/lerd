@@ -61,16 +61,7 @@ nameserver 1.1.1.1
 
 // --- helpers ---
 
-func writeTempFile(t *testing.T, content string) string {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "resolv-*.conf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.WriteString(content)
-	f.Close()
-	return f.Name()
-}
+// writeTempFile and assertSliceEqual are defined in setup_test.go.
 
 func assertSliceEqual(t *testing.T, got, want []string) {
 	t.Helper()
