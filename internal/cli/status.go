@@ -176,7 +176,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				// Check built-in worker types.
 				for _, w := range []string{"queue", "schedule", "reverb", "horizon"} {
 					unit := "lerd-" + w + "-" + s.Name
-					status, _ := podman.UnitStatus(unit)
+					status, _ := podman.UnitStatusFn(unit)
 					switch status {
 					case "active":
 						ok2(fmt.Sprintf("%s/%s", s.Name, w))
@@ -204,7 +204,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 							continue
 						}
 						unit := "lerd-" + wName + "-" + s.Name
-						status, _ := podman.UnitStatus(unit)
+						status, _ := podman.UnitStatusFn(unit)
 						switch status {
 						case "active":
 							ok2(fmt.Sprintf("%s/%s", s.Name, wName))
@@ -219,7 +219,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 					}
 				}
 				// Stripe listener.
-				if stripeStatus, _ := podman.UnitStatus("lerd-stripe-" + s.Name); stripeStatus == "active" {
+				if stripeStatus, _ := podman.UnitStatusFn("lerd-stripe-" + s.Name); stripeStatus == "active" {
 					ok2(fmt.Sprintf("%s/stripe", s.Name))
 					hasWorkers = true
 				} else if stripeStatus == "failed" || stripeStatus == "activating" {

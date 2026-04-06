@@ -571,7 +571,7 @@ func restoreSiteInfrastructure() {
 			}
 		}
 	}
-	podman.DaemonReload() //nolint:errcheck
+	podman.DaemonReloadFn() //nolint:errcheck
 }
 
 // registeredStripeUnits returns unit names for all lerd-stripe-* service files
