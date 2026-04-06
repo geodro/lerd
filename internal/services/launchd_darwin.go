@@ -494,14 +494,14 @@ func (m *darwinServiceManager) Restart(name string) error {
 	return nil
 }
 
-// Enable marks the service as enabled (persists across logins) and bootstraps it.
+// Enable marks the service as enabled so launchd starts it on the next login.
+// It does NOT start the service immediately — callers that want the service
+// running right now should follow up with Restart or Start.
 func (m *darwinServiceManager) Enable(name string) error {
 	domain := uidDomain()
 	label := plistLabel(name)
-
-	// enable records the intent; bootstrap actually starts it now
 	launchctl("enable", domain+"/"+label) //nolint:errcheck
-	return m.Start(name)
+	return nil
 }
 
 // Disable stops the service and marks it disabled so it won't start at login.

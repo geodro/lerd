@@ -83,6 +83,8 @@ func newAutostartTrayEnableCmd() *cobra.Command {
 			if err := services.Mgr.Enable("lerd-tray"); err != nil {
 				return fmt.Errorf("enabling tray service: %w", err)
 			}
+			// Start the tray now as well so the user doesn't have to log out/in.
+			services.Mgr.Restart("lerd-tray") //nolint:errcheck
 			fmt.Println("Tray autostart enabled — lerd tray will start automatically on login.")
 			return nil
 		},
