@@ -477,10 +477,21 @@ func startRestoredServices() {
 	RunParallel(startJobs) //nolint:errcheck
 }
 
-// killTray kills any running lerd tray process (launched directly or as lerd-tray binary).
+// killTray kills any running lerd tray process (launched directly or as lerd-tray binary)
+// and waits for the processes to exit before returning.
 func killTray() {
 	exec.Command("pkill", "-f", "lerd tray").Run()
 	exec.Command("pkill", "-f", "lerd-tray").Run()
+	// Wait until no matching process remains so the new tray doesn't race with
+	// the dying one (macOS pkill returns before the process has fully exited).
+	for i := 0; i < 20; i++ {
+		a := exec.Command("pgrep", "-f", "lerd tray").Run()
+		b := exec.Command("pgrep", "-f", "lerd-tray").Run()
+		if a != nil && b != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // restoreSiteInfrastructure ensures FPM quadlets, service quadlets, and worker
