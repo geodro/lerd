@@ -40,7 +40,7 @@ func newHorizonStartCmd(use string) *cobra.Command {
 				return err
 			}
 			if !SiteHasHorizon(cwd) {
-				return fmt.Errorf("laravel/horizon is not installed in this project")
+				return fmt.Errorf("laravel/horizon is not installed in this project\nInstall it with: composer require laravel/horizon\nSee https://laravel.com/docs/13.x/horizon")
 			}
 			siteName, err := queueSiteName(cwd)
 			if err != nil {
@@ -72,7 +72,7 @@ func newHorizonStopCmd(use string) *cobra.Command {
 				return err
 			}
 			if !SiteHasHorizon(cwd) {
-				return fmt.Errorf("laravel/horizon is not installed in this project")
+				return fmt.Errorf("laravel/horizon is not installed in this project\nInstall it with: composer require laravel/horizon\nSee https://laravel.com/docs/13.x/horizon")
 			}
 			siteName, err := queueSiteName(cwd)
 			if err != nil {

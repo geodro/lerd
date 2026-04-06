@@ -590,7 +590,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `lerd status` — includes custom services in the `[Services]` section
   - Web UI services tab — shows custom services with start/stop and dashboard link
   - System tray — shows custom services (slot pool expanded from 7 to 20)
-- **`{{site}}` / `{{site_testing}}` placeholders** in `env_vars` and `site_init.exec` — substituted with the project site handle at `lerd env` time
+- <strong><code v-pre>{{site}}</code> / <code v-pre>{{site_testing}}</code> placeholders</strong> in `env_vars` and `site_init.exec` — substituted with the project site handle at `lerd env` time
 - **`site_init`** YAML block — runs a `sh -c` command inside the service container once per project when `lerd env` detects the service (for DB/collection creation, user setup, etc.)
 - **`dashboard`** field — shows an "Open" button in the web UI when the service is active; dashboard URLs for built-ins (Mailpit, MinIO, Meilisearch) moved from hardcoded JS to the API response
 - **README simplified** — now a slim landing page pointing to the docs site

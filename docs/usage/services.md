@@ -216,6 +216,9 @@ site_init:
 
 `env_vars` values and `site_init.exec` support two placeholders that are substituted per-project when `lerd env` runs:
 
+<!-- markdownlint-disable-next-line -->
+<div v-pre>
+
 | Placeholder | Expands to |
 |---|---|
 | `{{site}}` | Project site handle (derived from the registered site name or directory name, hyphens converted to underscores) |
@@ -223,11 +226,13 @@ site_init:
 
 These are not limited to database names — use them anywhere a per-project identifier is needed (a bucket name, a queue prefix, a namespace, etc.).
 
+</div>
+
 ### How `lerd env` uses custom services
 
 When `lerd env` runs in a project directory, it checks each custom service's `env_detect` rule against the project's `.env`. If a match is found:
 
-1. `env_vars` are written into `.env`, with `{{site}}` and `{{site_testing}}` substituted
+1. `env_vars` are written into `.env`, with <code v-pre>{{site}}</code> and <code v-pre>{{site_testing}}</code> substituted
 2. The service is started if not already running
 3. `site_init.exec` is run inside the container (if defined)
 
@@ -407,11 +412,11 @@ Point the Stripe PHP SDK at the mock in your `AppServiceProvider` or test bootst
 | `--image` | OCI image reference (required) |
 | `--port` | Port mapping `host:container` — repeatable |
 | `--env` | Container environment variable `KEY=VALUE` — repeatable |
-| `--env-var` | `.env` variable injected by `lerd env`, supports `{{site}}` — repeatable |
+| `--env-var` | `.env` variable injected by `lerd env`, supports <code v-pre>{{site}}</code> — repeatable |
 | `--data-dir` | Mount path inside the container for persistent data |
 | `--detect-key` | `.env` key that triggers auto-detection in `lerd env` |
 | `--detect-prefix` | Optional value prefix filter for auto-detection |
-| `--init-exec` | Shell command run inside the container once per site (supports `{{site}}` and `{{site_testing}}`) |
+| `--init-exec` | Shell command run inside the container once per site (supports <code v-pre>{{site}}</code> and <code v-pre>{{site_testing}}</code>) |
 | `--init-container` | Container to run `--init-exec` in (default: `lerd-<name>`) |
 | `--dashboard` | URL to open when clicking the dashboard button in the web UI |
 | `--description` | Description shown in `lerd service list` |

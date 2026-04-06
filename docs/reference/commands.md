@@ -138,6 +138,8 @@ For projects that use `laravel/horizon` — lerd detects it automatically from `
 
 ## Reverb
 
+Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with the `laravel/reverb` package — lerd detects it automatically from `composer.json`.
+
 | Command | Description |
 |---|---|
 | `lerd reverb:start` | Start the Reverb WebSocket server for the current project as a persistent background service |

@@ -51,6 +51,7 @@ export default defineConfig({
       { text: 'Usage', link: '/usage/sites' },
       { text: 'Features', link: '/features/web-ui' },
       { text: 'Reference', link: '/reference/commands' },
+      { text: 'Contributing', link: '/contributing/building' },
       { text: 'Changelog', link: '/changelog' },
     ],
 
@@ -77,6 +78,7 @@ export default defineConfig({
             { text: 'Database', link: '/usage/database' },
             { text: 'Frameworks & Workers', link: '/usage/frameworks' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
+            { text: 'Stripe', link: '/usage/stripe' },
           ],
         },
       ],
@@ -102,6 +104,19 @@ export default defineConfig({
             { text: 'Configuration', link: '/reference/configuration' },
             { text: 'Directory Layout', link: '/reference/directory-layout' },
             { text: 'Architecture', link: '/reference/architecture' },
+            { text: 'Troubleshooting', link: '/troubleshooting' },
+          ],
+        },
+      ],
+      '/troubleshooting': [
+        {
+          text: 'Reference',
+          items: [
+            { text: 'Command Reference', link: '/reference/commands' },
+            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Directory Layout', link: '/reference/directory-layout' },
+            { text: 'Architecture', link: '/reference/architecture' },
+            { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },
       ],
