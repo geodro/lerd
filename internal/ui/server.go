@@ -16,8 +16,8 @@ import (
 
 	_ "embed"
 
-	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/applog"
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
