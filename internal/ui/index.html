@@ -149,7 +149,14 @@
           <button @click="selectSite(site)"
             class="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50 last:border-0"
             :class="selectedSiteDomain===site.domain ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
-            <span class="w-2 h-2 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+            <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
+              <template x-if="site.has_favicon">
+                <img :src="'/api/sites/' + site.domain + '/favicon'" class="w-4 h-4 rounded-sm object-contain" loading="lazy" @error="site.has_favicon = false">
+              </template>
+              <template x-if="!site.has_favicon">
+                <span class="w-2 h-2 rounded-full" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+              </template>
+            </span>
             <span class="flex-1 text-sm truncate" x-text="site.domain"></span>
             <svg x-show="site.tls" class="w-3 h-3 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
             <svg x-show="site.worktrees && site.worktrees.length > 0" class="w-3 h-3 shrink-0 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/></svg>
@@ -502,6 +509,9 @@
                 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                   <div>
                     <div class="flex items-center gap-2 flex-wrap">
+                      <template x-if="selectedSite.has_favicon">
+                        <img :src="'/api/sites/' + selectedSite.domain + '/favicon'" class="w-5 h-5 rounded-sm object-contain" loading="lazy" @error="selectedSite.has_favicon = false">
+                      </template>
                       <a
                         :href="(selectedSite.tls ? 'https://' : 'http://') + selectedSite.domain"
                         @click.prevent="openSite(selectedSite)"
@@ -599,28 +609,38 @@
 
                 <!-- Version selects + toggles row -->
                 <div class="flex items-center gap-4 overflow-x-auto">
-                  <select
-                    x-model="selectedSite.php_version"
-                    @change="setSiteVersion(selectedSite, 'php', selectedSite.php_version)"
-                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
-                    :disabled="selectedSite.versionLoading"
-                  >
-                    <option value="" disabled>— PHP —</option>
-                    <template x-for="v in phpVersions" :key="v">
-                      <option :value="v" x-text="'PHP ' + v"></option>
-                    </template>
-                  </select>
-                  <select
-                    x-model="selectedSite.node_version"
-                    @change="setSiteVersion(selectedSite, 'node', selectedSite.node_version)"
-                    class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
-                    :disabled="selectedSite.versionLoading"
-                  >
-                    <option value="">Node default</option>
-                    <template x-for="v in nodeVersions" :key="v">
-                      <option :value="v" x-text="'Node ' + v"></option>
-                    </template>
-                  </select>
+                  <template x-if="phpVersions.length === 0">
+                    <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">PHP ...</span>
+                  </template>
+                  <template x-if="phpVersions.length > 0">
+                    <select
+                      x-model="selectedSite.php_version"
+                      @change="setSiteVersion(selectedSite, 'php', selectedSite.php_version)"
+                      class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                      :disabled="selectedSite.versionLoading"
+                    >
+                      <option value="" disabled>— PHP —</option>
+                      <template x-for="v in phpVersions" :key="v">
+                        <option :value="v" x-text="'PHP ' + v"></option>
+                      </template>
+                    </select>
+                  </template>
+                  <template x-if="nodeVersions.length === 0">
+                    <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">Node ...</span>
+                  </template>
+                  <template x-if="nodeVersions.length > 0">
+                    <select
+                      x-model="selectedSite.node_version"
+                      @change="setSiteVersion(selectedSite, 'node', selectedSite.node_version)"
+                      class="text-xs bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors"
+                      :disabled="selectedSite.versionLoading"
+                    >
+                      <option value="">Node default</option>
+                      <template x-for="v in nodeVersions" :key="v">
+                        <option :value="v" x-text="'Node ' + v"></option>
+                      </template>
+                    </select>
+                  </template>
 
                   <!-- HTTPS -->
                   <div class="flex items-center gap-1.5">
