@@ -33,10 +33,10 @@ type Index struct {
 
 // IndexEntry describes a single framework available in the store.
 type IndexEntry struct {
-	Name     string               `json:"name"`
-	Label    string               `json:"label"`
-	Versions []string             `json:"versions"`
-	Latest   string               `json:"latest"`
+	Name     string                 `json:"name"`
+	Label    string                 `json:"label"`
+	Versions []string               `json:"versions"`
+	Latest   string                 `json:"latest"`
 	Detect   []config.FrameworkRule `json:"detect"`
 }
 

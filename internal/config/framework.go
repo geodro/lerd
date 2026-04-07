@@ -13,8 +13,8 @@ import (
 
 // Framework describes a PHP project framework type.
 type Framework struct {
-	Name      string                     `yaml:"name"`
-	Label     string                     `yaml:"label"`
+	Name  string `yaml:"name"`
+	Label string `yaml:"label"`
 	// Version is the framework major version this definition targets (e.g. "11", "7").
 	Version   string                     `yaml:"version,omitempty"`
 	Detect    []FrameworkRule            `yaml:"detect,omitempty"`
@@ -37,21 +37,21 @@ type Framework struct {
 // FrameworkWorker describes a long-running process managed as a systemd service.
 // The Command is executed inside the PHP-FPM container for the site.
 type FrameworkWorker struct {
-	Label         string            `yaml:"label,omitempty"`
-	Command       string            `yaml:"command"`
-	Restart       string            `yaml:"restart,omitempty"`        // always | on-failure (default: always)
-	Check         *FrameworkRule    `yaml:"check,omitempty"`          // only show when check passes (file exists or composer package installed)
-	ConflictsWith []string          `yaml:"conflicts_with,omitempty"` // workers to stop before starting this one (e.g. horizon conflicts_with queue)
-	Proxy         *WorkerProxy      `yaml:"proxy,omitempty"`          // WebSocket/HTTP proxy config for nginx
+	Label         string         `yaml:"label,omitempty"`
+	Command       string         `yaml:"command"`
+	Restart       string         `yaml:"restart,omitempty"`        // always | on-failure (default: always)
+	Check         *FrameworkRule `yaml:"check,omitempty"`          // only show when check passes (file exists or composer package installed)
+	ConflictsWith []string       `yaml:"conflicts_with,omitempty"` // workers to stop before starting this one (e.g. horizon conflicts_with queue)
+	Proxy         *WorkerProxy   `yaml:"proxy,omitempty"`          // WebSocket/HTTP proxy config for nginx
 }
 
 // WorkerProxy describes an HTTP/WebSocket proxy that nginx should configure
 // for this worker. When present, nginx adds a location block that proxies
 // requests to the worker inside the PHP-FPM container.
 type WorkerProxy struct {
-	Path       string `yaml:"path"`                  // URL path to proxy (e.g. "/app")
-	PortEnvKey string `yaml:"port_env_key,omitempty"` // env key holding the port (e.g. "REVERB_SERVER_PORT")
-	DefaultPort int   `yaml:"default_port,omitempty"` // fallback port if env key is missing (default: 8080)
+	Path        string `yaml:"path"`                   // URL path to proxy (e.g. "/app")
+	PortEnvKey  string `yaml:"port_env_key,omitempty"` // env key holding the port (e.g. "REVERB_SERVER_PORT")
+	DefaultPort int    `yaml:"default_port,omitempty"` // fallback port if env key is missing (default: 8080)
 }
 
 // FrameworkLogSource describes where application log files live for a framework.
@@ -96,8 +96,8 @@ type FrameworkEnvConf struct {
 
 // EnvKeyGeneration describes how to generate an application encryption key.
 type EnvKeyGeneration struct {
-	EnvKey        string `yaml:"env_key"`                   // env var to check/set (e.g. "APP_KEY")
-	Command       string `yaml:"command,omitempty"`          // artisan command to run if vendor/ exists (e.g. "key:generate")
+	EnvKey         string `yaml:"env_key"`                   // env var to check/set (e.g. "APP_KEY")
+	Command        string `yaml:"command,omitempty"`         // artisan command to run if vendor/ exists (e.g. "key:generate")
 	FallbackPrefix string `yaml:"fallback_prefix,omitempty"` // prefix for random key fallback (e.g. "base64:")
 }
 

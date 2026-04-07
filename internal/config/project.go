@@ -10,9 +10,9 @@ import (
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
-	Domains      []string         `yaml:"domains,omitempty"`
-	PHPVersion   string           `yaml:"php_version,omitempty"`
-	NodeVersion  string           `yaml:"node_version,omitempty"`
+	Domains          []string                   `yaml:"domains,omitempty"`
+	PHPVersion       string                     `yaml:"php_version,omitempty"`
+	NodeVersion      string                     `yaml:"node_version,omitempty"`
 	Framework        string                     `yaml:"framework,omitempty"`
 	FrameworkVersion string                     `yaml:"framework_version,omitempty"`
 	FrameworkDef     *Framework                 `yaml:"framework_def,omitempty"`
