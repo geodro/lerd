@@ -351,6 +351,7 @@ type SiteResponse struct {
 	HasQueueWorker    bool               `json:"has_queue_worker"`
 	HasScheduleWorker bool               `json:"has_schedule_worker"`
 	FrameworkWorkers  []WorkerStatus     `json:"framework_workers,omitempty"`
+	HasFavicon        bool               `json:"has_favicon"`
 	Paused            bool               `json:"paused"`
 	Branch            string             `json:"branch"`
 	Worktrees         []WorktreeResponse `json:"worktrees"`
@@ -520,6 +521,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			HasQueueWorker:    hasQueueWorker,
 			HasScheduleWorker: hasScheduleWorker,
 			FrameworkWorkers:  fwWorkers,
+			HasFavicon:        detectFavicon(s.Path, s.PublicDir) != "",
 			Paused:            s.Paused,
 			Branch:            mainBranch,
 			Worktrees:         worktreeResponses,
@@ -1183,6 +1185,53 @@ func handleNodeVersions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, versions)
 }
 
+// faviconCandidates lists file names to probe when looking for a site's favicon.
+var faviconCandidates = []string{
+	"favicon.ico",
+	"favicon.svg",
+	"favicon.png",
+}
+
+// detectFavicon returns the absolute path of the first favicon file found in
+// the site's public directory (or project root when publicDir is "." or empty).
+// Returns "" when no favicon is found.
+func detectFavicon(sitePath, publicDir string) string {
+	if publicDir == "" {
+		publicDir = config.DetectPublicDir(sitePath)
+	}
+	base := sitePath
+	if publicDir != "." {
+		base = filepath.Join(sitePath, publicDir)
+	}
+	for _, name := range faviconCandidates {
+		p := filepath.Join(base, name)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
+	// path: /api/sites/{domain}/favicon
+	domain := strings.TrimPrefix(r.URL.Path, "/api/sites/")
+	domain = strings.TrimSuffix(domain, "/favicon")
+
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	path := detectFavicon(site.Path, site.PublicDir)
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, path)
+}
+
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
 	OK    bool   `json:"ok"`
@@ -1192,11 +1241,22 @@ type SiteActionResponse struct {
 func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	// path: /api/sites/{domain}/secure or /api/sites/{domain}/unsecure
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/sites/"), "/")
-	if len(parts) != 2 || r.Method != http.MethodPost {
+	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
 	}
 	domain, action := parts[0], parts[1]
+
+	// Favicon is a GET endpoint served separately.
+	if action == "favicon" {
+		handleSiteFavicon(w, r)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
 
 	site, err := config.FindSiteByDomain(domain)
 	if err != nil {
