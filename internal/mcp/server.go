@@ -306,6 +306,41 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "vendor_bins",
+			Description: "List composer-installed binaries available in the project's vendor/bin directory. Use this to discover tools like pest, phpunit, pint, phpstan, rector, etc. before invoking vendor_run.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "vendor_run",
+			Description: "Run a composer-installed binary from the project's vendor/bin directory inside the lerd PHP-FPM container. Use vendor_bins first to see what's available.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"bin": {
+						Type:        "string",
+						Description: `Name of the binary in vendor/bin, e.g. "pest", "phpunit", "pint"`,
+					},
+					"args": {
+						Type:        "array",
+						Description: `Arguments to pass to the binary, e.g. ["--filter", "UserTest"]`,
+					},
+				},
+				Required: []string{"bin"},
+			},
+		},
+		{
 			Name:        "node_install",
 			Description: "Install a Node.js version via fnm so it can be used by lerd sites. Accepts a version number (e.g. \"20\", \"20.11.0\") or alias (e.g. \"lts\").",
 			InputSchema: mcpSchema{
@@ -1305,6 +1340,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execLogs(args)
 	case "composer":
 		return execComposer(args)
+	case "vendor_bins":
+		return execVendorBins(args)
+	case "vendor_run":
+		return execVendorRun(args)
 	case "node_install":
 		return execNodeInstall(args)
 	case "node_uninstall":
@@ -2041,6 +2080,78 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
 		return toolErr(fmt.Sprintf("composer failed (%v):\n%s", err, out.String())), nil
+	}
+	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
+func execVendorBins(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	dir := filepath.Join(projectPath, "vendor", "bin")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return toolErr("no vendor/bin directory — run composer install first"), nil
+		}
+		return toolErr("failed to read vendor/bin: " + err.Error()), nil
+	}
+	var bins []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		bins = append(bins, e.Name())
+	}
+	sort.Strings(bins)
+	if len(bins) == 0 {
+		return toolOK("vendor/bin is empty"), nil
+	}
+	return toolOK(strings.Join(bins, "\n")), nil
+}
+
+func execVendorRun(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	bin := strArg(args, "bin")
+	if bin == "" {
+		return toolErr("bin is required"), nil
+	}
+	// Reject path separators — composer bins are flat filenames.
+	if strings.ContainsAny(bin, "/\\") {
+		return toolErr("bin must be a plain filename, not a path"), nil
+	}
+	binPath := filepath.Join(projectPath, "vendor", "bin", bin)
+	info, statErr := os.Stat(binPath)
+	if statErr != nil || info.IsDir() {
+		return toolErr(fmt.Sprintf("vendor/bin/%s not found in %s", bin, projectPath)), nil
+	}
+	binArgs := strSliceArg(args, "args")
+
+	phpVersion, err := phpDet.DetectVersion(projectPath)
+	if err != nil {
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil {
+			return toolErr("failed to detect PHP version: " + err.Error()), nil
+		}
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+
+	short := strings.ReplaceAll(phpVersion, ".", "")
+	container := "lerd-php" + short + "-fpm"
+
+	cmdArgs := []string{"exec", "-w", projectPath, container, "php", "vendor/bin/" + bin}
+	cmdArgs = append(cmdArgs, binArgs...)
+
+	var out bytes.Buffer
+	cmd := exec.Command("podman", cmdArgs...)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("vendor/bin/%s failed (%v):\n%s", bin, err, out.String())), nil
 	}
 	return toolOK(strings.TrimSpace(out.String())), nil
 }
