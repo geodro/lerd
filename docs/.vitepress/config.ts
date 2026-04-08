@@ -79,6 +79,7 @@ export default defineConfig({
             { text: 'Frameworks & Workers', link: '/usage/frameworks' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
             { text: 'Stripe', link: '/usage/stripe' },
+            { text: 'Remote / LAN Development', link: '/usage/remote-development' },
           ],
         },
       ],
