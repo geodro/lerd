@@ -306,6 +306,41 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "vendor_bins",
+			Description: "List composer-installed binaries available in the project's vendor/bin directory. Use this to discover tools like pest, phpunit, pint, phpstan, rector, etc. before invoking vendor_run.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "vendor_run",
+			Description: "Run a composer-installed binary from the project's vendor/bin directory inside the lerd PHP-FPM container. Use vendor_bins first to see what's available.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"bin": {
+						Type:        "string",
+						Description: `Name of the binary in vendor/bin, e.g. "pest", "phpunit", "pint"`,
+					},
+					"args": {
+						Type:        "array",
+						Description: `Arguments to pass to the binary, e.g. ["--filter", "UserTest"]`,
+					},
+				},
+				Required: []string{"bin"},
+			},
+		},
+		{
 			Name:        "node_install",
 			Description: "Install a Node.js version via fnm so it can be used by lerd sites. Accepts a version number (e.g. \"20\", \"20.11.0\") or alias (e.g. \"lts\").",
 			InputSchema: mcpSchema{
@@ -455,7 +490,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_setup",
-			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project.",
+			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project. Note: when run on a fresh Laravel project where .env still says DB_CONNECTION=sqlite, env_setup leaves the database choice alone — call db_set first to pick a database explicitly.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -464,6 +499,25 @@ func toolList() []mcpTool {
 						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
 					},
 				},
+			},
+		},
+		{
+			Name:        "db_set",
+			Description: "Pick the database for a Laravel project: sqlite (local file, no service), mysql (lerd-mysql), or postgres (lerd-postgres). Persists the choice to .lerd.yaml, rewrites the relevant DB_ keys in .env, starts the service if needed, and creates the project database (and a _testing variant) for mysql/postgres. For sqlite, creates database/database.sqlite if missing. Picking a database is exclusive — switching from one to another removes the previous entry from .lerd.yaml. Use this on fresh Laravel clones before env_setup.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"database": {
+						Type:        "string",
+						Description: `Database to use: "sqlite", "mysql", or "postgres"`,
+						Enum:        []string{"sqlite", "mysql", "postgres"},
+					},
+				},
+				Required: []string{"database"},
 			},
 		},
 		{
@@ -1089,6 +1143,10 @@ func toolList() []mcpTool {
 						Type:        "array",
 						Description: `List of one-off setup commands shown in "lerd setup" wizard. Each element is an object with "label" (string), "command" (string), optional "default" (boolean, pre-selected in wizard), and optional "check" (object with "file" or "composer" field — command is only shown when the check passes). e.g. [{"label": "Load fixtures", "command": "php bin/console doctrine:fixtures:load", "check": {"composer": "doctrine/doctrine-fixtures-bundle"}}]`,
 					},
+					"logs": {
+						Type:        "array",
+						Description: `List of log source definitions for the app log viewer. Each element is an object with "path" (glob relative to project root, e.g. "storage/logs/*.log") and optional "format" ("monolog" for Monolog format, "raw" for plain text; default: "raw"). e.g. [{"path": "storage/logs/*.log", "format": "monolog"}]`,
+					},
 				},
 				Required: []string{"name"},
 			},
@@ -1301,6 +1359,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execLogs(args)
 	case "composer":
 		return execComposer(args)
+	case "vendor_bins":
+		return execVendorBins(args)
+	case "vendor_run":
+		return execVendorRun(args)
 	case "node_install":
 		return execNodeInstall(args)
 	case "node_uninstall":
@@ -1325,6 +1387,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execServiceExpose(args)
 	case "env_setup":
 		return execEnvSetup(args)
+	case "db_set":
+		return execDbSet(args)
 	case "env_check":
 		return execEnvCheck(args)
 	case "site_link":
@@ -2041,6 +2105,78 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	return toolOK(strings.TrimSpace(out.String())), nil
 }
 
+func execVendorBins(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	dir := filepath.Join(projectPath, "vendor", "bin")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return toolErr("no vendor/bin directory — run composer install first"), nil
+		}
+		return toolErr("failed to read vendor/bin: " + err.Error()), nil
+	}
+	var bins []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		bins = append(bins, e.Name())
+	}
+	sort.Strings(bins)
+	if len(bins) == 0 {
+		return toolOK("vendor/bin is empty"), nil
+	}
+	return toolOK(strings.Join(bins, "\n")), nil
+}
+
+func execVendorRun(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	bin := strArg(args, "bin")
+	if bin == "" {
+		return toolErr("bin is required"), nil
+	}
+	// Reject path separators — composer bins are flat filenames.
+	if strings.ContainsAny(bin, "/\\") {
+		return toolErr("bin must be a plain filename, not a path"), nil
+	}
+	binPath := filepath.Join(projectPath, "vendor", "bin", bin)
+	info, statErr := os.Stat(binPath)
+	if statErr != nil || info.IsDir() {
+		return toolErr(fmt.Sprintf("vendor/bin/%s not found in %s", bin, projectPath)), nil
+	}
+	binArgs := strSliceArg(args, "args")
+
+	phpVersion, err := phpDet.DetectVersion(projectPath)
+	if err != nil {
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil {
+			return toolErr("failed to detect PHP version: " + err.Error()), nil
+		}
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+
+	short := strings.ReplaceAll(phpVersion, ".", "")
+	container := "lerd-php" + short + "-fpm"
+
+	cmdArgs := []string{"exec", "-w", projectPath, container, "php", "vendor/bin/" + bin}
+	cmdArgs = append(cmdArgs, binArgs...)
+
+	var out bytes.Buffer
+	cmd := exec.Command("podman", cmdArgs...)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("vendor/bin/%s failed (%v):\n%s", bin, err, out.String())), nil
+	}
+	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
 func execNodeInstall(args map[string]any) (any, *rpcError) {
 	version := strArg(args, "version")
 	if version == "" {
@@ -2434,6 +2570,67 @@ func execEnvSetup(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("env setup failed (%v):\n%s", err, out.String())), nil
 	}
 	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
+// execDbSet sets the database for a Laravel project: persists the choice to
+// .lerd.yaml (replacing any existing sqlite/mysql/postgres entry) and re-runs
+// `lerd env` so the .env file is rewritten and any required service is started
+// + database created (or, for sqlite, the database file is touched).
+func execDbSet(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	choice := strings.ToLower(strings.TrimSpace(strArg(args, "database")))
+	switch choice {
+	case "sqlite", "mysql", "postgres":
+	case "":
+		return toolErr("database is required — must be one of: sqlite, mysql, postgres"), nil
+	default:
+		return toolErr(fmt.Sprintf("invalid database %q — must be one of: sqlite, mysql, postgres", choice)), nil
+	}
+
+	// Load .lerd.yaml (or start fresh) and replace any existing DB entry.
+	proj, _ := config.LoadProjectConfig(projectPath)
+	if proj == nil {
+		proj = &config.ProjectConfig{}
+	}
+	dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	previous := ""
+	filtered := proj.Services[:0]
+	for _, svc := range proj.Services {
+		if dbNames[svc.Name] {
+			previous = svc.Name
+			continue
+		}
+		filtered = append(filtered, svc)
+	}
+	proj.Services = append(filtered, config.ProjectService{Name: choice})
+	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
+		return toolErr("saving .lerd.yaml: " + err.Error()), nil
+	}
+
+	// Re-exec `lerd env` so the choice is applied to .env immediately. We
+	// shell out to the same binary so the existing service-loop, sqlite file
+	// creation, and database provisioning logic all run unchanged.
+	self, err := os.Executable()
+	if err != nil {
+		return toolErr("could not resolve lerd executable: " + err.Error()), nil
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(self, "env")
+	cmd.Dir = projectPath
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("db_set saved .lerd.yaml but lerd env failed (%v):\n%s", err, out.String())), nil
+	}
+
+	summary := fmt.Sprintf("Database set to %s", choice)
+	if previous != "" && previous != choice {
+		summary = fmt.Sprintf("Database changed from %s to %s", previous, choice)
+	}
+	return toolOK(summary + "\n\n" + strings.TrimSpace(out.String())), nil
 }
 
 func execEnvCheck(args map[string]any) (any, *rpcError) {
@@ -2999,6 +3196,10 @@ func execFrameworkList() (any, *rpcError) {
 		Default bool       `json:"default,omitempty"`
 		Check   *checkInfo `json:"check,omitempty"`
 	}
+	type logSourceInfo struct {
+		Path   string `json:"path"`
+		Format string `json:"format,omitempty"`
+	}
 	type frameworkInfo struct {
 		Name      string                `json:"name"`
 		Label     string                `json:"label"`
@@ -3008,6 +3209,7 @@ func execFrameworkList() (any, *rpcError) {
 		BuiltIn   bool                  `json:"built_in"`
 		Workers   map[string]workerInfo `json:"workers,omitempty"`
 		Setup     []setupInfo           `json:"setup,omitempty"`
+		Logs      []logSourceInfo       `json:"logs,omitempty"`
 	}
 	var result []frameworkInfo
 	for _, fw := range frameworks {
@@ -3045,6 +3247,10 @@ func execFrameworkList() (any, *rpcError) {
 			}
 			setup = append(setup, si)
 		}
+		var logSources []logSourceInfo
+		for _, ls := range merged.Logs {
+			logSources = append(logSources, logSourceInfo{Path: ls.Path, Format: ls.Format})
+		}
 		result = append(result, frameworkInfo{
 			Name:      merged.Name,
 			Label:     merged.Label,
@@ -3054,6 +3260,7 @@ func execFrameworkList() (any, *rpcError) {
 			BuiltIn:   merged.Name == "laravel",
 			Workers:   workers,
 			Setup:     setup,
+			Logs:      logSources,
 		})
 	}
 	if result == nil {
@@ -3120,12 +3327,28 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	if name == "laravel" {
-		// For Laravel, only persist custom workers and setup (built-in handles everything else)
-		if len(workers) == 0 && len(setup) == 0 {
-			return toolErr("workers or setup is required when customising laravel"), nil
+	// Parse logs sources if provided
+	var logs []config.FrameworkLogSource
+	if raw, ok := args["logs"]; ok {
+		if arr, ok := raw.([]any); ok {
+			for _, item := range arr {
+				if obj, ok := item.(map[string]any); ok {
+					path, _ := obj["path"].(string)
+					format, _ := obj["format"].(string)
+					if path != "" {
+						logs = append(logs, config.FrameworkLogSource{Path: path, Format: format})
+					}
+				}
+			}
 		}
-		fw := &config.Framework{Name: "laravel", Workers: workers, Setup: setup}
+	}
+
+	if name == "laravel" {
+		// For Laravel, only persist custom workers, setup, and logs (built-in handles everything else)
+		if len(workers) == 0 && len(setup) == 0 && len(logs) == 0 {
+			return toolErr("workers, setup, or logs is required when customising laravel"), nil
+		}
+		fw := &config.Framework{Name: "laravel", Workers: workers, Setup: setup, Logs: logs}
 		if err := config.SaveFramework(fw); err != nil {
 			return toolErr(fmt.Sprintf("saving framework: %v", err)), nil
 		}
@@ -3160,6 +3383,7 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 		NPM:       "auto",
 		Workers:   workers,
 		Setup:     setup,
+		Logs:      logs,
 	}
 	if fw.PublicDir == "" {
 		fw.PublicDir = "public"

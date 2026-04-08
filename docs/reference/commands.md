@@ -183,6 +183,9 @@ Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with
 |---|---|
 | `lerd console [args...]` | Run the framework's console command (e.g., `php artisan` for Laravel, `php bin/console` for Symfony) inside the project's PHP-FPM container |
 | `lerd artisan [args...]` | Alias for `lerd console` (Laravel-specific, kept for backward compatibility) |
+| `lerd a [args...]` | Short alias for `lerd console` / `lerd artisan` |
+| `lerd test [args...]` | Shortcut for `lerd artisan test` |
+| `lerd <vendor-bin> [args...]` | Run any composer-installed binary from the project's `vendor/bin` directory (e.g. `lerd pest`, `lerd pint`, `lerd phpstan`). Real lerd commands always win over vendor binaries with the same name. |
 | `lerd shell` | Open an interactive shell inside the project's PHP-FPM container |
 
 ## AI integration

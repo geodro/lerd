@@ -54,6 +54,8 @@ func main() {
 	root.AddCommand(cli.NewPhpCmd())
 	root.AddCommand(cli.NewPhpShellCmd())
 	root.AddCommand(cli.NewConsoleCmd())
+	root.AddCommand(cli.NewTestCmd())
+	root.AddCommand(cli.NewVendorBinCmd())
 	root.AddCommand(cli.NewEnvCmd())
 	root.AddCommand(cli.NewEnvCheckCmd())
 	root.AddCommand(cli.NewNodeCmd())
@@ -112,9 +114,54 @@ func main() {
 	root.AddCommand(newWatchCmd())
 	root.AddCommand(newServeUICmd())
 
+	maybeDispatchVendorBin(root)
+
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// maybeDispatchVendorBin rewrites os.Args to invoke the hidden `vendor-bin`
+// subcommand when the first positional arg doesn't match any registered cobra
+// command but does match an executable in the project's `vendor/bin` directory.
+// Real lerd commands always win — this only kicks in for unknown names.
+func maybeDispatchVendorBin(root *cobra.Command) {
+	if len(os.Args) < 2 {
+		return
+	}
+	first := os.Args[1]
+	if first == "" || strings.HasPrefix(first, "-") {
+		return
+	}
+	if isKnownCommand(root, first) {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	if !cli.VendorBinExists(cwd, first) {
+		return
+	}
+	rest := os.Args[2:]
+	newArgs := make([]string, 0, len(rest)+3)
+	newArgs = append(newArgs, os.Args[0], "vendor-bin", first)
+	newArgs = append(newArgs, rest...)
+	os.Args = newArgs
+}
+
+func isKnownCommand(root *cobra.Command, name string) bool {
+	for _, c := range root.Commands() {
+		if c.Name() == name {
+			return true
+		}
+		for _, a := range c.Aliases {
+			if a == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // newServeUICmd returns the serve-ui command.

@@ -91,11 +91,20 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
-	serviceOptions := make([]string, len(knownServices))
-	copy(serviceOptions, knownServices)
+	// Database is picked separately as a single choice (sqlite | mysql | postgres),
+	// while other services are a multi-select. This mirrors the runtime prompt in
+	// `lerd env` and prevents users from accidentally selecting both mysql and
+	// postgres for the same project.
+	dbServiceNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	nonDBServiceOptions := make([]string, 0, len(knownServices))
+	for _, svc := range knownServices {
+		if !dbServiceNames[svc] {
+			nonDBServiceOptions = append(nonDBServiceOptions, svc)
+		}
+	}
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, svc := range customs {
-			serviceOptions = append(serviceOptions, svc.Name)
+			nonDBServiceOptions = append(nonDBServiceOptions, svc.Name)
 		}
 	}
 
@@ -105,10 +114,34 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		serviceDefaults = detectServicesFromDir(cwd)
 	}
 
+	// Split detected/saved services into the DB choice and the rest.
+	dbChoice := "sqlite"
+	for _, name := range serviceDefaults {
+		if dbServiceNames[name] {
+			dbChoice = name
+			break
+		}
+	}
+	// If nothing was saved/detected for DB, fall back to whatever .env says
+	// (or sqlite, which is also Laravel's default).
+	if dbChoice == "sqlite" {
+		switch detectDBConnection(cwd) {
+		case "mysql", "mariadb":
+			dbChoice = "mysql"
+		case "pgsql", "postgres":
+			dbChoice = "postgres"
+		}
+	}
+	nonDBSelected := make([]string, 0, len(serviceDefaults))
+	for _, name := range serviceDefaults {
+		if !dbServiceNames[name] {
+			nonDBSelected = append(nonDBSelected, name)
+		}
+	}
+
 	phpVersion := phpDefault
 	nodeVersion := defaults.NodeVersion
 	secured := defaults.Secured
-	selectedServices := serviceDefaults
 
 	// Detect available workers from the framework definition.
 	// If horizon is installed, show it instead of queue (they're mutually exclusive).
@@ -162,10 +195,18 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 			huh.NewConfirm().
 				Title("Enable HTTPS?").
 				Value(&secured),
+			huh.NewSelect[string]().
+				Title("Database").
+				Options(
+					huh.NewOption("SQLite (no service)", "sqlite"),
+					huh.NewOption("MySQL (lerd-mysql)", "mysql"),
+					huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
+				).
+				Value(&dbChoice),
 			huh.NewMultiSelect[string]().
 				Title("Services").
-				Options(huh.NewOptions(serviceOptions...)...).
-				Value(&selectedServices),
+				Options(huh.NewOptions(nonDBServiceOptions...)...).
+				Value(&nonDBSelected),
 		),
 	}
 
@@ -183,6 +224,12 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		return nil, err
 	}
 
+	// Recombine the database pick and the non-DB multi-select into a single
+	// services list for serialization. dbChoice is always one of sqlite/mysql/postgres.
+	selectedServices := make([]string, 0, len(nonDBSelected)+1)
+	selectedServices = append(selectedServices, dbChoice)
+	selectedServices = append(selectedServices, nonDBSelected...)
+
 	// For custom (non-built-in) frameworks, embed the definition so the project
 	// is fully portable — another machine can restore it from .lerd.yaml alone.
 	var frameworkDef *config.Framework
@@ -195,10 +242,12 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	// Build an index of custom service definitions to embed in .lerd.yaml.
 	// Priority: existing inline definition in defaults > definition file on disk.
 	// Built-in services (knownServices) are never embedded — they don't need to be.
-	builtIn := make(map[string]bool, len(knownServices))
+	// sqlite is treated as built-in here even though it's not a quadlet service.
+	builtIn := make(map[string]bool, len(knownServices)+1)
 	for _, s := range knownServices {
 		builtIn[s] = true
 	}
+	builtIn["sqlite"] = true
 	inlineByName := map[string]*config.CustomService{}
 	for _, svc := range defaults.Services {
 		if svc.Custom != nil {
@@ -250,6 +299,25 @@ func detectServicesFromDir(cwd string) []string {
 	}
 
 	return detectServicesHeuristic(envExampleFallback(envFilePath), envFormat)
+}
+
+// detectDBConnection returns the lowercased DB_CONNECTION value from the
+// project's env file, preferring .env over .env.example. Empty string when
+// no env file exists or the key is unset.
+func detectDBConnection(cwd string) string {
+	frameworkName, _ := resolveFramework(cwd)
+
+	envFilePath := filepath.Join(cwd, ".env")
+	envFormat := "dotenv"
+
+	if fw, ok := config.GetFramework(frameworkName); ok {
+		f, fmtName := fw.Env.Resolve(cwd)
+		envFilePath = filepath.Join(cwd, f)
+		envFormat = fmtName
+	}
+
+	readKey := makeEnvReader(envExampleFallback(envFilePath), envFormat)
+	return strings.ToLower(strings.TrimSpace(readKey("DB_CONNECTION")))
 }
 
 // envExampleFallback returns path if it exists, or path+".example" if that
@@ -418,5 +486,16 @@ func applyProjectConfig(cwd string) error {
 		}
 	}
 
-	return runLink([]string{})
+	if err := runLink([]string{}); err != nil {
+		return err
+	}
+
+	// Apply the wizard's service choices (database, etc.) to .env so the user
+	// sees DB_CONNECTION/DB_HOST/etc. updated immediately after the wizard.
+	// Best-effort — failures are warned, not fatal, since the link itself
+	// succeeded and the user can re-run `lerd env` manually.
+	if err := runEnv(nil, nil); err != nil {
+		fmt.Printf("[WARN] lerd env: %v\n", err)
+	}
+	return nil
 }

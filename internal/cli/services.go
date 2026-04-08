@@ -21,6 +21,13 @@ type serviceInfo struct {
 }
 
 var serviceEnvVars = map[string]serviceInfo{
+	// sqlite is not a podman service — it's a per-project file. Listed here so
+	// the env writer can apply Laravel's standard sqlite settings when the user
+	// explicitly chooses sqlite in the wizard or runtime prompt.
+	"sqlite": {envVars: []string{
+		"DB_CONNECTION=sqlite",
+		"DB_DATABASE=database/database.sqlite",
+	}},
 	"mysql": {envVars: []string{
 		"DB_CONNECTION=mysql",
 		"DB_HOST=lerd-mysql",

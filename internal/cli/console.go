@@ -17,7 +17,7 @@ import (
 func NewConsoleCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:                "console [args...]",
-		Aliases:            []string{"artisan"},
+		Aliases:            []string{"artisan", "a"},
 		Short:              "Run framework console command in the project's container",
 		Example:            "  lerd console cache:clear\n  lerd console make:controller User",
 		DisableFlagParsing: true,

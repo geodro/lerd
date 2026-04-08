@@ -11,6 +11,40 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.7.1] — 2026-04-08
+
+### Added
+
+- **Database picker in `lerd init`** — the wizard's services step is now split into a single-choice **Database** select (sqlite / mysql / postgres) and a multi-select for everything else. The default is seeded from any database already in `.lerd.yaml`, then `DB_CONNECTION` in `.env` (or `.env.example` for fresh clones), falling back to SQLite. After the wizard completes, `lerd env` runs automatically so the choice immediately lands in `.env` — picking MySQL/PostgreSQL writes the connection vars and creates the project database (plus `_testing`), picking SQLite writes `DB_CONNECTION=sqlite` and creates `database/database.sqlite` if it's missing.
+- **Runtime database prompt in `lerd env`** — when run interactively on a Laravel project whose `.env` says `DB_CONNECTION=sqlite` and whose `.lerd.yaml` doesn't yet pick a database, `lerd env` now prompts for a deliberate choice (Keep SQLite / MySQL / PostgreSQL) and persists it so subsequent runs don't re-ask. Skipped automatically when stdin isn't a TTY (CI, MCP, scripted runs) and for frameworks with explicit env service rules (Symfony, WordPress, etc.) that don't use `DB_CONNECTION`.
+- **`db_set` MCP tool** — pick the database for a Laravel project from an AI assistant: `db_set(database: "sqlite" | "mysql" | "postgres")`. Persists the choice to `.lerd.yaml` (replacing any prior database — the choice is exclusive), rewrites the `DB_` keys in `.env`, starts the service if needed, and creates the database (or the SQLite file). The companion `env_setup` tool's description now points at `db_set` so AI assistants know to call it before `env_setup` on fresh Laravel clones — `env_setup` alone leaves `DB_CONNECTION=sqlite` untouched.
+- **SQLite as a first-class env-time choice** — `serviceEnvVars["sqlite"]` now applies `DB_CONNECTION=sqlite` and `DB_DATABASE=database/database.sqlite`. The `lerd env` flow special-cases sqlite so it isn't treated as a podman service: no quadlet, no `service_start`, just the env vars and the file creation. The user's database choice in `.lerd.yaml` is authoritative — switching from mysql → sqlite (or vice versa) skips the auto-detection of the previous database in `.env`.
+
+### Fixed
+
+- **`vendor_bins` / `vendor_run` missing from injected MCP skills** — the new vendor/bin tooling shipped in v1.7.0 was registered with the MCP server but absent from the skill content that `lerd mcp:inject` writes into `.claude/skills/lerd/SKILL.md` and `.junie/guidelines.md`, so AI assistants weren't told the tools existed. Both files now describe the tools with examples for pest, phpunit, pint, phpstan, and rector. Re-run `lerd mcp:inject` in existing projects to pick up the updated skill content.
+
+---
+
+## [1.7.0] — 2026-04-08
+
+### Added
+
+- **Application log viewer in the UI** — site detail view now has an App Logs tab that parses application log files into a structured table with level, date, and message columns, expandable to show full stacktraces. Frameworks declare log file locations and parser format via a new `logs` field in their YAML; Laravel defaults to `storage/logs/*.log` with Monolog parsing. Auto-selects the site with the most recent log activity on page load, refreshes every 5 seconds, and supports search filtering plus a Latest/All toggle. Entries display oldest-first (newest at the bottom), pinned to the bottom on every refresh, matching the streaming container/queue/worker log panes.
+- **`vendor/bin` shortcuts and `lerd test` / `lerd a` aliases** — any composer-installed binary in the project's `vendor/bin` is now callable directly as `lerd <name>` (e.g. `lerd pest`, `lerd pint`, `lerd phpstan`), routed through the project's PHP-FPM container with `vendor/bin` prepended to `PATH`. Built-in lerd commands always win on name collisions. Two new shortcuts: `lerd a` (alias for `artisan`) and `lerd test` (shortcut for `artisan test`). The same surface is exposed to MCP clients via `vendor_bins` (list) and `vendor_run` (execute). Closes #101.
+- **Laravel installer shipped globally** — `lerd install` now offers to install `laravel/installer` as a global composer package and creates a `laravel` shim in `BinDir` routed through `lerd php`, so the `laravel` command works directly in the terminal the way Herd ships it. The prompt defaults to yes and runs before the parallel TUI to avoid stdin conflicts. Closes #98.
+- **Site favicons in the UI** — the UI detects `favicon.ico`/`svg`/`png` in each site's public directory and serves them via `GET /api/sites/{domain}/favicon`. The sites list and detail header now display the favicon when available, falling back to the status dot.
+
+### Changed
+
+- **PHP and Node version selects deferred until loaded** — the version dropdowns in the site detail view now show static placeholders while the version lists are still loading, preventing the browser from resetting `selectedSite.php_version` / `node_version` to an empty string and causing spurious change events.
+
+### Fixed
+
+- **Dark mode dropdown readability** — the PHP and Node version selectors now apply explicit option background and text colors so the dropdown menu is readable in dark mode.
+
+---
+
 ## [1.6.3] — 2026-04-06
 
 ### Changed

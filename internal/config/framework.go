@@ -26,6 +26,8 @@ type Framework struct {
 	// Create is the scaffold command used by "lerd new". The target directory is appended automatically.
 	// Example: "composer create-project --no-install --no-plugins --no-scripts laravel/laravel"
 	Create string `yaml:"create,omitempty"`
+	// Logs defines where application log files live for this framework.
+	Logs []FrameworkLogSource `yaml:"logs,omitempty"`
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.
@@ -35,6 +37,12 @@ type FrameworkWorker struct {
 	Command string         `yaml:"command"`
 	Restart string         `yaml:"restart,omitempty"` // always | on-failure (default: always)
 	Check   *FrameworkRule `yaml:"check,omitempty"`   // only show when check passes (file exists or composer package installed)
+}
+
+// FrameworkLogSource describes where application log files live for a framework.
+type FrameworkLogSource struct {
+	Path   string `yaml:"path"`             // glob relative to project root, e.g. "storage/logs/*.log"
+	Format string `yaml:"format,omitempty"` // "monolog" | "raw" (default: "raw")
 }
 
 // FrameworkSetupCmd describes a one-off bootstrap command run during project setup.
@@ -159,6 +167,9 @@ var laravelFramework = &Framework{
 		{Label: "php artisan migrate", Command: "php artisan migrate", Default: true},
 		{Label: "php artisan db:seed", Command: "php artisan db:seed", Default: false},
 	},
+	Logs: []FrameworkLogSource{
+		{Path: "storage/logs/*.log", Format: "monolog"},
+	},
 }
 
 // GetFramework returns the framework definition for the given name.
@@ -188,6 +199,9 @@ func GetFramework(name string) (*Framework, bool) {
 				}
 				if userFw.Setup != nil {
 					merged.Setup = userFw.Setup
+				}
+				if userFw.Logs != nil {
+					merged.Logs = userFw.Logs
 				}
 			}
 		}
@@ -284,8 +298,8 @@ func SaveFramework(fw *Framework) error {
 	}
 	toSave := fw
 	if fw.Name == "laravel" {
-		// Only persist workers and setup — built-in handles everything else
-		toSave = &Framework{Name: fw.Name, Workers: fw.Workers, Setup: fw.Setup}
+		// Only persist workers, setup, and logs — built-in handles everything else
+		toSave = &Framework{Name: fw.Name, Workers: fw.Workers, Setup: fw.Setup, Logs: fw.Logs}
 	}
 	data, err := yaml.Marshal(toSave)
 	if err != nil {
