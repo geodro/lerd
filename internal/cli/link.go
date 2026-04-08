@@ -110,18 +110,15 @@ func runLink(args []string) error {
 		domains = append([]string{explicit}, filtered...)
 	}
 
-	// Validate that none of the domains are already used by another site.
-	for _, d := range domains {
-		if isReservedDomain(d) {
-			return fmt.Errorf("domain %q is reserved for internal Lerd use", d)
-		}
-		if existing, err := config.IsDomainUsed(d); err == nil && existing != nil {
-			// Allow re-linking the same site (same path).
-			if existing.Path != cwd {
-				return fmt.Errorf("domain %q is already used by site %q", d, existing.Name)
-			}
-		}
-	}
+	// Filter out domains already owned by another site (and reserved domains).
+	// The check is strict — a domain may only belong to one site regardless of
+	// TLS scheme. We never touch .lerd.yaml on disk; the surviving in-memory
+	// list is what gets registered. If everything was conflicted, fall back to
+	// a freshly generated <baseName>.<tld>. Re-linking the same path is not a
+	// conflict.
+	kept, removed := resolveSiteDomains(domains, baseName, cwd, cfg.DNS.TLD)
+	warnFilteredDomains(removed)
+	domains = kept
 
 	phpVersion, err := phpDet.DetectVersion(cwd)
 	if err != nil {
@@ -173,13 +170,37 @@ func runLink(args []string) error {
 		return fmt.Errorf("registering site: %w", err)
 	}
 
-	// Write domains to .lerd.yaml (creates or updates).
+	// Write domains to .lerd.yaml (creates or updates). Preserve any domain
+	// that was originally declared but got filtered out by resolveSiteDomains
+	// (because another site already owns it) — the user's declared intent is
+	// the source of truth on disk, and surfacing the conflict in the UI
+	// requires the dropped entry to remain visible. The conflict will be
+	// re-evaluated on the next link, so the filtered domain self-heals when
+	// the conflicting site is removed.
 	{
 		proj, _ := config.LoadProjectConfig(cwd)
 		suffix := "." + cfg.DNS.TLD
+		seen := make(map[string]bool)
 		var names []string
+		// First, the registered (post-filter) domains in their current order —
+		// preserves the "explicit arg becomes primary" behavior of `lerd link`.
 		for _, d := range site.Domains {
-			names = append(names, strings.TrimSuffix(d, suffix))
+			name := strings.TrimSuffix(d, suffix)
+			low := strings.ToLower(name)
+			if !seen[low] {
+				names = append(names, name)
+				seen[low] = true
+			}
+		}
+		// Then, any pre-existing .lerd.yaml entries that didn't survive the
+		// conflict filter. They get appended at the end so they don't become
+		// primary, but they stay visible to the UI as conflict warnings.
+		for _, d := range proj.Domains {
+			low := strings.ToLower(d)
+			if !seen[low] {
+				names = append(names, d)
+				seen[low] = true
+			}
 		}
 		proj.Domains = names
 		if err := config.SaveProjectConfig(cwd, proj); err != nil {

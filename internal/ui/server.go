@@ -325,40 +325,50 @@ type WorkerStatus struct {
 	Failing bool   `json:"failing,omitempty"`
 }
 
+// ConflictingDomain describes a domain declared in .lerd.yaml that wasn't
+// registered for the site because another site on this machine already owns
+// it. Surfaced to the UI so the domain modal can render a warning icon next
+// to the entry with the owning site name.
+type ConflictingDomain struct {
+	Domain  string `json:"domain"`
+	OwnedBy string `json:"owned_by"`
+}
+
 // SiteResponse is the response for GET /api/sites.
 type SiteResponse struct {
-	Name              string             `json:"name"`
-	Domain            string             `json:"domain"`
-	Domains           []string           `json:"domains"`
-	Path              string             `json:"path"`
-	PHPVersion        string             `json:"php_version"`
-	NodeVersion       string             `json:"node_version"`
-	TLS               bool               `json:"tls"`
-	Framework         string             `json:"framework"`
-	FPMRunning        bool               `json:"fpm_running"`
-	IsLaravel         bool               `json:"is_laravel"`
-	FrameworkLabel    string             `json:"framework_label"`
-	QueueRunning      bool               `json:"queue_running"`
-	QueueFailing      bool               `json:"queue_failing,omitempty"`
-	StripeRunning     bool               `json:"stripe_running"`
-	StripeSecretSet   bool               `json:"stripe_secret_set"`
-	ScheduleRunning   bool               `json:"schedule_running"`
-	ScheduleFailing   bool               `json:"schedule_failing,omitempty"`
-	ReverbRunning     bool               `json:"reverb_running"`
-	ReverbFailing     bool               `json:"reverb_failing,omitempty"`
-	HasReverb         bool               `json:"has_reverb"`
-	HasHorizon        bool               `json:"has_horizon"`
-	HorizonRunning    bool               `json:"horizon_running"`
-	HorizonFailing    bool               `json:"horizon_failing,omitempty"`
-	HasQueueWorker    bool               `json:"has_queue_worker"`
-	HasScheduleWorker bool               `json:"has_schedule_worker"`
-	FrameworkWorkers  []WorkerStatus     `json:"framework_workers,omitempty"`
-	HasAppLogs        bool               `json:"has_app_logs"`
-	LatestLogTime     string             `json:"latest_log_time,omitempty"`
-	HasFavicon        bool               `json:"has_favicon"`
-	Paused            bool               `json:"paused"`
-	Branch            string             `json:"branch"`
-	Worktrees         []WorktreeResponse `json:"worktrees"`
+	Name               string              `json:"name"`
+	Domain             string              `json:"domain"`
+	Domains            []string            `json:"domains"`
+	ConflictingDomains []ConflictingDomain `json:"conflicting_domains,omitempty"`
+	Path               string              `json:"path"`
+	PHPVersion         string              `json:"php_version"`
+	NodeVersion        string              `json:"node_version"`
+	TLS                bool                `json:"tls"`
+	Framework          string              `json:"framework"`
+	FPMRunning         bool                `json:"fpm_running"`
+	IsLaravel          bool                `json:"is_laravel"`
+	FrameworkLabel     string              `json:"framework_label"`
+	QueueRunning       bool                `json:"queue_running"`
+	QueueFailing       bool                `json:"queue_failing,omitempty"`
+	StripeRunning      bool                `json:"stripe_running"`
+	StripeSecretSet    bool                `json:"stripe_secret_set"`
+	ScheduleRunning    bool                `json:"schedule_running"`
+	ScheduleFailing    bool                `json:"schedule_failing,omitempty"`
+	ReverbRunning      bool                `json:"reverb_running"`
+	ReverbFailing      bool                `json:"reverb_failing,omitempty"`
+	HasReverb          bool                `json:"has_reverb"`
+	HasHorizon         bool                `json:"has_horizon"`
+	HorizonRunning     bool                `json:"horizon_running"`
+	HorizonFailing     bool                `json:"horizon_failing,omitempty"`
+	HasQueueWorker     bool                `json:"has_queue_worker"`
+	HasScheduleWorker  bool                `json:"has_schedule_worker"`
+	FrameworkWorkers   []WorkerStatus      `json:"framework_workers,omitempty"`
+	HasAppLogs         bool                `json:"has_app_logs"`
+	LatestLogTime      string              `json:"latest_log_time,omitempty"`
+	HasFavicon         bool                `json:"has_favicon"`
+	Paused             bool                `json:"paused"`
+	Branch             string              `json:"branch"`
+	Worktrees          []WorktreeResponse  `json:"worktrees"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -486,6 +496,41 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 
+		// Compute conflicting domains: ones declared in .lerd.yaml that weren't
+		// registered because another site on this machine already owns them.
+		// The check happens at link/auto-register time but the original list
+		// in .lerd.yaml is preserved on disk, so we surface the discrepancy
+		// here for the UI to render with a warning icon.
+		var conflicting []ConflictingDomain
+		if proj, projErr := config.LoadProjectConfig(s.Path); projErr == nil && proj != nil && len(proj.Domains) > 0 {
+			gcfg, _ := config.LoadGlobal()
+			tld := ""
+			if gcfg != nil {
+				tld = gcfg.DNS.TLD
+			}
+			registered := make(map[string]bool, len(s.Domains))
+			for _, d := range s.Domains {
+				registered[d] = true
+			}
+			for _, declared := range proj.Domains {
+				full := strings.ToLower(declared)
+				if tld != "" {
+					full = full + "." + tld
+				}
+				if registered[full] {
+					continue
+				}
+				owner := ""
+				if owning, _ := config.IsDomainUsed(full); owning != nil && owning.Path != s.Path {
+					owner = owning.Name
+				}
+				conflicting = append(conflicting, ConflictingDomain{
+					Domain:  full,
+					OwnedBy: owner,
+				})
+			}
+		}
+
 		worktreeResponses := []WorktreeResponse{}
 		mainBranch := gitpkg.MainBranch(s.Path)
 		if wts, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain()); err == nil {
@@ -499,38 +544,39 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		}
 
 		sites = append(sites, SiteResponse{
-			Name:              s.Name,
-			Domain:            s.PrimaryDomain(),
-			Domains:           s.Domains,
-			Path:              s.Path,
-			PHPVersion:        phpVersion,
-			NodeVersion:       nodeVersion,
-			TLS:               s.Secured,
-			Framework:         s.Framework,
-			IsLaravel:         isLaravel,
-			FrameworkLabel:    frameworkLabel(fwName),
-			FPMRunning:        fpmRunning,
-			QueueRunning:      queueStatus == "active",
-			QueueFailing:      queueStatus == "activating" || queueStatus == "failed",
-			StripeRunning:     stripeStatus == "active",
-			StripeSecretSet:   stripeSecretSet,
-			ScheduleRunning:   scheduleStatus == "active",
-			ScheduleFailing:   scheduleStatus == "activating" || scheduleStatus == "failed",
-			ReverbRunning:     reverbStatus == "active",
-			ReverbFailing:     reverbStatus == "activating" || reverbStatus == "failed",
-			HasReverb:         hasReverb,
-			HasHorizon:        hasHorizon,
-			HorizonRunning:    horizonStatus == "active",
-			HorizonFailing:    horizonStatus == "activating" || horizonStatus == "failed",
-			HasQueueWorker:    hasQueueWorker,
-			HasScheduleWorker: hasScheduleWorker,
-			FrameworkWorkers:  fwWorkers,
-			HasAppLogs:        hasFw && len(fw.Logs) > 0,
-			LatestLogTime:     latestLogTime(hasFw, fw, s.Path),
-			HasFavicon:        detectFavicon(s.Path, s.PublicDir) != "",
-			Paused:            s.Paused,
-			Branch:            mainBranch,
-			Worktrees:         worktreeResponses,
+			Name:               s.Name,
+			Domain:             s.PrimaryDomain(),
+			Domains:            s.Domains,
+			ConflictingDomains: conflicting,
+			Path:               s.Path,
+			PHPVersion:         phpVersion,
+			NodeVersion:        nodeVersion,
+			TLS:                s.Secured,
+			Framework:          s.Framework,
+			IsLaravel:          isLaravel,
+			FrameworkLabel:     frameworkLabel(fwName),
+			FPMRunning:         fpmRunning,
+			QueueRunning:       queueStatus == "active",
+			QueueFailing:       queueStatus == "activating" || queueStatus == "failed",
+			StripeRunning:      stripeStatus == "active",
+			StripeSecretSet:    stripeSecretSet,
+			ScheduleRunning:    scheduleStatus == "active",
+			ScheduleFailing:    scheduleStatus == "activating" || scheduleStatus == "failed",
+			ReverbRunning:      reverbStatus == "active",
+			ReverbFailing:      reverbStatus == "activating" || reverbStatus == "failed",
+			HasReverb:          hasReverb,
+			HasHorizon:         hasHorizon,
+			HorizonRunning:     horizonStatus == "active",
+			HorizonFailing:     horizonStatus == "activating" || horizonStatus == "failed",
+			HasQueueWorker:     hasQueueWorker,
+			HasScheduleWorker:  hasScheduleWorker,
+			FrameworkWorkers:   fwWorkers,
+			HasAppLogs:         hasFw && len(fw.Logs) > 0,
+			LatestLogTime:      latestLogTime(hasFw, fw, s.Path),
+			HasFavicon:         detectFavicon(s.Path, s.PublicDir) != "",
+			Paused:             s.Paused,
+			Branch:             mainBranch,
+			Worktrees:          worktreeResponses,
 		})
 	}
 	if sites == nil {
@@ -1545,10 +1591,40 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fullDomain := strings.ToLower(domainName) + "." + cfg.DNS.TLD
+
+		// If the domain isn't in the registered list, it might still be in the
+		// project's .lerd.yaml as a conflict-filtered entry. Remove it from
+		// .lerd.yaml only — no registry, vhost, or cert work needed.
 		if !site.HasDomain(fullDomain) {
-			writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
+			proj, projErr := config.LoadProjectConfig(site.Path)
+			if projErr != nil || proj == nil {
+				writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
+				return
+			}
+			suffix := "." + cfg.DNS.TLD
+			declared := strings.TrimSuffix(fullDomain, suffix)
+			found := false
+			var kept []string
+			for _, d := range proj.Domains {
+				if strings.EqualFold(d, declared) {
+					found = true
+					continue
+				}
+				kept = append(kept, d)
+			}
+			if !found {
+				writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
+				return
+			}
+			proj.Domains = kept
+			if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+				writeJSON(w, SiteActionResponse{Error: "updating .lerd.yaml: " + err.Error()})
+				return
+			}
+			writeJSON(w, SiteActionResponse{OK: true})
 			return
 		}
+
 		if len(site.Domains) <= 1 {
 			writeJSON(w, SiteActionResponse{Error: "cannot remove the last domain"})
 			return
