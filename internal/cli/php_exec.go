@@ -32,7 +32,13 @@ func runPhp(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	return RunPHP(cwd, args)
+}
 
+// RunPHP execs `php <args...>` inside the project's PHP-FPM container, with
+// stdio wired to the current terminal. Used by `lerd php`, the vendor/bin
+// fallback, and other passthrough commands that need a PHP runtime.
+func RunPHP(cwd string, args []string) error {
 	version, err := phpDet.DetectVersion(cwd)
 	if err != nil {
 		cfg, cfgErr := config.LoadGlobal()
@@ -56,6 +62,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 		composerHome = filepath.Join(xdgConfig, "composer")
 	}
 	composerBin := filepath.Join(composerHome, "vendor", "bin")
+	projectVendorBin := filepath.Join(cwd, "vendor", "bin")
 
 	if running, _ := podman.ContainerRunning(container); !running {
 		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
@@ -88,7 +95,7 @@ func runPhp(_ *cobra.Command, args []string) error {
 	cmdArgs := append(execFlags, "-w", cwd,
 		"--env", "HOME="+home,
 		"--env", "COMPOSER_HOME="+composerHome,
-		"--env", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:"+composerBin,
+		"--env", "PATH="+projectVendorBin+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:"+composerBin,
 		container, "php",
 	)
 	cmdArgs = append(cmdArgs, args...)
