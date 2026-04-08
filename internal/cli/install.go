@@ -543,7 +543,7 @@ fi
 		if err := os.WriteFile(fishConf, []byte(content), 0644); err != nil {
 			return err
 		}
-		installCompletion(lerdBin, "fish", filepath.Join(home, ".config", "fish", "completions"), "lerd.fish")
+		installCompletionFn(lerdBin, "fish", filepath.Join(home, ".config", "fish", "completions"), "lerd.fish")
 		return nil
 	case isShell(shell, "zsh"):
 		if err := appendShellRC(filepath.Join(home, ".zshrc"), binDir); err != nil {
@@ -551,7 +551,7 @@ fi
 		}
 		zshFunctionsDir := filepath.Join(home, ".local", "share", "zsh", "site-functions")
 		if err := os.MkdirAll(zshFunctionsDir, 0755); err == nil {
-			installCompletion(lerdBin, "zsh", zshFunctionsDir, "_lerd")
+			installCompletionFn(lerdBin, "zsh", zshFunctionsDir, "_lerd")
 			ensureZshFpath(filepath.Join(home, ".zshrc"), zshFunctionsDir)
 		}
 		return nil
@@ -561,7 +561,7 @@ fi
 		}
 		bashCompDir := filepath.Join(home, ".local", "share", "bash-completion", "completions")
 		if err := os.MkdirAll(bashCompDir, 0755); err == nil {
-			installCompletion(lerdBin, "bash", bashCompDir, "lerd")
+			installCompletionFn(lerdBin, "bash", bashCompDir, "lerd")
 		}
 		return nil
 	}
@@ -585,6 +585,10 @@ func appendShellRC(rcFile, binDir string) error {
 func isShell(shell, name string) bool {
 	return len(shell) > 0 && filepath.Base(shell) == name
 }
+
+// installCompletionFn is a var so tests can stub it out without spawning the
+// test binary (which would cause infinite recursion).
+var installCompletionFn = installCompletion
 
 // installCompletion generates and writes a shell completion script for lerd.
 func installCompletion(lerdBin, shell, dir, filename string) {
