@@ -30,6 +30,26 @@ php artisan migrate
 composer install
 ```
 
+### Shortcuts and `vendor/bin` fallback
+
+For common workflows there are a few built-in shortcuts:
+
+- `lerd a [args...]` — short alias for `lerd artisan` (also `lerd console`)
+- `lerd test [args...]` — runs `lerd artisan test`
+
+In addition, any composer-installed binary in the project's `vendor/bin` directory is callable directly as `lerd <name>`. For example, with the usual Laravel dev tooling installed:
+
+```bash
+lerd pest
+lerd pint
+lerd phpstan analyse
+lerd rector process
+```
+
+These run inside the project's PHP-FPM container with the project's working directory mounted, so configuration files (`pest.xml`, `pint.json`, `phpstan.neon`, etc.) are picked up automatically. Real lerd commands always take precedence — if you have a `vendor/bin/composer`, `lerd composer` still resolves to the built-in command.
+
+The MCP integration exposes the same surface through two tools, `vendor_bins` (list available binaries) and `vendor_run` (execute one), so AI assistants can discover and run project tooling without per-project configuration.
+
 ---
 
 ## Version resolution
