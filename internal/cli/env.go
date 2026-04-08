@@ -172,7 +172,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		dbForm := huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Database").
-				Description(envRelPath + " uses SQLite. Use a lerd-managed database service instead?").
+				Description(envRelPath+" uses SQLite. Use a lerd-managed database service instead?").
 				Options(
 					huh.NewOption("Keep SQLite", "sqlite"),
 					huh.NewOption("MySQL (lerd-mysql)", "mysql"),
