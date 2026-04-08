@@ -419,6 +419,7 @@ func confirmInstallPrompt(question string) bool {
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	return answer != "n" && answer != "no"
 }
+
 // downloadFile downloads a URL to a local file, printing a progress bar to w.
 func downloadFile(url, dest string, mode os.FileMode, w io.Writer) error {
 	fmt.Fprintf(w, "\n      Downloading %s\n      ", url)
