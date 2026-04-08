@@ -26,7 +26,7 @@
 
 ## Project initialisation
 
-`lerd init` runs an interactive wizard that asks you three questions, writes the answers to `.lerd.yaml` in the project root, and then applies the configuration — linking the site, enabling HTTPS if requested, and starting any required services.
+`lerd init` runs an interactive wizard, writes the answers to `.lerd.yaml` in the project root, and then applies the configuration — linking the site, enabling HTTPS if requested, picking a database, and starting any required services.
 
 ```bash
 cd ~/Projects/my-app
@@ -35,11 +35,14 @@ lerd init
 
 ```
 ? PHP version: 8.4
+? Node version (leave blank to skip):
 ? Enable HTTPS? No
-? Services needed:
-  ◉ mysql
+? Database:
+  > SQLite (no service)
+    MySQL (lerd-mysql)
+    PostgreSQL (lerd-postgres)
+? Services:
   ◉ redis
-  ◯ postgres
   ◯ meilisearch
   ◯ rustfs
   ◯ mailpit
@@ -51,7 +54,19 @@ Wizard defaults are populated intelligently on first run:
 
 - **PHP version** — from the site registry if already linked, otherwise from `.php-version`, `composer.json`, or the global default
 - **Enable HTTPS** — pre-checked if the site is already secured
-- **Services** — pre-checked based on what's detected in the project's `.env` file
+- **Database** — pre-selected from any database already in `.lerd.yaml`, otherwise from `DB_CONNECTION` in `.env` (or `.env.example` for a fresh clone), falling back to SQLite (Laravel's default for new projects)
+- **Services** — pre-checked based on what's detected in the project's `.env` file (only non-database services here — the database is its own step)
+
+The Database step is a single choice rather than a multi-select, so picking MySQL automatically deselects SQLite and vice-versa. After the wizard completes, `lerd env` runs automatically to write your choices to `.env`:
+
+- **MySQL / PostgreSQL** — `DB_CONNECTION` and the related `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` keys are rewritten to point at `lerd-mysql` / `lerd-postgres`, the service is started if it isn't already, and the project database (plus a `_testing` variant) is created.
+- **SQLite** — `DB_CONNECTION=sqlite` and `DB_DATABASE=database/database.sqlite` are written to `.env`, and the `database/database.sqlite` file is created if it doesn't exist. No service is started.
+
+The choice is authoritative: if `.env` already had `DB_CONNECTION=mysql` from a previous setup and you switch to SQLite (or vice versa) in the wizard, lerd skips the auto-detection of the old database and applies your new pick instead.
+
+The same prompt also appears when you run `lerd env` directly on a project whose `.env` says SQLite and whose `.lerd.yaml` doesn't yet have a database picked — for example, after cloning a project that wasn't created with `lerd init`. The prompt is skipped automatically when stdin isn't a TTY (e.g. `lerd setup --all` in CI), and for frameworks with explicit env service rules (`fw.env.services` in the YAML — Symfony, WordPress, etc.) since those don't use Laravel's `DB_CONNECTION` convention.
+
+Persistence is one-way: lerd reads the source of truth from `.lerd.yaml` and writes only to `.env`. `.env.example` is never modified — it's only used as a template when `.env` doesn't exist yet.
 
 The resulting `.lerd.yaml` is intended to be committed to the repository. On a new machine or after a reinstall, running `lerd init` again reads the saved file and restores the full configuration without any prompts.
 

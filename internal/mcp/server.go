@@ -490,7 +490,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_setup",
-			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project.",
+			Description: "Configure the project's .env for lerd: creates .env from .env.example if missing, detects services (mysql, redis, etc.), starts them, creates databases, generates APP_KEY (works even before composer install), and sets APP_URL. Run this once after cloning a project. Note: when run on a fresh Laravel project where .env still says DB_CONNECTION=sqlite, env_setup leaves the database choice alone — call db_set first to pick a database explicitly.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -499,6 +499,25 @@ func toolList() []mcpTool {
 						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
 					},
 				},
+			},
+		},
+		{
+			Name:        "db_set",
+			Description: "Pick the database for a Laravel project: sqlite (local file, no service), mysql (lerd-mysql), or postgres (lerd-postgres). Persists the choice to .lerd.yaml, rewrites the relevant DB_ keys in .env, starts the service if needed, and creates the project database (and a _testing variant) for mysql/postgres. For sqlite, creates database/database.sqlite if missing. Picking a database is exclusive — switching from one to another removes the previous entry from .lerd.yaml. Use this on fresh Laravel clones before env_setup.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path": {
+						Type:        "string",
+						Description: "Absolute path to the Laravel project root. Defaults to LERD_SITE_PATH when omitted.",
+					},
+					"database": {
+						Type:        "string",
+						Description: `Database to use: "sqlite", "mysql", or "postgres"`,
+						Enum:        []string{"sqlite", "mysql", "postgres"},
+					},
+				},
+				Required: []string{"database"},
 			},
 		},
 		{
@@ -1368,6 +1387,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execServiceExpose(args)
 	case "env_setup":
 		return execEnvSetup(args)
+	case "db_set":
+		return execDbSet(args)
 	case "env_check":
 		return execEnvCheck(args)
 	case "site_link":
@@ -2550,6 +2571,67 @@ func execEnvSetup(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("env setup failed (%v):\n%s", err, out.String())), nil
 	}
 	return toolOK(strings.TrimSpace(out.String())), nil
+}
+
+// execDbSet sets the database for a Laravel project: persists the choice to
+// .lerd.yaml (replacing any existing sqlite/mysql/postgres entry) and re-runs
+// `lerd env` so the .env file is rewritten and any required service is started
+// + database created (or, for sqlite, the database file is touched).
+func execDbSet(args map[string]any) (any, *rpcError) {
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
+	}
+	choice := strings.ToLower(strings.TrimSpace(strArg(args, "database")))
+	switch choice {
+	case "sqlite", "mysql", "postgres":
+	case "":
+		return toolErr("database is required — must be one of: sqlite, mysql, postgres"), nil
+	default:
+		return toolErr(fmt.Sprintf("invalid database %q — must be one of: sqlite, mysql, postgres", choice)), nil
+	}
+
+	// Load .lerd.yaml (or start fresh) and replace any existing DB entry.
+	proj, _ := config.LoadProjectConfig(projectPath)
+	if proj == nil {
+		proj = &config.ProjectConfig{}
+	}
+	dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	previous := ""
+	filtered := proj.Services[:0]
+	for _, svc := range proj.Services {
+		if dbNames[svc.Name] {
+			previous = svc.Name
+			continue
+		}
+		filtered = append(filtered, svc)
+	}
+	proj.Services = append(filtered, config.ProjectService{Name: choice})
+	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
+		return toolErr("saving .lerd.yaml: " + err.Error()), nil
+	}
+
+	// Re-exec `lerd env` so the choice is applied to .env immediately. We
+	// shell out to the same binary so the existing service-loop, sqlite file
+	// creation, and database provisioning logic all run unchanged.
+	self, err := os.Executable()
+	if err != nil {
+		return toolErr("could not resolve lerd executable: " + err.Error()), nil
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(self, "env")
+	cmd.Dir = projectPath
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return toolErr(fmt.Sprintf("db_set saved .lerd.yaml but lerd env failed (%v):\n%s", err, out.String())), nil
+	}
+
+	summary := fmt.Sprintf("Database set to %s", choice)
+	if previous != "" && previous != choice {
+		summary = fmt.Sprintf("Database changed from %s to %s", previous, choice)
+	}
+	return toolOK(summary + "\n\n" + strings.TrimSpace(out.String())), nil
 }
 
 func execEnvCheck(args map[string]any) (any, *rpcError) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
@@ -157,6 +158,45 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Laravel ships .env / .env.example with DB_CONNECTION=sqlite. If the user
+	// hasn't yet picked a DB service for this project, offer to swap sqlite for
+	// a lerd-managed mysql/postgres. Skipped for frameworks with explicit env
+	// service rules (e.g. wordpress, symfony) — they don't use DB_CONNECTION.
+	// "Keep SQLite" is persisted by adding "sqlite" to the project's services
+	// list so we don't re-ask on every subsequent `lerd env` run.
+	if len(fw.Env.Services) == 0 && isInteractive() &&
+		!lerdYAMLServices["mysql"] && !lerdYAMLServices["postgres"] && !lerdYAMLServices["sqlite"] &&
+		strings.EqualFold(strings.TrimSpace(envMap["DB_CONNECTION"]), "sqlite") {
+
+		dbChoice := "sqlite"
+		dbForm := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Database").
+				Description(envRelPath + " uses SQLite. Use a lerd-managed database service instead?").
+				Options(
+					huh.NewOption("Keep SQLite", "sqlite"),
+					huh.NewOption("MySQL (lerd-mysql)", "mysql"),
+					huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
+				).
+				Value(&dbChoice),
+		)).WithTheme(huh.ThemeCatppuccin())
+		if err := dbForm.Run(); err != nil {
+			return fmt.Errorf("database prompt: %w", err)
+		}
+
+		// Persist the choice to .lerd.yaml so future runs don't re-ask, and
+		// flip the in-memory map so the service loop below picks it up.
+		proj, _ := config.LoadProjectConfig(cwd)
+		if proj == nil {
+			proj = &config.ProjectConfig{}
+		}
+		proj.Services = append(proj.Services, config.ProjectService{Name: dbChoice})
+		if err := config.SaveProjectConfig(cwd, proj); err != nil {
+			fmt.Printf("  [WARN] could not save .lerd.yaml: %v\n", err)
+		}
+		lerdYAMLServices[dbChoice] = true
+	}
+
 	if len(fw.Env.Services) > 0 {
 		// Framework defines its own service detection and vars — use those.
 		for svc, def := range fw.Env.Services {
@@ -192,9 +232,21 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	} else {
 		// Default Laravel-style detection.
+		// If the user has an explicit DB choice in .lerd.yaml (sqlite, mysql,
+		// or postgres), it overrides whatever the existing .env happens to say
+		// about DB_CONNECTION — otherwise switching from mysql → sqlite (or
+		// vice versa) via the wizard would silently keep the old credentials.
+		userPickedDB := lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"]
+
 		for _, svc := range knownServices {
 			detector, ok := serviceDetectors[svc]
 			detectedFromEnv := ok && detector(envMap)
+
+			// Skip auto-detected DBs the user didn't pick.
+			if userPickedDB && (svc == "mysql" || svc == "postgres") && !lerdYAMLServices[svc] {
+				continue
+			}
+
 			if !detectedFromEnv && !lerdYAMLServices[svc] {
 				continue
 			}
@@ -253,6 +305,27 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 			if err := ensureServiceRunning(svc); err != nil {
 				fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
+			}
+		}
+	}
+
+	// 3a-bis. SQLite is not a containerized service but is a valid choice from
+	// the init wizard / runtime DB prompt. When listed in .lerd.yaml, apply the
+	// standard Laravel sqlite env vars and ensure the database file exists so
+	// migrations can run immediately. No service to start, no SQL DB to create.
+	if lerdYAMLServices["sqlite"] {
+		fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", "sqlite")
+		for _, kv := range serviceEnvVars["sqlite"].envVars {
+			k, v, _ := strings.Cut(kv, "=")
+			updates[k] = v
+		}
+		sqlitePath := filepath.Join(cwd, "database", "database.sqlite")
+		if _, statErr := os.Stat(sqlitePath); os.IsNotExist(statErr) {
+			if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o755); err == nil {
+				if f, err := os.Create(sqlitePath); err == nil {
+					_ = f.Close()
+					fmt.Printf("  Created %s\n", filepath.Join("database", "database.sqlite"))
+				}
 			}
 		}
 	}

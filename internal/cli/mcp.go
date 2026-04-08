@@ -284,7 +284,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment fo
 
 ## Path resolution
 
-Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain_add` + bt + `, ` + bt + `site_domain_remove` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `db_set` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain_add` + bt + `, ` + bt + `site_domain_remove` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
 1. Explicit ` + bt + `path` + bt + ` argument
 2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
 3. **Current working directory** — the directory Claude was opened in
@@ -495,6 +495,27 @@ Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 
 > Run this right after ` + bt + `site_link` + bt + ` when setting up a fresh project.
+>
+> **Database default:** on a fresh Laravel clone where ` + bt + `.env` + bt + ` still says ` + bt + `DB_CONNECTION=sqlite` + bt + `, ` + bt + `env_setup` + bt + ` leaves the database choice alone. Call ` + bt + `db_set` + bt + ` first to pick ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + ` / ` + bt + `sqlite` + bt + ` deliberately, then ` + bt + `env_setup` + bt + ` (or just ` + bt + `db_set` + bt + ` alone — it already runs the env step).
+
+### ` + bt + `db_set` + bt + `
+Pick the database for a Laravel project. Persists the choice to ` + bt + `.lerd.yaml` + bt + ` (replacing any prior database entry — the choice is exclusive), rewrites the relevant ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, and provisions the backing storage:
+- ` + bt + `sqlite` + bt + ` — sets ` + bt + `DB_CONNECTION=sqlite` + bt + ` and ` + bt + `DB_DATABASE=database/database.sqlite` + bt + `, creates the file if missing. No service is started.
+- ` + bt + `mysql` + bt + ` — sets ` + bt + `DB_CONNECTION=mysql` + bt + ` and the ` + bt + `lerd-mysql` + bt + ` connection vars, starts ` + bt + `lerd-mysql` + bt + ` if needed, creates ` + bt + `<project>` + bt + ` and ` + bt + `<project>_testing` + bt + ` databases.
+- ` + bt + `postgres` + bt + ` — sets ` + bt + `DB_CONNECTION=pgsql` + bt + ` and the ` + bt + `lerd-postgres` + bt + ` connection vars, starts ` + bt + `lerd-postgres` + bt + ` if needed, creates the project databases.
+
+Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` / cwd
+- ` + bt + `database` + bt + ` (required): one of ` + bt + `"sqlite"` + bt + `, ` + bt + `"mysql"` + bt + `, ` + bt + `"postgres"` + bt + `
+
+Examples:
+` + "```" + `
+db_set(database: "mysql")        // fresh Laravel clone, switch to MySQL
+db_set(database: "postgres")     // switch from MySQL → PostgreSQL (removes mysql)
+db_set(database: "sqlite")       // explicitly keep SQLite (and create the file)
+` + "```" + `
+
+> Use this **before** ` + bt + `env_setup` + bt + ` on a fresh Laravel project so the database lands in ` + bt + `.env` + bt + ` deliberately. Switching databases later via ` + bt + `db_set` + bt + ` removes the previous database entry from ` + bt + `.lerd.yaml` + bt + ` automatically.
 
 ### ` + bt + `env_check` + bt + `
 Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and show a table of missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
@@ -905,7 +926,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `vendor_run` + bt + ` | Run a binary from ` + bt + `vendor/bin` + bt + ` (pest, phpunit, pint, phpstan, rector, …) inside the PHP-FPM container |
 | ` + bt + `node_install` + bt + ` | Install a Node.js version via fnm (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
-| ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY |
+| ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first) |
+| ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
 | ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` and flag missing or extra keys |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
@@ -961,6 +983,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `path` + bt + ` argument is optional on most tools — defaults to the directory the AI assistant was opened in (cwd), then ` + bt + `LERD_SITE_PATH` + bt + ` if set; you can almost always omit it
 - ` + bt + `artisan` + bt + ` is Laravel-only; ` + bt + `console` + bt + ` is the equivalent for non-Laravel frameworks — both take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
 - ` + bt + `vendor_run` + bt + ` is the right way to invoke project tooling like pest, phpunit, pint, phpstan, rector — call ` + bt + `vendor_bins` + bt + ` first to discover what's installed, then ` + bt + `vendor_run(bin: "<name>", args: [...])` + bt + `; prefer it over ` + bt + `composer(args: ["exec", ...])` + bt + `
+- On a **fresh Laravel clone** (DB_CONNECTION=sqlite in ` + bt + `.env` + bt + `), call ` + bt + `db_set(database: "mysql"|"postgres"|"sqlite")` + bt + ` before ` + bt + `env_setup` + bt + ` to pick a database deliberately. ` + bt + `env_setup` + bt + ` on its own won't switch the database away from sqlite.
 - ` + bt + `tinker` + bt + ` must use ` + bt + `--execute=<code>` + bt + ` for non-interactive use
 - Built-in service hosts follow the pattern ` + bt + `lerd-<name>` + bt + ` (e.g. ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `)
 - Default DB credentials: username ` + bt + `root` + bt + `, password ` + bt + `lerd` + bt + `
