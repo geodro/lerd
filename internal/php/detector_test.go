@@ -147,6 +147,7 @@ func TestDetectVersion_ComposerJson(t *testing.T) {
 	data, _ := json.Marshal(composer)
 	os.WriteFile(filepath.Join(dir, "composer.json"), data, 0644)
 
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
