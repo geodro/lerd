@@ -19,7 +19,22 @@ Laravel has a built-in definition. Any other PHP framework (Symfony, WordPress, 
 
 ## Creating new projects
 
-Use `lerd new` to scaffold a new PHP project from a framework's create command:
+### Laravel installer
+
+Lerd ships with the [Laravel installer](https://laravel.com/docs/installation#creating-a-laravel-application) — it's already available in your CLI after `lerd install`:
+
+```bash
+laravel new myapp
+cd myapp
+lerd link
+lerd setup
+```
+
+The installer walks you through starter kit selection, database setup, and other options interactively.
+
+### lerd new
+
+`lerd new` is a framework-agnostic shortcut that runs the framework's scaffold command:
 
 ```bash
 lerd new myapp                          # create ./myapp using Laravel (default)
