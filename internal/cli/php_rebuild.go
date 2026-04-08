@@ -8,7 +8,6 @@ import (
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -77,8 +76,8 @@ func runPhpRebuild(cmd *cobra.Command, args []string) error {
 	// BindsTo stops them when the FPM container stops but does not restart
 	// them when it comes back up, so we do it explicitly here.
 	for _, unit := range append(append(registeredReverbUnits(), registeredQueueUnits()...), registeredScheduleUnits()...) {
-		if lerdSystemd.IsServiceActive(unit) || lerdSystemd.IsServiceEnabled(unit) {
-			if err := lerdSystemd.RestartService(unit); err != nil {
+		if services.Mgr.IsActive(unit) || services.Mgr.IsEnabled(unit) {
+			if err := services.Mgr.Restart(unit); err != nil {
 				fmt.Printf("  [WARN] restart %s: %v\n", unit, err)
 			} else {
 				fmt.Printf("  restarted %s\n", unit)
