@@ -16,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/nginx"
+	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
@@ -75,8 +76,14 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// Ask before RunParallel steals stdin.
-	wantLaravelInstaller := confirmInstallPrompt("Install Laravel installer (laravel new)?")
+	// Ask before RunParallel steals stdin. Only offer the Laravel installer
+	// when at least one PHP version is already installed — composer needs a
+	// PHP runtime, and asking the question on a fresh install (where no
+	// lerd-php*-fpm container exists) would just lead to a confusing failure.
+	var wantLaravelInstaller bool
+	if installedPHP, _ := phpDet.ListInstalled(); len(installedPHP) > 0 {
+		wantLaravelInstaller = confirmInstallPrompt("Install Laravel installer (laravel new)?")
+	}
 
 	// 4. mkcert CA — interactive (may prompt for sudo)
 	fmt.Println("  --> Installing mkcert CA")
@@ -326,11 +333,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	restoreSiteInfrastructure()
 
 	if wantLaravelInstaller {
-		fmt.Print("  --> Installing Laravel installer ... ")
+		fmt.Println("  --> Installing Laravel installer")
 		if err := installLaravelInstaller(); err != nil {
-			fmt.Printf("WARN: %v\n", err)
+			fmt.Printf("    WARN: %v\n", err)
 		} else {
-			ok()
+			fmt.Println("    OK")
 		}
 	}
 
@@ -442,11 +449,56 @@ func downloadBinaries(w io.Writer) error {
 	return nil
 }
 
-// installLaravelInstaller runs composer global require laravel/installer using
-// the composer shim so the `laravel` CLI is available for scaffolding new apps.
+// installLaravelInstaller runs composer global require laravel/installer
+// directly inside an installed PHP-FPM container so the `laravel` CLI is
+// available for scaffolding new apps. It bypasses the composer shim because
+// the shim relies on cwd-based PHP detection, which does not work when
+// install is invoked from a directory with no project metadata.
 func installLaravelInstaller() error {
-	composerBin := filepath.Join(config.BinDir(), "composer")
-	cmd := exec.Command(composerBin, "global", "require", "laravel/installer")
+	installed, err := phpDet.ListInstalled()
+	if err != nil || len(installed) == 0 {
+		return fmt.Errorf("no PHP version installed — install one with `lerd php:install <version>` first")
+	}
+
+	// Prefer the configured default PHP, otherwise use the highest installed.
+	version := installed[len(installed)-1]
+	if cfg, _ := config.LoadGlobal(); cfg != nil && cfg.PHP.DefaultVersion != "" {
+		for _, v := range installed {
+			if v == cfg.PHP.DefaultVersion {
+				version = v
+				break
+			}
+		}
+	}
+
+	short := strings.ReplaceAll(version, ".", "")
+	container := "lerd-php" + short + "-fpm"
+
+	if running, _ := podman.ContainerRunning(container); !running {
+		if err := podman.StartUnit(container); err != nil {
+			return fmt.Errorf("starting %s: %w", container, err)
+		}
+	}
+
+	home := os.Getenv("HOME")
+	composerHome := os.Getenv("COMPOSER_HOME")
+	if composerHome == "" {
+		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfig == "" {
+			xdgConfig = filepath.Join(home, ".config")
+		}
+		composerHome = filepath.Join(xdgConfig, "composer")
+	}
+
+	composerPhar := filepath.Join(config.BinDir(), "composer.phar")
+	// --no-interaction prevents composer from blocking on plugin trust prompts
+	// (e.g. "Do you trust 'symfony/flex' to execute code?") which would hang
+	// the installer with no visible output.
+	cmd := exec.Command("podman", "exec", "-i",
+		"--env", "HOME="+home,
+		"--env", "COMPOSER_HOME="+composerHome,
+		container, "php", composerPhar, "global", "require", "--no-interaction", "laravel/installer",
+	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
