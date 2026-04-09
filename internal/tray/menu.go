@@ -26,6 +26,7 @@ type menuState struct {
 	svcItems  [maxServices]*systray.MenuItem
 	svcNames  [maxServices]string
 	svcStatus [maxServices]string // "active" | "inactive" | "failed"
+	svcPaused [maxServices]bool
 	svcMu     sync.RWMutex
 
 	mPHPHdr    *systray.MenuItem
@@ -34,6 +35,7 @@ type menuState struct {
 	phpMu      sync.RWMutex
 
 	mAutostart *systray.MenuItem
+	mLAN       *systray.MenuItem
 	mUpdate    *systray.MenuItem
 	mQuit      *systray.MenuItem
 }
@@ -74,6 +76,7 @@ func buildMenu() *menuState {
 	systray.AddSeparator()
 
 	m.mAutostart = systray.AddMenuItem("Autostart at login: Off", "Toggle lerd autostart on login")
+	m.mLAN = systray.AddMenuItem("Expose to LAN: Off", "Toggle whether lerd is reachable from other devices on the local network")
 	m.mUpdate = systray.AddMenuItem("Check for update...", "Check for a newer version of Lerd")
 	m.mQuit = systray.AddMenuItem("Quit Lerd", "Stop all Lerd processes and containers")
 
@@ -113,8 +116,15 @@ func (m *menuState) apply(snap *Snapshot) {
 		svc := snap.Services[i]
 		m.svcNames[i] = svc.Name
 		m.svcStatus[i] = svc.Status
+		m.svcPaused[i] = svc.Paused
+		// Paused services render yellow regardless of unit state — they
+		// were manually stopped by the user so "red = broken" would be
+		// misleading.
 		dot := "🔴"
-		if svc.Status == "active" {
+		switch {
+		case svc.Paused:
+			dot = "🟡"
+		case svc.Status == "active":
 			dot = "🟢"
 		}
 		m.svcItems[i].SetTitle(fmt.Sprintf("%s %s", dot, svc.Name))
@@ -123,6 +133,7 @@ func (m *menuState) apply(snap *Snapshot) {
 	for i := scount; i < maxServices; i++ {
 		m.svcNames[i] = ""
 		m.svcStatus[i] = ""
+		m.svcPaused[i] = false
 		m.svcItems[i].Hide()
 	}
 	m.svcMu.Unlock()
@@ -154,6 +165,13 @@ func (m *menuState) apply(snap *Snapshot) {
 		m.mAutostart.SetTitle("Autostart at login: ✔ On")
 	} else {
 		m.mAutostart.SetTitle("Autostart at login: Off")
+	}
+
+	// LAN exposure
+	if snap.LANExposed {
+		m.mLAN.SetTitle("Expose to LAN: ✔ On")
+	} else {
+		m.mLAN.SetTitle("Expose to LAN: Off")
 	}
 
 	// Update availability

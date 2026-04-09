@@ -75,9 +75,9 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	if currentUser != "" {
 		out, err := exec.Command("loginctl", "show-user", currentUser).Output()
 		if err != nil || !strings.Contains(string(out), "Linger=yes") {
-			warn("linger enabled", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
+			warn("systemd linger", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
 		} else {
-			ok("linger enabled")
+			ok("systemd linger")
 		}
 	}
 

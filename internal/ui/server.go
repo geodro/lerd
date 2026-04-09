@@ -615,6 +615,7 @@ type ServiceResponse struct {
 	SiteCount          int               `json:"site_count"`
 	SiteDomains        []string          `json:"site_domains,omitempty"`
 	Pinned             bool              `json:"pinned"`
+	Paused             bool              `json:"paused,omitempty"`
 	DependsOn          []string          `json:"depends_on,omitempty"`
 	QueueSite          string            `json:"queue_site,omitempty"`
 	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
@@ -664,6 +665,7 @@ func buildServiceResponse(name string) ServiceResponse {
 		SiteCount:     countSitesUsingService(name),
 		SiteDomains:   sitesUsingService(name),
 		Pinned:        config.ServiceIsPinned(name),
+		Paused:        config.ServiceIsPaused(name),
 	}
 }
 
@@ -766,6 +768,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			SiteCount:   countSitesUsingService(svc.Name),
 			SiteDomains: sitesUsingService(svc.Name),
 			Pinned:      config.ServiceIsPinned(svc.Name),
+			Paused:      config.ServiceIsPaused(svc.Name),
 			DependsOn:   svc.DependsOn,
 		})
 	}
