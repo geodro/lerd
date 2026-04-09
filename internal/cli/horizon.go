@@ -98,25 +98,8 @@ func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
 			fmt.Printf("[WARN] stopping queue worker before horizon: %v\n", err)
 		}
 	}
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-horizon-" + siteName
-
-	unit := fmt.Sprintf(`[Unit]
-Description=Lerd Horizon (%s)
-After=network.target %s.service
-BindsTo=%s.service
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=5
-ExecStart=podman exec -w %s %s php artisan horizon
-
-[Install]
-WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
+	unit := buildHorizonUnit(siteName, sitePath, phpVersion)
 
 	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
 	if err != nil {
@@ -136,6 +119,30 @@ WantedBy=default.target
 	fmt.Printf("Horizon started for %s\n", siteName)
 	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
 	return nil
+}
+
+// buildHorizonUnit renders the Horizon systemd unit body. Horizon always
+// uses Redis so lerd-redis is in After=/Wants= alongside the FPM container.
+func buildHorizonUnit(siteName, sitePath, phpVersion string) string {
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := "lerd-php" + versionShort + "-fpm"
+
+	return fmt.Sprintf(`[Unit]
+Description=Lerd Horizon (%s)
+After=network.target %s.service lerd-redis.service
+Wants=%s.service lerd-redis.service
+BindsTo=%s.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=podman exec -w %s %s php artisan horizon
+
+[Install]
+WantedBy=default.target
+`, siteName, fpmUnit, fpmUnit, fpmUnit, sitePath, container)
 }
 
 // HorizonStopForSite stops and removes the Horizon unit for the named site.

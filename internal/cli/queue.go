@@ -127,37 +127,8 @@ func runQueueStop() error {
 }
 
 func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, timeout int) error {
-	// Pre-flight: if the site uses Redis as its queue connection, make sure
-	// lerd-redis is actually running. Without it the queue worker fails immediately
-	// with a cryptic PHP "getaddrinfo for lerd-redis failed" DNS error.
-	envPath := filepath.Join(sitePath, ".env")
-	if envfile.ReadKey(envPath, "QUEUE_CONNECTION") == "redis" {
-		if running, _ := podman.ContainerRunning("lerd-redis"); !running {
-			return fmt.Errorf("queue worker requires Redis (QUEUE_CONNECTION=redis in .env) but lerd-redis is not running\nStart it first: lerd services start redis")
-		}
-	}
-
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-queue-" + siteName
-
-	artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
-
-	unit := fmt.Sprintf(`[Unit]
-Description=Lerd Queue Worker (%s)
-After=network.target %s.service
-BindsTo=%s.service
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=5
-ExecStart=podman exec -w %s %s php artisan %s
-
-[Install]
-WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container, artisanArgs)
+	unit := buildQueueUnit(siteName, sitePath, phpVersion, queue, tries, timeout)
 
 	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
 	if err != nil {
@@ -184,6 +155,56 @@ WantedBy=default.target
 // QueueStartForSite starts a queue worker for the given site with default settings.
 func QueueStartForSite(siteName, sitePath, phpVersion string) error {
 	return queueStartExplicit(siteName, sitePath, phpVersion, "default", 3, 60)
+}
+
+// buildQueueUnit renders the systemd unit body for a queue worker. Pure
+// function so the dep wiring can be exercised in tests.
+func buildQueueUnit(siteName, sitePath, phpVersion, queue string, tries, timeout int) string {
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := "lerd-php" + versionShort + "-fpm"
+	artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
+
+	// Wants= the backing service so systemd pulls it in; Restart=always covers
+	// the ready-window between activation and the container accepting connections.
+	depUnits := append([]string{fpmUnit + ".service"}, queueDependencyUnits(sitePath)...)
+	afterLine := "After=network.target " + strings.Join(depUnits, " ")
+	wantsLine := "Wants=" + strings.Join(depUnits, " ")
+
+	return fmt.Sprintf(`[Unit]
+Description=Lerd Queue Worker (%s)
+%s
+%s
+BindsTo=%s.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=podman exec -w %s %s php artisan %s
+
+[Install]
+WantedBy=default.target
+`, siteName, afterLine, wantsLine, fpmUnit, sitePath, container, artisanArgs)
+}
+
+// queueDependencyUnits returns the lerd service unit(s) the queue worker
+// needs based on QUEUE_CONNECTION (and DB_CONNECTION). FPM is added by the
+// caller. Returns nil for sync / sqs / sqlite / unreadable .env.
+func queueDependencyUnits(sitePath string) []string {
+	envPath := filepath.Join(sitePath, ".env")
+	switch envfile.ReadKey(envPath, "QUEUE_CONNECTION") {
+	case "redis":
+		return []string{"lerd-redis.service"}
+	case "database":
+		switch envfile.ReadKey(envPath, "DB_CONNECTION") {
+		case "mysql", "mariadb":
+			return []string{"lerd-mysql.service"}
+		case "pgsql", "pgsql_pdo", "postgres":
+			return []string{"lerd-postgres.service"}
+		}
+	}
+	return nil
 }
 
 // QueueRestartForSite signals the Laravel queue worker to gracefully restart by
