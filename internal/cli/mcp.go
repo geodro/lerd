@@ -479,6 +479,29 @@ service_start(name: "phpmyadmin")   // starts mysql first, then phpmyadmin
 
 ` + bt + `service_remove` + bt + ` stops and deregisters a custom service. Persistent data is NOT deleted.
 
+### ` + bt + `service_preset_list` + bt + ` / ` + bt + `service_preset_install` + bt + `
+Lerd ships a small catalogue of opt-in **service presets** — bundled YAML definitions for common dev services that become normal custom services once installed. Use ` + bt + `service_preset_list` + bt + ` to see what's available and ` + bt + `service_preset_install` + bt + ` to install one. Prefer this over hand-rolling ` + bt + `service_add` + bt + ` for anything in the catalogue: presets ship sane defaults, dependency wiring, dashboard URLs, and (where relevant) rendered config files.
+
+Current catalogue: ` + bt + `phpmyadmin` + bt + ` (depends on built-in mysql), ` + bt + `pgadmin` + bt + ` (depends on built-in postgres, ships a pre-loaded servers.json + pgpass), ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + ` (depends on the ` + bt + `mongo` + bt + ` preset), ` + bt + `stripe-mock` + bt + `. Some presets (e.g. ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `) declare multiple versions in a single family — pass ` + bt + `version` + bt + ` to pick one, otherwise lerd installs the family default.
+
+Arguments:
+- ` + bt + `service_preset_list()` + bt + ` — returns each preset with its image, declared versions, dependencies, dashboard URL, and an ` + bt + `installed` + bt + ` flag
+- ` + bt + `service_preset_install(name, version?)` + bt + ` — installs a preset by name; ` + bt + `version` + bt + ` is required only for multi-version families when you want a specific tag
+
+Examples:
+` + "```" + `
+service_preset_list()
+service_preset_install(name: "phpmyadmin")           // adds phpmyadmin, mysql is built-in
+service_preset_install(name: "mongo")                // install mongo first…
+service_preset_install(name: "mongo-express")        // …then mongo-express (gated otherwise)
+service_preset_install(name: "mysql", version: "8.4")
+service_start(name: "phpmyadmin")                    // mysql is started automatically
+` + "```" + `
+
+**Dependency gating:** installing a preset whose dependency is another *custom* service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) is rejected with a clear error until the dependency is installed first. Built-in deps (mysql, postgres) are auto-satisfied.
+
+Once installed, presets are normal custom services — manage them with ` + bt + `service_start` + bt + `, ` + bt + `service_stop` + bt + `, ` + bt + `service_remove` + bt + `, ` + bt + `service_expose` + bt + `, ` + bt + `service_pin` + bt + `.
+
 ### ` + bt + `service_env` + bt + `
 Return the recommended Laravel ` + bt + `.env` + bt + ` connection variables for a service — built-in or custom — as a key/value map. Use this when you need to inspect or manually apply connection settings without running ` + bt + `env_setup` + bt + `.
 
@@ -961,6 +984,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `service_start` + bt + ` | Start a built-in or custom service |
 | ` + bt + `service_stop` + bt + ` | Stop a service |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
+| ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, stripe-mock, …) with versions and install state |
+| ` + bt + `service_preset_install` + bt + ` | Install a bundled preset by name (` + bt + `version` + bt + ` for multi-version families); becomes a normal custom service |
 | ` + bt + `service_remove` + bt + ` | Stop and deregister a custom service |
 | ` + bt + `service_expose` + bt + ` | Add or remove an extra published port on a built-in service (persisted) |
 | ` + bt + `service_env` + bt + ` | Return the recommended ` + bt + `.env` + bt + ` connection variables for a service |
@@ -1016,6 +1041,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
+- Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first
 - ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
 - ` + bt + `framework_add` + bt + ` accepts ` + bt + `workers` + bt + ` (map) and ` + bt + `setup` + bt + ` (array) — both support an optional ` + bt + `check` + bt + ` field (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `) to conditionally show based on project deps; for Laravel, custom setup commands replace built-in storage:link/migrate/db:seed
 - Framework env vars support service version placeholders: ` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + ` — resolved from the running service image tag
