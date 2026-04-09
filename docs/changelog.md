@@ -11,6 +11,21 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.1] — 2026-04-09
+
+### Fixed
+
+- **Queue workers silently lost on uninstall+reinstall** — `queueStartExplicit` ran a Redis preflight that returned an error before the unit file was written. Install-time `restoreSiteInfrastructure` runs *before* any services are started, so for sites with `QUEUE_CONNECTION=redis` the write step always failed and the worker units stayed missing on disk while systemd remembered them as `not-found failed`. The preflight is gone; the dependency now lives in the systemd unit itself. `lerd-queue-<site>.service` declares `After=`/`Wants=` for whatever the queue backend needs (`lerd-redis.service` when `QUEUE_CONNECTION=redis`, `lerd-mysql.service` / `lerd-postgres.service` for database-backed queues) on top of the FPM container, and `lerd-horizon-<site>.service` always declares `lerd-redis.service`. systemd handles the activation order and `Restart=always` covers the small ready-window between activation and the backing container accepting connections.
+- **Preset-installed services not regenerated on reinstall** — `restoreSiteInfrastructure` only handled inline custom services and built-in named refs. Preset references like `mariadb-11` (declared in `.lerd.yaml` as `mariadb-11: {preset: mariadb, version: "11"}`) fell through to `ensureServiceQuadlet`, which only knows about built-ins, so the silently-swallowed `unknown service` error left sites with no quadlet for any preset-installed service after an uninstall+reinstall cycle. The restore path now goes through `ProjectService.Resolve()` which already knows how to render both inline and preset references back into a concrete `CustomService`.
+
+### Changed
+
+- **`lerd status` shows `[preset]` for preset-installed services** instead of grouping them under `[custom]`. Hand-rolled custom services keep the `[custom]` label.
+- **Tagline reworded** — `lerd --help`, the `install.sh` banner, and the goreleaser GitHub release notes header now read `Lerd — Podman-powered local PHP dev environment for Linux` instead of `Laravel Herd for Linux — …`.
+- **Services walkthrough** (`docs/getting-started/services.md`) updated to lead with the bundled preset flow for MongoDB, phpMyAdmin, and pgAdmin (`lerd service preset <name>`) instead of the hand-rolled YAML each one used to require. Adminer, Elasticsearch, and RabbitMQ stay as full YAML recipes since there's no preset for them yet. Adminer's port bumped to 8083 to avoid colliding with the `mongo-express` preset on 8082.
+
+---
+
 ## [1.9.0] — 2026-04-09
 
 ### Added
