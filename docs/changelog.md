@@ -11,6 +11,34 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.0] — 2026-04-09
+
+### Added
+
+- **Service presets** — opt-in bundled service definitions surfaced via `lerd service preset` (list / install) and a `+` picker on the Web UI's Services tab. First batch ships `phpmyadmin`, `pgadmin`, `mongo`, `mongo-express`, and `stripe-mock` as embedded YAML that becomes a normal custom service once installed, so every existing `lerd service` subcommand (start/stop/remove/expose/pin) keeps working unchanged. Installed presets are filtered out of the picker; after install the user lands on the new service detail panel and the service auto-starts.
+- **Multi-version preset families** — presets can declare multiple versions in a single YAML (e.g. `mysql` 8.0/8.4/9.0, `mariadb` 10.11/11.4) and `lerd service preset` shows version pills on `list`, prompts for a version on install, and persists the chosen tag in `.lerd.yaml`. Family discovery groups versions by base name in both the CLI list and the Web UI picker.
+- **Preset MCP tools** — `service_preset_list` and `service_preset_install` expose the preset catalog and install flow to AI assistants, sharing the install path with the CLI through `serviceops.InstallPresetByName`. Re-run `lerd mcp:inject` in existing projects to pick up the new tool descriptions.
+- **Custom service `files:` field** — declare inline-rendered config files materialised on the host and bind-mounted into the container, with optional `mode` (octal perms) and `chown: true` (adds `:U` so podman re-chowns to the container's non-root uid). Used by the `pgadmin` preset to ship a `servers.json` + `pgpass` that autoconnects to `lerd-postgres`. Files re-render on every `lerd service start` so editing the YAML and restarting picks up changes.
+- **Custom service `connection_url:` field** — non-built-in databases now get the same "Open connection URL" link surface as the built-in mysql/postgres services. The detail panel renders a real `<a>` element pointing at `mysql://`, `postgresql://`, or `mongodb://` so right-click "Copy link" works and left-click hands the URL to the user's registered DB client (DBeaver, TablePlus, Compass, etc.).
+- **Recursive `service start`** — `lerd service start <svc>` now ensures every entry in `depends_on` is up first, recursively, in both the CLI and the Web UI. Pairs with the existing recursive stop that takes dependents down before the parent. Starting any preset that depends on a built-in (`phpmyadmin`, `pgadmin`) auto-starts the database.
+- **Preset dependency gating at install time** — installing a preset whose dependency is another *custom* service (e.g. `mongo-express` on `mongo`) is rejected with a clear error until the dependency is installed first. Built-in deps (mysql, postgres) are auto-satisfied. The Web UI's Add button is disabled with a matching amber "install mongo first" hint.
+- **Database service quality-of-life suggestions** — the detail panel of every database service (mysql, postgres, and an installed `mongo`) now shows a sky-blue suggestion banner offering to install its paired admin UI when missing. The banner is dismissable per-preset and the dismissal persists in `localStorage`. When the admin UI is installed, the header gains an Open phpMyAdmin / pgAdmin / Mongo Express button that auto-starts the admin service if needed.
+- **Lerd health dot in the Web UI** — the Lerd entry in the System list now reflects overall core health (green when DNS / nginx / watcher are all running, red when any is down, yellow when an update is available) instead of only the update flag. The lerd logo in the left rail gains a small yellow badge when an update is available and is clickable, jumping straight to the Lerd entry.
+- **One-click update terminal** — when an update is available, the Lerd entry exposes an "Open terminal & update" button that POSTs to the new loopback-only `/api/lerd/update-terminal` endpoint, which spawns the user's preferred terminal emulator (kitty / foot / alacritty / wezterm / ghostty / konsole / gnome-terminal / xfce4-terminal / tilix / terminator / xterm) running `lerd update` so the host can prompt for sudo and stream download progress.
+- **Getting-started walkthroughs** — new `docs/getting-started/laravel.md`, `symfony.md`, `wordpress.md`, and `services.md` pages plus a `docs/usage/lifecycle.md` reference covering how Lerd's units come up at boot and how `start` / `stop` / `autostart` interact.
+
+### Changed
+
+- **`autostart` is now a single coherent switch** — `cfg.Autostart.Disabled` is the canonical source of truth for whether lerd comes up at login. Toggling it enables/disables every `lerd-*.container` quadlet (by adding/stripping the `[Install]` section so the podman generator stops emitting the `default.target.wants` symlink) and every `lerd-*.service` unit (UI, watcher, per-site worker/queue/schedule/horizon/reverb/stripe) together. Toggling does not stop or start anything currently running — the user is in the middle of working and a session-level switch should not yank infrastructure out from under them. Use `lerd start` / `lerd stop` for live state.
+- **`lerd autostart tray` removed** — the tray is now governed by the same single autostart switch as everything else. The standalone `autostart tray` subcommand and the `lerd-autostart.service` unit file are gone.
+- **Service display labels** — the Web UI now shows phpMyAdmin, pgAdmin, MySQL, PostgreSQL, Meilisearch, Mailpit, RustFS, MongoDB, Mongo Express, and Stripe Mock with their proper casing.
+
+### Fixed
+
+- **Tray autostart was broken** — the tray autostart path went through the now-removed `lerd-autostart.service` shim and stopped enabling on fresh installs. The unified autostart toggle now covers the tray too, the per-unit autostart toggle is wired up correctly, and `lerd install` honours the persisted autostart state.
+
+---
+
 ## [1.8.0] — 2026-04-09
 
 ### Added
