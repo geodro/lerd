@@ -3,12 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/spf13/cobra"
 )
 
@@ -165,8 +165,8 @@ func newServiceStartCmd() *cobra.Command {
 
 			// Restart family consumers (e.g. phpMyAdmin) so they pick up
 			// the freshly-started member without DNS / connection caching.
-			if fam := serviceFamily(name); fam != "" {
-				regenerateFamilyConsumers(fam)
+			if fam := serviceops.ServiceFamily(name); fam != "" {
+				serviceops.RegenerateFamilyConsumers(fam)
 			}
 
 			printEnvVars(name)
@@ -185,31 +185,18 @@ func newServiceStopCmd() *cobra.Command {
 			StopServiceAndDependents(name)
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
-			if fam := serviceFamily(name); fam != "" {
-				regenerateFamilyConsumers(fam)
+			if fam := serviceops.ServiceFamily(name); fam != "" {
+				serviceops.RegenerateFamilyConsumers(fam)
 			}
 			return nil
 		},
 	}
 }
 
-// serviceFamily returns the family of a service by name. Honours the explicit
-// Family field on a custom service first, falls back to InferFamily for
-// built-ins and pattern-matched alternates.
-func serviceFamily(name string) string {
-	if svc, err := config.LoadCustomService(name); err == nil && svc.Family != "" {
-		return svc.Family
-	}
-	return config.InferFamily(name)
-}
-
-// RegenerateFamilyConsumersForService is the public entry the Web UI uses to
-// trigger consumer regeneration after a start/stop. No-op when the service
-// has no recognised family.
+// RegenerateFamilyConsumersForService is the public entry the Web UI uses
+// after a start/stop. Forwards to serviceops.
 func RegenerateFamilyConsumersForService(name string) {
-	if fam := serviceFamily(name); fam != "" {
-		regenerateFamilyConsumers(fam)
-	}
+	serviceops.RegenerateFamilyConsumersForService(name)
 }
 
 func newServiceRestartCmd() *cobra.Command {
@@ -477,108 +464,15 @@ func printPresetList() error {
 	return nil
 }
 
-// InstallPresetByName materialises a bundled preset as a custom service.
-// version selects a tag for multi-version presets; empty falls back to the
-// preset's DefaultVersion.
+// InstallPresetByName is a thin wrapper around serviceops.InstallPresetByName
+// kept for the existing call sites in cli (init wizard, link, web UI handler).
 func InstallPresetByName(name, version string) (*config.CustomService, error) {
-	preset, err := config.LoadPreset(name)
-	if err != nil {
-		return nil, err
-	}
-	if version != "" && len(preset.Versions) == 0 {
-		return nil, fmt.Errorf("preset %q does not declare versions", name)
-	}
-	svc, err := preset.Resolve(version)
-	if err != nil {
-		return nil, err
-	}
-	if isKnownService(svc.Name) {
-		return nil, fmt.Errorf("%q collides with the built-in service of the same name", svc.Name)
-	}
-	if _, err := config.LoadCustomService(svc.Name); err == nil {
-		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
-	}
-	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
-		return nil, fmt.Errorf("preset %q requires service(s) %s to be installed first", svc.Name, strings.Join(missing, ", "))
-	}
-	if err := config.SaveCustomService(svc); err != nil {
-		return nil, fmt.Errorf("saving service config: %w", err)
-	}
-	if err := ensureCustomServiceQuadlet(svc); err != nil {
-		return nil, fmt.Errorf("writing quadlet: %w", err)
-	}
-	if svc.Family != "" {
-		regenerateFamilyConsumers(svc.Family)
-	}
-	return svc, nil
+	return serviceops.InstallPresetByName(name, version)
 }
 
-// regenerateFamilyConsumers re-renders the quadlet of any installed custom
-// service whose dynamic_env references the named family. Used after installing
-// or removing a family member so admin UIs (e.g. phpMyAdmin) pick up the
-// updated host list immediately. Running services are stopped and started
-// (rather than restarted) so the new generated unit is guaranteed to be the
-// one systemd loads.
-func regenerateFamilyConsumers(family string) {
-	customs, err := config.ListCustomServices()
-	if err != nil {
-		return
-	}
-	for _, c := range customs {
-		if !consumesFamily(c, family) {
-			continue
-		}
-		if err := ensureCustomServiceQuadlet(c); err != nil {
-			fmt.Printf("  [WARN] regenerating %s quadlet: %v\n", c.Name, err)
-			continue
-		}
-		unit := "lerd-" + c.Name
-		status, _ := podman.UnitStatus(unit)
-		if status != "active" && status != "activating" {
-			continue
-		}
-		fmt.Printf("  Restarting %s to pick up updated %s family members...\n", unit, family)
-		if err := podman.StopUnit(unit); err != nil {
-			fmt.Printf("  [WARN] stopping %s: %v\n", unit, err)
-		}
-		podman.RemoveContainer(unit)
-		if err := podman.StartUnit(unit); err != nil {
-			fmt.Printf("  [WARN] starting %s: %v\n", unit, err)
-		}
-	}
-}
-
-func consumesFamily(svc *config.CustomService, family string) bool {
-	for _, directive := range svc.DynamicEnv {
-		parts := strings.SplitN(directive, ":", 2)
-		if len(parts) != 2 || parts[0] != "discover_family" {
-			continue
-		}
-		for _, fam := range strings.Split(parts[1], ",") {
-			if strings.TrimSpace(fam) == family {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// MissingPresetDependencies returns the names of services that svc declares in
-// depends_on but which are neither built-in nor already installed as custom
-// services. Exported so the web UI can surface dependency gating without
-// duplicating the rules.
+// MissingPresetDependencies is a thin wrapper around the serviceops helper.
 func MissingPresetDependencies(svc *config.CustomService) []string {
-	var missing []string
-	for _, dep := range svc.DependsOn {
-		if isKnownService(dep) {
-			continue
-		}
-		if _, err := config.LoadCustomService(dep); err == nil {
-			continue
-		}
-		missing = append(missing, dep)
-	}
-	return missing
+	return serviceops.MissingPresetDependencies(svc)
 }
 
 // newServiceRemoveCmd returns the `service remove` command.
@@ -624,7 +518,7 @@ func newServiceRemoveCmd() *cobra.Command {
 			}
 
 			if family != "" {
-				regenerateFamilyConsumers(family)
+				serviceops.RegenerateFamilyConsumers(family)
 			}
 
 			dataPath := config.DataSubDir(name)
@@ -653,25 +547,10 @@ func ensureServiceQuadlet(name string) error {
 	return podman.DaemonReload()
 }
 
-// ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
+// ensureCustomServiceQuadlet defers to serviceops so the CLI and the MCP
+// tools generate identical quadlets.
 func ensureCustomServiceQuadlet(svc *config.CustomService) error {
-	if svc.DataDir != "" {
-		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
-			return fmt.Errorf("creating data directory for %s: %w", svc.Name, err)
-		}
-	}
-	if err := config.MaterializeServiceFiles(svc); err != nil {
-		return err
-	}
-	if err := config.ResolveDynamicEnv(svc); err != nil {
-		return err
-	}
-	content := podman.GenerateCustomQuadlet(svc)
-	quadletName := "lerd-" + svc.Name
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
-	}
-	return podman.DaemonReload()
+	return serviceops.EnsureCustomServiceQuadlet(svc)
 }
 
 // newServiceExposeCmd returns the `service expose` command.
@@ -799,35 +678,14 @@ func newServiceUnpinCmd() *cobra.Command {
 	}
 }
 
-// StartServiceDependencies ensures every entry in svc.DependsOn is up and
-// ready before the parent is started. Built-in deps and custom deps are
-// handled identically by ensureServiceRunning, which recurses into nested
-// chains. Exported so the Web UI shares the same semantics as the CLI.
+// StartServiceDependencies and StopServiceAndDependents are thin wrappers so
+// the Web UI can share the same semantics as the CLI.
 func StartServiceDependencies(svc *config.CustomService) error {
-	if svc == nil {
-		return nil
-	}
-	for _, dep := range svc.DependsOn {
-		if err := ensureServiceRunning(dep); err != nil {
-			return fmt.Errorf("starting dependency %q for %q: %w", dep, svc.Name, err)
-		}
-	}
-	return nil
+	return serviceops.StartDependencies(svc)
 }
 
-// StopServiceAndDependents stops all custom services that depend on name
-// (depth-first), then stops name itself. Exported so the Web UI can share
-// the same recursive shutdown semantics as the CLI.
 func StopServiceAndDependents(name string) {
-	for _, dep := range config.CustomServicesDependingOn(name) {
-		StopServiceAndDependents(dep)
-	}
-	unit := "lerd-" + name
-	status, _ := podman.UnitStatus(unit)
-	if status == "active" || status == "activating" {
-		fmt.Printf("Stopping %s...\n", unit)
-		_ = podman.StopUnit(unit)
-	}
+	serviceops.StopWithDependents(name)
 }
 
 // autoStopUnusedServices stops any running service that has no active sites
