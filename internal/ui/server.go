@@ -52,6 +52,20 @@ var iconMaskable192PNG []byte
 //go:embed icons/icon-maskable-512.png
 var iconMaskable512PNG []byte
 
+// listenAddr is the address lerd-ui binds to. lerd-ui ALWAYS listens on
+// 0.0.0.0:7073 because:
+//
+//  1. The remote-control middleware (withRemoteControlGate) is the actual
+//     security boundary — it returns 403 on every non-loopback request
+//     when cfg.UI.PasswordHash is empty, and gates with HTTP Basic auth
+//     when set. The gate already enforces "loopback only" semantics
+//     regardless of where the TCP connection arrives.
+//  2. The lerd.localhost nginx vhost reverse-proxies static assets back
+//     to lerd-ui via host.containers.internal:7073 — that path goes
+//     through the podman bridge gateway, NOT loopback, so binding
+//     127.0.0.1 here would break the vhost.
+//
+// In short: the bind address is not the security boundary; the gate is.
 const listenAddr = "0.0.0.0:7073"
 
 var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
@@ -142,6 +156,11 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/lerd/start", withCORS(handleLerdStart))
 	mux.HandleFunc("/api/lerd/stop", withCORS(handleLerdStop))
 	mux.HandleFunc("/api/lerd/quit", withCORS(handleLerdQuit))
+	mux.HandleFunc("/api/remote-control", withCORS(handleRemoteControl))
+	mux.HandleFunc("/api/access-mode", withCORS(handleAccessMode))
+	mux.HandleFunc("/api/lan/status", withCORS(handleLANStatus))
+	mux.HandleFunc("/api/remote-setup/generate", withCORS(handleRemoteSetupGenerate))
+	mux.HandleFunc("/api/remote-setup", handleRemoteSetup) // intentional: no CORS, no withCORS, served as plain script
 	mux.HandleFunc("/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
 		base := "http://" + r.Host
@@ -177,7 +196,7 @@ func Start(currentVersion string) error {
 	})
 
 	fmt.Printf("Lerd UI listening on http://%s\n", listenAddr)
-	return http.ListenAndServe(listenAddr, mux)
+	return http.ListenAndServe(listenAddr, withRemoteControlGate(mux))
 }
 
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
@@ -596,6 +615,7 @@ type ServiceResponse struct {
 	SiteCount          int               `json:"site_count"`
 	SiteDomains        []string          `json:"site_domains,omitempty"`
 	Pinned             bool              `json:"pinned"`
+	Paused             bool              `json:"paused,omitempty"`
 	DependsOn          []string          `json:"depends_on,omitempty"`
 	QueueSite          string            `json:"queue_site,omitempty"`
 	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
@@ -645,6 +665,7 @@ func buildServiceResponse(name string) ServiceResponse {
 		SiteCount:     countSitesUsingService(name),
 		SiteDomains:   sitesUsingService(name),
 		Pinned:        config.ServiceIsPinned(name),
+		Paused:        config.ServiceIsPaused(name),
 	}
 }
 
@@ -747,6 +768,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			SiteCount:   countSitesUsingService(svc.Name),
 			SiteDomains: sitesUsingService(svc.Name),
 			Pinned:      config.ServiceIsPinned(svc.Name),
+			Paused:      config.ServiceIsPaused(svc.Name),
 			DependsOn:   svc.DependsOn,
 		})
 	}

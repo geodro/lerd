@@ -107,7 +107,7 @@
       <div x-show="tab==='sites'" class="flex items-center justify-between w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sites</span>
         <div class="flex items-center gap-1">
-          <button @click="openLinkModal()" title="Link new site"
+          <button x-show="accessMode.loopback" @click="openLinkModal()" title="Link new site"
             class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           </button>
@@ -122,16 +122,20 @@
       </div>
       <div x-show="tab==='system'" class="flex items-center justify-between w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">System</span>
-        <div class="flex items-center gap-0.5">
-          <button x-show="!allCoreRunning" @click="lerdStart()" :disabled="lerdStarting||lerdStopping" title="Start Lerd"
-            class="w-7 h-7 flex items-center justify-center rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors disabled:opacity-40">
+        <div class="flex items-center gap-1">
+          <button x-show="accessMode.loopback && !allCoreRunning" @click="lerdStart()" :disabled="lerdStarting||lerdStopping" title="Start Lerd"
+            class="w-6 h-6 flex items-center justify-center rounded text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors disabled:opacity-40">
             <svg x-show="lerdStarting" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
             <svg x-show="!lerdStarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l14 9-14 9V3z"/></svg>
           </button>
-          <button @click="lerdStop()" :disabled="lerdStarting||lerdStopping" title="Stop Lerd"
-            class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-40">
+          <button x-show="accessMode.loopback" @click="lerdStop()" :disabled="lerdStarting||lerdStopping" title="Stop Lerd"
+            class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-40">
             <svg x-show="lerdStopping" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
             <svg x-show="!lerdStopping" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" stroke-width="2"/></svg>
+          </button>
+          <button @click="loadStatus()" title="Refresh"
+            class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20.49 9A9 9 0 005.64 5.64L4 4m16 16l-1.64-1.64A9 9 0 014.51 15"/></svg>
           </button>
         </div>
       </div>
@@ -151,7 +155,7 @@
             :class="selectedSiteDomain===site.domain ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
             <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
               <template x-if="site.has_favicon">
-                <img :src="'/api/sites/' + site.domain + '/favicon'" class="w-4 h-4 rounded-sm object-contain" loading="lazy" @error="site.has_favicon = false">
+                <img :src="apiBase + '/api/sites/' + site.domain + '/favicon'" class="w-4 h-4 rounded-sm object-contain" loading="lazy" @error="site.has_favicon = false">
               </template>
               <template x-if="!site.has_favicon">
                 <span class="w-2 h-2 rounded-full" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
@@ -510,7 +514,7 @@
                   <div>
                     <div class="flex items-center gap-2 flex-wrap">
                       <template x-if="selectedSite.has_favicon">
-                        <img :src="'/api/sites/' + selectedSite.domain + '/favicon'" class="w-5 h-5 rounded-sm object-contain" loading="lazy" @error="selectedSite.has_favicon = false">
+                        <img :src="apiBase + '/api/sites/' + selectedSite.domain + '/favicon'" class="w-5 h-5 rounded-sm object-contain" loading="lazy" @error="selectedSite.has_favicon = false">
                       </template>
                       <a
                         :href="(selectedSite.tls ? 'https://' : 'http://') + selectedSite.domain"
@@ -612,6 +616,7 @@
                       Open
                     </button>
                     <button
+                      x-show="accessMode.loopback"
                       @click="openTerminal(selectedSite)"
                       class="flex items-center gap-1.5 text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-2 py-1 transition-colors"
                       title="Open in terminal"
@@ -1514,6 +1519,197 @@
                   <svg x-show="!version.checking" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                   <span x-text="version.checking ? 'Checking…' : 'Check for updates'"></span>
                 </button>
+
+                <!-- LAN exposure -->
+                <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">LAN exposure</span>
+                    <span class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full"
+                      :class="lanExposure.exposed ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400'">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="lanExposure.exposed ? 'bg-emerald-500' : 'bg-gray-400'"></span>
+                      <span x-text="lanExposure.exposed ? 'exposed' : 'loopback only'"></span>
+                    </span>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    <template x-if="lanExposure.exposed">
+                      <span>Sites are reachable from other devices on the LAN at <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono" x-text="lanExposure.lanIP"></code>. The dnsmasq resolver answers <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">*.test</code> with this address. Database, cache, and mail containers stay bound to 127.0.0.1 — Laravel apps reach them through the internal bridge, no need to expose them to the network.</span>
+                    </template>
+                    <template x-if="!lanExposure.exposed">
+                      <span>Lerd is bound to 127.0.0.1 only — invisible to other devices on the network. Safe for untrusted wifi (cafés, conference networks). Expose to share your sites with another machine on a trusted LAN.</span>
+                    </template>
+                  </p>
+                  <div x-show="accessMode.loopback" class="flex items-center gap-2">
+                    <button x-show="!lanExposure.exposed" @click="toggleLANExposure('expose')" :disabled="lanExposure.loading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors">
+                      <svg x-show="lanExposure.loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                      <span x-text="lanExposure.loading ? 'Exposing…' : 'Expose to LAN'"></span>
+                    </button>
+                    <button x-show="lanExposure.exposed" @click="toggleLANExposure('unexpose')" :disabled="lanExposure.loading"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors">
+                      <svg x-show="lanExposure.loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                      <span x-text="lanExposure.loading ? 'Disabling…' : 'Stop LAN exposure'"></span>
+                    </button>
+                  </div>
+                  <p x-show="lanExposure.error" class="text-xs text-red-500 mt-2" x-text="lanExposure.error"></p>
+
+                  <!-- Per-step progress (streamed NDJSON from /api/lan/status) -->
+                  <ul x-show="lanExposure.progressSteps.length > 0"
+                    class="mt-3 text-[11px] font-mono text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-lerd-border rounded-lg p-3 space-y-1 max-h-48 overflow-y-auto">
+                    <template x-for="(line, i) in lanExposure.progressSteps" :key="i">
+                      <li class="flex items-start gap-1.5">
+                        <svg x-show="i < lanExposure.progressSteps.length - 1 || !lanExposure.loading"
+                          class="w-3 h-3 flex-shrink-0 text-emerald-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        <svg x-show="i === lanExposure.progressSteps.length - 1 && lanExposure.loading"
+                          class="w-3 h-3 flex-shrink-0 animate-spin text-gray-400 mt-0.5" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        </svg>
+                        <span x-text="line"></span>
+                      </li>
+                    </template>
+                  </ul>
+
+                  <!-- Post-expose guidance + remote-setup code generator -->
+                  <template x-if="lanExposure.exposed && accessMode.loopback">
+                    <div class="mt-3 space-y-3">
+                      <div class="text-xs text-gray-600 dark:text-gray-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-3 space-y-1">
+                        <p>DNS resolver exposed on <code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono" x-text="lanExposure.lanIP + ':5300'"></code> (UDP+TCP) via <code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">lerd-dns-forwarder.service</code>.</p>
+                        <p>dnsmasq now answers <code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">*.test</code> queries with <span x-text="lanExposure.lanIP"></span>.</p>
+                        <p><strong>Make sure your firewall allows port 5300</strong> from the devices you want to grant access.</p>
+                      </div>
+
+                      <div>
+                        <p class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Provision a remote machine</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Generate a single-use code (15 min TTL) the machine can use to install the lerd root CA and configure its DNS resolver in one shot.
+                        </p>
+
+                        <template x-if="!lanExposure.setupCode">
+                          <button @click="generateRemoteSetupCode()" :disabled="lanExposure.setupLoading"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors">
+                            <svg x-show="lanExposure.setupLoading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                            <span x-text="lanExposure.setupLoading ? 'Generating…' : 'Generate setup code'"></span>
+                          </button>
+                        </template>
+
+                        <template x-if="lanExposure.setupCode">
+                          <div class="space-y-2">
+                            <div class="flex items-center justify-between gap-3 text-xs text-gray-600 dark:text-gray-400">
+                              <span>Code: <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono text-sm" x-text="lanExposure.setupCode"></code></span>
+                              <span>Expires in <span x-text="lanExposure.setupExpiresIn"></span></span>
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">On the machine, run:</p>
+                            <ul class="text-[11px] text-gray-500 dark:text-gray-400 list-disc pl-4 space-y-0.5">
+                              <li>Installs <code class="font-mono">mkcert</code> if missing and trusts the lerd root CA so HTTPS sites validate.</li>
+                              <li>Detects the active resolver (NetworkManager+dnsmasq, systemd-resolved, standalone dnsmasq, or macOS <code class="font-mono">/etc/resolver</code>) and points <code class="font-mono">.test</code> at this server's DNS on port 5300.</li>
+                              <li>Runs entirely over the LAN — no traffic leaves your network.</li>
+                            </ul>
+                            <div class="relative">
+                              <pre class="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-lerd-border rounded-lg p-3 pr-12 overflow-x-auto font-mono whitespace-pre" x-text="lanExposure.setupCurl"></pre>
+                              <button @click="copySetupCurl()" :title="lanExposure.setupCopied ? 'Copied!' : 'Copy to clipboard'"
+                                class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+                                <svg x-show="!lanExposure.setupCopied" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                <svg x-show="lanExposure.setupCopied" class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                              </button>
+                            </div>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                              The endpoint is restricted to RFC 1918 source IPs and the code is single-use. Click <em>Generate</em> again for a fresh code.
+                            </p>
+                            <button @click="generateRemoteSetupCode()" :disabled="lanExposure.setupLoading"
+                              class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline">
+                              Generate a new code
+                            </button>
+                          </div>
+                        </template>
+                        <p x-show="lanExposure.setupError" class="text-xs text-red-500 mt-2" x-text="lanExposure.setupError"></p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Remote dashboard access -->
+                <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">Remote dashboard access</span>
+                    <span class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full"
+                      :class="
+                        remoteControl.enabled && lanExposure.exposed ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' :
+                        remoteControl.enabled && !lanExposure.exposed ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400' :
+                        'bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400'">
+                      <span class="w-1.5 h-1.5 rounded-full"
+                        :class="
+                          remoteControl.enabled && lanExposure.exposed ? 'bg-emerald-500' :
+                          remoteControl.enabled && !lanExposure.exposed ? 'bg-amber-500' :
+                          'bg-gray-400'"></span>
+                      <span x-text="
+                        remoteControl.enabled && lanExposure.exposed ? 'active' :
+                        remoteControl.enabled && !lanExposure.exposed ? 'inert' :
+                        'disabled'"></span>
+                    </span>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    When disabled, only loopback (127.0.0.1) can reach the dashboard. Enable to grant LAN clients access with HTTP Basic auth. Loopback always bypasses authentication, so you can never lock yourself out from this machine.
+                  </p>
+                  <template x-if="remoteControl.enabled">
+                    <div class="space-y-2">
+                      <p class="text-xs text-gray-600 dark:text-gray-400">
+                        Username: <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono" x-text="remoteControl.username"></code>
+                      </p>
+                      <p x-show="!lanExposure.exposed" class="text-xs text-amber-600 dark:text-amber-400">
+                        Credentials are stored but inert — LAN exposure is off, so LAN clients still get 403. Run <code class="font-mono">lerd lan:expose</code> (or click <em>Expose to LAN</em> above) to make them active.
+                      </p>
+                      <button @click="disableRemoteControl()" :disabled="remoteControl.loading"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-50 transition-colors">
+                        Disable LAN access
+                      </button>
+                    </div>
+                  </template>
+                  <template x-if="!remoteControl.enabled">
+                    <div>
+                      <button @click="openRemoteControlModal()" :disabled="!lanExposure.exposed"
+                        :title="lanExposure.exposed ? '' : 'Run lan:expose first — without it the dashboard is loopback-only and credentials would be inert.'"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                        Enable LAN access
+                      </button>
+                      <p x-show="!lanExposure.exposed" class="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                        Expose lerd to the LAN first. Dashboard credentials are only meaningful while the dashboard is reachable from other devices.
+                      </p>
+                    </div>
+                  </template>
+                  <p x-show="remoteControl.error" class="text-xs text-red-500 mt-2" x-text="remoteControl.error"></p>
+
+                  <!-- Remote dashboard access credentials modal -->
+                  <div x-show="remoteControlModal.open" x-cloak @keydown.escape.window="closeRemoteControlModal()"
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div @click.outside="closeRemoteControlModal()"
+                      class="w-full max-w-md bg-white dark:bg-lerd-card rounded-xl shadow-2xl border border-gray-200 dark:border-lerd-border p-5">
+                      <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">Enable LAN access to the dashboard</h3>
+                      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                        Set a username and password. LAN clients will need to present them via HTTP Basic auth to reach the dashboard. Loopback access from this machine always bypasses the gate, so you can never lock yourself out.
+                      </p>
+                      <div class="space-y-2">
+                        <input type="text" x-model="remoteControlModal.username" placeholder="Username" autocomplete="off"
+                          class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:border-lerd-red/50">
+                        <input type="password" x-model="remoteControlModal.password" placeholder="Password" autocomplete="new-password"
+                          @keydown.enter="confirmRemoteControl()"
+                          class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:border-lerd-red/50">
+                      </div>
+                      <p x-show="remoteControlModal.error" class="text-xs text-red-500 mt-2" x-text="remoteControlModal.error"></p>
+                      <div class="flex items-center justify-end gap-2 mt-4">
+                        <button @click="closeRemoteControlModal()"
+                          class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-3 py-1.5">Cancel</button>
+                        <button @click="confirmRemoteControl()"
+                          :disabled="remoteControlModal.loading || !remoteControlModal.username || !remoteControlModal.password"
+                          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-lerd-red hover:bg-lerd-redhov text-white disabled:opacity-50 transition-colors">
+                          <svg x-show="remoteControlModal.loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                          <span x-text="remoteControlModal.loading ? 'Enabling…' : 'Enable LAN access'"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -1613,6 +1809,47 @@
   </div>
 
 <script>
+// API base rewrite. When the dashboard is loaded from http://lerd.localhost
+// (proxied through lerd-nginx), we cannot make /api/* calls relative to the
+// current origin because nginx intentionally returns 444 for /api/* on the
+// lerd.localhost vhost — the API is only safe to expose on direct loopback,
+// where the gate's TCP-peer check is enforceable. Instead, we rewrite all
+// relative fetch / EventSource calls to absolute http://localhost:7073 URLs
+// so the browser hits lerd-ui directly over loopback (which bypasses the
+// remote-control gate via the IsLoopback() check). CORS is permissive on
+// lerd-ui (Access-Control-Allow-Origin: *) so cross-origin works.
+//
+// When loaded directly from http://localhost:7073 / 127.0.0.1:7073, API_BASE
+// is empty and fetches stay same-origin (no rewrite needed).
+(function() {
+  const isLerdLocalhost = location.hostname === 'lerd.localhost';
+  const API_BASE = isLerdLocalhost ? 'http://localhost:7073' : '';
+  if (!API_BASE) return;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    if (typeof input === 'string' && input.startsWith('/')) {
+      return origFetch(API_BASE + input, init);
+    }
+    if (input instanceof Request && input.url.startsWith(location.origin + '/')) {
+      return origFetch(new Request(API_BASE + input.url.slice(location.origin.length), input), init);
+    }
+    return origFetch(input, init);
+  };
+  if (typeof window.EventSource === 'function') {
+    const OrigES = window.EventSource;
+    window.EventSource = function(url, opts) {
+      if (typeof url === 'string' && url.startsWith('/')) {
+        return new OrigES(API_BASE + url, opts);
+      }
+      return new OrigES(url, opts);
+    };
+    window.EventSource.prototype = OrigES.prototype;
+    window.EventSource.CONNECTING = OrigES.CONNECTING;
+    window.EventSource.OPEN = OrigES.OPEN;
+    window.EventSource.CLOSED = OrigES.CLOSED;
+  }
+})();
+
 function lerdApp() {
   return {
     theme: localStorage.getItem('lerd-theme') || 'auto',
@@ -1640,6 +1877,19 @@ function lerdApp() {
       checking: false,
       changelog: '',
     },
+    remoteControl: { enabled: false, username: '', loading: false, error: '' },
+    lanExposure: { exposed: false, lanIP: '', loading: false, error: '', justExposed: false, setupCode: '', setupCurl: '', setupExpiresIn: '', setupLoading: false, setupError: '', setupCopied: false, progressSteps: [] },
+    remoteControlModal: { open: false, username: '', password: '', loading: false, error: '' },
+    // apiBase is prepended to image/asset URLs that the browser fetches
+    // directly (not via window.fetch — those are intercepted by the
+    // monkey-patch at the top of this file). When the dashboard is loaded
+    // from lerd.localhost we point asset srcs at http://localhost:7073 so
+    // they bypass the lerd-nginx 444 on /api/* and reach lerd-ui directly.
+    apiBase: (typeof location !== 'undefined' && location.hostname === 'lerd.localhost') ? 'http://localhost:7073' : '',
+    // accessMode.loopback is true when the dashboard is reached directly on
+    // 127.0.0.1 / ::1 (the local user). False over LAN. Used to hide
+    // destructive buttons (terminal, link site, stop lerd) on remote views.
+    accessMode: { loopback: true },
     _statusInterval: null,
     _sitesInterval: null,
     _sitesLoaded: false,
@@ -1736,6 +1986,9 @@ function lerdApp() {
         if (this.theme === 'auto') this.applyTheme('auto');
       });
       this.loadVersion();
+      this.loadAccessMode();
+      this.loadRemoteControl();
+      this.loadLANStatus();
       this.loadSettings();
       this.loadSites();
       this.loadPHPVersions();
@@ -1750,6 +2003,11 @@ function lerdApp() {
         if (this.tab === 'system') {
           this.loadStatus();
           this.loadNodeVersions();
+          // Refresh LAN/remote-control state on the system tab so the
+          // dashboard reflects toggles made via CLI (`lerd lan:expose`,
+          // `lerd remote-control on`) without a page reload.
+          this.loadLANStatus();
+          this.loadRemoteControl();
         }
       }, 5000);
     },
@@ -1786,6 +2044,215 @@ function lerdApp() {
           this.version.changelog = data.changelog || '';
         }
       } catch (_) {}
+    },
+
+    async loadRemoteControl() {
+      try {
+        const res = await fetch('/api/remote-control');
+        if (!res.ok) return;
+        const data = await res.json();
+        this.remoteControl.enabled = !!data.enabled;
+        this.remoteControl.username = data.username || '';
+        this.remoteControl.error = '';
+      } catch (e) {
+        this.remoteControl.error = e.message || 'Failed to load remote-control state';
+      }
+    },
+
+    async loadLANStatus() {
+      try {
+        const res = await fetch('/api/lan/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        this.lanExposure.exposed = !!data.exposed;
+        this.lanExposure.lanIP = data.lan_ip || '';
+      } catch (e) { /* non-fatal */ }
+    },
+
+    openRemoteControlModal() {
+      this.remoteControlModal.open = true;
+      this.remoteControlModal.username = '';
+      this.remoteControlModal.password = '';
+      this.remoteControlModal.error = '';
+    },
+
+    closeRemoteControlModal() {
+      this.remoteControlModal.open = false;
+      this.remoteControlModal.username = '';
+      this.remoteControlModal.password = '';
+      this.remoteControlModal.error = '';
+    },
+
+    async confirmRemoteControl() {
+      if (!this.remoteControlModal.username || !this.remoteControlModal.password) return;
+      this.remoteControlModal.loading = true;
+      this.remoteControlModal.error = '';
+      try {
+        await this.enableRemoteControl(this.remoteControlModal.username, this.remoteControlModal.password);
+        if (this.remoteControl.error) {
+          this.remoteControlModal.error = this.remoteControl.error;
+          return;
+        }
+        this.closeRemoteControlModal();
+      } catch (e) {
+        this.remoteControlModal.error = e.message || 'Failed to enable LAN access';
+      } finally {
+        this.remoteControlModal.loading = false;
+      }
+    },
+
+    async toggleLANExposure(action) {
+      this.lanExposure.loading = true;
+      this.lanExposure.error = '';
+      this.lanExposure.progressSteps = [];
+      try {
+        const res = await fetch('/api/lan/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        if (!res.ok) {
+          this.lanExposure.error = (await res.text()).trim();
+          return;
+        }
+        // Stream NDJSON: each line is either {step: "..."} (in-flight)
+        // or a final {result: "ok"|"error", exposed, lan_ip, error}.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalEvent = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            try {
+              const evt = JSON.parse(line);
+              if (evt.step) {
+                this.lanExposure.progressSteps.push(evt.step);
+              } else if (evt.result) {
+                finalEvent = evt;
+              }
+            } catch (_) { /* malformed line, skip */ }
+          }
+        }
+        if (!finalEvent || finalEvent.result === 'error') {
+          this.lanExposure.error = (finalEvent && finalEvent.error) || 'Toggle failed without a final result';
+          return;
+        }
+        this.lanExposure.exposed = !!finalEvent.exposed;
+        this.lanExposure.lanIP = finalEvent.lan_ip || '';
+        if (action === 'expose') {
+          this.lanExposure.justExposed = true;
+        } else {
+          this.lanExposure.justExposed = false;
+          this.lanExposure.setupCode = '';
+          this.lanExposure.setupCurl = '';
+          this.lanExposure.setupError = '';
+        }
+      } catch (e) {
+        this.lanExposure.error = e.message || 'Failed to toggle LAN exposure';
+      } finally {
+        this.lanExposure.loading = false;
+        // Auto-dismiss the progress list 1.5s after a successful toggle
+        // so the user briefly sees the final "Done — …" line and then
+        // it collapses out of the way. On error we keep the list pinned
+        // so the user can see which step failed.
+        if (!this.lanExposure.error) {
+          setTimeout(() => { this.lanExposure.progressSteps = []; }, 1500);
+        }
+      }
+    },
+
+    async generateRemoteSetupCode() {
+      this.lanExposure.setupLoading = true;
+      this.lanExposure.setupError = '';
+      this.lanExposure.setupCopied = false;
+      try {
+        const res = await fetch('/api/remote-setup/generate', { method: 'POST' });
+        if (!res.ok) {
+          this.lanExposure.setupError = (await res.text()).trim();
+          return;
+        }
+        const data = await res.json();
+        this.lanExposure.setupCode = data.code || '';
+        this.lanExposure.setupCurl = data.curl || '';
+        this.lanExposure.setupExpiresIn = data.expires_in || '';
+      } catch (e) {
+        this.lanExposure.setupError = e.message || 'Failed to generate setup code';
+      } finally {
+        this.lanExposure.setupLoading = false;
+      }
+    },
+
+    async copySetupCurl() {
+      try {
+        await navigator.clipboard.writeText(this.lanExposure.setupCurl);
+        this.lanExposure.setupCopied = true;
+        setTimeout(() => { this.lanExposure.setupCopied = false; }, 1500);
+      } catch (e) { /* clipboard denied */ }
+    },
+
+    async loadAccessMode() {
+      try {
+        const res = await fetch('/api/access-mode');
+        if (!res.ok) return;
+        const data = await res.json();
+        this.accessMode.loopback = !!data.loopback;
+      } catch (_) {
+        // Default to loopback=true on failure (no UI hiding) — same as
+        // pre-existing behavior, no regression for local users.
+      }
+    },
+
+    async enableRemoteControl(username, password) {
+      this.remoteControl.loading = true;
+      this.remoteControl.error = '';
+      try {
+        const res = await fetch('/api/remote-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'enable', username, password }),
+        });
+        if (!res.ok) {
+          this.remoteControl.error = await res.text();
+          return;
+        }
+        const data = await res.json();
+        this.remoteControl.enabled = !!data.enabled;
+        this.remoteControl.username = data.username || '';
+      } catch (e) {
+        this.remoteControl.error = e.message || 'Failed to enable remote control';
+      } finally {
+        this.remoteControl.loading = false;
+      }
+    },
+
+    async disableRemoteControl() {
+      if (!confirm('Disable LAN access to the dashboard? Loopback (127.0.0.1) will still work.')) return;
+      this.remoteControl.loading = true;
+      this.remoteControl.error = '';
+      try {
+        const res = await fetch('/api/remote-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'disable' }),
+        });
+        if (!res.ok) {
+          this.remoteControl.error = await res.text();
+          return;
+        }
+        this.remoteControl.enabled = false;
+        this.remoteControl.username = '';
+      } catch (e) {
+        this.remoteControl.error = e.message || 'Failed to disable remote control';
+      } finally {
+        this.remoteControl.loading = false;
+      }
     },
 
     async checkVersion() {

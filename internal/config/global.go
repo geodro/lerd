@@ -32,6 +32,31 @@ type GlobalConfig struct {
 	DNS struct {
 		TLD string `yaml:"tld" mapstructure:"tld"`
 	} `yaml:"dns" mapstructure:"dns"`
+	LAN struct {
+		// Exposed controls whether lerd's services are reachable from
+		// other devices on the local network. When false (the default,
+		// safe-on-coffee-shop-wifi state) every container PublishPort is
+		// rewritten to bind 127.0.0.1, lerd-ui binds 127.0.0.1:7073, and
+		// the lerd-dns-forwarder is stopped. When true, container ports
+		// bind 0.0.0.0, lerd-ui binds 0.0.0.0:7073, dnsmasq is rewritten
+		// to answer .test queries with the host's LAN IP, and the
+		// userspace lerd-dns-forwarder runs to bridge LAN-IP:5300 to the
+		// loopback-only DNS container.
+		//
+		// Toggled via `lerd lan:expose on/off`. The previous standalone
+		// `dns:expose` flag was folded in here because there is no
+		// meaningful state where the DNS resolver answers the LAN but
+		// the actual services don't.
+		Exposed bool `yaml:"exposed,omitempty" mapstructure:"exposed"`
+	} `yaml:"lan,omitempty" mapstructure:"lan"`
+	UI struct {
+		// RemoteControl gates non-loopback access to the lerd dashboard.
+		// Empty PasswordHash = disabled = LAN clients get 403. With a hash
+		// set, LAN clients must present matching HTTP Basic auth. Loopback
+		// (127.0.0.1, ::1) always bypasses both checks.
+		Username     string `yaml:"username,omitempty" mapstructure:"username"`
+		PasswordHash string `yaml:"password_hash,omitempty" mapstructure:"password_hash"`
+	} `yaml:"ui,omitempty" mapstructure:"ui"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
 }

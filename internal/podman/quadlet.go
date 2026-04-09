@@ -12,14 +12,37 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
-// WriteQuadlet writes a Podman quadlet container unit file.
+// WriteQuadlet writes a Podman quadlet container unit file. Before writing
+// it applies BindForLAN to rewrite PublishPort= lines according to the
+// current cfg.LAN.Exposed setting. This is done centrally here so callers
+// (install, services, MCP server, custom-service generator) all get the
+// same loopback-by-default treatment without each having to remember.
 func WriteQuadlet(name, content string) error {
+	_, err := WriteQuadletDiff(name, content)
+	return err
+}
+
+// WriteQuadletDiff writes a quadlet like WriteQuadlet, but also reports
+// whether the on-disk file actually changed. Callers can use this to
+// daemon-reload + restart only the units that need it (e.g. lerd install
+// rewriting binds from 0.0.0.0 to 127.0.0.1 when migrating to a build
+// where lan:expose defaults to off — without a restart the running
+// container would silently keep its old bind).
+func WriteQuadletDiff(name, content string) (changed bool, err error) {
 	dir := config.QuadletDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		return false, err
 	}
+	lanExposed := false
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+		lanExposed = cfg.LAN.Exposed
+	}
+	content = BindForLAN(content, lanExposed)
 	path := filepath.Join(dir, name+".container")
-	return os.WriteFile(path, []byte(content), 0644)
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
+		return false, nil
+	}
+	return true, os.WriteFile(path, []byte(content), 0644)
 }
 
 // QuadletInstalled returns true if a quadlet .container file exists for the given unit name.

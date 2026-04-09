@@ -148,19 +148,40 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing nginx quadlet")
-	if content, err := podman.GetQuadletTemplate("lerd-nginx.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-nginx", content); err != nil {
+	// Note: WriteQuadlet centrally applies podman.BindForLAN based on
+	// cfg.LAN.Exposed, so containers default to binding 127.0.0.1 unless
+	// the user has run `lerd lan:expose on`. We use WriteQuadletDiff
+	// (which reports whether the on-disk file actually changed) so we
+	// can restart only the units whose binds shifted — important during
+	// the upgrade from a pre-LAN-toggle release where nginx was bound to
+	// 0.0.0.0 by default. Without the restart the running container
+	// would silently keep its old LAN-exposed bind even though the
+	// quadlet on disk now says 127.0.0.1.
+	changedQuadlets := []string{}
+	rewriteQuadlet := func(name string) error {
+		content, err := podman.GetQuadletTemplate(name + ".container")
+		if err != nil {
+			return nil //nolint:nilerr // missing template = nothing to write
+		}
+		changed, err := podman.WriteQuadletDiff(name, content)
+		if err != nil {
 			return err
 		}
+		if changed {
+			changedQuadlets = append(changedQuadlets, name)
+		}
+		return nil
+	}
+
+	step("Writing nginx quadlet")
+	if err := rewriteQuadlet("lerd-nginx"); err != nil {
+		return err
 	}
 	ok()
 
 	step("Writing DNS quadlet")
-	if content, err := podman.GetQuadletTemplate("lerd-dns.container"); err == nil {
-		if err := podman.WriteQuadlet("lerd-dns", content); err != nil {
-			return err
-		}
+	if err := rewriteQuadlet("lerd-dns"); err != nil {
+		return err
 	}
 	ok()
 
@@ -169,9 +190,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		if !podman.QuadletInstalled("lerd-" + svc) {
 			continue
 		}
-		if content, err := podman.GetQuadletTemplate("lerd-" + svc + ".container"); err == nil {
-			podman.WriteQuadlet("lerd-"+svc, content) //nolint:errcheck
-		}
+		_ = rewriteQuadlet("lerd-" + svc)
 	}
 	ok()
 
@@ -268,6 +287,28 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		return err
 	}
 	ok()
+
+	// Migration safety net: restart any container whose quadlet content
+	// actually changed during this install run, EXCEPT lerd-nginx and
+	// lerd-dns which are already restarted unconditionally below. The
+	// scenario this catches: a user updating from a release where every
+	// container was bound to 0.0.0.0 by default. Without this restart
+	// the running services would silently keep their old LAN-exposed
+	// bind even though the new quadlet on disk says 127.0.0.1.
+	for _, name := range changedQuadlets {
+		if name == "lerd-nginx" || name == "lerd-dns" {
+			continue
+		}
+		if running, _ := podman.ContainerRunning(name); !running {
+			continue
+		}
+		fmt.Printf("  --> Restarting %s (PublishPort changed) ", name)
+		if err := podman.RestartUnit(name); err != nil {
+			fmt.Printf("WARN: %v\n", err)
+		} else {
+			ok()
+		}
+	}
 
 	step("Starting lerd-dns")
 	if err := podman.RestartUnit("lerd-dns"); err != nil {

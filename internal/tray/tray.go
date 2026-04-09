@@ -13,13 +13,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/getlantern/systray"
 )
 
+// apiBase is the loopback URL used for polling the lerd HTTP API. It
+// deliberately stays on 127.0.0.1 because the tray should work even
+// before nginx / DNS are up.
 const apiBase = "http://127.0.0.1:7073"
+
+// dashboardURL is the user-facing URL opened by "Open Dashboard" — the
+// nginx-proxied vhost so the dashboard shows up under lerd.localhost
+// rather than a bare IP:port.
+const dashboardURL = "http://lerd.localhost"
 
 // Snapshot holds the state polled from the Lerd API.
 type Snapshot struct {
@@ -30,6 +39,7 @@ type Snapshot struct {
 	PHPDefault       string
 	Services         []serviceInfo
 	AutostartEnabled bool
+	LANExposed       bool   // lerd lan expose state — drives the LAN toggle item
 	LatestVersion    string // non-empty (e.g. "v0.8.5") when a newer version is available
 }
 
@@ -40,6 +50,7 @@ type phpInfo struct {
 type serviceInfo struct {
 	Name               string `json:"name"`
 	Status             string `json:"status"`
+	Paused             bool   `json:"paused,omitempty"`
 	QueueSite          string `json:"queue_site,omitempty"`
 	ScheduleWorkerSite string `json:"schedule_worker_site,omitempty"`
 	StripeListenerSite string `json:"stripe_listener_site,omitempty"`
@@ -121,11 +132,15 @@ func detach(mono bool) error {
 }
 
 func onReady(mono bool) {
-	icon := iconPNG
+	// In mono mode we register a template icon so the OS panel recolors
+	// it to match the theme. In colour mode we set the icon directly —
+	// the applyLoop will then swap between iconPNG (red, stopped) and
+	// iconWhitePNG (white, running) on every state change.
 	if mono {
-		icon = iconMonoPNG
+		systray.SetTemplateIcon(iconMonoPNG, iconMonoPNG)
+	} else {
+		systray.SetIcon(iconPNG)
 	}
-	systray.SetTemplateIcon(iconMonoPNG, icon)
 	systray.SetTitle("Lerd")
 	systray.SetTooltip("Lerd — local dev environment")
 
@@ -136,12 +151,13 @@ func onReady(mono bool) {
 	updateCh := make(chan *Snapshot, 1)
 
 	go runPoller(ctx, updateCh)
-	go applyLoop(menu, updateCh)
+	go applyLoop(menu, updateCh, mono)
 	go handleDash(menu.mDash)
 	go handleToggle(menu.mToggle)
 	go handleServices(menu)
 	go handlePHP(menu)
 	go handleAutostart(menu.mAutostart)
+	go handleLAN(menu.mLAN)
 	go handleUpdate(menu.mUpdate)
 	go handleQuit(menu.mQuit, cancel)
 }
@@ -206,6 +222,13 @@ func fetchSnapshot() *Snapshot {
 
 	snap.AutostartEnabled = lerdSystemd.IsServiceEnabled("lerd-autostart")
 
+	// LAN exposure state — read directly from config rather than the API
+	// because the tray cares about the persisted intent, not the live bind
+	// state (which we'd need a new API for).
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+		snap.LANExposed = cfg.LAN.Exposed
+	}
+
 	// /api/services — only real services (exclude queue/schedule/stripe per-site workers)
 	if r, err := client.Get(apiBase + "/api/services"); err == nil {
 		var all []serviceInfo
@@ -230,15 +253,35 @@ func fetchSnapshot() *Snapshot {
 	return snap
 }
 
-func applyLoop(menu *menuState, updateCh <-chan *Snapshot) {
+func applyLoop(menu *menuState, updateCh <-chan *Snapshot, mono bool) {
+	// Track the last icon we set so we don't thrash the systray with
+	// identical SetIcon calls every 5s poll.
+	var lastRunning = -1
 	for snap := range updateCh {
 		menu.apply(snap)
+		// In color mode the icon doubles as a status indicator: white L
+		// when lerd is running, red L when stopped. In mono mode the OS
+		// recolors the template icon, so we leave it alone.
+		if !mono {
+			running := 0
+			if snap != nil && snap.Running {
+				running = 1
+			}
+			if running != lastRunning {
+				if running == 1 {
+					systray.SetIcon(iconWhitePNG)
+				} else {
+					systray.SetIcon(iconPNG)
+				}
+				lastRunning = running
+			}
+		}
 	}
 }
 
 func handleDash(item *systray.MenuItem) {
 	for range item.ClickedCh {
-		openURL(apiBase)
+		openURL(dashboardURL)
 	}
 }
 
@@ -300,6 +343,23 @@ func handleAutostart(item *systray.MenuItem) {
 			_ = exec.Command("lerd", "autostart", "disable").Start()
 		} else {
 			_ = exec.Command("lerd", "autostart", "enable").Start()
+		}
+	}
+}
+
+// handleLAN toggles `lerd lan expose` / `lerd lan unexpose` on click. We
+// read the current state from config rather than relying on the snapshot
+// so the click is robust to a stale in-memory copy.
+func handleLAN(item *systray.MenuItem) {
+	for range item.ClickedCh {
+		exposed := false
+		if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+			exposed = cfg.LAN.Exposed
+		}
+		if exposed {
+			_ = exec.Command("lerd", "lan", "unexpose").Start()
+		} else {
+			_ = exec.Command("lerd", "lan", "expose").Start()
 		}
 	}
 }

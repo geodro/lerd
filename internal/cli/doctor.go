@@ -75,9 +75,9 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	if currentUser != "" {
 		out, err := exec.Command("loginctl", "show-user", currentUser).Output()
 		if err != nil || !strings.Contains(string(out), "Linger=yes") {
-			warn("linger enabled", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
+			warn("systemd linger", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
 		} else {
-			ok("linger enabled")
+			ok("systemd linger")
 		}
 	}
 
@@ -149,9 +149,9 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	} else {
 		ok(fmt.Sprintf("DNS TLD (.%s)", tld))
 		if resolved, _ := dns.Check(tld); resolved {
-			ok(fmt.Sprintf(".%s resolves to 127.0.0.1", tld))
+			ok(fmt.Sprintf(".%s resolution working", tld))
 		} else {
-			fail(fmt.Sprintf(".%s resolution", tld), "not resolving to 127.0.0.1",
+			fail(fmt.Sprintf(".%s resolution", tld), "not resolving",
 				"run 'lerd install' or: "+dns.ResolverHint())
 		}
 	}

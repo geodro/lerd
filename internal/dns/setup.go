@@ -530,13 +530,75 @@ func Teardown() {
 	}
 }
 
-// WriteDnsmasqConfig writes the lerd dnsmasq config to the given directory.
-// Upstream DNS servers are detected from the running system (DHCP / systemd-resolved).
-// If no upstreams are detected, no-resolv is omitted so dnsmasq falls back to the
-// container's /etc/resolv.conf (populated by Podman from the host's DNS config).
+// WriteDnsmasqConfig writes the lerd dnsmasq config to the given directory,
+// auto-detecting the right target based on whether `lerd lan:expose` is on.
+//
+// When cfg.LAN.Exposed is false the config answers .test queries with
+// 127.0.0.1, suitable for local-only use. When it's true the config
+// answers with the host's primary LAN IP so remote clients reach the
+// actual nginx instance through the lerd-dns-forwarder service.
+//
+// All legacy callers (lerd start, lerd install, the DNS watcher) go through
+// this function, so they automatically pick up the right target without
+// each one having to know about the exposed flag.
 func WriteDnsmasqConfig(dir string) error {
+	target := "127.0.0.1"
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil && cfg.LAN.Exposed {
+		if ip := primaryLANIP(); ip != "" {
+			target = ip
+		}
+	}
+	return WriteDnsmasqConfigFor(dir, target)
+}
+
+// primaryLANIP returns the local IPv4 address that the kernel would use
+// to reach a public destination. Same trick as cli/dns.go's
+// detectPrimaryLANIP, duplicated here to avoid an import cycle (cli imports
+// dns; dns can't import cli).
+func primaryLANIP() string {
+	conn, err := net.Dial("udp4", "1.1.1.1:80")
+	if err == nil {
+		defer conn.Close()
+		return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	}
+	ifaces, ifErr := net.Interfaces()
+	if ifErr != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if v4 := ipnet.IP.To4(); v4 != nil && !v4.IsLoopback() {
+					return v4.String()
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// WriteDnsmasqConfigFor writes the lerd dnsmasq config with `target` as the
+// IP returned for any `*.test` query. The default `127.0.0.1` is correct when
+// the only client is the local machine — nginx is reachable on loopback. When
+// remote devices need to resolve the same hostnames, pass the server's LAN IP
+// instead. The server itself will still be able to reach `.test` URLs because
+// the kernel routes packets destined for any of its own addresses through the
+// loopback interface.
+//
+// Upstream DNS servers are detected from the running system (DHCP /
+// systemd-resolved). If no upstreams are detected, no-resolv is omitted so
+// dnsmasq falls back to the container's /etc/resolv.conf (populated by Podman
+// from the host's DNS config).
+func WriteDnsmasqConfigFor(dir, target string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
+	}
+	if target == "" {
+		target = "127.0.0.1"
 	}
 
 	upstreams := readUpstreamDNS()
@@ -550,7 +612,7 @@ func WriteDnsmasqConfig(dir string) error {
 			fmt.Fprintf(&sb, "server=%s\n", ip)
 		}
 	}
-	sb.WriteString("address=/.test/127.0.0.1\n")
+	fmt.Fprintf(&sb, "address=/.test/%s\n", target)
 
 	return os.WriteFile(filepath.Join(dir, "lerd.conf"), []byte(sb.String()), 0644)
 }
