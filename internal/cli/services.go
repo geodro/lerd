@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -407,8 +408,11 @@ Run with no arguments to list the available presets:
 Install a preset by name:
   lerd service preset phpmyadmin
 
-Pick a specific version on multi-version presets like mysql or postgres:
+Pick a specific version on multi-version presets like mysql or postgres.
+When --version is omitted on a multi-version preset and the terminal is
+interactive, lerd prompts for the version:
   lerd service preset mysql --version 5.7
+  lerd service preset mysql           # interactive picker
 
 Presets are installed as ordinary custom services. They can then be started,
 stopped, removed, exposed, or pinned with the usual service subcommands.`,
@@ -417,7 +421,19 @@ stopped, removed, exposed, or pinned with the usual service subcommands.`,
 			if len(args) == 0 {
 				return printPresetList()
 			}
-			svc, err := InstallPresetByName(args[0], version)
+			name := args[0]
+			pickedVersion := version
+			if pickedVersion == "" {
+				if loaded, err := config.LoadPreset(name); err == nil && len(loaded.Versions) > 0 {
+					if isInteractive() {
+						pickedVersion, err = promptPresetVersion(loaded)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+			svc, err := InstallPresetByName(name, pickedVersion)
 			if err != nil {
 				return err
 			}
@@ -435,6 +451,41 @@ stopped, removed, exposed, or pinned with the usual service subcommands.`,
 	return cmd
 }
 
+// promptPresetVersion shows an interactive picker for the versions a
+// multi-version preset offers, defaulting to the preset's DefaultVersion and
+// excluding any version tag that's already installed locally.
+func promptPresetVersion(p *config.Preset) (string, error) {
+	options := make([]huh.Option[string], 0, len(p.Versions))
+	for _, v := range p.Versions {
+		svcName := p.Name + "-" + config.SanitizeImageTag(v.Tag)
+		label := v.Label
+		if label == "" {
+			label = v.Tag
+		}
+		if _, err := config.LoadCustomService(svcName); err == nil {
+			label += " (already installed)"
+		}
+		options = append(options, huh.NewOption(label, v.Tag))
+	}
+	if len(options) == 0 {
+		return "", fmt.Errorf("preset %s has no versions", p.Name)
+	}
+	picked := p.DefaultVersion
+	if picked == "" {
+		picked = p.Versions[0].Tag
+	}
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title(fmt.Sprintf("Which %s version do you want to install?", p.Name)).
+			Options(options...).
+			Value(&picked),
+	)).WithTheme(huh.ThemeCatppuccin())
+	if err := form.Run(); err != nil {
+		return "", err
+	}
+	return picked, nil
+}
+
 // printPresetList prints the bundled presets in a simple table.
 func printPresetList() error {
 	presets, err := config.ListPresets()
@@ -449,8 +500,21 @@ func printPresetList() error {
 	fmt.Printf("%s\n", strings.Repeat("─", 60))
 	for _, p := range presets {
 		status := "available"
-		if _, err := config.LoadCustomService(p.Name); err == nil {
-			status = "installed"
+		if len(p.Versions) == 0 {
+			if _, err := config.LoadCustomService(p.Name); err == nil {
+				status = "installed"
+			}
+		} else {
+			anyInstalled := false
+			for _, v := range p.Versions {
+				if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+					anyInstalled = true
+					break
+				}
+			}
+			if anyInstalled {
+				status = "installed"
+			}
 		}
 		fmt.Printf("%-14s %-10s %s\n", p.Name, status, p.Description)
 		if len(p.DependsOn) > 0 {
@@ -459,8 +523,24 @@ func printPresetList() error {
 		if p.Dashboard != "" {
 			fmt.Printf("%-14s %-10s dashboard:  %s\n", "", "", p.Dashboard)
 		}
+		for _, v := range p.Versions {
+			versionStatus := "available"
+			label := v.Tag
+			if v.Label != "" {
+				label = v.Label
+			}
+			if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+				versionStatus = "installed"
+			}
+			marker := " "
+			if v.Tag == p.DefaultVersion {
+				marker = "*"
+			}
+			fmt.Printf("%-14s %-10s %s %-9s %-13s %s\n", "", "", marker, versionStatus, v.Tag, label)
+		}
 	}
-	fmt.Println("\nInstall with: lerd service preset <name>")
+	fmt.Println("\n* = default version")
+	fmt.Println("Install with: lerd service preset <name> [--version <tag>]")
 	return nil
 }
 
