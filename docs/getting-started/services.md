@@ -1,6 +1,6 @@
 # Services walkthrough
 
-Lerd ships with **MySQL, PostgreSQL, Redis, Meilisearch, RustFS, and Mailpit** built in. Anything else — MongoDB, phpMyAdmin, pgAdmin, Elasticsearch, MinIO, RabbitMQ — runs as a **custom service**: a YAML file dropped into `~/.config/lerd/services/`, registered with one command, and managed by `lerd service start/stop/list` exactly like the built-ins.
+Lerd ships with **MySQL, PostgreSQL, Redis, Meilisearch, RustFS, and Mailpit** built in. For a curated set of common extras (**MongoDB, phpMyAdmin, pgAdmin, Mongo Express, stripe-mock, MariaDB, alternative MySQL versions**) lerd ships **bundled presets** you can install with one command. Anything not on either list runs as a **custom service**: a YAML file dropped into `~/.config/lerd/services/`, registered with one command, and managed by `lerd service start/stop/list` exactly like the built-ins.
 
 ::: info Prerequisites
 You've already run `lerd install` once on this machine. If not, see [Installation](installation.md).
@@ -14,7 +14,20 @@ After running `lerd mcp:enable-global`, your AI assistant can call `service_add`
 
 ## How it works (30 seconds)
 
-Three steps for any custom service:
+For a bundled preset:
+
+```bash
+# Browse the catalogue
+lerd service preset
+
+# Install one (becomes a normal custom service)
+lerd service preset phpmyadmin
+
+# Start it
+lerd service start phpmyadmin
+```
+
+For everything else, three steps:
 
 ```bash
 # 1. Save the YAML somewhere
@@ -27,105 +40,57 @@ lerd service add ~/.config/lerd/services/<name>.yaml
 lerd service start <name>
 ```
 
-After step 2, the service appears in `lerd service list`, the Web UI Services panel, and `lerd start` / `lerd stop` cycles.
+Either way, the service appears in `lerd service list`, the Web UI Services panel, and `lerd start` / `lerd stop` cycles.
 
 For the full YAML schema (env vars, `depends_on`, `site_init`, `{{site}}` placeholders, etc.) see [Services reference](../usage/services.md#yaml-schema).
 
 ---
 
-## Recipe: MongoDB
-
-```yaml
-# ~/.config/lerd/services/mongodb.yaml
-name: mongodb
-image: docker.io/library/mongo:7
-description: "MongoDB document store"
-ports:
-  - 27017:27017
-environment:
-  MONGO_INITDB_ROOT_USERNAME: root
-  MONGO_INITDB_ROOT_PASSWORD: lerd
-data_dir: /data/db
-env_vars:
-  - "MONGO_DATABASE={{site}}"
-  - "MONGO_URI=mongodb://root:lerd@lerd-mongodb:27017/{{site}}?authSource=admin"
-env_detect:
-  key: MONGO_URI
-  value_prefix: "mongodb://"
-site_init:
-  exec: >
-    mongosh admin -u root -p lerd --eval
-    "db.getSiblingDB('{{site}}').createCollection('_init');
-     db.getSiblingDB('{{site_testing}}').createCollection('_init')"
-```
+## Recipe: MongoDB (preset)
 
 ```bash
-lerd service add ~/.config/lerd/services/mongodb.yaml
-lerd service start mongodb
+lerd service preset mongo
+lerd service start mongo
 ```
 
 | From | Host |
 |---|---|
-| Your app (PHP-FPM) | `lerd-mongodb:27017` |
+| Your app (PHP-FPM) | `lerd-mongo:27017` |
 | Host tools (Compass, mongosh) | `127.0.0.1:27017` |
 | User / password | `root` / `lerd` |
 
-When `lerd env` runs in a project that has `MONGO_URI=mongodb://...` in its `.env`, the connection string is rewritten to point at `lerd-mongodb` and a per-site database is created automatically.
+The preset ships with `env_detect` and `site_init` already wired up, so when `lerd env` runs in a project that has `MONGO_DSN=mongodb://...` in its `.env`, the connection string is rewritten to point at `lerd-mongo` and a per-site database is created automatically.
+
+For a Mongo web UI, install the paired preset:
+
+```bash
+lerd service preset mongo-express
+lerd service start mongo-express
+```
+
+It depends on `mongo`, so the database is started first automatically. Open `http://localhost:8082`.
 
 ---
 
-## Recipe: phpMyAdmin
-
-```yaml
-# ~/.config/lerd/services/phpmyadmin.yaml
-name: phpmyadmin
-image: docker.io/phpmyadmin:latest
-description: "phpMyAdmin web interface for MySQL"
-ports:
-  - 8080:80
-environment:
-  PMA_HOST: lerd-mysql
-  PMA_USER: root
-  PMA_PASSWORD: lerd
-depends_on:
-  - mysql
-dashboard: http://localhost:8080
-```
+## Recipe: phpMyAdmin (preset)
 
 ```bash
-lerd service add ~/.config/lerd/services/phpmyadmin.yaml
+lerd service preset phpmyadmin
 lerd service start phpmyadmin
 ```
 
-Open `http://localhost:8080`. Because of `depends_on: mysql`, `lerd service start phpmyadmin` boots MySQL first if it isn't already running, and `lerd service stop mysql` cascades down to phpMyAdmin.
+Open `http://localhost:8080`. The preset declares `depends_on: mysql`, so `lerd service start phpmyadmin` boots MySQL first if it isn't already running, and `lerd service stop mysql` cascades down to phpMyAdmin. Sign-in is auto-handled against `lerd-mysql` as `root` / `lerd`.
 
 ---
 
-## Recipe: pgAdmin
-
-```yaml
-# ~/.config/lerd/services/pgadmin.yaml
-name: pgadmin
-image: docker.io/dpage/pgadmin4:latest
-description: "pgAdmin 4 web interface for PostgreSQL"
-ports:
-  - 8081:80
-environment:
-  PGADMIN_DEFAULT_EMAIL: admin@lerd.test
-  PGADMIN_DEFAULT_PASSWORD: lerd
-  PGADMIN_CONFIG_SERVER_MODE: "False"
-data_dir: /var/lib/pgadmin
-depends_on:
-  - postgres
-dashboard: http://localhost:8081
-```
+## Recipe: pgAdmin (preset)
 
 ```bash
-lerd service add ~/.config/lerd/services/pgadmin.yaml
+lerd service preset pgadmin
 lerd service start pgadmin
 ```
 
-Open `http://localhost:8081`, log in with `admin@lerd.test` / `lerd`, then add a server with host `lerd-postgres`, port `5432`, user `postgres`, password `lerd`.
+Open `http://localhost:8081`, log in with `admin@pgadmin.org` / `lerd`. The preset ships with a pre-loaded `Lerd Postgres` connection (via a bundled `servers.json` + `pgpass`) so you don't need to add a server manually. Server mode is disabled and there is no master password. The preset declares `depends_on: postgres`, so PostgreSQL starts first automatically.
 
 ---
 
@@ -139,10 +104,10 @@ name: adminer
 image: docker.io/library/adminer:latest
 description: "Universal database web client (MySQL + PostgreSQL + more)"
 ports:
-  - 8082:8080
+  - 8083:8080
 depends_on:
   - mysql
-dashboard: http://localhost:8082
+dashboard: http://localhost:8083
 ```
 
 ```bash
@@ -150,7 +115,7 @@ lerd service add ~/.config/lerd/services/adminer.yaml
 lerd service start adminer
 ```
 
-Open `http://localhost:8082`. Choose the system (MySQL → host `lerd-mysql`, or PostgreSQL → host `lerd-postgres`), then user `root` / `postgres` and password `lerd`.
+Open `http://localhost:8083`. Choose the system (MySQL → host `lerd-mysql`, or PostgreSQL → host `lerd-postgres`), then user `root` / `postgres` and password `lerd`.
 
 ---
 
@@ -225,7 +190,7 @@ Management UI at `http://localhost:15672` (`lerd` / `lerd`).
 lerd service list
 ```
 
-Each registered custom service shows up with a `[custom]` marker. `[pinned]` means it stays running across `lerd start`/`lerd stop` cycles. Indented sub-lines show dependency or auto-stop reasons.
+Each registered service shows up with a `[preset]` marker if it came from a bundled preset, or `[custom]` if it was added from a YAML file. `[pinned]` means it stays running across `lerd start`/`lerd stop` cycles. Indented sub-lines show dependency or auto-stop reasons.
 
 ```bash
 lerd service status mongodb     # systemd unit status
@@ -239,14 +204,14 @@ The data directory at `~/.local/share/lerd/data/<name>/` is **not** deleted by `
 
 ## Per-site auto-injection
 
-Three of the recipes above (`mongodb`, `elasticsearch`, `rabbitmq`) include `env_detect` and `env_vars`. When you run `lerd env` in a project that already references one of those services in its `.env` (e.g. `MONGO_URI=` is set), lerd:
+Three of the recipes above (`mongo` preset, `elasticsearch`, `rabbitmq`) declare `env_detect` and `env_vars`. When you run `lerd env` in a project that already references one of those services in its `.env` (e.g. `MONGO_DSN=` is set), lerd:
 
 1. Starts the service if it isn't already running
 2. Substitutes <code v-pre>{{site}}</code> in the env vars with the project's site handle
 3. Writes the resulting variables into the project's `.env`
-4. Runs `site_init.exec` inside the container (MongoDB recipe) to create per-site databases
+4. Runs `site_init.exec` inside the container (mongo preset) to create per-site databases
 
-This means dropping the YAML once is enough — every project that needs the service gets wired up automatically on `lerd env` (which `lerd init` and `lerd setup` both call).
+This means installing the preset (or dropping the YAML) once is enough — every project that needs the service gets wired up automatically on `lerd env` (which `lerd init` and `lerd setup` both call).
 
 ---
 
