@@ -266,6 +266,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// LAN exposure + remote dashboard access
+	fmt.Println("\n[Remote Access]")
+	lanIP, _ := detectPrimaryLANIP()
+	printRemoteAccessStatus(cfg, lanIP)
+
 	// Update notice
 	if info, _ := lerdUpdate.CachedUpdateCheck(version.Version); info != nil {
 		printUpdateNotice(info)
@@ -273,6 +278,27 @@ func runStatus(_ *cobra.Command, _ []string) error {
 
 	fmt.Println()
 	return nil
+}
+
+// printRemoteAccessStatus renders the [Remote Access] section of `lerd status`.
+// Split out from runStatus so it can be tested without mocking podman/DNS/sites.
+// lanIP may be empty — the caller is responsible for detection so tests can
+// inject a deterministic value.
+func printRemoteAccessStatus(cfg *config.GlobalConfig, lanIP string) {
+	if cfg.LAN.Exposed {
+		ip := lanIP
+		if ip == "" {
+			ip = "(unknown)"
+		}
+		ok2(fmt.Sprintf("LAN exposure (%s)", ip))
+	} else {
+		warn2("LAN exposure", "loopback only — enable with: lerd lan expose")
+	}
+	if cfg.UI.PasswordHash != "" {
+		ok2(fmt.Sprintf("Dashboard remote access (user: %s)", cfg.UI.Username))
+	} else {
+		warn2("Dashboard remote access", "LAN clients get 403 — enable with: lerd remote-control on")
+	}
 }
 
 // printUpdateNotice prints a highlighted banner when a new lerd version is available.

@@ -232,6 +232,14 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		domains = []string{domain}
 	}
 
+	// Filter out conflicting / reserved domains. Strict — a domain may only
+	// belong to one site regardless of TLS scheme. .lerd.yaml is never
+	// modified on disk; the surviving list is what we register. If everything
+	// was conflicted, fall back to a freshly generated <baseName>.<tld>.
+	kept, removed := resolveSiteDomains(domains, baseName, projectDir, cfg.DNS.TLD)
+	warnFilteredDomains(removed)
+	domains = kept
+
 	phpVersion, err := phpDet.DetectVersion(projectDir)
 	if err != nil {
 		phpVersion = cfg.PHP.DefaultVersion

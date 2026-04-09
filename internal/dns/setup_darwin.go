@@ -69,3 +69,8 @@ func InstallSudoers() error {
 // ReadContainerDNS returns nil on macOS — the Podman network does not need
 // container-side DNS servers because dnsmasq runs natively, not in a container.
 func ReadContainerDNS() []string { return nil }
+
+// ResolverHint returns a hint for restarting the DNS resolver on macOS.
+func ResolverHint() string {
+	return "run: sudo killall -HUP mDNSResponder"
+}

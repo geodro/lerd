@@ -489,7 +489,7 @@ Configure the project's ` + bt + `.env` + bt + ` for lerd in one call:
 - Starts any referenced services that aren't running
 - Creates the project database (and ` + bt + `<name>_testing` + bt + ` database)
 - Generates ` + bt + `APP_KEY` + bt + ` if missing
-- Sets ` + bt + `APP_URL` + bt + ` to the registered ` + bt + `.test` + bt + ` domain
+- Sets ` + bt + `APP_URL` + bt + ` (or the framework's URL key) using the precedence chain: ` + bt + `.lerd.yaml` + bt + ` ` + bt + `app_url` + bt + ` → ` + bt + `sites.yaml` + bt + ` ` + bt + `app_url` + bt + ` → default ` + bt + `<scheme>://<primary-domain>` + bt + ` — see "Custom APP_URL" below
 
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
@@ -516,6 +516,24 @@ db_set(database: "sqlite")       // explicitly keep SQLite (and create the file)
 ` + "```" + `
 
 > Use this **before** ` + bt + `env_setup` + bt + ` on a fresh Laravel project so the database lands in ` + bt + `.env` + bt + ` deliberately. Switching databases later via ` + bt + `db_set` + bt + ` removes the previous database entry from ` + bt + `.lerd.yaml` + bt + ` automatically.
+
+### Custom ` + bt + `APP_URL` + bt + `
+By default ` + bt + `env_setup` + bt + ` writes ` + bt + `APP_URL=<scheme>://<primary-domain>` + bt + ` (e.g. ` + bt + `http://myapp.test` + bt + `) on every run. Three-tier override chain when you need a different value:
+
+1. ` + bt + `.lerd.yaml` + bt + ` ` + bt + `app_url` + bt + ` field — committed to the repo, applies to every machine. Use for path prefixes, ports, or unrelated hostnames the whole team should share.
+2. ` + bt + `~/.local/share/lerd/sites.yaml` + bt + ` ` + bt + `app_url` + bt + ` field on the site entry — per-machine override, not committed.
+3. The default ` + bt + `<scheme>://<primary-domain>` + bt + ` generator — used when neither override is set.
+
+There is no MCP tool to set ` + bt + `app_url` + bt + ` programmatically; the user (or you) edit ` + bt + `.lerd.yaml` + bt + ` directly and re-run ` + bt + `env_setup` + bt + ` (or any command that runs ` + bt + `lerd env` + bt + ` internally) to apply it.
+
+Example ` + bt + `.lerd.yaml` + bt + `:
+` + "```" + `yaml
+domains:
+  - myapp
+app_url: http://myapp.test/api
+` + "```" + `
+
+If the configured ` + bt + `app_url` + bt + ` happens to point at a domain that the conflict filter dropped, lerd silently falls through to the next precedence level so ` + bt + `.env` + bt + ` doesn't end up writing a hostname owned by another site.
 
 ### ` + bt + `env_check` + bt + `
 Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and show a table of missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
@@ -926,7 +944,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `vendor_run` + bt + ` | Run a binary from ` + bt + `vendor/bin` + bt + ` (pest, phpunit, pint, phpstan, rector, …) inside the PHP-FPM container |
 | ` + bt + `node_install` + bt + ` | Install a Node.js version via fnm (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
-| ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first) |
+| ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
 | ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` and flag missing or extra keys |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
@@ -984,6 +1002,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `artisan` + bt + ` is Laravel-only; ` + bt + `console` + bt + ` is the equivalent for non-Laravel frameworks — both take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
 - ` + bt + `vendor_run` + bt + ` is the right way to invoke project tooling like pest, phpunit, pint, phpstan, rector — call ` + bt + `vendor_bins` + bt + ` first to discover what's installed, then ` + bt + `vendor_run(bin: "<name>", args: [...])` + bt + `; prefer it over ` + bt + `composer(args: ["exec", ...])` + bt + `
 - On a **fresh Laravel clone** (DB_CONNECTION=sqlite in ` + bt + `.env` + bt + `), call ` + bt + `db_set(database: "mysql"|"postgres"|"sqlite")` + bt + ` before ` + bt + `env_setup` + bt + ` to pick a database deliberately. ` + bt + `env_setup` + bt + ` on its own won't switch the database away from sqlite.
+- **Domain conflicts on link**: when ` + bt + `lerd link` + bt + ` (or the parked-directory watcher) tries to register a ` + bt + `.lerd.yaml` + bt + ` domain that another site already owns, the conflicting domain is filtered out and a ` + bt + `[WARN] domain "X" already used by site "Y" — skipped` + bt + ` line is printed. The site still gets registered with surviving domains, falling back to ` + bt + `<dirname>.<tld>` + bt + ` if everything was filtered. ` + bt + `.lerd.yaml` + bt + ` is not modified on disk so the conflict is visible in the UI and self-heals on the next link if the owning site is removed. The ` + bt + `site_link` + bt + ` and ` + bt + `site_domain_add` + bt + ` MCP tools, by contrast, hard-error on conflicts so you can react explicitly — read the error message for the owning site name.
+- **Custom APP_URL**: ` + bt + `env_setup` + bt + ` writes ` + bt + `<scheme>://<primary-domain>` + bt + ` by default. Override by setting ` + bt + `app_url` + bt + ` in ` + bt + `.lerd.yaml` + bt + ` (committed) or in the per-machine ` + bt + `sites.yaml` + bt + ` site entry. No MCP tool sets it — edit the YAML and re-run ` + bt + `env_setup` + bt + `.
 - ` + bt + `tinker` + bt + ` must use ` + bt + `--execute=<code>` + bt + ` for non-interactive use
 - Built-in service hosts follow the pattern ` + bt + `lerd-<name>` + bt + ` (e.g. ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `)
 - Default DB credentials: username ` + bt + `root` + bt + `, password ` + bt + `lerd` + bt + `

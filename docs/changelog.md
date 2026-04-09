@@ -11,6 +11,34 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.8.0] — 2026-04-09
+
+### Added
+
+- **`lerd lan:expose` / `lan:unexpose` / `lan:status`** — unified switch to share a lerd dev environment with another machine on the local network. Off by default; every container port now binds `127.0.0.1` (was `0.0.0.0` since v0.1.0), so untrusted wifi is safe out of the box. Service containers (mysql, postgres, redis, meilisearch, rustfs, mailpit) stay loopback-only even when LAN exposure is on; only nginx flips to `0.0.0.0`, since Laravel apps in `lerd-php-fpm` reach services through the podman bridge regardless of host bind. Quadlets are rewritten centrally via `podman.WriteQuadletDiff` so flipping the switch only restarts units whose on-disk content actually changed.
+- **Remote dashboard access** — the dashboard at port 7073 is gated by two independent flags: `cfg.LAN.Exposed` is the top-level kill switch and `cfg.UI.PasswordHash` adds HTTP Basic auth on top. LAN clients only reach the dashboard when both are set; loopback always bypasses both. Stale credentials cannot survive `lan:unexpose`. The dashboard's "Remote dashboard access" card distinguishes active / inert / disabled states so the user sees when credentials are stored but blocked by `lan:unexpose`. UI feedback during a toggle streams NDJSON progress events from `POST /api/lan/status`; the card polls every 5s while on the System tab so CLI toggles are reflected without a page reload.
+- **`http://lerd.localhost` as a usable bookmark** — `lerd-nginx` serves the static dashboard HTML, icons, and PWA manifest from the `lerd.localhost` vhost, with `/api/*` explicitly returning 444 so a LAN curl forging the Host header cannot reach `lerd-ui` through the proxy. The dashboard JS detects when it was loaded from `lerd.localhost` and rewrites all fetch, EventSource, and favicon img srcs to absolute `http://localhost:7073` URLs so they hit `lerd-ui` directly over loopback.
+- **`lerd remote-setup`** — generates a one-shot 15-minute code and prints a curl one-liner the remote machine runs to install mkcert, trust the lerd root CA, and configure its resolver (NetworkManager+dnsmasq, systemd-resolved 254+, standalone dnsmasq, or macOS `/etc/resolver`). The endpoint is gated by token presence + RFC 1918 source IP + brute-force lockout. The bootstrap script's epilogue warns that the server IP is hardcoded into the resolver dropin and explains how to re-bootstrap if the server moves networks.
+- **`app_url` field in `.lerd.yaml` and `sites.yaml`** — new precedence chain for `APP_URL`: `.lerd.yaml` `app_url` (committed, shared across machines) > `sites.yaml` `app_url` (per-machine override) > the default `<scheme>://<primary-domain>` generator. `lerd setup` no longer overwrites a custom `APP_URL` on every run — set it once in `.lerd.yaml` and lerd respects it. The `.lerd.yaml` `app_url` is silently suppressed when its host points at a domain that the conflict filter dropped, so `.env` never ends up writing a hostname owned by another site.
+- **Soft-fallback domain conflict handling** — when `lerd link` or the parked-directory watcher tries to register a domain another site already owns, the conflicting domain is now filtered out (instead of failing the whole link) and a clear WARN line is printed naming the owning site. Surviving domains still register; if every domain conflicts, lerd falls back to a freshly generated `<dirname>.<tld>` with a numeric suffix. `.lerd.yaml` is never modified on disk — the original `domains:` list stays so the conflict is visible to the UI and self-heals on the next link if the owning site is removed.
+- **Domain conflict UI surface** — the site detail header's "+N more" pill now counts conflicted domains and shows an amber warning icon when present (hover reveals each conflicted entry with the owning site name). The Manage Domains modal renders conflicted entries at the top with a warning icon, the domain struck-through, a "used by &lt;site&gt;" pill, and a small trash button that removes the entry from `.lerd.yaml` only (no registry, vhost, or cert touched). The `domain:remove` server action detects conflict-filtered entries and routes them to a `.lerd.yaml`-only delete path.
+- **`[Remote Access]` section in `lerd status`** — new block showing LAN exposure state and dashboard remote-access state, with hints when off. Refactored into a testable `printRemoteAccessStatus` helper.
+- **Tray "Expose to LAN" toggle** — new menu item that shells out to `lerd lan expose / unexpose`, mirroring the autostart toggle.
+- **Dynamic colour tray icon** — white L when lerd is running, red L when stopped. The default flag flipped from `--mono=true` to `--mono=false` so the colour icon is what users see by default; mono mode is still available for OS-recoloured template icons. The icon's dark background was stripped so it's transparent on the panel.
+
+### Changed
+
+- **Tray "Open Dashboard" opens `http://lerd.localhost`** instead of the bare `127.0.0.1:7073` loopback URL. Tray API polling stays on loopback so the tray works before nginx is up.
+- **Tray paused services render with a yellow dot** instead of red, so user-initiated stops are visually distinct from broken services.
+- **`lerd doctor` "linger enabled" check renamed** to "systemd linger" so the WARN row no longer reads as if linger is in fact enabled.
+
+### Fixed
+
+- **`lerd uninstall` left the tray running** — the uninstall flow stopped and disabled all systemd units but never killed standalone tray processes (launched from the desktop file or `lerd tray`). The tray kept running after the binary was gone, with no way to dismiss it short of `pkill`. Uninstall now calls the existing `killTray` helper after the unit teardown.
+- **`lerd install` hang when installing the Laravel installer** — the installer prompted for the Laravel installer on every run and then shelled out through the composer shim, which routes through `lerd php` and depends on cwd-based PHP detection. When the install command runs from `$HOME` with no project metadata, detection fell back to `cfg.PHP.DefaultVersion` and handed composer to a possibly-missing container. Worse, `composer global require` triggers symfony/flex / plugin trust prompts which sat invisibly inside `podman exec -t -i`, making the whole step look stuck with no output. Fixed by skipping the prompt entirely when no PHP version is installed, and when it does run, bypassing the shim — picking a known-installed PHP (preferring the configured default), ensuring its FPM container is running, and `podman exec`'ing `composer global require --no-interaction laravel/installer` directly.
+
+---
+
 ## [1.7.1] — 2026-04-08
 
 ### Added

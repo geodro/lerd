@@ -27,3 +27,61 @@ func ApplyExtraPorts(content string, extraPorts []string) string {
 	}
 	return sb.String()
 }
+
+// BindForLAN rewrites every PublishPort= line in a quadlet so the host-side
+// bind matches the requested LAN-exposure state. The embedded quadlet files
+// use the unprefixed `PublishPort=80:80` form, which podman interprets as
+// binding 0.0.0.0 (all interfaces). When lanExposed is false (the default
+// safe-on-coffee-shop-wifi state) we rewrite each unprefixed line to
+// `PublishPort=127.0.0.1:80:80` so only the local host can connect; when
+// true, we leave the unprefixed form alone so LAN clients can reach the
+// service.
+//
+// Lines that already have an explicit IP prefix (lerd-dns binds 127.0.0.1
+// directly because the LAN path goes through the userspace forwarder, not
+// the publish) are left untouched in both states.
+func BindForLAN(content string, lanExposed bool) string {
+	if lanExposed {
+		// Already in the LAN-exposed form. Strip any explicit 127.0.0.1
+		// prefix we may have written previously, EXCEPT for entries that
+		// were originally pinned in the embed file (lerd-dns).
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "PublishPort=127.0.0.1:") {
+				continue
+			}
+			// Preserve lerd-dns: it's the only quadlet that ships with an
+			// explicit 127.0.0.1 prefix in the embed, because LAN access
+			// to DNS is routed through the userspace forwarder rather
+			// than a publish change.
+			if strings.Contains(trimmed, ":5300:5300") {
+				continue
+			}
+			rest := strings.TrimPrefix(trimmed, "PublishPort=127.0.0.1:")
+			lines[i] = "PublishPort=" + rest
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Not exposed: prefix every unprefixed PublishPort= with 127.0.0.1.
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "PublishPort=") {
+			continue
+		}
+		value := strings.TrimPrefix(trimmed, "PublishPort=")
+		// Skip lines that already have an explicit IP prefix (any host
+		// IP, not just 127.0.0.1 — be conservative and leave operator
+		// overrides alone). Detect by checking if the first segment
+		// contains a dot (e.g. 127.0.0.1, 192.168.x.y) rather than being
+		// a bare port number.
+		firstSeg := strings.SplitN(value, ":", 2)[0]
+		if strings.ContainsRune(firstSeg, '.') {
+			continue
+		}
+		lines[i] = "PublishPort=127.0.0.1:" + value
+	}
+	return strings.Join(lines, "\n")
+}

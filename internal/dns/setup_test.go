@@ -86,6 +86,10 @@ func TestParseDefaultInterface_empty(t *testing.T) {
 // --- WriteDnsmasqConfig ---
 
 func TestWriteDnsmasqConfig_withUpstreams(t *testing.T) {
+	// Isolate from the real ~/.config/lerd/config.yaml so the auto-detected
+	// target in WriteDnsmasqConfig doesn't pick up a host expose_bind setting.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
 	dir := t.TempDir()
 	// Temporarily override readUpstreamDNS by writing a fake resolv.conf the
 	// real function will pick up.
@@ -108,6 +112,8 @@ func TestWriteDnsmasqConfig_withUpstreams(t *testing.T) {
 }
 
 func TestWriteDnsmasqConfig_noUpstreams(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
 	dir := t.TempDir()
 	// All loopback — no real upstreams detectable from files or nmcli.
 	fakeResolv := writeTempFile(t, "nameserver 127.0.0.53\n")

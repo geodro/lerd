@@ -87,7 +87,7 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("site %q already has domain %q", site.Name, fullDomain)
 	}
 
-	// Check if used by another site.
+	// Check if used by another site (strict — regardless of TLS scheme).
 	if existing, err := config.IsDomainUsed(fullDomain); err == nil && existing != nil {
 		return fmt.Errorf("domain %q is already used by site %q", fullDomain, existing.Name)
 	}
@@ -238,8 +238,15 @@ func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 	return nil
 }
 
-// SyncLerdYAMLDomains updates the domains field in .lerd.yaml, stripping the TLD
-// so the file stores portable name-only values.
+// SyncLerdYAMLDomains updates the domains field in .lerd.yaml, stripping the
+// TLD so the file stores portable name-only values.
+//
+// Domains that were originally declared in .lerd.yaml but didn't survive the
+// conflict filter (because another site on this machine already owns them)
+// are preserved at the end of the list. The user's declared intent stays on
+// disk, the UI's conflict-warning surface continues to work, and the entry
+// will be re-evaluated on the next link — self-healing the moment the
+// conflicting site is removed.
 func SyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
 	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
 	if _, err := os.Stat(lerdYAML); err != nil {
@@ -247,9 +254,27 @@ func SyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
 	}
 	proj, _ := config.LoadProjectConfig(projectPath)
 	suffix := "." + tld
+	seen := make(map[string]bool)
 	var names []string
+	// First, the registered (post-filter) domains in their current order so
+	// the primary domain reflects the live registry state.
 	for _, d := range fullDomains {
-		names = append(names, strings.TrimSuffix(d, suffix))
+		name := strings.TrimSuffix(d, suffix)
+		low := strings.ToLower(name)
+		if !seen[low] {
+			names = append(names, name)
+			seen[low] = true
+		}
+	}
+	// Then, any pre-existing .lerd.yaml entries that aren't in the registered
+	// list — typically conflict-filtered domains. Appended at the end so they
+	// don't accidentally become the new primary.
+	for _, d := range proj.Domains {
+		low := strings.ToLower(d)
+		if !seen[low] {
+			names = append(names, d)
+			seen[low] = true
+		}
 	}
 	proj.Domains = names
 	if err := config.SaveProjectConfig(projectPath, proj); err != nil {

@@ -15,6 +15,6 @@ func NewTrayCmd() *cobra.Command {
 			return tray.Run(mono)
 		},
 	}
-	cmd.Flags().BoolVar(&mono, "mono", true, "Use monochrome (white) icon; pass --mono=false for colour")
+	cmd.Flags().BoolVar(&mono, "mono", false, "Use a monochrome template icon (OS recolors it); default is the colour icon that flips white/red with lerd state")
 	return cmd
 }

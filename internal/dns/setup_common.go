@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 // isFileContent returns true if the file at path already contains exactly content.
@@ -100,13 +102,56 @@ func sudoWriteFile(path string, content []byte, mode os.FileMode) error {
 	return nil
 }
 
-// WriteDnsmasqConfig writes the lerd dnsmasq config to the given directory.
-// Upstream DNS servers are detected from the running system via readUpstreamDNS,
-// which is implemented per-platform. If no upstreams are detected, no-resolv is
-// omitted so dnsmasq falls back to the container's /etc/resolv.conf.
+// WriteDnsmasqConfig writes the lerd dnsmasq config to the given directory,
+// auto-detecting the right target based on whether `lerd lan:expose` is on.
+// When cfg.LAN.Exposed is true, .test queries resolve to the host's primary
+// LAN IP; otherwise they resolve to 127.0.0.1.
 func WriteDnsmasqConfig(dir string) error {
+	target := "127.0.0.1"
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil && cfg.LAN.Exposed {
+		if ip := primaryLANIP(); ip != "" {
+			target = ip
+		}
+	}
+	return WriteDnsmasqConfigFor(dir, target)
+}
+
+// primaryLANIP returns the local IPv4 address the kernel would use to reach a
+// public destination. Duplicated from cli/dns.go to avoid an import cycle.
+func primaryLANIP() string {
+	conn, err := net.Dial("udp4", "1.1.1.1:80")
+	if err == nil {
+		defer conn.Close()
+		return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	}
+	ifaces, ifErr := net.Interfaces()
+	if ifErr != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if v4 := ipnet.IP.To4(); v4 != nil && !v4.IsLoopback() {
+					return v4.String()
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// WriteDnsmasqConfigFor writes the lerd dnsmasq config with target as the IP
+// returned for *.test queries. Upstreams are detected from the running system.
+func WriteDnsmasqConfigFor(dir, target string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
+	}
+	if target == "" {
+		target = "127.0.0.1"
 	}
 
 	upstreams := readUpstreamDNS()
@@ -120,7 +165,7 @@ func WriteDnsmasqConfig(dir string) error {
 			fmt.Fprintf(&sb, "server=%s\n", ip)
 		}
 	}
-	sb.WriteString("address=/.test/127.0.0.1\n")
+	fmt.Fprintf(&sb, "address=/.test/%s\n", target)
 
 	return os.WriteFile(filepath.Join(dir, "lerd.conf"), []byte(sb.String()), 0644)
 }

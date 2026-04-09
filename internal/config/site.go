@@ -20,6 +20,12 @@ type Site struct {
 	PausedWorkers []string `yaml:"paused_workers,omitempty"`
 	Framework     string   `yaml:"framework,omitempty"`
 	PublicDir     string   `yaml:"public_dir,omitempty"`
+	// AppURL, when set, is the per-machine override for APP_URL in the
+	// project's env file. Lower priority than ProjectConfig.AppURL (which is
+	// committed to the repo) and higher priority than the default generator
+	// (`<scheme>://<primary-domain>`). Use this for personal customizations
+	// you don't want to share via .lerd.yaml.
+	AppURL string `yaml:"app_url,omitempty"`
 }
 
 // PrimaryDomain returns the first (primary) domain for the site.
@@ -60,6 +66,7 @@ type siteYAML struct {
 	PausedWorkers []string `yaml:"paused_workers,omitempty"`
 	Framework     string   `yaml:"framework,omitempty"`
 	PublicDir     string   `yaml:"public_dir,omitempty"`
+	AppURL        string   `yaml:"app_url,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
@@ -75,6 +82,7 @@ func (s Site) toYAML() siteYAML {
 		PausedWorkers: s.PausedWorkers,
 		Framework:     s.Framework,
 		PublicDir:     s.PublicDir,
+		AppURL:        s.AppURL,
 	}
 }
 
@@ -95,6 +103,7 @@ func (sy siteYAML) toSite() Site {
 		PausedWorkers: sy.PausedWorkers,
 		Framework:     sy.Framework,
 		PublicDir:     sy.PublicDir,
+		AppURL:        sy.AppURL,
 	}
 }
 
@@ -248,6 +257,11 @@ func FindSiteByDomain(domain string) (*Site, error) {
 
 // IsDomainUsed checks if any site already uses this domain.
 // Returns the site that uses it, or nil if the domain is free.
+//
+// The check is strict: a domain may only belong to one site, regardless of
+// TLS scheme. Two sites cannot share the same domain even if one runs on
+// HTTPS and the other on HTTP — DNS and browser caches don't reliably
+// disambiguate by scheme, and the resulting setup is fragile.
 func IsDomainUsed(domain string) (*Site, error) {
 	reg, err := LoadSites()
 	if err != nil {

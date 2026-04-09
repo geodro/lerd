@@ -40,6 +40,8 @@ A portable, self-contained description of a project's local environment. Created
 | `framework` | Framework name — overrides auto-detection |
 | `framework_def` | Full framework definition — embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
 | `secured` | When `true`, HTTPS is enabled on apply |
+| `domains` | Site hostnames without the TLD (e.g. `[myapp, api]`). The first entry is the primary; additional entries become aliases. Conflict-filtered domains stay in this list on disk but are not registered |
+| `app_url` | Override for `APP_URL` (or the framework's URL key) written to `.env`. Highest priority — beats the per-machine `sites.yaml` override and the default `<scheme>://<primary-domain>` generator. Use for custom path prefixes, ports, or unrelated hostnames you want shared across machines |
 | `services` | Services to start on apply. Accepts built-in names, custom service names, or full inline definitions |
 | `workers` | Active worker names for the site (e.g. `queue`, `horizon`, `schedule`, `reverb`, `stripe`). Automatically kept in sync by start/stop commands. Used by `lerd start` to restore workers after reinstall |
 
