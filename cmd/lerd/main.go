@@ -24,7 +24,7 @@ import (
 func main() {
 	root := &cobra.Command{
 		Use:     "lerd",
-		Short:   "Laravel Herd for Linux — Podman-powered local dev environment",
+		Short:   "Lerd — Podman-powered local PHP dev environment for Linux",
 		Version: version.String(),
 	}
 

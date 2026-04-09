@@ -109,7 +109,7 @@ release:
   header: |
     ## Lerd {{ .Version }}
 
-    Laravel Herd for Linux — Podman-native dev environment.
+    Lerd — Podman-powered local PHP dev environment for Linux.
 
     ### Install / Upgrade
 

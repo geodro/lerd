@@ -473,7 +473,7 @@ main() {
   echo "  ███████╗███████╗██║  ██║██████╔╝"
   echo "  ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ "
   echo -e "${RESET}"
-  echo "  Laravel Herd for Linux — Podman-native dev environment"
+  echo "  Lerd — Podman-powered local PHP dev environment for Linux"
   echo "  https://github.com/${REPO}"
   echo ""
 
