@@ -117,8 +117,14 @@
           </button>
         </div>
       </div>
-      <div x-show="tab==='services'" class="flex items-center w-full">
+      <div x-show="tab==='services'" class="flex items-center justify-between w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Services</span>
+        <div class="flex items-center gap-1">
+          <button x-show="accessMode.loopback" @click="openPresetModal()" title="Add a service preset"
+            class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          </button>
+        </div>
       </div>
       <div x-show="tab==='system'" class="flex items-center justify-between w-full">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">System</span>
@@ -199,7 +205,7 @@
             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50"
             :class="selectedSvc===svc.name ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
             <span class="w-2 h-2 rounded-full shrink-0" :class="svc.status==='active' ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
-            <span class="font-medium truncate flex-1" x-text="capitalize(svc.name)"></span>
+            <span class="font-medium truncate flex-1" x-text="serviceLabel(svc)"></span>
             <template x-if="svc.depends_on && svc.depends_on.length > 0">
               <span class="shrink-0 text-gray-300 dark:text-gray-600" title="has dependencies">
                 <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/></svg>
@@ -380,7 +386,7 @@
               class="w-full flex items-center gap-2.5 px-4 py-3.5 text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
               :class="selectedSvc===svc.name ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
               <span class="w-2 h-2 rounded-full shrink-0" :class="svc.status==='active' ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
-              <span class="font-medium flex-1" x-text="capitalize(svc.name)"></span>
+              <span class="font-medium flex-1" x-text="serviceLabel(svc)"></span>
               <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
           </template>
@@ -489,7 +495,7 @@
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </button>
         <span class="text-sm font-medium text-gray-900 dark:text-white truncate"
-          x-text="tab==='sites' ? (selectedSite ? selectedSite.domain : 'Sites') : tab==='services' ? (selectedService ? capitalize(selectedService.name) : 'Services') : (selectedSystem || 'System')">
+          x-text="tab==='sites' ? (selectedSite ? selectedSite.domain : 'Sites') : tab==='services' ? (selectedService ? serviceLabel(selectedService) : 'Services') : (selectedSystem || 'System')">
         </span>
       </div>
 
@@ -996,7 +1002,7 @@
                   <div>
                     <div class="flex items-center gap-2">
                       <span class="font-semibold text-gray-900 dark:text-white text-base"
-                        x-text="selectedService.queue_site ? 'Queue worker' : selectedService.horizon_site ? 'Horizon' : selectedService.stripe_listener_site ? 'Stripe listener' : capitalize(selectedService.name)"></span>
+                        x-text="selectedService.queue_site ? 'Queue worker' : selectedService.horizon_site ? 'Horizon' : selectedService.stripe_listener_site ? 'Stripe listener' : serviceLabel(selectedService)"></span>
                       <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
                         :class="selectedService.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500' : 'bg-gray-100 dark:bg-white/5 text-gray-500'">
                         <span class="w-1.5 h-1.5 rounded-full" :class="selectedService.status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
@@ -1109,8 +1115,52 @@
                       Dashboard
                     </a>
                   </template>
+                  <!-- Open paired admin UI (phpMyAdmin / pgAdmin) when installed. Starts the admin service if it isn't already running. -->
+                  <template x-if="adminServiceFor(selectedService)">
+                    <button @click="openAdminDashboard(adminServiceFor(selectedService))"
+                      :title="'Open ' + serviceLabel(adminServiceFor(selectedService))"
+                      class="flex items-center gap-1.5 text-xs font-medium bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/20 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-500/30 rounded-lg px-3 py-1.5 transition-colors">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                      <span x-text="'Open ' + serviceLabel(adminServiceFor(selectedService))"></span>
+                    </button>
+                  </template>
+                  <!-- Fallback: open the connection URL via the OS scheme handler (DBeaver, TablePlus, etc.) when there is no paired admin UI installed and the service is up. -->
+                  <template x-if="!adminServiceFor(selectedService) && selectedService.connection_url && selectedService.status === 'active'">
+                    <a :href="selectedService.connection_url"
+                      :title="selectedService.connection_url"
+                      class="flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                      Open connection URL
+                    </a>
+                  </template>
                 </div>
               </div>
+
+              <!-- Preset suggestion banner: shown for mysql/postgres when the matching admin UI preset isn't installed yet. -->
+              <template x-if="suggestedPresetFor(selectedService)">
+                <div class="mx-3 sm:mx-5 mt-4 rounded-lg border border-sky-200 dark:border-sky-500/30 bg-sky-50 dark:bg-sky-500/10 px-3 py-2.5">
+                  <div class="flex items-center gap-3">
+                    <svg class="w-4 h-4 shrink-0 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-xs font-semibold text-sky-900 dark:text-sky-200">
+                        <span x-text="'Add ' + suggestedPresetFor(selectedService).name + '?'"></span>
+                      </p>
+                      <p class="text-[11px] text-sky-700 dark:text-sky-300/80 mt-0.5" x-text="suggestedPresetFor(selectedService).description + '. Installs as a custom service that auto-starts ' + selectedService.name + '.'"></p>
+                      <p x-show="suggestedPresetFor(selectedService).error" class="text-[11px] text-red-500 mt-1" x-text="suggestedPresetFor(selectedService).error"></p>
+                    </div>
+                    <button @click="installPreset(suggestedPresetFor(selectedService))" :disabled="suggestedPresetFor(selectedService).installing"
+                      class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded px-3 py-1.5 transition-colors disabled:opacity-50">
+                      <svg x-show="suggestedPresetFor(selectedService).installing" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                      <span x-text="suggestedPresetFor(selectedService).installing ? 'Adding…' : 'Add'"></span>
+                    </button>
+                    <button @click="dismissPresetSuggestion(suggestedPresetFor(selectedService).name)"
+                      title="Dismiss — you can still add this from the Services + button"
+                      class="shrink-0 text-sky-600/60 hover:text-sky-700 dark:text-sky-400/60 dark:hover:text-sky-300 transition-colors">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </template>
 
               <div x-show="selectedService.flash" class="mx-5 mt-4 text-xs text-center text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg px-2 py-1.5" x-text="selectedService.flash"></div>
               <template x-if="selectedService.error">
@@ -1860,6 +1910,10 @@ function lerdApp() {
     selectedSiteDomain: null,
     domainModal: { open: false, site: null, domains: [], newDomain: '', editIndex: -1, editValue: '', error: '', flash: '', loading: false, dirty: false },
     linkModal: { open: false, currentDir: '', dirs: [], loading: false, linking: false, error: '', logs: [] },
+    presets: [],
+    presetModal: { open: false, loading: false },
+    presetSuggestions: { mysql: 'phpmyadmin', postgres: 'pgadmin', mongo: 'mongo-express' },
+    dismissedPresetSuggestions: JSON.parse(localStorage.getItem('lerd-dismissed-preset-suggestions') || '[]'),
     phpVersions: [],
     nodeVersions: [],
     services: [],
@@ -1994,6 +2048,7 @@ function lerdApp() {
       this.loadPHPVersions();
       this.loadNodeVersions();
       this.loadServices();
+      this.loadPresets();
       this.loadStatus();
       this._statusInterval = setInterval(() => {
         this.loadSites();
@@ -2013,6 +2068,24 @@ function lerdApp() {
     },
 
     capitalize(s) { return s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); },
+    // serviceDisplayLabels overrides capitalize() for service names whose
+    // canonical capitalization isn't just Title Case (brand names, acronyms).
+    serviceDisplayLabels: {
+      phpmyadmin: 'phpMyAdmin',
+      pgadmin: 'pgAdmin',
+      mysql: 'MySQL',
+      postgres: 'PostgreSQL',
+      meilisearch: 'Meilisearch',
+      mailpit: 'Mailpit',
+      rustfs: 'RustFS',
+      mongo: 'MongoDB',
+      'mongo-express': 'Mongo Express',
+      'stripe-mock': 'Stripe Mock',
+    },
+    serviceLabel(svc) {
+      if (!svc || !svc.name) return '';
+      return this.serviceDisplayLabels[svc.name] || this.capitalize(svc.name);
+    },
     coreServices() {
       return this.services.filter(s => !s.queue_site && !s.schedule_worker_site && !s.stripe_listener_site && !s.reverb_site && !s.horizon_site && !s.worker_site);
     },
@@ -2843,6 +2916,115 @@ function lerdApp() {
       await this.browseDir('');
     },
 
+    async loadPresets() {
+      try {
+        const res = await fetch('/api/services/presets');
+        const data = await res.json();
+        const next = (data || []).map(p => {
+          const prev = this.presets.find(x => x.name === p.name) || {};
+          return { ...p, installing: prev.installing || false, error: prev.error || '' };
+        });
+        this.presets = next;
+      } catch (_) {
+        // leave existing list as-is on transient errors
+      }
+    },
+
+    async openPresetModal() {
+      this.presetModal = { open: true, loading: this.presets.length === 0 };
+      await this.loadPresets();
+      this.presetModal.loading = false;
+    },
+
+    closePresetModal() {
+      this.presetModal.open = false;
+    },
+
+    // adminServiceFor returns the installed admin-UI service that pairs with
+    // a given database service (mysql -> phpmyadmin, postgres -> pgadmin), or
+    // null when the admin UI is not installed yet.
+    adminServiceFor(svc) {
+      if (!svc || !svc.name) return null;
+      const adminName = this.presetSuggestions[svc.name];
+      if (!adminName) return null;
+      return this.services.find(s => s.name === adminName) || null;
+    },
+
+    async openAdminDashboard(adminSvc) {
+      if (!adminSvc) return;
+      if (adminSvc.status !== 'active') {
+        await this.toggleService(adminSvc, 'start');
+      }
+      if (adminSvc.dashboard) {
+        window.open(adminSvc.dashboard, '_blank');
+      }
+    },
+
+    async copyConnectionURL(svc) {
+      if (!svc || !svc.connection_url) return;
+      try {
+        await navigator.clipboard.writeText(svc.connection_url);
+        svc.copied = true;
+        setTimeout(() => { svc.copied = false; }, 1500);
+      } catch (_) {}
+    },
+
+    suggestedPresetFor(svc) {
+      if (!svc || !svc.name) return null;
+      const presetName = this.presetSuggestions[svc.name];
+      if (!presetName) return null;
+      if (this.dismissedPresetSuggestions.includes(presetName)) return null;
+      const p = this.presets.find(x => x.name === presetName);
+      if (!p || p.installed) return null;
+      return p;
+    },
+
+    dismissPresetSuggestion(presetName) {
+      if (!presetName || this.dismissedPresetSuggestions.includes(presetName)) return;
+      this.dismissedPresetSuggestions = [...this.dismissedPresetSuggestions, presetName];
+      localStorage.setItem('lerd-dismissed-preset-suggestions', JSON.stringify(this.dismissedPresetSuggestions));
+    },
+
+    async installPreset(p) {
+      if (p.missing_deps && p.missing_deps.length > 0) {
+        p.error = 'Install ' + p.missing_deps.join(', ') + ' first';
+        return;
+      }
+      p.installing = true;
+      p.error = '';
+      try {
+        const res = await fetch('/api/services/presets/' + encodeURIComponent(p.name), { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) {
+          p.error = data.error || 'install failed';
+          return;
+        }
+        p.installed = true;
+        await this.loadServices();
+        // Jump to the new service's detail panel and kick off a start. The
+        // user asked for this so installing a preset feels like one click
+        // from "I want this" to "it's running".
+        const svc = this.services.find(s => s.name === p.name);
+        if (svc) {
+          this.setTab('services');
+          this.closePresetModal();
+          this.selectService(svc);
+          if (svc.status !== 'active') {
+            this.toggleService(svc, 'start');
+          }
+        }
+      } catch (e) {
+        p.error = e.message;
+      } finally {
+        p.installing = false;
+      }
+      // Refresh presets so sibling presets that depended on this one
+      // (e.g. mongo-express after installing mongo) flip from disabled
+      // to installable. Done after the finally so by the time loadPresets
+      // merges the new array, no preset has installing=true to copy over.
+      this.loadPresets();
+    },
+
     closeLinkModal() {
       this.linkModal.open = false;
     },
@@ -3378,6 +3560,9 @@ function lerdApp() {
             this.selectedSvc = null;
             this.mobileShowDetail = false;
           }
+          // If a preset-backed service was removed, refresh the preset list
+          // so it shows up as available again in the suggestion banner.
+          await this.loadPresets();
         } else {
           svc.error = data.error || 'Remove failed';
         }
@@ -3596,6 +3781,62 @@ function lerdApp() {
   };
 }
 </script>
+
+<!-- Service Preset Modal -->
+<template x-if="presetModal.open">
+  <div class="fixed inset-0 z-50 flex items-center justify-center" @keydown.escape.window="closePresetModal()">
+    <div class="absolute inset-0 bg-black/50" @click="closePresetModal()"></div>
+    <div class="relative bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-xl shadow-2xl w-full max-w-lg mx-4" @click.stop>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+        <h3 class="font-semibold text-gray-900 dark:text-white">Add a service preset</h3>
+        <button @click="closePresetModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="px-5 py-3 border-b border-gray-100 dark:border-lerd-border">
+        <p class="text-xs text-gray-500 dark:text-gray-400">Bundled, opt-in services. Installing one adds it as a custom service so you can start, stop, or remove it from the Services tab.</p>
+      </div>
+      <div class="px-5 py-3 max-h-80 overflow-y-auto">
+        <div x-show="presetModal.loading" class="py-4 text-center text-xs text-gray-400">Loading...</div>
+        <div x-show="!presetModal.loading && presets.filter(p => !p.installed).length === 0" class="py-4 text-center text-xs text-gray-400">All bundled presets are installed.</div>
+        <template x-for="p in presets.filter(p => !p.installed)" :key="'preset-'+p.name">
+          <div class="border border-gray-100 dark:border-lerd-border rounded-lg p-3 mb-2 last:mb-0">
+            <div class="flex items-start gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold text-gray-900 dark:text-white" x-text="p.name"></span>
+                  <span x-show="p.installed" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">installed</span>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5" x-text="p.description"></p>
+                <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 font-mono truncate" x-text="p.image"></div>
+                <div x-show="p.depends_on && p.depends_on.length > 0" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                  depends on: <span x-text="(p.depends_on || []).join(', ')"></span>
+                </div>
+                <div x-show="p.dashboard" class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  dashboard: <span x-text="p.dashboard"></span>
+                </div>
+                <div x-show="(p.missing_deps || []).length > 0" class="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                  install <span x-text="(p.missing_deps || []).join(', ')"></span> first
+                </div>
+              </div>
+              <button @click="installPreset(p)"
+                :disabled="!!(p.installed || p.installing || (p.missing_deps || []).length > 0)"
+                :title="(p.missing_deps || []).length > 0 ? 'Install ' + p.missing_deps.join(', ') + ' first' : ''"
+                class="text-xs font-medium bg-lerd-red text-white rounded px-3 py-1.5 hover:bg-lerd-redhov transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 flex items-center gap-1.5">
+                <svg x-show="p.installing" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                <span x-text="p.installed ? 'Installed' : (p.installing ? 'Adding…' : 'Add')"></span>
+              </button>
+            </div>
+            <p x-show="p.error" class="text-[11px] text-red-500 mt-2" x-text="p.error"></p>
+          </div>
+        </template>
+      </div>
+      <div class="px-5 py-3 border-t border-gray-100 dark:border-lerd-border flex items-center justify-end">
+        <button @click="closePresetModal()" class="text-xs border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 rounded px-3 py-1.5 transition-colors">Close</button>
+      </div>
+    </div>
+  </div>
+</template>
 
 <!-- Link Site Modal -->
 <template x-if="linkModal.open">

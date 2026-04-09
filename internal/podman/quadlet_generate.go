@@ -33,6 +33,15 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 		fmt.Fprintf(&b, "Volume=%s:%s:z\n", hostDir, svc.DataDir)
 	}
 
+	for _, f := range svc.Files {
+		hostPath := config.ServiceFilePath(svc.Name, f.Target)
+		flags := "z"
+		if f.Chown {
+			flags += ",U"
+		}
+		fmt.Fprintf(&b, "Volume=%s:%s:%s\n", hostPath, f.Target, flags)
+	}
+
 	for k, v := range svc.Environment {
 		fmt.Fprintf(&b, "Environment=%s=%s\n", k, v)
 	}

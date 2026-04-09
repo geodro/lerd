@@ -125,6 +125,77 @@ rm -rf ~/.local/share/lerd/data/minio
 
 ---
 
+## Service presets
+
+Lerd ships a small set of opt-in service presets that you can install in one
+command without cluttering the built-in service list. Each preset is just a
+bundled YAML file that becomes a normal custom service once installed, so it
+plays nicely with every `lerd service` subcommand (start/stop/remove/expose/pin).
+
+| Preset | Image | Depends on | Dashboard |
+|---|---|---|---|
+| `phpmyadmin` | `docker.io/library/phpmyadmin:latest` | `mysql` (built-in) | `http://localhost:8080` |
+| `pgadmin` | `docker.io/dpage/pgadmin4:latest` | `postgres` (built-in) | `http://localhost:8081` |
+| `mongo` | `docker.io/library/mongo:7` | — | — |
+| `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
+| `stripe-mock` | `docker.io/stripemock/stripe-mock:latest` | — | — |
+
+```bash
+# List the bundled presets and their install state
+lerd service preset
+
+# Install one
+lerd service preset phpmyadmin
+
+# Start it (mysql will be auto-started thanks to depends_on)
+lerd service start phpmyadmin
+
+# Remove it later if you no longer need it
+lerd service remove phpmyadmin
+```
+
+The web UI exposes the same flow: open the **Services** tab, click the **+**
+button next to the panel header, and pick a preset from the modal. Already
+installed presets are marked. The detail panel of every database service
+(mysql, postgres, and an installed `mongo`) also surfaces a sky-blue suggestion
+banner offering to install its paired admin UI; the banner is dismissable
+per-preset and the dismissal persists in `localStorage`.
+
+### Dependency rules
+
+A preset's `depends_on` is enforced two ways:
+
+1. **At install time** — installing a preset whose dependency is another *custom* service (not a built-in) is rejected until the dependency is installed first. `lerd service preset mongo-express` errors out with `preset "mongo-express" requires service(s) mongo to be installed first` until you run `lerd service preset mongo`. Built-in deps (mysql, postgres) are always satisfied. The Web UI's preset picker disables the **Add** button with the same gating and shows an amber "install mongo first" hint.
+2. **At start/stop time** — `lerd service start mongo-express` brings `mongo` up first, recursively. `lerd service stop mongo` first stops `mongo-express` (and any other dependent), then stops `mongo`. The Web UI's Start and Stop buttons share the same semantics. This also means starting *any* preset that depends on a built-in (`phpmyadmin`, `pgadmin`) auto-starts the database.
+
+### Default credentials
+
+| Preset | Sign-in |
+|---|---|
+| `phpmyadmin` | auto-authenticated against `lerd-mysql` as `root` / `lerd` |
+| `pgadmin` | `admin@pgadmin.org` / `lerd` (server mode disabled, no master password) — pre-loaded with the `Lerd Postgres` connection via a bundled `servers.json` + `pgpass` |
+| `mongo` | root user `root` / `lerd` |
+| `mongo-express` | basic auth disabled — open `http://localhost:8082` directly |
+| `stripe-mock` | no auth (Stripe test mock) |
+
+### Database service quality-of-life
+
+When a preset's paired admin UI is installed, the database service's detail
+panel header gains an **Open phpMyAdmin / pgAdmin / Mongo Express** button.
+Clicking it auto-starts the admin service (which in turn auto-starts the
+database via `depends_on`) and opens the dashboard URL in a new tab.
+
+When the paired admin UI is *not* installed and the service is **active**,
+the header instead shows an **Open connection URL** anchor — a real `<a>`
+element pointing at `mysql://`, `postgresql://`, or `mongodb://` so your
+registered DB client (DBeaver, TablePlus, DataGrip, Compass…) handles it
+natively. Right-click → "Copy link" works.
+
+`mongo` declares its own `connection_url:` (see [YAML schema](#yaml-schema)
+below) so it gets the same treatment as the built-in databases.
+
+---
+
 ## Custom services
 
 Lerd lets you define arbitrary OCI-based services that integrate seamlessly with `lerd service`, `lerd start`/`stop`, and `lerd env` — without recompiling.
@@ -187,11 +258,41 @@ exec: ""                               # container command override
 dashboard: http://localhost:8081       # URL shown as an "Open" button in the web UI
                                        # when the service is active
 
+connection_url: mongodb://root:secret@127.0.0.1:27017/?authSource=admin
+                                       # host-side scheme URL (mysql://, postgresql://, mongodb://, etc.)
+                                       # Surfaced as an "Open connection URL" link on the service detail
+                                       # panel when the service is active and no paired admin UI is installed.
+                                       # Right-click "Copy link" works; left-click hands the URL to your
+                                       # registered DB client (DBeaver, TablePlus, Compass, etc.).
+
 description: "MongoDB document store"  # shown in `lerd service list`
 
 # Service dependencies (see "Service dependencies" section below)
 depends_on:
   - mysql                              # services that must start before this one
+                                       # `lerd service start <name>` recursively starts each dep first.
+                                       # `lerd service stop <name>` stops anything that depends on it first.
+
+# Bind-mounted config files materialised on the host at install time
+files:
+  - target: /etc/mytool/config.yaml    # absolute path inside the container
+    content: |                         # literal file body, written verbatim
+      key: value
+      nested:
+        item: 1
+  - target: /run/secret                # files needing strict perms / non-root reads
+    mode: "0600"                       # octal permission bits, default "0644"
+    chown: true                        # adds :U to the volume mount so podman re-chowns
+                                       # the file to the container user. Required when
+                                       # the in-container process runs as a non-root uid
+                                       # (e.g. pgAdmin's uid 5050) and 0600 would otherwise
+                                       # hide the file from it.
+    content: |
+      hunter2
+
+# Files are rendered to ~/.local/share/lerd/service-files/<name>/ and bind-mounted
+# at the declared target. Materialisation runs at install time and on every
+# `lerd service start` so editing the YAML and restarting picks up changes.
 
 # Injected into .env by `lerd env`
 env_vars:

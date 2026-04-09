@@ -1,0 +1,13 @@
+name: phpmyadmin
+image: docker.io/library/phpmyadmin:latest
+description: phpMyAdmin web UI for the lerd MySQL service
+ports:
+  - "8080:80"
+environment:
+  PMA_HOST: lerd-mysql
+  PMA_USER: root
+  PMA_PASSWORD: lerd
+  UPLOAD_LIMIT: 256M
+depends_on:
+  - mysql
+dashboard: http://localhost:8080

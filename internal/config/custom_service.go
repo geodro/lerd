@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -29,20 +31,82 @@ type SiteInit struct {
 	Exec string `yaml:"exec"`
 }
 
+// FileMount is a single file rendered to disk on the host and bind-mounted
+// into a custom service container. It exists so presets can ship config files
+// (e.g. pgAdmin's servers.json, a pgpass) without requiring the user to manage
+// any host paths themselves.
+type FileMount struct {
+	// Target is the absolute path inside the container where the file appears.
+	Target string `yaml:"target"`
+	// Content is the literal file body, written verbatim.
+	Content string `yaml:"content"`
+	// Mode is the octal permission bits, e.g. "0600". Defaults to "0644".
+	Mode string `yaml:"mode,omitempty"`
+	// Chown adds the :U flag to the volume mount so podman re-chowns the file
+	// to match the container's expected UID. Required when the in-container
+	// process runs as a non-root user (e.g. pgAdmin runs as uid 5050) and the
+	// file mode would otherwise hide it from that user (e.g. 0600).
+	Chown bool `yaml:"chown,omitempty"`
+}
+
 // CustomService represents a user-defined OCI-based service.
 type CustomService struct {
-	Name        string            `yaml:"name"`
-	Image       string            `yaml:"image"`
-	Ports       []string          `yaml:"ports,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty"`
-	DataDir     string            `yaml:"data_dir,omitempty"`
-	Exec        string            `yaml:"exec,omitempty"`
-	EnvVars     []string          `yaml:"env_vars,omitempty"`
-	EnvDetect   *EnvDetect        `yaml:"env_detect,omitempty"`
-	SiteInit    *SiteInit         `yaml:"site_init,omitempty"`
-	Dashboard   string            `yaml:"dashboard,omitempty"`
-	Description string            `yaml:"description,omitempty"`
-	DependsOn   []string          `yaml:"depends_on,omitempty"`
+	Name          string            `yaml:"name"`
+	Image         string            `yaml:"image"`
+	Ports         []string          `yaml:"ports,omitempty"`
+	Environment   map[string]string `yaml:"environment,omitempty"`
+	DataDir       string            `yaml:"data_dir,omitempty"`
+	Exec          string            `yaml:"exec,omitempty"`
+	EnvVars       []string          `yaml:"env_vars,omitempty"`
+	EnvDetect     *EnvDetect        `yaml:"env_detect,omitempty"`
+	SiteInit      *SiteInit         `yaml:"site_init,omitempty"`
+	Dashboard     string            `yaml:"dashboard,omitempty"`
+	ConnectionURL string            `yaml:"connection_url,omitempty"`
+	Description   string            `yaml:"description,omitempty"`
+	DependsOn     []string          `yaml:"depends_on,omitempty"`
+	Files         []FileMount       `yaml:"files,omitempty"`
+}
+
+// ServiceFilePath returns the deterministic host path for a single FileMount
+// belonging to the named service. Both the materialiser and the quadlet
+// generator use this so they agree on layout without explicit plumbing.
+func ServiceFilePath(svcName string, target string) string {
+	safe := strings.ReplaceAll(strings.TrimPrefix(target, "/"), "/", "_")
+	return filepath.Join(ServiceFilesDir(svcName), safe)
+}
+
+// MaterializeServiceFiles writes each FileMount in svc to its host path,
+// creating the parent directory and applying the requested mode.
+func MaterializeServiceFiles(svc *CustomService) error {
+	if len(svc.Files) == 0 {
+		return nil
+	}
+	dir := ServiceFilesDir(svc.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating files dir for %s: %w", svc.Name, err)
+	}
+	for _, f := range svc.Files {
+		if f.Target == "" {
+			return fmt.Errorf("service %s: file mount missing target", svc.Name)
+		}
+		mode := os.FileMode(0644)
+		if f.Mode != "" {
+			parsed, err := strconv.ParseUint(f.Mode, 8, 32)
+			if err != nil {
+				return fmt.Errorf("service %s: invalid mode %q for %s: %w", svc.Name, f.Mode, f.Target, err)
+			}
+			mode = os.FileMode(parsed)
+		}
+		path := ServiceFilePath(svc.Name, f.Target)
+		if err := os.WriteFile(path, []byte(f.Content), mode); err != nil {
+			return fmt.Errorf("writing %s for service %s: %w", path, svc.Name, err)
+		}
+		// WriteFile honours umask; chmod explicitly so 0600 sticks.
+		if err := os.Chmod(path, mode); err != nil {
+			return fmt.Errorf("chmod %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // CustomServicesDependingOn returns the names of all custom services that

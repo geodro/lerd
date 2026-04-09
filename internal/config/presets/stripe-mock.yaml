@@ -1,0 +1,10 @@
+name: stripe-mock
+image: docker.io/stripemock/stripe-mock:latest
+description: Local Stripe API mock for Cashier and webhook testing
+ports:
+  - "12111:12111"
+  - "12112:12112"
+env_vars:
+  - STRIPE_MOCK_URL=http://lerd-stripe-mock:12111
+env_detect:
+  key: STRIPE_KEY

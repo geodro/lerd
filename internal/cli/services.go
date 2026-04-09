@@ -98,6 +98,7 @@ func NewServiceCmd() *cobra.Command {
 	cmd.AddCommand(newServiceStatusCmd())
 	cmd.AddCommand(newServiceListCmd())
 	cmd.AddCommand(newServiceAddCmd())
+	cmd.AddCommand(newServicePresetCmd())
 	cmd.AddCommand(newServiceRemoveCmd())
 	cmd.AddCommand(newServiceExposeCmd())
 	cmd.AddCommand(newServicePinCmd())
@@ -127,6 +128,12 @@ func newServiceStartCmd() *cobra.Command {
 					return fmt.Errorf("unknown service %q", name)
 				}
 				if err := ensureCustomServiceQuadlet(svc); err != nil {
+					return err
+				}
+				// Make sure every declared dependency is up first. Without
+				// this, starting e.g. mongo-express by itself would leave
+				// mongo stopped and the container would fail to connect.
+				if err := StartServiceDependencies(svc); err != nil {
 					return err
 				}
 				image = svc.Image
@@ -169,7 +176,7 @@ func newServiceStopCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
-			stopServiceAndDependents(name)
+			StopServiceAndDependents(name)
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
 			return nil
@@ -371,6 +378,123 @@ Or specify inline with flags (--name and --image are required):
 	return cmd
 }
 
+// newServicePresetCmd returns the `service preset` command. With no args it
+// lists the bundled presets; with a name it materialises that preset as a
+// custom service so it can be started, stopped, removed, exposed, or pinned
+// like any other custom service.
+func newServicePresetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "preset [name]",
+		Short: "Install a bundled service preset (e.g. phpmyadmin, pgadmin)",
+		Long: `Install a bundled, opt-in service preset.
+
+Run with no arguments to list the available presets:
+  lerd service preset
+
+Install a preset by name:
+  lerd service preset phpmyadmin
+  lerd service preset pgadmin
+
+Presets are installed as ordinary custom services. They can then be started,
+stopped, removed, exposed, or pinned with the usual service subcommands.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return printPresetList()
+			}
+			svc, err := InstallPresetByName(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Installed preset %q. Start it with: lerd service start %s\n", svc.Name, svc.Name)
+			if svc.Dashboard != "" {
+				fmt.Printf("Dashboard: %s\n", svc.Dashboard)
+			}
+			if len(svc.DependsOn) > 0 {
+				fmt.Printf("Depends on: %s (will be auto-started)\n", strings.Join(svc.DependsOn, ", "))
+			}
+			return nil
+		},
+	}
+}
+
+// printPresetList prints the bundled presets in a simple table.
+func printPresetList() error {
+	presets, err := config.ListPresets()
+	if err != nil {
+		return err
+	}
+	if len(presets) == 0 {
+		fmt.Println("No presets bundled with this build.")
+		return nil
+	}
+	fmt.Printf("%-14s %-10s %s\n", "Preset", "Status", "Description")
+	fmt.Printf("%s\n", strings.Repeat("─", 60))
+	for _, p := range presets {
+		status := "available"
+		if _, err := config.LoadCustomService(p.Name); err == nil {
+			status = "installed"
+		}
+		fmt.Printf("%-14s %-10s %s\n", p.Name, status, p.Description)
+		if len(p.DependsOn) > 0 {
+			fmt.Printf("%-14s %-10s depends on: %s\n", "", "", strings.Join(p.DependsOn, ", "))
+		}
+		if p.Dashboard != "" {
+			fmt.Printf("%-14s %-10s dashboard:  %s\n", "", "", p.Dashboard)
+		}
+	}
+	fmt.Println("\nInstall with: lerd service preset <name>")
+	return nil
+}
+
+// InstallPresetByName materialises a bundled preset as a custom service. It is
+// shared between the CLI subcommand and the web UI handler so both code paths
+// enforce the same collision checks and quadlet generation.
+func InstallPresetByName(name string) (*config.CustomService, error) {
+	svc, err := config.LoadPreset(name)
+	if err != nil {
+		return nil, err
+	}
+	if isKnownService(svc.Name) {
+		return nil, fmt.Errorf("%q is a built-in service and cannot be installed as a preset", svc.Name)
+	}
+	if _, err := config.LoadCustomService(svc.Name); err == nil {
+		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
+	}
+	// Every dependency must already exist as either a built-in or an
+	// installed custom service. Without this check a user could install e.g.
+	// mongo-express with no mongo present, which then fails to start at
+	// runtime with no clear hint about why.
+	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
+		return nil, fmt.Errorf("preset %q requires service(s) %s to be installed first", svc.Name, strings.Join(missing, ", "))
+	}
+	if err := config.SaveCustomService(svc); err != nil {
+		return nil, fmt.Errorf("saving service config: %w", err)
+	}
+	if err := ensureCustomServiceQuadlet(svc); err != nil {
+		return nil, fmt.Errorf("writing quadlet: %w", err)
+	}
+	return svc, nil
+}
+
+// MissingPresetDependencies returns the names of services that svc declares in
+// depends_on but which are neither built-in nor already installed as custom
+// services. Exported so the web UI can surface dependency gating without
+// duplicating the rules.
+func MissingPresetDependencies(svc *config.CustomService) []string {
+	var missing []string
+	for _, dep := range svc.DependsOn {
+		if isKnownService(dep) {
+			continue
+		}
+		if _, err := config.LoadCustomService(dep); err == nil {
+			continue
+		}
+		missing = append(missing, dep)
+	}
+	return missing
+}
+
 // newServiceRemoveCmd returns the `service remove` command.
 func newServiceRemoveCmd() *cobra.Command {
 	return &cobra.Command{
@@ -441,6 +565,9 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
 			return fmt.Errorf("creating data directory for %s: %w", svc.Name, err)
 		}
+	}
+	if err := config.MaterializeServiceFiles(svc); err != nil {
+		return err
 	}
 	content := podman.GenerateCustomQuadlet(svc)
 	quadletName := "lerd-" + svc.Name
@@ -575,11 +702,28 @@ func newServiceUnpinCmd() *cobra.Command {
 	}
 }
 
-// stopServiceAndDependents stops all custom services that depend on name
-// (depth-first), then stops name itself.
-func stopServiceAndDependents(name string) {
+// StartServiceDependencies ensures every entry in svc.DependsOn is up and
+// ready before the parent is started. Built-in deps and custom deps are
+// handled identically by ensureServiceRunning, which recurses into nested
+// chains. Exported so the Web UI shares the same semantics as the CLI.
+func StartServiceDependencies(svc *config.CustomService) error {
+	if svc == nil {
+		return nil
+	}
+	for _, dep := range svc.DependsOn {
+		if err := ensureServiceRunning(dep); err != nil {
+			return fmt.Errorf("starting dependency %q for %q: %w", dep, svc.Name, err)
+		}
+	}
+	return nil
+}
+
+// StopServiceAndDependents stops all custom services that depend on name
+// (depth-first), then stops name itself. Exported so the Web UI can share
+// the same recursive shutdown semantics as the CLI.
+func StopServiceAndDependents(name string) {
 	for _, dep := range config.CustomServicesDependingOn(name) {
-		stopServiceAndDependents(dep)
+		StopServiceAndDependents(dep)
 	}
 	unit := "lerd-" + name
 	status, _ := podman.UnitStatus(unit)
@@ -604,7 +748,7 @@ func autoStopUnusedServices() {
 			unit := "lerd-" + name
 			status, _ := podman.UnitStatus(unit)
 			if status == "active" || status == "activating" {
-				stopServiceAndDependents(name)
+				StopServiceAndDependents(name)
 			}
 		}
 	}

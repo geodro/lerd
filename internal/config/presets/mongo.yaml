@@ -1,0 +1,17 @@
+name: mongo
+image: docker.io/library/mongo:7
+description: MongoDB document database
+ports:
+  - "27017:27017"
+environment:
+  MONGO_INITDB_ROOT_USERNAME: root
+  MONGO_INITDB_ROOT_PASSWORD: lerd
+data_dir: /data/db
+connection_url: mongodb://root:lerd@127.0.0.1:27017/?authSource=admin
+env_vars:
+  - MONGO_DSN=mongodb://root:lerd@lerd-mongo:27017/{{site}}?authSource=admin
+env_detect:
+  key: MONGO_DSN
+  value_prefix: mongodb://
+site_init:
+  exec: mongosh --quiet -u root -p lerd --authenticationDatabase admin --eval "try { db.getSiblingDB('{{site}}').createCollection('_lerd_init') } catch (e) {}"
