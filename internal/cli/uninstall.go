@@ -71,6 +71,11 @@ func runUninstall(force bool) error {
 			}
 			_ = disableUnit(unit)
 		}
+		// Kill any running tray process. The tray may be running standalone
+		// (launched from the desktop file or `lerd tray`) without a systemd
+		// unit, in which case the unit teardown above misses it and the tray
+		// keeps running after the binary is gone.
+		killTray()
 	}
 	ok()
 
