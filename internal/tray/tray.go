@@ -159,7 +159,6 @@ func onReady(mono bool) {
 	} else {
 		systray.SetIcon(iconPNG)
 	}
-	systray.SetTitle("Lerd")
 	systray.SetTooltip("Lerd — local dev environment")
 
 	menu := buildMenu()
@@ -175,7 +174,9 @@ func onReady(mono bool) {
 	go handleServices(menu)
 	go handlePHP(menu)
 	go handleAutostart(menu.mAutostart)
-	go handleLAN(menu.mLAN)
+	if menu.mLAN != nil {
+		go handleLAN(menu.mLAN)
+	}
 	go handleUpdate(menu.mUpdate)
 	go handleQuit(menu.mQuit, cancel)
 }

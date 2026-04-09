@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
 )
 
@@ -45,6 +46,7 @@ func init() {
 	Mgr = &darwinServiceManager{}
 	// Override WriteFPMQuadlet to use launchd plists instead of systemd quadlets.
 	podman.WriteContainerUnitFn = Mgr.WriteContainerUnit
+	podman.AfterQuadletWriteFn = Mgr.WriteContainerUnit
 	podman.DaemonReloadFn = Mgr.DaemonReload
 	podman.StartUnitFn = Mgr.Start
 	podman.StopUnitFn = Mgr.Stop
@@ -196,6 +198,34 @@ func stripSELinuxVolOpts(vol string) string {
 	return parts[0] + ":" + parts[1] + ":" + strings.Join(filtered, ",")
 }
 
+// stripPrivilegedIPBind removes the host-IP prefix from a PublishPort value
+// (e.g. "127.0.0.1:80:80" → "80:80") when the host port is privileged (< 1024).
+// On macOS, gvproxy handles port forwarding through podman-mac-helper and does
+// not support explicit IP binds for privileged ports — trying them causes
+// "bind: permission denied". Non-privileged ports (3306, 6379, etc.) do
+// support IP binding and are left untouched so LAN restriction still works.
+func stripPrivilegedIPBind(port string) string {
+	// Expected formats: "hostIP:hostPort:containerPort[/proto]" or "hostPort:containerPort[/proto]"
+	parts := strings.SplitN(port, ":", 3)
+	if len(parts) != 3 {
+		return port // bare "containerPort" or "hostPort:containerPort" — no IP prefix
+	}
+	// parts[0] is the host IP, parts[1] is the host port, parts[2] is container port
+	hostPortStr := strings.SplitN(parts[1], "/", 2)[0] // strip "/tcp" etc.
+	if n := 0; len(hostPortStr) > 0 {
+		for _, c := range hostPortStr {
+			if c < '0' || c > '9' {
+				return port // non-numeric, leave as-is
+			}
+			n = n*10 + int(c-'0')
+		}
+		if n < 1024 {
+			return parts[1] + ":" + parts[2] // drop the IP prefix
+		}
+	}
+	return port
+}
+
 // containerToPodmanArgs builds a podman run argument list from a parsed [Container] section.
 // On macOS we run detached (-d) so that launchctl bootstrap sees an immediate
 // exit 0 (success); podman's own --restart=always policy handles crash recovery.
@@ -211,7 +241,7 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 		args = append(args, "--network", net)
 	}
 	for _, port := range c["PublishPort"] {
-		args = append(args, "-p", port)
+		args = append(args, "-p", stripPrivilegedIPBind(port))
 	}
 	for _, vol := range c["Volume"] {
 		args = append(args, "-v", stripSELinuxVolOpts(expandSpecifiers(vol)))
@@ -319,6 +349,15 @@ func (m *darwinServiceManager) ListServiceUnits(nameGlob string) []string {
 // --- Container unit files ---
 
 func (m *darwinServiceManager) WriteContainerUnit(name, content string) error {
+	// Apply BindForLAN so the plist always reflects the current LAN-exposure
+	// setting, regardless of whether the caller went through WriteQuadlet or
+	// called WriteContainerUnit directly. BindForLAN is idempotent.
+	lanExposed := false
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+		lanExposed = cfg.LAN.Exposed
+	}
+	content = podman.BindForLAN(content, lanExposed)
+
 	c := parseSection(content, "Container")
 	args, err := containerToPodmanArgs(c)
 	if err != nil {
