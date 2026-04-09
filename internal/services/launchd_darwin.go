@@ -471,27 +471,13 @@ func (m *darwinServiceManager) Stop(name string) error {
 	return nil
 }
 
-// Restart kicks the service if loaded, otherwise bootstraps it fresh.
+// Restart does a full bootout + bootstrap cycle so the new binary on disk is
+// always picked up. kickstart -k would reuse launchd's cached program path and
+// keep the old binary running after an in-place binary replacement (e.g. after
+// `lerd install` / `brew upgrade`). Start already handles killing the running
+// PID, booting out, and re-bootstrapping from the current plist on disk.
 func (m *darwinServiceManager) Restart(name string) error {
-	domain := uidDomain()
-	label := plistLabel(name)
-
-	out, err := launchctl("kickstart", "-k", domain+"/"+label)
-	if err != nil {
-		s := string(out)
-		code := launchctlExitCode(err)
-		// Not loaded yet — fall back to a full bootstrap
-		if code == 36 || code == 113 || strings.Contains(s, "No such process") ||
-			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
-			return m.Start(name)
-		}
-		// 37 = EALREADY — job is already running, treat as success.
-		if code == 37 || strings.Contains(s, "already running") {
-			return nil
-		}
-		return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, err, out)
-	}
-	return nil
+	return m.Start(name)
 }
 
 // Enable marks the service as enabled so launchd starts it on the next login.
