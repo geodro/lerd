@@ -522,9 +522,19 @@
                         class="font-semibold text-lerd-red hover:text-lerd-redhov transition-colors"
                         x-text="selectedSite.domain"
                       ></a>
-                      <template x-if="(selectedSite.domains || []).length > 1">
+                      <!-- "+N more" pill: covers both extra registered domains and any
+                           .lerd.yaml entries dropped due to a conflict. The latter render
+                           with a warning icon both on the pill (when present) and inside
+                           the tooltip (struck-through with the owning site name). -->
+                      <template x-if="((selectedSite.domains || []).length - 1 + (selectedSite.conflicting_domains || []).length) > 0">
                         <span class="relative cursor-default" x-data="{ show: false }" @mouseenter="show = true" @mouseleave="show = false">
-                          <span class="text-xs text-gray-400 dark:text-gray-500" x-text="'+' + (selectedSite.domains.length - 1) + ' more'"></span>
+                          <span class="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500"
+                            :class="(selectedSite.conflicting_domains || []).length > 0 ? 'text-amber-600 dark:text-amber-400' : ''">
+                            <svg x-show="(selectedSite.conflicting_domains || []).length > 0" class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z"/>
+                            </svg>
+                            <span x-text="'+' + ((selectedSite.domains.length - 1) + (selectedSite.conflicting_domains || []).length) + ' more'"></span>
+                          </span>
                           <div x-show="show" x-transition.opacity class="absolute left-0 top-full mt-1 z-50 bg-gray-900 dark:bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
                             <template x-for="d in selectedSite.domains.slice(1)" :key="d">
                               <a :href="(selectedSite.tls ? 'https://' : 'http://') + d" @click.prevent="window.open((selectedSite.tls ? 'https://' : 'http://') + d, '_blank', 'noopener')"
@@ -532,6 +542,15 @@
                                 <span x-text="d"></span>
                                 <svg class="w-3 h-3 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                               </a>
+                            </template>
+                            <template x-for="c in (selectedSite.conflicting_domains || [])" :key="c.domain">
+                              <div class="flex items-center gap-1.5 py-0.5 font-mono">
+                                <svg class="w-3 h-3 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z"/>
+                                </svg>
+                                <span class="line-through text-gray-400" x-text="c.domain"></span>
+                                <span x-show="c.owned_by" class="text-amber-300" x-text="'→ ' + c.owned_by"></span>
+                              </div>
                             </template>
                           </div>
                         </span>
@@ -2269,6 +2288,7 @@ function lerdApp() {
             if (e) {
               e.domain = s.domain;
               e.domains = s.domains;
+              e.conflicting_domains = s.conflicting_domains;
               e.php_version = s.php_version;
               e.node_version = s.node_version;
               e.tls = s.tls;
@@ -2792,6 +2812,10 @@ function lerdApp() {
         open: true,
         site: site,
         domains: (site.domains || [site.domain]).map(d => d.endsWith(suffix) ? d.slice(0, -suffix.length) : d),
+        // Domains declared in .lerd.yaml that another site on this machine
+        // already owns — surfaced from the API as {domain, owned_by} so the
+        // modal can render them with a warning icon.
+        conflicting: site.conflicting_domains || [],
         newDomain: '',
         editIndex: -1,
         editValue: '',
@@ -2810,6 +2834,7 @@ function lerdApp() {
         this.selectedSiteDomain = updated.domain;
         const suffix = '.' + this.tld;
         m.domains = (updated.domains || [updated.domain]).map(d => d.endsWith(suffix) ? d.slice(0, -suffix.length) : d);
+        m.conflicting = updated.conflicting_domains || [];
       }
     },
 
@@ -2971,6 +2996,32 @@ function lerdApp() {
         this._refreshDomainModal(siteName);
         m.dirty = true;
         m.flash = 'Domain removed';
+        setTimeout(() => { m.flash = ''; }, 3000);
+      } catch (e) { m.error = e.message; }
+      m.loading = false;
+    },
+
+    async domainModalRemoveConflict(c) {
+      // Remove a conflict-filtered entry from .lerd.yaml only. The server's
+      // domain:remove handler detects the entry isn't in the registered list
+      // and routes it to a .lerd.yaml-only delete (no registry, vhost, or
+      // cert work). Strip the TLD before passing the name through, since the
+      // server re-appends it.
+      const m = this.domainModal;
+      const suffix = '.' + this.tld;
+      const fullDomain = c.domain;
+      const nameOnly = fullDomain.endsWith(suffix) ? fullDomain.slice(0, -suffix.length) : fullDomain;
+      const siteName = m.site.name;
+      m.loading = true;
+      m.error = '';
+      try {
+        const res = await fetch(`/api/sites/${m.site.domain}/domain:remove?name=${encodeURIComponent(nameOnly)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { m.error = data.error; m.loading = false; return; }
+        await this.loadSites();
+        this._refreshDomainModal(siteName);
+        m.dirty = true;
+        m.flash = 'Removed from .lerd.yaml';
         setTimeout(() => { m.flash = ''; }, 3000);
       } catch (e) { m.error = e.message; }
       m.loading = false;
@@ -3629,6 +3680,25 @@ function lerdApp() {
 
       <!-- Domain List -->
       <div class="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
+        <!-- Conflicting domains: declared in .lerd.yaml but already used by another site on this machine. The trash button removes the entry from .lerd.yaml only — no registry change. -->
+        <template x-for="c in (domainModal.conflicting || [])" :key="c.domain">
+          <div class="flex items-center gap-2 group opacity-70">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                :title="c.owned_by ? ('In .lerd.yaml but already used by site \u201c' + c.owned_by + '\u201d on this machine. Not registered.') : ('In .lerd.yaml but already used by another site on this machine. Not registered.')">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z"/>
+              </svg>
+              <div class="flex-1 min-w-0 flex items-center gap-1.5">
+                <span class="text-sm font-mono text-gray-500 dark:text-gray-400 truncate line-through" x-text="c.domain"></span>
+                <span x-show="c.owned_by" class="text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded shrink-0" x-text="'used by ' + c.owned_by"></span>
+              </div>
+              <button @click="domainModalRemoveConflict(c)" :disabled="domainModal.loading"
+                class="text-gray-400 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50" title="Remove from .lerd.yaml">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </template>
         <template x-for="(dom, i) in domainModal.domains" :key="i">
           <div class="flex items-center gap-2 group">
             <!-- View mode -->

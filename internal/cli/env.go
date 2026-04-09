@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	neturl "net/url"
+
 	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
@@ -365,12 +367,15 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 4. Set the URL key to the registered .test domain
+	// 4. Set the URL key. Precedence (matching other lerd settings):
+	//    1. .lerd.yaml `app_url` — committed, shared across machines
+	//    2. sites.yaml `app_url` — per-machine override
+	//    3. <scheme>://<primary-domain> default generator
 	urlKey := fw.Env.URLKey
 	if urlKey == "" {
 		urlKey = "APP_URL"
 	}
-	if url := siteURL(cwd); url != "" {
+	if url := resolveAppURL(cwd, site); url != "" {
 		updates[urlKey] = url
 		fmt.Printf("  Setting %s=%s\n", urlKey, url)
 	}
@@ -521,6 +526,75 @@ func ensureServiceRunning(name string) error {
 		return err
 	}
 	return podman.WaitReady(name, 60*time.Second)
+}
+
+// resolveAppURL returns the URL lerd should write to APP_URL for the project,
+// applying the standard lerd precedence chain:
+//
+//  1. .lerd.yaml `app_url` (committed, shared across machines)
+//  2. sites.yaml `app_url` (per-machine override)
+//  3. `<scheme>://<primary-domain>` default generator
+//
+// The .lerd.yaml `app_url` is suppressed when its host is one of the project's
+// declared domains that got filtered out at registration time (i.e. another
+// site already owns it on this machine). External hosts and unrelated values
+// pass through unchanged — only the conflict-filtered case is rejected.
+//
+// Returns an empty string only when the site is unregistered and no override
+// is set anywhere — callers should treat that as "leave APP_URL alone".
+func resolveAppURL(cwd string, site *config.Site) string {
+	proj, _ := config.LoadProjectConfig(cwd)
+	if proj != nil && strings.TrimSpace(proj.AppURL) != "" {
+		val := strings.TrimSpace(proj.AppURL)
+		if !appURLPointsToFilteredDomain(val, proj, site) {
+			return val
+		}
+	}
+	if site != nil && strings.TrimSpace(site.AppURL) != "" {
+		return strings.TrimSpace(site.AppURL)
+	}
+	return siteURL(cwd)
+}
+
+// appURLPointsToFilteredDomain reports whether the given URL's host matches
+// a domain that the project declared in .lerd.yaml but that did NOT survive
+// the conflict filter at registration time. When true, the caller should
+// fall through to the next precedence level instead of writing a value that
+// points at a domain owned by another site.
+func appURLPointsToFilteredDomain(rawURL string, proj *config.ProjectConfig, site *config.Site) bool {
+	if proj == nil || site == nil || len(proj.Domains) == 0 {
+		return false
+	}
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := parsed.Hostname()
+
+	cfg, cfgErr := config.LoadGlobal()
+	if cfgErr != nil {
+		return false
+	}
+	suffix := "." + cfg.DNS.TLD
+
+	// Was this host in the .lerd.yaml-declared list?
+	declared := false
+	for _, d := range proj.Domains {
+		if strings.ToLower(d)+suffix == host {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return false
+	}
+	// Declared but did it survive into the registered site?
+	for _, d := range site.Domains {
+		if d == host {
+			return false
+		}
+	}
+	return true
 }
 
 // siteURL returns the APP_URL for the project registered at path, or "".

@@ -18,6 +18,11 @@ type ProjectConfig struct {
 	Secured      bool             `yaml:"secured,omitempty"`
 	Services     []ProjectService `yaml:"services,omitempty"`
 	Workers      []string         `yaml:"workers,omitempty"`
+	// AppURL, when set, is the value lerd writes to the project's APP_URL (or
+	// the framework-configured URL key) on every `lerd env` run. Committed to
+	// the repo so the choice is shared across machines. Takes precedence over
+	// the per-machine override in sites.yaml.
+	AppURL string `yaml:"app_url,omitempty"`
 }
 
 // ServiceNames returns the name of every service in the config, for callers
