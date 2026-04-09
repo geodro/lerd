@@ -49,6 +49,26 @@ type GlobalConfig struct {
 		// the actual services don't.
 		Exposed bool `yaml:"exposed,omitempty" mapstructure:"exposed"`
 	} `yaml:"lan,omitempty" mapstructure:"lan"`
+	Autostart struct {
+		// Disabled controls whether lerd boots itself at login. The
+		// zero value (false) means lerd autostarts as it always has:
+		// every lerd-* container quadlet ships with its [Install]
+		// section, the podman generator wires it into
+		// default.target.wants on every daemon-reload, and the
+		// lerd-ui / lerd-watcher / per-site worker units are enabled.
+		// Setting this to true makes WriteQuadletDiff strip the
+		// [Install] section before write (so the generator stops
+		// emitting wants symlinks), disables ui/watcher and every
+		// per-site worker, and stops them. Toggled via
+		// `lerd autostart enable / disable` and the dashboard / tray
+		// switches.
+		//
+		// Inverted form (Disabled rather than Enabled) so the YAML zero
+		// value preserves the historical autostart-on behaviour for
+		// every existing install — users who never touch the toggle
+		// see no change.
+		Disabled bool `yaml:"disabled,omitempty" mapstructure:"disabled"`
+	} `yaml:"autostart,omitempty" mapstructure:"autostart"`
 	UI struct {
 		// RemoteControl gates non-loopback access to the lerd dashboard.
 		// Empty PasswordHash = disabled = LAN clients get 403. With a hash

@@ -4,7 +4,10 @@ After=graphical-session.target lerd-ui.service
 Wants=lerd-ui.service
 
 [Service]
-ExecStart=%h/.local/bin/lerd tray
+# lerd-tray directly (not `lerd tray`, which is a nogui-build stub that
+# forks and exits). LERD_TRAY_DAEMON=1 keeps it foreground for systemd.
+ExecStart=%h/.local/bin/lerd-tray
+Environment=LERD_TRAY_DAEMON=1
 Restart=on-failure
 RestartSec=5
 Environment=DISPLAY=:0

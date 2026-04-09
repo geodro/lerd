@@ -81,23 +81,22 @@ The system tray's **Quit Lerd** menu item calls `lerd quit`.
 
 ## Autostart on login
 
-Lerd can boot itself every time you log in via a user systemd unit (`lerd-autostart.service`).
+Lerd can boot itself every time you log in. Autostart is a single switch over every lerd-owned systemd user unit on the machine:
+
+- the dashboard (`lerd-ui.service`), project watcher (`lerd-watcher.service`) and system tray (`lerd-tray.service`)
+- every container quadlet (`lerd-mysql`, `lerd-nginx`, `lerd-redis`, `lerd-postgres`, `lerd-dns`, `lerd-php*-fpm`, `lerd-mailpit`, `lerd-meilisearch`, `lerd-minio`, `lerd-rustfs`)
+- every per-site worker, queue, schedule, horizon, reverb, and stripe-listen unit
 
 ```bash
 lerd autostart enable      # boot lerd on every login
 lerd autostart disable     # stop booting on login
 ```
 
-The autostart unit runs `lerd start` once your graphical session is ready, so DNS routing, the tray, and the Web UI are all live before you open your editor. Manually paused services are honored — they stay paused across the boot.
+`lerd autostart enable` runs `systemctl --user enable` on the full set; `lerd autostart disable` runs the matching `disable`. The dashboard's enabled state is the canonical "is autostart on" indicator surfaced by the UI and tray.
 
-The system tray has its own autostart toggle so you can have lerd running headless without the tray icon, or vice versa:
+The same toggle also appears in the **System Tray** menu under **Autostart** — see [System Tray](../features/system-tray.md).
 
-```bash
-lerd autostart tray enable
-lerd autostart tray disable
-```
-
-Both toggles also appear in the **System Tray** menu under **Autostart** — see [System Tray](../features/system-tray.md).
+The tray unit (`lerd-tray.service`) is wired to `graphical-session.target` and so requires a desktop environment that reaches that target on login: GNOME, KDE Plasma, and any compositor launched through `uwsm` (Omarchy's Hyprland setup included). Bare Hyprland / Sway / i3 launched without `uwsm` won't autostart the tray — see [System Tray › Autostart](../features/system-tray.md#autostart) for the workaround. Every other lerd unit uses `default.target` and is unaffected.
 
 ---
 

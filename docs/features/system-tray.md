@@ -29,7 +29,7 @@ Stop Lerd            ← toggles between Start / Stop Lerd
   ✔ 8.4              ← current default (click to switch)
   8.3
 ─────────────────
-Autostart at login: ✔ On   ← click to toggle
+Autostart at login: ✔ On   ← click to toggle (enables/disables every lerd unit)
 ⬆ Update to v0.8.3         ← shown when an update is cached; click to open terminal
 Stop Lerd & Quit     ← runs lerd stop then exits the tray
 ```
@@ -44,14 +44,11 @@ The **update item** shows "Check for update..." when no update information is ca
 
 ## Autostart
 
-To have the tray start automatically when you log in:
-
-```bash
-lerd autostart tray enable
-lerd autostart tray disable
-```
+The tray follows the global `lerd autostart` toggle: when autostart is on (the default), `lerd install` writes and enables `lerd-tray.service` so the tray comes up on every graphical login. Run `lerd autostart disable` to turn off autostart for the entire environment, including the tray.
 
 The tray is also started automatically by `lerd start` if it isn't already running.
+
+The unit is wired to `graphical-session.target`, which is reached automatically by GNOME, KDE Plasma, and any Wayland compositor launched through `uwsm` (including Omarchy's Hyprland setup). On bare Hyprland / Sway / i3 launched without `uwsm`, `graphical-session.target` is never started, so the tray will not autostart — either run the compositor under `uwsm` or replace `WantedBy=graphical-session.target` with `WantedBy=default.target` in `~/.config/systemd/user/lerd-tray.service`.
 
 ---
 

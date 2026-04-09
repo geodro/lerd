@@ -220,7 +220,7 @@ func fetchSnapshot() *Snapshot {
 		return snap
 	}
 
-	snap.AutostartEnabled = lerdSystemd.IsServiceEnabled("lerd-autostart")
+	snap.AutostartEnabled = lerdSystemd.IsAutostartEnabled()
 
 	// LAN exposure state — read directly from config rather than the API
 	// because the tray cares about the persisted intent, not the live bind
@@ -339,7 +339,7 @@ func handlePHP(menu *menuState) {
 
 func handleAutostart(item *systray.MenuItem) {
 	for range item.ClickedCh {
-		if lerdSystemd.IsServiceEnabled("lerd-autostart") {
+		if lerdSystemd.IsAutostartEnabled() {
 			_ = exec.Command("lerd", "autostart", "disable").Start()
 		} else {
 			_ = exec.Command("lerd", "autostart", "enable").Start()
