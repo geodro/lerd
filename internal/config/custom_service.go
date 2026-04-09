@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -65,6 +66,22 @@ type CustomService struct {
 	Description   string            `yaml:"description,omitempty"`
 	DependsOn     []string          `yaml:"depends_on,omitempty"`
 	Files         []FileMount       `yaml:"files,omitempty"`
+	// Family groups related services so admin UIs can auto-discover every
+	// member. e.g. the mysql preset declares family: mysql, and phpMyAdmin
+	// uses dynamic_env to read all family members at quadlet generation time.
+	Family string `yaml:"family,omitempty"`
+	// Preset is the bundled preset name this service was installed from.
+	// Set by InstallPresetByName. Used so the init wizard can store a
+	// preset reference in .lerd.yaml instead of an inlined definition.
+	Preset string `yaml:"preset,omitempty"`
+	// PresetVersion is the picked version tag for multi-version presets.
+	// Empty for single-version presets.
+	PresetVersion string `yaml:"preset_version,omitempty"`
+	// DynamicEnv declares container env vars whose value is computed at
+	// quadlet generation time. Currently supported directive:
+	//   discover_family:<name>  -> comma-joined hostnames of every installed
+	//   service in the named family (built-in or custom).
+	DynamicEnv map[string]string `yaml:"dynamic_env,omitempty"`
 }
 
 // ServiceFilePath returns the deterministic host path for a single FileMount
@@ -73,6 +90,132 @@ type CustomService struct {
 func ServiceFilePath(svcName string, target string) string {
 	safe := strings.ReplaceAll(strings.TrimPrefix(target, "/"), "/", "_")
 	return filepath.Join(ServiceFilesDir(svcName), safe)
+}
+
+// builtinFamilies maps each built-in service name to the family it belongs
+// to so dynamic_env discovery can include built-ins alongside custom services.
+var builtinFamilies = map[string]string{
+	"mysql":       "mysql",
+	"postgres":    "postgres",
+	"redis":       "redis",
+	"meilisearch": "meilisearch",
+	"rustfs":      "rustfs",
+	"mailpit":     "mailpit",
+}
+
+// knownFamilies is the set of recognised family names. It is a superset of
+// the families with built-in implementations — mongo and mariadb for example
+// only exist as presets, but are still "known families" for the purposes of
+// name inference and wizard categorisation.
+var knownFamilies = map[string]bool{
+	"mysql":       true,
+	"mariadb":     true,
+	"postgres":    true,
+	"redis":       true,
+	"meilisearch": true,
+	"rustfs":      true,
+	"mailpit":     true,
+	"mongo":       true,
+}
+
+// IsKnownFamily reports whether name is a recognised service family.
+func IsKnownFamily(name string) bool { return knownFamilies[name] }
+
+// ServicesInFamily returns the container hostnames (lerd-<name>) of every
+// installed service that belongs to the named family. Built-ins match against
+// builtinFamilies; custom services match by their Family field, with a
+// fallback that infers family from the name prefix (e.g. mysql-5-7 -> mysql)
+// so services installed before the explicit field existed still discover.
+// Names are returned in deterministic order so the resulting env var stays
+// stable across regenerations.
+func ServicesInFamily(family string) []string {
+	if family == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for name, fam := range builtinFamilies {
+		if fam == family {
+			host := "lerd-" + name
+			if !seen[host] {
+				seen[host] = true
+				out = append(out, host)
+			}
+		}
+	}
+	if customs, err := ListCustomServices(); err == nil {
+		for _, svc := range customs {
+			if svc.Family != family && InferFamily(svc.Name) != family {
+				continue
+			}
+			host := "lerd-" + svc.Name
+			if !seen[host] {
+				seen[host] = true
+				out = append(out, host)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// InferFamily returns the family for a custom service whose name follows the
+// versioned-alternate template <family>-<digit...>, or the bare family name
+// when the service is the canonical preset (e.g. "mongo"). Returns empty when
+// neither pattern matches a known family.
+func InferFamily(name string) string {
+	if knownFamilies[name] {
+		return name
+	}
+	for i := 1; i < len(name)-1; i++ {
+		if name[i] != '-' {
+			continue
+		}
+		if name[i+1] < '0' || name[i+1] > '9' {
+			continue
+		}
+		prefix := name[:i]
+		if knownFamilies[prefix] {
+			return prefix
+		}
+	}
+	return ""
+}
+
+// ResolveDynamicEnv applies any dynamic_env directives on svc, writing the
+// computed values into svc.Environment. Called immediately before quadlet
+// generation so the resolved values land in the rendered .container file.
+func ResolveDynamicEnv(svc *CustomService) error {
+	if len(svc.DynamicEnv) == 0 {
+		return nil
+	}
+	if svc.Environment == nil {
+		svc.Environment = make(map[string]string, len(svc.DynamicEnv))
+	}
+	for k, directive := range svc.DynamicEnv {
+		parts := strings.SplitN(directive, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("service %s: invalid dynamic_env directive %q for %s", svc.Name, directive, k)
+		}
+		switch parts[0] {
+		case "discover_family":
+			seen := map[string]bool{}
+			var all []string
+			for _, fam := range strings.Split(parts[1], ",") {
+				for _, host := range ServicesInFamily(strings.TrimSpace(fam)) {
+					if !seen[host] {
+						seen[host] = true
+						all = append(all, host)
+					}
+				}
+			}
+			sort.Strings(all)
+			svc.Environment[k] = strings.Join(all, ",")
+		default:
+			return fmt.Errorf("service %s: unknown dynamic_env directive %q", svc.Name, parts[0])
+		}
+	}
+	return nil
 }
 
 // MaterializeServiceFiles writes each FileMount in svc to its host path,

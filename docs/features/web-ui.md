@@ -51,14 +51,20 @@ Selecting a site opens the detail panel with:
 - **Unlink button** — remove a site from nginx without touching the terminal
 - **Git Worktrees** — when the project uses git worktrees, each branch and its domain are listed with a direct open link
 - **Live PHP-FPM log** — streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
+- **Service badges** — beneath the path / git branch line, every service from the project's `.lerd.yaml` is shown as a small pill (green when running, grey when stopped). Click any badge to jump to that service's detail panel on the Services tab.
 
 ## Services
 
 ![Services tab](/assets/screenshots/app-2.png)
 
-The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit) and grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
+The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit), any installed preset alternates (e.g. MySQL 5.7, MariaDB 11, MongoDB) and admin UIs (phpMyAdmin, pgAdmin, Mongo Express), plus grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
-Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button.
+The header has a **+** button that opens the **preset picker modal**: a one-click installer for the bundled service presets. Multi-version presets like `mysql` and `mariadb` show a version dropdown next to the **Add** button. Already-installed entries are filtered out.
+
+Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button. Database service detail panels (mysql, postgres, mongo, and any installed alternate like `mysql-5-7`) get two extras:
+
+- **Suggestion banner** — a sky-blue tip offering to install the paired admin UI (phpMyAdmin / pgAdmin / Mongo Express) when it isn't installed yet. Dismissable per-preset; dismissal persists in `localStorage`.
+- **Open admin button** — when the paired admin UI is installed, a button on the header opens its dashboard in a new tab and auto-starts the admin service if needed. When no admin UI is installed and the service is active, a fallback **Open connection URL** anchor hands the `mysql://` / `postgresql://` / `mongodb://` URL to your registered DB client (DBeaver, TablePlus, Compass…).
 
 ## System
 

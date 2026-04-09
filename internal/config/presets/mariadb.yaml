@@ -1,0 +1,27 @@
+name: mariadb
+description: MariaDB (MySQL-compatible) versions
+family: mariadb
+default_version: "11"
+versions:
+  - tag: "11"
+    label: "11 (latest)"
+    image: docker.io/library/mariadb:11
+    host_port: 3411
+  - tag: "10.11"
+    label: "10.11 LTS"
+    image: docker.io/library/mariadb:10.11
+    host_port: 3410
+ports:
+  - "{{host_port}}:3306"
+data_dir: /var/lib/mysql
+environment:
+  MARIADB_ROOT_PASSWORD: lerd
+  MARIADB_DATABASE: lerd
+env_vars:
+  - DB_CONNECTION=mysql
+  - DB_HOST=lerd-mariadb-{{tag_safe}}
+  - DB_PORT=3306
+  - DB_DATABASE=lerd
+  - DB_USERNAME=root
+  - DB_PASSWORD=lerd
+connection_url: mysql://root:lerd@127.0.0.1:{{host_port}}/lerd

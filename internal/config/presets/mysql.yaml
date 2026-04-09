@@ -1,0 +1,38 @@
+name: mysql
+description: MySQL alternate versions (5.x family)
+family: mysql
+default_version: "5.7"
+versions:
+  - tag: "5.7"
+    label: "5.7"
+    image: docker.io/library/mysql:5.7
+    host_port: 3357
+  - tag: "5.6"
+    label: "5.6 (legacy)"
+    image: docker.io/library/mysql:5.6
+    host_port: 3356
+ports:
+  - "{{host_port}}:3306"
+data_dir: /var/lib/mysql
+environment:
+  MYSQL_ROOT_PASSWORD: lerd
+  MYSQL_DATABASE: lerd
+env_vars:
+  - DB_CONNECTION=mysql
+  - DB_HOST=lerd-mysql-{{tag_safe}}
+  - DB_PORT=3306
+  - DB_DATABASE=lerd
+  - DB_USERNAME=root
+  - DB_PASSWORD=lerd
+connection_url: mysql://root:lerd@127.0.0.1:{{host_port}}/lerd
+files:
+  - target: /etc/mysql/conf.d/lerd.cnf
+    content: |
+      [mysqld]
+      character-set-server=utf8mb4
+      collation-server=utf8mb4_unicode_ci
+      innodb_large_prefix=ON
+      innodb_file_format=Barracuda
+      innodb_file_per_table=ON
+      innodb_strict_mode=OFF
+      loose-innodb_default_row_format=DYNAMIC

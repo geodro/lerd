@@ -390,6 +390,10 @@ type SiteResponse struct {
 	Paused             bool                `json:"paused"`
 	Branch             string              `json:"branch"`
 	Worktrees          []WorktreeResponse  `json:"worktrees"`
+	// Services lists the service names this site uses, sourced from the
+	// project's .lerd.yaml. Used by the dashboard to render service badges
+	// on the site detail panel.
+	Services []string `json:"services,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -517,13 +521,25 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 
+		// Load .lerd.yaml once for both conflicting-domain detection and
+		// the services list rendered as badges in the site detail panel.
+		proj, projErr := config.LoadProjectConfig(s.Path)
+		var siteServices []string
+		if projErr == nil && proj != nil {
+			for _, ps := range proj.Services {
+				if ps.Name != "" {
+					siteServices = append(siteServices, ps.Name)
+				}
+			}
+		}
+
 		// Compute conflicting domains: ones declared in .lerd.yaml that weren't
 		// registered because another site on this machine already owns them.
 		// The check happens at link/auto-register time but the original list
 		// in .lerd.yaml is preserved on disk, so we surface the discrepancy
 		// here for the UI to render with a warning icon.
 		var conflicting []ConflictingDomain
-		if proj, projErr := config.LoadProjectConfig(s.Path); projErr == nil && proj != nil && len(proj.Domains) > 0 {
+		if projErr == nil && proj != nil && len(proj.Domains) > 0 {
 			gcfg, _ := config.LoadGlobal()
 			tld := ""
 			if gcfg != nil {
@@ -598,6 +614,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			Paused:             s.Paused,
 			Branch:             mainBranch,
 			Worktrees:          worktreeResponses,
+			Services:           siteServices,
 		})
 	}
 	if sites == nil {
@@ -856,13 +873,16 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 
 // PresetResponse describes a bundled service preset for the web UI.
 type PresetResponse struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Image       string   `json:"image"`
-	Dashboard   string   `json:"dashboard,omitempty"`
-	DependsOn   []string `json:"depends_on,omitempty"`
-	MissingDeps []string `json:"missing_deps,omitempty"`
-	Installed   bool     `json:"installed"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	Image          string                 `json:"image,omitempty"`
+	Dashboard      string                 `json:"dashboard,omitempty"`
+	DependsOn      []string               `json:"depends_on,omitempty"`
+	MissingDeps    []string               `json:"missing_deps,omitempty"`
+	Installed      bool                   `json:"installed"`
+	Versions       []config.PresetVersion `json:"versions,omitempty"`
+	DefaultVersion string                 `json:"default_version,omitempty"`
+	InstalledTags  []string               `json:"installed_tags,omitempty"`
 }
 
 // handleServicePresets returns the list of bundled presets and whether each is
@@ -879,21 +899,47 @@ func handleServicePresets(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]PresetResponse, 0, len(presets))
 	for _, p := range presets {
-		_, loadErr := config.LoadCustomService(p.Name)
-		// Recompute missing deps from the full preset record so the gate
-		// matches the CLI install path exactly.
 		var missing []string
-		if svc, err := config.LoadPreset(p.Name); err == nil {
-			missing = cli.MissingPresetDependencies(svc)
+		var resolvedSvc *config.CustomService
+		if loaded, err := config.LoadPreset(p.Name); err == nil {
+			if svc, rerr := loaded.Resolve(""); rerr == nil {
+				resolvedSvc = svc
+				missing = cli.MissingPresetDependencies(svc)
+			}
+		}
+		// For single-version presets installed reflects "is the canonical
+		// service installed". For multi-version presets it reflects "are any
+		// version-suffixed instances installed", and InstalledTags lists them.
+		installed := false
+		var installedTags []string
+		if len(p.Versions) == 0 {
+			if _, err := config.LoadCustomService(p.Name); err == nil {
+				installed = true
+			}
+		} else {
+			for _, v := range p.Versions {
+				name := p.Name + "-" + config.SanitizeImageTag(v.Tag)
+				if _, err := config.LoadCustomService(name); err == nil {
+					installed = true
+					installedTags = append(installedTags, v.Tag)
+				}
+			}
+		}
+		image := p.Image
+		if resolvedSvc != nil && len(p.Versions) == 0 {
+			image = resolvedSvc.Image
 		}
 		out = append(out, PresetResponse{
-			Name:        p.Name,
-			Description: p.Description,
-			Image:       p.Image,
-			Dashboard:   p.Dashboard,
-			DependsOn:   p.DependsOn,
-			MissingDeps: missing,
-			Installed:   loadErr == nil,
+			Name:           p.Name,
+			Description:    p.Description,
+			Image:          image,
+			Dashboard:      p.Dashboard,
+			DependsOn:      p.DependsOn,
+			MissingDeps:    missing,
+			Installed:      installed,
+			Versions:       p.Versions,
+			DefaultVersion: p.DefaultVersion,
+			InstalledTags:  installedTags,
 		})
 	}
 	writeJSON(w, out)
@@ -911,7 +957,8 @@ func handleServicePresetInstall(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	svc, err := cli.InstallPresetByName(name)
+	version := r.URL.Query().Get("version")
+	svc, err := cli.InstallPresetByName(name, version)
 	if err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -1164,6 +1211,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		if opErr == nil {
 			_ = config.SetServicePaused(name, false)
 			_ = config.SetServiceManuallyStarted(name, true)
+			cli.RegenerateFamilyConsumersForService(name)
 		}
 	case "stop":
 		// Stop any custom services that depend on this one before stopping
@@ -1177,6 +1225,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		if opErr == nil {
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
+			cli.RegenerateFamilyConsumersForService(name)
 		}
 	case "remove":
 		if isBuiltin {

@@ -163,6 +163,12 @@ func newServiceStartCmd() *cobra.Command {
 				}
 			}
 
+			// Restart family consumers (e.g. phpMyAdmin) so they pick up
+			// the freshly-started member without DNS / connection caching.
+			if fam := serviceFamily(name); fam != "" {
+				regenerateFamilyConsumers(fam)
+			}
+
 			printEnvVars(name)
 			return nil
 		},
@@ -179,8 +185,30 @@ func newServiceStopCmd() *cobra.Command {
 			StopServiceAndDependents(name)
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
+			if fam := serviceFamily(name); fam != "" {
+				regenerateFamilyConsumers(fam)
+			}
 			return nil
 		},
+	}
+}
+
+// serviceFamily returns the family of a service by name. Honours the explicit
+// Family field on a custom service first, falls back to InferFamily for
+// built-ins and pattern-matched alternates.
+func serviceFamily(name string) string {
+	if svc, err := config.LoadCustomService(name); err == nil && svc.Family != "" {
+		return svc.Family
+	}
+	return config.InferFamily(name)
+}
+
+// RegenerateFamilyConsumersForService is the public entry the Web UI uses to
+// trigger consumer regeneration after a start/stop. No-op when the service
+// has no recognised family.
+func RegenerateFamilyConsumersForService(name string) {
+	if fam := serviceFamily(name); fam != "" {
+		regenerateFamilyConsumers(fam)
 	}
 }
 
@@ -378,12 +406,10 @@ Or specify inline with flags (--name and --image are required):
 	return cmd
 }
 
-// newServicePresetCmd returns the `service preset` command. With no args it
-// lists the bundled presets; with a name it materialises that preset as a
-// custom service so it can be started, stopped, removed, exposed, or pinned
-// like any other custom service.
+// newServicePresetCmd returns the `service preset` command.
 func newServicePresetCmd() *cobra.Command {
-	return &cobra.Command{
+	var version string
+	cmd := &cobra.Command{
 		Use:   "preset [name]",
 		Short: "Install a bundled service preset (e.g. phpmyadmin, pgadmin)",
 		Long: `Install a bundled, opt-in service preset.
@@ -393,7 +419,9 @@ Run with no arguments to list the available presets:
 
 Install a preset by name:
   lerd service preset phpmyadmin
-  lerd service preset pgadmin
+
+Pick a specific version on multi-version presets like mysql or postgres:
+  lerd service preset mysql --version 5.7
 
 Presets are installed as ordinary custom services. They can then be started,
 stopped, removed, exposed, or pinned with the usual service subcommands.`,
@@ -402,7 +430,7 @@ stopped, removed, exposed, or pinned with the usual service subcommands.`,
 			if len(args) == 0 {
 				return printPresetList()
 			}
-			svc, err := InstallPresetByName(args[0])
+			svc, err := InstallPresetByName(args[0], version)
 			if err != nil {
 				return err
 			}
@@ -416,6 +444,8 @@ stopped, removed, exposed, or pinned with the usual service subcommands.`,
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&version, "version", "", "Pick a specific version for multi-version presets (e.g. 5.7)")
+	return cmd
 }
 
 // printPresetList prints the bundled presets in a simple table.
@@ -447,24 +477,27 @@ func printPresetList() error {
 	return nil
 }
 
-// InstallPresetByName materialises a bundled preset as a custom service. It is
-// shared between the CLI subcommand and the web UI handler so both code paths
-// enforce the same collision checks and quadlet generation.
-func InstallPresetByName(name string) (*config.CustomService, error) {
-	svc, err := config.LoadPreset(name)
+// InstallPresetByName materialises a bundled preset as a custom service.
+// version selects a tag for multi-version presets; empty falls back to the
+// preset's DefaultVersion.
+func InstallPresetByName(name, version string) (*config.CustomService, error) {
+	preset, err := config.LoadPreset(name)
+	if err != nil {
+		return nil, err
+	}
+	if version != "" && len(preset.Versions) == 0 {
+		return nil, fmt.Errorf("preset %q does not declare versions", name)
+	}
+	svc, err := preset.Resolve(version)
 	if err != nil {
 		return nil, err
 	}
 	if isKnownService(svc.Name) {
-		return nil, fmt.Errorf("%q is a built-in service and cannot be installed as a preset", svc.Name)
+		return nil, fmt.Errorf("%q collides with the built-in service of the same name", svc.Name)
 	}
 	if _, err := config.LoadCustomService(svc.Name); err == nil {
 		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
 	}
-	// Every dependency must already exist as either a built-in or an
-	// installed custom service. Without this check a user could install e.g.
-	// mongo-express with no mongo present, which then fails to start at
-	// runtime with no clear hint about why.
 	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
 		return nil, fmt.Errorf("preset %q requires service(s) %s to be installed first", svc.Name, strings.Join(missing, ", "))
 	}
@@ -474,7 +507,60 @@ func InstallPresetByName(name string) (*config.CustomService, error) {
 	if err := ensureCustomServiceQuadlet(svc); err != nil {
 		return nil, fmt.Errorf("writing quadlet: %w", err)
 	}
+	if svc.Family != "" {
+		regenerateFamilyConsumers(svc.Family)
+	}
 	return svc, nil
+}
+
+// regenerateFamilyConsumers re-renders the quadlet of any installed custom
+// service whose dynamic_env references the named family. Used after installing
+// or removing a family member so admin UIs (e.g. phpMyAdmin) pick up the
+// updated host list immediately. Running services are stopped and started
+// (rather than restarted) so the new generated unit is guaranteed to be the
+// one systemd loads.
+func regenerateFamilyConsumers(family string) {
+	customs, err := config.ListCustomServices()
+	if err != nil {
+		return
+	}
+	for _, c := range customs {
+		if !consumesFamily(c, family) {
+			continue
+		}
+		if err := ensureCustomServiceQuadlet(c); err != nil {
+			fmt.Printf("  [WARN] regenerating %s quadlet: %v\n", c.Name, err)
+			continue
+		}
+		unit := "lerd-" + c.Name
+		status, _ := podman.UnitStatus(unit)
+		if status != "active" && status != "activating" {
+			continue
+		}
+		fmt.Printf("  Restarting %s to pick up updated %s family members...\n", unit, family)
+		if err := podman.StopUnit(unit); err != nil {
+			fmt.Printf("  [WARN] stopping %s: %v\n", unit, err)
+		}
+		podman.RemoveContainer(unit)
+		if err := podman.StartUnit(unit); err != nil {
+			fmt.Printf("  [WARN] starting %s: %v\n", unit, err)
+		}
+	}
+}
+
+func consumesFamily(svc *config.CustomService, family string) bool {
+	for _, directive := range svc.DynamicEnv {
+		parts := strings.SplitN(directive, ":", 2)
+		if len(parts) != 2 || parts[0] != "discover_family" {
+			continue
+		}
+		for _, fam := range strings.Split(parts[1], ",") {
+			if strings.TrimSpace(fam) == family {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // MissingPresetDependencies returns the names of services that svc declares in
@@ -508,6 +594,12 @@ func newServiceRemoveCmd() *cobra.Command {
 				return fmt.Errorf("%q is a built-in service and cannot be removed", name)
 			}
 
+			// Capture the family before deletion so consumers can be regenerated.
+			var family string
+			if existing, err := config.LoadCustomService(name); err == nil {
+				family = existing.Family
+			}
+
 			unit := "lerd-" + name
 
 			// Stop the unit if it is running.
@@ -520,7 +612,6 @@ func newServiceRemoveCmd() *cobra.Command {
 			}
 			podman.RemoveContainer(unit)
 
-			// Remove quadlet and reload
 			if err := podman.RemoveQuadlet(unit); err != nil {
 				fmt.Printf("  WARN: could not remove quadlet: %v\n", err)
 			}
@@ -528,9 +619,12 @@ func newServiceRemoveCmd() *cobra.Command {
 				fmt.Printf("  WARN: daemon-reload failed: %v\n", err)
 			}
 
-			// Remove config file
 			if err := config.RemoveCustomService(name); err != nil {
 				return fmt.Errorf("removing service config: %w", err)
+			}
+
+			if family != "" {
+				regenerateFamilyConsumers(family)
 			}
 
 			dataPath := config.DataSubDir(name)
@@ -567,6 +661,9 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 		}
 	}
 	if err := config.MaterializeServiceFiles(svc); err != nil {
+		return err
+	}
+	if err := config.ResolveDynamicEnv(svc); err != nil {
 		return err
 	}
 	content := podman.GenerateCustomQuadlet(svc)

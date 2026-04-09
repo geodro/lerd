@@ -67,13 +67,34 @@ lerd init
 ? PHP version: 8.4
 ? Node version (leave blank to skip): 22
 ? Enable HTTPS? Yes
-? Database: mysql
+? Database: MySQL (lerd-mysql)
 ? Services: [redis, mailpit]
 ? Workers to auto-start: [queue, schedule]
 Saved .lerd.yaml
 ```
 
-The wizard writes everything to `.lerd.yaml` in the project root. Commit that file — on any other machine, `lerd link` reads it and restores the same setup without re-running the wizard.
+The **Database** select lists every recognised DB family installed on your
+machine: SQLite, the built-in MySQL and PostgreSQL, plus any preset
+alternates you've installed (e.g. `MySQL 5.7 (lerd-mysql-5-7)`,
+`MariaDB 11 (lerd-mariadb-11)`, `MongoDB (lerd-mongo)`). Pick the version
+that matches production. The **Services** multi-select hides admin UIs like
+phpMyAdmin / pgAdmin / Mongo Express — those are global developer tools, not
+project services, so they don't belong in `.lerd.yaml`.
+
+The wizard writes everything to `.lerd.yaml` in the project root. Services
+that came from a preset are stored as a small reference like:
+
+```yaml
+services:
+  - mysql:
+      preset: mysql
+      version: "5.6"
+  - redis
+```
+
+Commit that file — on any other machine, `lerd link` reads it, installs the
+referenced preset locally if it isn't already, and restores the same setup
+without re-running the wizard.
 
 See [Project Setup](../features/project-setup.md) for the full wizard reference.
 

@@ -91,19 +91,30 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
-	// Database is picked separately as a single choice (sqlite | mysql | postgres),
-	// while other services are a multi-select. This mirrors the runtime prompt in
-	// `lerd env` and prevents users from accidentally selecting both mysql and
-	// postgres for the same project.
-	dbServiceNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	// Database is picked as a single choice (sqlite | mysql family member |
+	// postgres family member), while other services are a multi-select. This
+	// mirrors the runtime prompt in `lerd env` and prevents users from
+	// accidentally selecting both mysql and postgres for the same project.
+	// Multi-version mysql/postgres alternates installed via presets show up as
+	// extra Database options instead of polluting the Services list.
+	dbOptions, dbNameSet := buildDatabaseOptions()
 	nonDBServiceOptions := make([]string, 0, len(knownServices))
 	for _, svc := range knownServices {
-		if !dbServiceNames[svc] {
+		if !dbNameSet[svc] {
 			nonDBServiceOptions = append(nonDBServiceOptions, svc)
 		}
 	}
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, svc := range customs {
+			if dbNameSet[svc.Name] {
+				continue
+			}
+			// Skip developer tools that the project's code never consumes
+			// (phpMyAdmin, pgAdmin, mongo-express). They have no env_vars
+			// and no env_detect because they don't integrate with .env.
+			if len(svc.EnvVars) == 0 && svc.EnvDetect == nil {
+				continue
+			}
 			nonDBServiceOptions = append(nonDBServiceOptions, svc.Name)
 		}
 	}
@@ -117,7 +128,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	// Split detected/saved services into the DB choice and the rest.
 	dbChoice := "sqlite"
 	for _, name := range serviceDefaults {
-		if dbServiceNames[name] {
+		if dbNameSet[name] {
 			dbChoice = name
 			break
 		}
@@ -134,7 +145,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	}
 	nonDBSelected := make([]string, 0, len(serviceDefaults))
 	for _, name := range serviceDefaults {
-		if !dbServiceNames[name] {
+		if !dbNameSet[name] {
 			nonDBSelected = append(nonDBSelected, name)
 		}
 	}
@@ -197,11 +208,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 				Value(&secured),
 			huh.NewSelect[string]().
 				Title("Database").
-				Options(
-					huh.NewOption("SQLite (no service)", "sqlite"),
-					huh.NewOption("MySQL (lerd-mysql)", "mysql"),
-					huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
-				).
+				Options(dbOptions...).
 				Value(&dbChoice),
 			huh.NewMultiSelect[string]().
 				Title("Services").
@@ -257,14 +264,27 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 
 	services := make([]config.ProjectService, len(selectedServices))
 	for i, name := range selectedServices {
-		custom := inlineByName[name]
-		if custom == nil && !builtIn[name] {
-			// Load the definition from disk so the project stays portable.
-			if svc, err := config.LoadCustomService(name); err == nil {
-				custom = svc
-			}
+		if builtIn[name] {
+			services[i] = config.ProjectService{Name: name}
+			continue
 		}
-		services[i] = config.ProjectService{Name: name, Custom: custom}
+		// Prefer the on-disk service definition (it's freshest) and fall back
+		// to the inlined one in defaults for portability.
+		var loaded *config.CustomService
+		if svc, err := config.LoadCustomService(name); err == nil {
+			loaded = svc
+		} else if existing := inlineByName[name]; existing != nil {
+			loaded = existing
+		}
+		if loaded != nil && loaded.Preset != "" {
+			services[i] = config.ProjectService{
+				Name:          name,
+				Preset:        loaded.Preset,
+				PresetVersion: loaded.PresetVersion,
+			}
+			continue
+		}
+		services[i] = config.ProjectService{Name: name, Custom: loaded}
 	}
 
 	return &config.ProjectConfig{
@@ -276,6 +296,90 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		Services:     services,
 		Workers:      selectedWorkers,
 	}, nil
+}
+
+// dbFamilies is the set of service families considered databases by the init
+// wizard. Members of these families show up in the Database select instead of
+// the Services multi-select.
+var dbFamilies = map[string]bool{
+	"mysql":    true,
+	"mariadb":  true,
+	"postgres": true,
+	"mongo":    true,
+}
+
+// dbFamilyOf returns the database family of svc, or empty when svc is not a
+// database. Honours the explicit Family field first, then falls back to
+// pattern inference for legacy installs that pre-date the field.
+func dbFamilyOf(svc *config.CustomService) string {
+	if svc.Family != "" && dbFamilies[svc.Family] {
+		return svc.Family
+	}
+	if inferred := config.InferFamily(svc.Name); dbFamilies[inferred] {
+		return inferred
+	}
+	return ""
+}
+
+// dbFamilyLabels maps a family name to the human-friendly label prefix shown
+// in the wizard's Database select.
+var dbFamilyLabels = map[string]string{
+	"mysql":    "MySQL",
+	"mariadb":  "MariaDB",
+	"postgres": "PostgreSQL",
+	"mongo":    "MongoDB",
+}
+
+// formatDBOptionLabel returns "MySQL (lerd-mysql)" for the canonical family
+// member or "MySQL 5.7 (lerd-mysql-5-7)" for a versioned alternate.
+func formatDBOptionLabel(name string) string {
+	family := name
+	version := ""
+	if config.InferFamily(name) != "" {
+		family = config.InferFamily(name)
+		if rest := strings.TrimPrefix(name, family); rest != "" && rest != name {
+			version = strings.TrimPrefix(rest, "-")
+			version = strings.ReplaceAll(version, "-", ".")
+		}
+	}
+	label := dbFamilyLabels[family]
+	if label == "" {
+		label = strings.ToUpper(family[:1]) + family[1:]
+	}
+	if version != "" {
+		label += " " + version
+	}
+	return fmt.Sprintf("%s (lerd-%s)", label, name)
+}
+
+// buildDatabaseOptions returns the Database select options and a set of every
+// service name that lives in a database family (so the Services multi-select
+// can filter them out). Always includes sqlite. Built-in mysql and postgres
+// are always present; alternates and mongo show up only when installed.
+func buildDatabaseOptions() ([]huh.Option[string], map[string]bool) {
+	nameSet := map[string]bool{"sqlite": true}
+	options := []huh.Option[string]{huh.NewOption("SQLite (no service)", "sqlite")}
+
+	for _, name := range []string{"mysql", "postgres"} {
+		nameSet[name] = true
+		options = append(options, huh.NewOption(formatDBOptionLabel(name), name))
+	}
+
+	if customs, err := config.ListCustomServices(); err == nil {
+		var dbCustoms []*config.CustomService
+		for _, svc := range customs {
+			if dbFamilyOf(svc) != "" {
+				dbCustoms = append(dbCustoms, svc)
+			}
+		}
+		sort.Slice(dbCustoms, func(i, j int) bool { return dbCustoms[i].Name < dbCustoms[j].Name })
+		for _, svc := range dbCustoms {
+			nameSet[svc.Name] = true
+			options = append(options, huh.NewOption(formatDBOptionLabel(svc.Name), svc.Name))
+		}
+	}
+
+	return options, nameSet
 }
 
 // detectServicesFromDir inspects the project's env file and returns the list

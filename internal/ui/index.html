@@ -592,6 +592,22 @@
                         <span class="text-violet-500 dark:text-violet-400 shrink-0">git:(<span x-text="selectedSite.branch"></span>)</span>
                       </template>
                     </div>
+                    <template x-if="(selectedSite.services || []).length > 0">
+                      <div class="flex items-center flex-wrap gap-1.5 mt-2">
+                        <template x-for="svcName in selectedSite.services" :key="'svcb-'+svcName">
+                          <button @click="jumpToService(svcName)"
+                            :title="'Open ' + svcName + ' service'"
+                            class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors"
+                            :class="serviceByName(svcName) && serviceByName(svcName).status === 'active'
+                              ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20'
+                              : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10'">
+                            <span class="w-1.5 h-1.5 rounded-full"
+                              :class="serviceByName(svcName) && serviceByName(svcName).status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                            <span x-text="serviceByName(svcName) ? serviceLabel(serviceByName(svcName)) : svcName"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
                     <button
@@ -2084,7 +2100,18 @@ function lerdApp() {
     },
     serviceLabel(svc) {
       if (!svc || !svc.name) return '';
-      return this.serviceDisplayLabels[svc.name] || this.capitalize(svc.name);
+      if (this.serviceDisplayLabels[svc.name]) return this.serviceDisplayLabels[svc.name];
+      // Versioned alternates: name is "<family>-<sanitized-tag>" where the tag
+      // starts with a digit (mysql-5-7, mongo-6, postgres-14-2, mariadb-11).
+      // Display as "<Family Label> <tag-with-dots>".
+      const m = svc.name.match(/^([a-z][a-z0-9]*?)-(\d[\w-]*)$/);
+      if (m) {
+        const family = m[1];
+        const tag = m[2].replace(/-/g, '.');
+        const familyLabel = this.serviceDisplayLabels[family] || this.capitalize(family);
+        return familyLabel + ' ' + tag;
+      }
+      return this.capitalize(svc.name);
     },
     coreServices() {
       return this.services.filter(s => !s.queue_site && !s.schedule_worker_site && !s.stripe_listener_site && !s.reverb_site && !s.horizon_site && !s.worker_site);
@@ -2922,12 +2949,34 @@ function lerdApp() {
         const data = await res.json();
         const next = (data || []).map(p => {
           const prev = this.presets.find(x => x.name === p.name) || {};
-          return { ...p, installing: prev.installing || false, error: prev.error || '' };
+          const enriched = { ...p, installing: prev.installing || false, error: prev.error || '' };
+          if ((enriched.versions || []).length > 0) {
+            const installedSet = new Set(enriched.installed_tags || []);
+            const available = enriched.versions.filter(v => !installedSet.has(v.tag));
+            const stillValid = available.find(v => v.tag === prev.selected_version);
+            const fallback = available.find(v => v.tag === enriched.default_version) || available[0];
+            enriched.selected_version = (stillValid || fallback || {}).tag || '';
+          }
+          return enriched;
         });
         this.presets = next;
       } catch (_) {
-        // leave existing list as-is on transient errors
+        // transient errors leave existing list intact
       }
+    },
+
+    installablePresets() {
+      return this.presets.filter(p => {
+        if ((p.versions || []).length > 0) {
+          return p.versions.length > (p.installed_tags || []).length;
+        }
+        return !p.installed;
+      });
+    },
+
+    availableVersions(p) {
+      const installed = new Set(p.installed_tags || []);
+      return (p.versions || []).filter(v => !installed.has(v.tag));
     },
 
     async openPresetModal() {
@@ -2940,12 +2989,46 @@ function lerdApp() {
       this.presetModal.open = false;
     },
 
+    // detectServiceFamily returns "mysql" / "postgres" / "mongo" for any
+    // service that looks like a member of that family — built-in name match,
+    // connection URL scheme, or version-suffixed name prefix. Used so the
+    // suggestion banner and Open admin button fire on alternates like
+    // mysql-5-7, postgres-14-2, mongo-6 in addition to the canonical names.
+    detectServiceFamily(svc) {
+      if (!svc || !svc.name) return null;
+      if (this.presetSuggestions[svc.name]) return svc.name;
+      if (svc.connection_url) {
+        const m = svc.connection_url.match(/^([a-z]+)(?:\+\w+)?:/);
+        if (m) {
+          const scheme = m[1];
+          if (scheme === 'mysql' || scheme === 'mariadb') return 'mysql';
+          if (scheme === 'postgresql' || scheme === 'postgres') return 'postgres';
+          if (scheme === 'mongodb') return 'mongo';
+        }
+      }
+      const prefix = svc.name.match(/^([a-z][a-z0-9]*?)-\d/);
+      if (prefix && this.presetSuggestions[prefix[1]]) return prefix[1];
+      return null;
+    },
+
+    serviceByName(name) {
+      return this.services.find(s => s.name === name) || null;
+    },
+
+    jumpToService(name) {
+      const svc = this.serviceByName(name);
+      if (!svc) return;
+      this.setTab('services');
+      this.selectService(svc);
+    },
+
     // adminServiceFor returns the installed admin-UI service that pairs with
     // a given database service (mysql -> phpmyadmin, postgres -> pgadmin), or
     // null when the admin UI is not installed yet.
     adminServiceFor(svc) {
-      if (!svc || !svc.name) return null;
-      const adminName = this.presetSuggestions[svc.name];
+      const family = this.detectServiceFamily(svc);
+      if (!family) return null;
+      const adminName = this.presetSuggestions[family];
       if (!adminName) return null;
       return this.services.find(s => s.name === adminName) || null;
     },
@@ -2992,19 +3075,21 @@ function lerdApp() {
       }
       p.installing = true;
       p.error = '';
+      let installedSvcName = p.name;
       try {
-        const res = await fetch('/api/services/presets/' + encodeURIComponent(p.name), { method: 'POST' });
+        let url = '/api/services/presets/' + encodeURIComponent(p.name);
+        if ((p.versions || []).length > 0 && p.selected_version) {
+          url += '?version=' + encodeURIComponent(p.selected_version);
+        }
+        const res = await fetch(url, { method: 'POST' });
         const data = await res.json();
         if (!data.ok) {
           p.error = data.error || 'install failed';
           return;
         }
-        p.installed = true;
+        installedSvcName = data.name || p.name;
         await this.loadServices();
-        // Jump to the new service's detail panel and kick off a start. The
-        // user asked for this so installing a preset feels like one click
-        // from "I want this" to "it's running".
-        const svc = this.services.find(s => s.name === p.name);
+        const svc = this.services.find(s => s.name === installedSvcName);
         if (svc) {
           this.setTab('services');
           this.closePresetModal();
@@ -3018,10 +3103,6 @@ function lerdApp() {
       } finally {
         p.installing = false;
       }
-      // Refresh presets so sibling presets that depended on this one
-      // (e.g. mongo-express after installing mongo) flip from disabled
-      // to installable. Done after the finally so by the time loadPresets
-      // merges the new array, no preset has installing=true to copy over.
       this.loadPresets();
     },
 
@@ -3798,17 +3879,17 @@ function lerdApp() {
       </div>
       <div class="px-5 py-3 max-h-80 overflow-y-auto">
         <div x-show="presetModal.loading" class="py-4 text-center text-xs text-gray-400">Loading...</div>
-        <div x-show="!presetModal.loading && presets.filter(p => !p.installed).length === 0" class="py-4 text-center text-xs text-gray-400">All bundled presets are installed.</div>
-        <template x-for="p in presets.filter(p => !p.installed)" :key="'preset-'+p.name">
+        <div x-show="!presetModal.loading && installablePresets().length === 0" class="py-4 text-center text-xs text-gray-400">All bundled presets are installed.</div>
+        <template x-for="p in installablePresets()" :key="'preset-'+p.name">
           <div class="border border-gray-100 dark:border-lerd-border rounded-lg p-3 mb-2 last:mb-0">
-            <div class="flex items-start gap-3">
+            <div class="flex items-center gap-3">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold text-gray-900 dark:text-white" x-text="p.name"></span>
-                  <span x-show="p.installed" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">installed</span>
+                  <span x-show="(p.installed_tags || []).length > 0" class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400" x-text="(p.installed_tags || []).join(', ') + ' installed'"></span>
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5" x-text="p.description"></p>
-                <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 font-mono truncate" x-text="p.image"></div>
+                <div x-show="p.image" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 font-mono truncate" x-text="p.image"></div>
                 <div x-show="p.depends_on && p.depends_on.length > 0" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                   depends on: <span x-text="(p.depends_on || []).join(', ')"></span>
                 </div>
@@ -3819,12 +3900,20 @@ function lerdApp() {
                   install <span x-text="(p.missing_deps || []).join(', ')"></span> first
                 </div>
               </div>
+              <template x-if="(p.versions || []).length > 0">
+                <select x-model="p.selected_version"
+                  class="shrink-0 text-xs bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red/50">
+                  <template x-for="v in availableVersions(p)" :key="'v-'+p.name+'-'+v.tag">
+                    <option :value="v.tag" x-text="v.label || v.tag"></option>
+                  </template>
+                </select>
+              </template>
               <button @click="installPreset(p)"
-                :disabled="!!(p.installed || p.installing || (p.missing_deps || []).length > 0)"
+                :disabled="!!(p.installing || (p.missing_deps || []).length > 0)"
                 :title="(p.missing_deps || []).length > 0 ? 'Install ' + p.missing_deps.join(', ') + ' first' : ''"
                 class="text-xs font-medium bg-lerd-red text-white rounded px-3 py-1.5 hover:bg-lerd-redhov transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 flex items-center gap-1.5">
                 <svg x-show="p.installing" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
-                <span x-text="p.installed ? 'Installed' : (p.installing ? 'Adding…' : 'Add')"></span>
+                <span x-text="p.installing ? 'Adding…' : 'Add'"></span>
               </button>
             </div>
             <p x-show="p.error" class="text-[11px] text-red-500 mt-2" x-text="p.error"></p>
