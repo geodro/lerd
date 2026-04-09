@@ -28,6 +28,48 @@ func ApplyExtraPorts(content string, extraPorts []string) string {
 	return sb.String()
 }
 
+// StripInstallSection removes the [Install] section from a quadlet's content
+// when autostartDisabled is true, and returns the input unchanged when false.
+//
+// Quadlets are special: a `[Install] WantedBy=default.target` clause causes
+// the podman-system-generator to create a symlink in
+// `/run/user/$UID/systemd/generator/default.target.wants/` on every
+// daemon-reload, which makes the unit auto-start at login regardless of
+// `systemctl --user enable/disable` (those don't apply to generator units).
+// The only way to actually stop a quadlet from auto-starting is to drop the
+// [Install] section from the source .container file before the generator
+// sees it. WriteQuadletDiff calls this centrally so every code path that
+// writes a quadlet (install, services, MCP server, custom-service generator)
+// honours the global autostart setting without each having to remember.
+func StripInstallSection(content string, autostartDisabled bool) string {
+	if !autostartDisabled {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	inInstall := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inInstall = trimmed == "[Install]"
+			if inInstall {
+				continue
+			}
+		}
+		if inInstall {
+			continue
+		}
+		out = append(out, line)
+	}
+	// Trim a trailing run of blank lines that would otherwise be left
+	// behind when [Install] was the last section in the file.
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1]
+	}
+	out = append(out, "")
+	return strings.Join(out, "\n")
+}
+
 // BindForLAN rewrites every PublishPort= line in a quadlet so the host-side
 // bind matches the requested LAN-exposure state. The embedded quadlet files
 // use the unprefixed `PublishPort=80:80` form, which podman interprets as

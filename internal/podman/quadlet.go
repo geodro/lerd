@@ -34,10 +34,13 @@ func WriteQuadletDiff(name, content string) (changed bool, err error) {
 		return false, err
 	}
 	lanExposed := false
+	autostartDisabled := false
 	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
 		lanExposed = cfg.LAN.Exposed
+		autostartDisabled = cfg.Autostart.Disabled
 	}
 	content = BindForLAN(content, lanExposed)
+	content = StripInstallSection(content, autostartDisabled)
 	path := filepath.Join(dir, name+".container")
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
 		return false, nil

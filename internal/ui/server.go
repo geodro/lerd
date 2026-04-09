@@ -1969,7 +1969,7 @@ type SettingsResponse struct {
 
 func handleSettings(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, SettingsResponse{
-		AutostartOnLogin: lerdSystemd.IsServiceEnabled("lerd-autostart"),
+		AutostartOnLogin: lerdSystemd.IsAutostartEnabled(),
 	})
 }
 
@@ -1986,25 +1986,9 @@ func handleSettingsAutostart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Enabled {
-		content, err := lerdSystemd.GetUnit("lerd-autostart")
-		if err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-		if err := lerdSystemd.WriteService("lerd-autostart", content); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-		if err := lerdSystemd.EnableService("lerd-autostart"); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-	} else {
-		if err := lerdSystemd.DisableService("lerd-autostart"); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
+	if err := cli.ApplyAutostart(!body.Enabled); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "autostart_on_login": body.Enabled})
 }
