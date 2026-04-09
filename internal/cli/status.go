@@ -100,7 +100,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		} else if activePHPVersions()[v] {
 			fail2("PHP "+v+" FPM",
 				containerName+" not running",
-				"systemctl --user start "+containerName)
+				serviceStartHint(containerName))
 		} else {
 			warn2("PHP "+v+" FPM", "stopped (no sites using this version)")
 		}
