@@ -130,6 +130,34 @@ func TestApplyUpdates_skipsCommentedKeys(t *testing.T) {
 	}
 }
 
+func TestApplyUpdates_uncomments(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\nDB_DATABASE=laravel\n")
+	if err := ApplyUpdates(f, map[string]string{
+		"DB_HOST": "mysql.internal",
+		"DB_PORT": "3307",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnv(t, f)
+	if !strings.Contains(got, "DB_HOST=mysql.internal") {
+		t.Errorf("commented DB_HOST should be uncommented and updated, got:\n%s", got)
+	}
+	if !strings.Contains(got, "DB_PORT=3307") {
+		t.Errorf("commented DB_PORT should be uncommented and updated, got:\n%s", got)
+	}
+	// Should be in place, not appended at the end
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Errorf("expected 4 lines (no appended duplicates), got %d:\n%s", len(lines), got)
+	}
+	if !strings.Contains(got, "APP_NAME=MyApp") {
+		t.Error("existing keys should be preserved")
+	}
+	if !strings.Contains(got, "DB_DATABASE=laravel") {
+		t.Error("existing keys should be preserved")
+	}
+}
+
 // ── UpdateAppURL ──────────────────────────────────────────────────────────────
 
 func TestUpdateAppURL_setsHTTPS(t *testing.T) {
@@ -187,6 +215,63 @@ func TestReadKeys_missingFile(t *testing.T) {
 func TestUpdateAppURL_noEnvFile_silent(t *testing.T) {
 	// Should silently return nil when .env doesn't exist
 	err := UpdateAppURL(t.TempDir(), "https", "myapp.test")
+	if err != nil {
+		t.Errorf("expected no error for missing .env, got: %v", err)
+	}
+}
+
+// ── SyncPrimaryDomain ────────────────────────────────────────────────────────
+
+func TestSyncPrimaryDomain_updatesAllReverbVars(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"APP_URL=https://old.test\n"+
+			"VITE_REVERB_HOST=old.test\n"+
+			"VITE_REVERB_SCHEME=https\n"+
+			"VITE_REVERB_PORT=443\n",
+	), 0644)
+
+	if err := SyncPrimaryDomain(dir, "new.test", false); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnv(t, filepath.Join(dir, ".env"))
+
+	if !strings.Contains(got, "APP_URL=http://new.test") {
+		t.Errorf("APP_URL not updated:\n%s", got)
+	}
+	if !strings.Contains(got, "VITE_REVERB_HOST=new.test") {
+		t.Errorf("VITE_REVERB_HOST not updated:\n%s", got)
+	}
+	if !strings.Contains(got, "VITE_REVERB_SCHEME=http") {
+		t.Errorf("VITE_REVERB_SCHEME not updated:\n%s", got)
+	}
+	if !strings.Contains(got, "VITE_REVERB_PORT=80") {
+		t.Errorf("VITE_REVERB_PORT not updated:\n%s", got)
+	}
+}
+
+func TestSyncPrimaryDomain_skipsAbsentKeys(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"APP_URL=http://old.test\nAPP_NAME=MyApp\n",
+	), 0644)
+
+	if err := SyncPrimaryDomain(dir, "new.test", true); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnv(t, filepath.Join(dir, ".env"))
+
+	if !strings.Contains(got, "APP_URL=https://new.test") {
+		t.Errorf("APP_URL not updated:\n%s", got)
+	}
+	// VITE_REVERB_HOST should NOT be added
+	if strings.Contains(got, "VITE_REVERB_HOST") {
+		t.Errorf("VITE_REVERB_HOST should not be added when absent:\n%s", got)
+	}
+}
+
+func TestSyncPrimaryDomain_noEnvFile_silent(t *testing.T) {
+	err := SyncPrimaryDomain(t.TempDir(), "new.test", true)
 	if err != nil {
 		t.Errorf("expected no error for missing .env, got: %v", err)
 	}

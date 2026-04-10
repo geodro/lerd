@@ -146,3 +146,54 @@ func TestBindForLANHandlesProtocolSuffixes(t *testing.T) {
 		t.Errorf("protocol suffix should be preserved when prefixing, got:\n%s", out)
 	}
 }
+
+func TestInjectExtraVolumesAfterHomeMount(t *testing.T) {
+	in := strings.Join([]string{
+		"[Container]",
+		"Image=foo",
+		"Volume=%h:%h:rw",
+		"PodmanArgs=--security-opt=label=disable",
+	}, "\n")
+
+	out := InjectExtraVolumes(in, []string{"/var/www", "/opt/projects"})
+	if !strings.Contains(out, "Volume=/var/www:/var/www:rw") {
+		t.Errorf("expected /var/www volume, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Volume=/opt/projects:/opt/projects:rw") {
+		t.Errorf("expected /opt/projects volume, got:\n%s", out)
+	}
+	// Extra volumes should appear after %h:%h:rw.
+	homeIdx := strings.Index(out, "Volume=%h:%h:rw")
+	varIdx := strings.Index(out, "Volume=/var/www:/var/www:rw")
+	podmanIdx := strings.Index(out, "PodmanArgs=")
+	if varIdx < homeIdx {
+		t.Errorf("extra volume should appear after home mount, got:\n%s", out)
+	}
+	if varIdx > podmanIdx {
+		t.Errorf("extra volume should appear before PodmanArgs, got:\n%s", out)
+	}
+}
+
+func TestInjectExtraVolumesNoPaths(t *testing.T) {
+	in := "Volume=%h:%h:rw\n"
+	out := InjectExtraVolumes(in, nil)
+	if out != in {
+		t.Errorf("expected unchanged content with no paths, got:\n%s", out)
+	}
+}
+
+func TestInjectExtraVolumesNoDuplicates(t *testing.T) {
+	in := "Volume=%h:%h:rw\nVolume=/var/www:/var/www:rw\n"
+	out := InjectExtraVolumes(in, []string{"/var/www"})
+	if strings.Count(out, "/var/www:/var/www:rw") != 1 {
+		t.Errorf("should not duplicate existing volume, got:\n%s", out)
+	}
+}
+
+func TestSortPaths(t *testing.T) {
+	paths := []string{"/var/www/app", "/opt", "/var/www"}
+	sortPaths(paths)
+	if paths[0] != "/opt" || paths[1] != "/var/www" || paths[2] != "/var/www/app" {
+		t.Errorf("expected sorted by length then lex, got: %v", paths)
+	}
+}

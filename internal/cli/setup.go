@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -138,6 +139,26 @@ func runSetup(allSteps, skipOpen bool) error {
 			label:   "npm run " + buildScript,
 			enabled: hasPackageJSON && buildScript != "",
 			run: func() error {
+				if _, err := os.Stat(cwd + "/node_modules"); os.IsNotExist(err) {
+					fmt.Println("  node_modules not found.")
+					fmt.Print("  Run npm install first? [Y/n]: ")
+					scanner := bufio.NewScanner(os.Stdin)
+					if scanner.Scan() {
+						answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+						if answer == "" || answer == "y" || answer == "yes" {
+							installCmd := "install"
+							if hasLockFile {
+								installCmd = "ci"
+							}
+							fmt.Printf("\n→ Running: npm %s\n", installCmd)
+							if err := runWithFnm("npm", []string{installCmd}); err != nil {
+								return fmt.Errorf("npm %s failed: %w", installCmd, err)
+							}
+						} else {
+							return fmt.Errorf("node_modules not found — skipping build")
+						}
+					}
+				}
 				return runWithFnm("npm", []string{"run", buildScript})
 			},
 		},
@@ -470,6 +491,8 @@ func composerInContainer(dir string, args ...string) error {
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
 
+	podman.EnsurePathMounted(dir, version)
+
 	home := os.Getenv("HOME")
 	composerPhar := filepath.Join(config.BinDir(), "composer.phar")
 
@@ -495,6 +518,7 @@ func execInContainer(dir, command string) error {
 	}
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
+	podman.EnsurePathMounted(dir, version)
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
 		return fmt.Errorf("empty setup command")

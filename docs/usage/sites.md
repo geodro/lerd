@@ -85,6 +85,19 @@ lerd init --fresh
 
 ---
 
+## Projects outside the home directory
+
+By default, the PHP-FPM and nginx containers only have access to files under `$HOME`. If your project lives elsewhere (e.g. `/var/www`, `/opt/projects`, `/var/local`), lerd automatically detects this and adds the required volume mount to both containers.
+
+This happens transparently when you:
+
+- **`lerd link`** or **`lerd park`** a directory outside `$HOME`
+- Run **`lerd php`**, **`composer`**, **`laravel new`**, or any exec command from an outside path
+
+The containers are restarted once to pick up the new mount. Subsequent commands from the same path run without delay. When you unlink or unpark, stale mounts are cleaned up automatically.
+
+---
+
 ## Domain naming
 
 Directories with real TLDs are automatically normalised — dots are replaced with dashes and the TLD is stripped before appending `.test`.

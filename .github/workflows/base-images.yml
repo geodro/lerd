@@ -7,6 +7,11 @@ on:
       - 'internal/podman/quadlets/lerd-php-fpm.Containerfile'
       - '.github/workflows/base-images.yml'
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild for upstream updates'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -67,12 +72,17 @@ jobs:
       - name: Check if image already exists
         id: check
         run: |
-          IMG="ghcr.io/geodro/lerd-php${{ steps.tag.outputs.php_short }}-fpm-base:${{ steps.tag.outputs.tag }}-${{ matrix.arch.name }}"
-          if docker manifest inspect "$IMG" > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Image already exists, skipping build."
-          else
+          if [ "${{ inputs.force_rebuild }}" = "true" ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Force rebuild requested, skipping existence check."
+          else
+            IMG="ghcr.io/geodro/lerd-php${{ steps.tag.outputs.php_short }}-fpm-base:${{ steps.tag.outputs.tag }}-${{ matrix.arch.name }}"
+            if docker manifest inspect "$IMG" > /dev/null 2>&1; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "Image already exists, skipping build."
+            else
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Set up Docker Buildx
@@ -86,6 +96,7 @@ jobs:
           context: .
           file: /tmp/Containerfile
           push: true
+          pull: ${{ inputs.force_rebuild == 'true' }}
           platforms: linux/${{ matrix.arch.name }}
           tags: ghcr.io/geodro/lerd-php${{ steps.tag.outputs.php_short }}-fpm-base:${{ steps.tag.outputs.tag }}-${{ matrix.arch.name }}
           cache-from: type=gha,scope=php-${{ matrix.php }}-${{ matrix.arch.name }}
@@ -132,12 +143,17 @@ jobs:
       - name: Check if manifest already exists
         id: check
         run: |
-          IMG="ghcr.io/geodro/lerd-php${{ steps.tag.outputs.php_short }}-fpm-base:${{ steps.tag.outputs.tag }}"
-          if docker manifest inspect "$IMG" > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Manifest already exists, skipping."
-          else
+          if [ "${{ inputs.force_rebuild }}" = "true" ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Force rebuild requested, recreating manifest."
+          else
+            IMG="ghcr.io/geodro/lerd-php${{ steps.tag.outputs.php_short }}-fpm-base:${{ steps.tag.outputs.tag }}"
+            if docker manifest inspect "$IMG" > /dev/null 2>&1; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "Manifest already exists, skipping."
+            else
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Create and push multi-arch manifest

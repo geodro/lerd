@@ -30,7 +30,7 @@ All containers join the rootless Podman network `lerd`. Communication between Ng
                               reads (bind mount)
                                   │
                                   ▼
-                          ~/Lerd/my-app
+                       ~/Lerd/my-app (or any path)
 ```
 
 ## Components
@@ -56,3 +56,5 @@ All containers join the rootless Podman network `lerd`. Communication between Ng
 **Shared nginx** — a single nginx container serves all sites via virtual hosts. nginx uses a Podman-network-aware resolver to route `fastcgi_pass` to the correct PHP-FPM container by hostname.
 
 **Per-version PHP-FPM** — each PHP version gets its own container built from a local `Containerfile`. The image includes all extensions needed for Laravel out of the box: `pdo_mysql`, `pdo_pgsql`, `bcmath`, `mbstring`, `xml`, `zip`, `gd`, `intl`, `opcache`, `pcntl`, `exif`, `sockets`, `redis`, `imagick`.
+
+**Automatic volume mounts** — the PHP-FPM and nginx containers bind-mount `$HOME` by default. When a project lives outside the home directory (e.g. `/var/www`, `/opt/projects`), lerd automatically adds the extra volume mount to both containers and restarts them. This happens transparently during `lerd link`, `lerd park`, or the first `lerd php` / `composer` / `laravel new` invocation from the outside path.

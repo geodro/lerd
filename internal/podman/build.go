@@ -12,6 +12,82 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// ExtraVolumePaths returns absolute paths that need to be bind-mounted into the
+// PHP-FPM container because they are outside the user's home directory. It
+// collects parked directories and linked site paths, deduplicates them, and
+// returns only the top-level ancestors (so /var/www covers /var/www/app).
+func ExtraVolumePaths() []string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return nil
+	}
+	// Ensure home has a trailing slash for prefix matching.
+	homePrefix := home
+	if !strings.HasSuffix(homePrefix, "/") {
+		homePrefix += "/"
+	}
+
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p == "" || p == home || strings.HasPrefix(p, homePrefix) {
+			return
+		}
+		seen[p] = true
+	}
+
+	if cfg, err := config.LoadGlobal(); err == nil {
+		for _, dir := range cfg.ParkedDirectories {
+			add(dir)
+		}
+	}
+	if reg, err := config.LoadSites(); err == nil {
+		for _, site := range reg.Sites {
+			add(site.Path)
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	// Collect unique paths and reduce to top-level ancestors.
+	paths := make([]string, 0, len(seen))
+	for p := range seen {
+		paths = append(paths, p)
+	}
+	// Sort so shorter paths come first, then filter out children.
+	sortPaths(paths)
+	var result []string
+	for _, p := range paths {
+		covered := false
+		for _, r := range result {
+			rPrefix := r
+			if !strings.HasSuffix(rPrefix, "/") {
+				rPrefix += "/"
+			}
+			if strings.HasPrefix(p, rPrefix) || p == r {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// sortPaths sorts paths by length then lexicographically.
+func sortPaths(paths []string) {
+	for i := 1; i < len(paths); i++ {
+		for j := i; j > 0; j-- {
+			if len(paths[j]) < len(paths[j-1]) || (len(paths[j]) == len(paths[j-1]) && paths[j] < paths[j-1]) {
+				paths[j], paths[j-1] = paths[j-1], paths[j]
+			}
+		}
+	}
+}
+
 // mkcertPath returns the path to the mkcert binary managed by lerd.
 func mkcertPath() string {
 	return filepath.Join(config.BinDir(), "mkcert")
@@ -297,6 +373,7 @@ func WriteFPMQuadlet(version string) error {
 	content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
 	content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(version))
 	content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(version))
+	content = InjectExtraVolumes(content, ExtraVolumePaths())
 
 	// Skip the write and daemon-reload if the quadlet is already up to date.
 	// Unnecessary daemon-reloads cause Podman's quadlet generator to regenerate
@@ -310,7 +387,150 @@ func WriteFPMQuadlet(version string) error {
 	if err := WriteQuadlet(unitName, content); err != nil {
 		return err
 	}
-	return DaemonReload()
+	if err := DaemonReload(); err != nil {
+		return err
+	}
+	// Restart the container so new volume mounts take effect.
+	// Ignore errors — the container may not be running yet (first install).
+	_ = RestartUnit(unitName)
+	return nil
+}
+
+// RewriteFPMQuadlets regenerates the quadlet files for all installed PHP-FPM
+// versions and the nginx quadlet. Call this when parked directories or site
+// paths change so that extra volume mounts stay in sync.
+func RewriteFPMQuadlets() error {
+	extraPaths := ExtraVolumePaths()
+	versions, _ := listInstalledPHPVersions()
+
+	var changedUnits []string
+
+	for _, v := range versions {
+		short := strings.ReplaceAll(v, ".", "")
+		unitName := "lerd-php" + short + "-fpm"
+
+		tmplContent, tmplErr := GetQuadletTemplate("lerd-php-fpm.container.tmpl")
+		if tmplErr != nil {
+			continue
+		}
+		content := strings.ReplaceAll(tmplContent, "{{.Version}}", v)
+		content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
+		content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(v))
+		content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(v))
+		content = InjectExtraVolumes(content, extraPaths)
+
+		changed, writeErr := WriteQuadletDiff(unitName, content)
+		if writeErr != nil {
+			continue
+		}
+		if changed {
+			changedUnits = append(changedUnits, unitName)
+		}
+	}
+
+	// Also rewrite nginx quadlet with the same extra volumes.
+	if nginxContent, err := GetQuadletTemplate("lerd-nginx.container"); err == nil {
+		nginxContent = InjectExtraVolumes(nginxContent, extraPaths)
+		if changed, err := WriteQuadletDiff("lerd-nginx", nginxContent); err == nil && changed {
+			changedUnits = append(changedUnits, "lerd-nginx")
+		}
+	}
+
+	if len(changedUnits) > 0 {
+		_ = DaemonReload()
+		for _, unit := range changedUnits {
+			_ = RestartUnit(unit)
+		}
+	}
+	return nil
+}
+
+// listInstalledPHPVersions returns PHP versions that have a quadlet installed.
+func listInstalledPHPVersions() ([]string, error) {
+	dir := config.QuadletDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var versions []string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "lerd-php") || !strings.HasSuffix(name, "-fpm.container") {
+			continue
+		}
+		// Extract version short from lerd-php84-fpm.container → "84"
+		short := strings.TrimPrefix(name, "lerd-php")
+		short = strings.TrimSuffix(short, "-fpm.container")
+		if len(short) < 2 {
+			continue
+		}
+		// Convert "84" → "8.4"
+		version := string(short[0]) + "." + short[1:]
+		versions = append(versions, version)
+	}
+	return versions, nil
+}
+
+// EnsurePathMounted checks whether the given path is accessible inside the
+// PHP-FPM and nginx containers. If the path is outside $HOME and not already
+// volume-mounted, the quadlets are updated and containers restarted
+// transparently before returning.
+func EnsurePathMounted(path, phpVersion string) {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return
+	}
+	homePrefix := home
+	if !strings.HasSuffix(homePrefix, "/") {
+		homePrefix += "/"
+	}
+	if path == home || strings.HasPrefix(path, homePrefix) {
+		return
+	}
+
+	versions, _ := listInstalledPHPVersions()
+
+	// Collect all quadlet files to check: FPM containers + nginx.
+	type quadletInfo struct {
+		unitName string
+		path     string
+	}
+	var quadlets []quadletInfo
+	for _, v := range versions {
+		short := strings.ReplaceAll(v, ".", "")
+		unitName := "lerd-php" + short + "-fpm"
+		quadlets = append(quadlets, quadletInfo{unitName, filepath.Join(config.QuadletDir(), unitName+".container")})
+	}
+	quadlets = append(quadlets, quadletInfo{"lerd-nginx", filepath.Join(config.QuadletDir(), "lerd-nginx.container")})
+
+	var changedUnits []string
+	for _, q := range quadlets {
+		existing, readErr := os.ReadFile(q.path)
+		if readErr != nil {
+			continue
+		}
+
+		volumePrefix := fmt.Sprintf("Volume=%s:%s:", path, path)
+		if strings.Contains(string(existing), volumePrefix) {
+			continue
+		}
+
+		updated := InjectExtraVolumes(string(existing), []string{path})
+		if updated == string(existing) {
+			continue
+		}
+		if writeErr := os.WriteFile(q.path, []byte(updated), 0644); writeErr != nil {
+			continue
+		}
+		changedUnits = append(changedUnits, q.unitName)
+	}
+
+	if len(changedUnits) > 0 {
+		_ = DaemonReload()
+		for _, unit := range changedUnits {
+			_ = RestartUnit(unit)
+		}
+	}
 }
 
 // EnsureUserIni creates the per-version user php.ini with defaults if it doesn't exist.

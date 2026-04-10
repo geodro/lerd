@@ -3364,6 +3364,10 @@ func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
 	_ = podman.WriteContainerHosts()
 	_ = nginx.Reload()
 
+	if site.PrimaryDomain() != oldPrimary {
+		_ = envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured)
+	}
+
 	return toolOK(fmt.Sprintf("Added domain %s to site %s", fullDomain, site.Name)), nil
 }
 
@@ -3422,6 +3426,10 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 
 	_ = podman.WriteContainerHosts()
 	_ = nginx.Reload()
+
+	if site.PrimaryDomain() != oldPrimary {
+		_ = envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured)
+	}
 
 	return toolOK(fmt.Sprintf("Removed domain %s from site %s", fullDomain, site.Name)), nil
 }

@@ -1,0 +1,71 @@
+name: Check Upstream PHP Updates
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Restore cached digests
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/php-digests
+          key: php-upstream-digests-dummy
+          restore-keys: php-upstream-digests-
+
+      - name: Check upstream digests
+        id: compare
+        run: |
+          mkdir -p /tmp/php-digests
+          CHANGED=""
+          for V in 8.1 8.2 8.3 8.4 8.5; do
+            CURRENT=$(docker buildx imagetools inspect \
+              "docker.io/library/php:${V}-fpm-alpine" \
+              --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"')
+
+            PREVIOUS=""
+            [ -f "/tmp/php-digests/${V}" ] && PREVIOUS=$(cat "/tmp/php-digests/${V}")
+
+            if [ -n "$CURRENT" ] && [ "$CURRENT" != "$PREVIOUS" ]; then
+              echo "PHP ${V}: upstream changed (${PREVIOUS:-none} -> ${CURRENT})"
+              CHANGED="${CHANGED}${V},"
+              echo "$CURRENT" > "/tmp/php-digests/${V}"
+            else
+              echo "PHP ${V}: no change"
+            fi
+          done
+          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
+
+      - name: Save updated digests
+        if: steps.compare.outputs.changed != ''
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/php-digests
+          key: php-upstream-digests-${{ github.run_id }}
+
+  trigger:
+    needs: check
+    if: needs.check.outputs.changed != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger base image rebuild
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'base-images.yml',
+              ref: 'main',
+              inputs: {
+                force_rebuild: 'true'
+              }
+            });

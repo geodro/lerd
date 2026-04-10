@@ -231,6 +231,9 @@ func runLink(args []string) error {
 		fmt.Printf("[WARN] FPM quadlet for PHP %s: %v\n", phpVersion, err)
 	}
 
+	// Rewrite FPM quadlets so volume mounts cover the linked site path.
+	_ = podman.RewriteFPMQuadlets()
+
 	if err := podman.WriteContainerHosts(); err != nil {
 		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
 	}

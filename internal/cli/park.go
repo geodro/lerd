@@ -131,6 +131,9 @@ func runPark(_ *cobra.Command, args []string) error {
 		fmt.Println("No PHP projects found in directory.")
 	}
 
+	// Rewrite FPM quadlets so volume mounts cover the new parked directory.
+	_ = podman.RewriteFPMQuadlets()
+
 	return nil
 }
 

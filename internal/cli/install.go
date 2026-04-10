@@ -158,11 +158,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// would silently keep its old LAN-exposed bind even though the
 	// quadlet on disk now says 127.0.0.1.
 	changedQuadlets := []string{}
+	extraVolumes := podman.ExtraVolumePaths()
 	rewriteQuadlet := func(name string) error {
 		content, err := podman.GetQuadletTemplate(name + ".container")
 		if err != nil {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
+		content = podman.InjectExtraVolumes(content, extraVolumes)
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
 			return err

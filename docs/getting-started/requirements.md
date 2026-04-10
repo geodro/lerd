@@ -2,6 +2,7 @@
 
 - **Linux** — Arch, Debian/Ubuntu, Fedora-based, or omarchy
 - **[Podman](https://podman.io/)** — rootless, with systemd user session active
+- **[crun](https://github.com/containers/crun)** — recommended OCI runtime for rootless Podman
 - **DNS resolver** — [NetworkManager](https://networkmanager.dev/) or [systemd-resolved](https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html) (at least one is required for `.test` DNS)
 - **`systemctl --user` functional** — run `loginctl enable-linger $USER` if needed
 
@@ -11,6 +12,21 @@ If `systemctl --user` units do not survive logout, run:
 loginctl enable-linger $USER
 ```
 This is required for Podman Quadlet containers to start automatically and persist across sessions.
+:::
+
+::: tip crun is the recommended OCI runtime
+Most distributions ship `crun` as the default rootless Podman runtime. On Arch-based systems, `runc` is the default and `crun` must be installed separately. While both runtimes work, `crun` is lighter and purpose-built for rootless containers. `lerd doctor` will warn if `crun` is not installed.
+
+```bash
+# Arch / omarchy
+sudo pacman -S crun
+
+# Debian / Ubuntu
+sudo apt install crun
+
+# Fedora
+sudo dnf install crun
+```
 :::
 
 - **`unzip`** — used during install to extract fnm

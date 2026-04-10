@@ -65,6 +65,28 @@ lerd php:rebuild
 ```
 :::
 
+::: details `podman exec` fails with "chdir: No such file or directory"
+This happens when your project is outside your home directory (e.g. `/var/www/`, `/opt/projects/`). The PHP-FPM and nginx containers only mount `$HOME` by default.
+
+Lerd handles this automatically — when you `lerd link`, `lerd park`, or run any exec command (`lerd php`, `composer`, `laravel new`) from an outside path, lerd adds the volume mount and restarts the affected containers.
+
+If you see this error on an older lerd version, update to the latest and re-link the site:
+
+```bash
+lerd update
+lerd unlink && lerd link
+```
+
+To verify the mounts are in place:
+
+```bash
+grep Volume ~/.config/containers/systemd/lerd-nginx.container
+grep Volume ~/.config/containers/systemd/lerd-php*-fpm.container
+```
+
+You should see your project path listed alongside the `%h:%h` mount.
+:::
+
 ::: details Permission denied on port 80/443
 Rootless Podman cannot bind to ports below 1024 by default. Allow it:
 
