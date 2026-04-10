@@ -358,7 +358,7 @@ func MatchesRule(dir string, rule FrameworkRule) bool {
 		}
 	}
 	if rule.Composer != "" {
-		if composerHasPackage(dir, rule.Composer) {
+		if ComposerHasPackage(dir, rule.Composer) {
 			return true
 		}
 	}
@@ -376,7 +376,7 @@ func matchesFramework(dir string, fw *Framework) bool {
 			}
 		}
 		if rule.Composer != "" {
-			if composerHasPackage(dir, rule.Composer) {
+			if ComposerHasPackage(dir, rule.Composer) {
 				return true
 			}
 		}
@@ -384,7 +384,9 @@ func matchesFramework(dir string, fw *Framework) bool {
 	return false
 }
 
-func composerHasPackage(dir, pkg string) bool {
+// ComposerHasPackage reports whether the composer.json in dir lists pkg
+// in require or require-dev.
+func ComposerHasPackage(dir, pkg string) bool {
 	data, err := os.ReadFile(filepath.Join(dir, "composer.json"))
 	if err != nil {
 		return false

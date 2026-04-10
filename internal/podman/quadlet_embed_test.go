@@ -3,6 +3,8 @@ package podman
 import (
 	"strings"
 	"testing"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 func TestStripInstallSectionNoOpWhenEnabled(t *testing.T) {
@@ -187,6 +189,31 @@ func TestInjectExtraVolumesNoDuplicates(t *testing.T) {
 	out := InjectExtraVolumes(in, []string{"/var/www"})
 	if strings.Count(out, "/var/www:/var/www:rw") != 1 {
 		t.Errorf("should not duplicate existing volume, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_ShareHosts(t *testing.T) {
+	svc := &config.CustomService{
+		Name:       "selenium",
+		Image:      "docker.io/selenium/standalone-chromium:latest",
+		ShareHosts: true,
+		Ports:      []string{"4444:4444"},
+	}
+	out := GenerateCustomQuadlet(svc)
+	hostsVolume := "Volume=" + config.BrowserHostsFile() + ":/etc/hosts:ro,z"
+	if !strings.Contains(out, hostsVolume) {
+		t.Errorf("expected hosts volume mount when ShareHosts=true, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_NoShareHosts(t *testing.T) {
+	svc := &config.CustomService{
+		Name:  "mongo",
+		Image: "docker.io/library/mongo:7",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if strings.Contains(out, "/etc/hosts") {
+		t.Errorf("should not mount hosts file when ShareHosts=false, got:\n%s", out)
 	}
 }
 

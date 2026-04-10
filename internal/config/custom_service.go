@@ -16,8 +16,13 @@ var validServiceName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // EnvDetect defines auto-detection rules for `lerd env`.
 type EnvDetect struct {
-	Key         string `yaml:"key"`
+	Key         string `yaml:"key,omitempty"`
 	ValuePrefix string `yaml:"value_prefix,omitempty"`
+	// Composer triggers detection when the named package is present in the
+	// project's composer.json (require or require-dev). Used instead of Key
+	// when the service should be auto-detected by a dependency rather than
+	// an existing .env variable (e.g. selenium detected via laravel/dusk).
+	Composer string `yaml:"composer,omitempty"`
 }
 
 // SiteInit defines an optional command to run inside the service container
@@ -77,6 +82,12 @@ type CustomService struct {
 	// PresetVersion is the picked version tag for multi-version presets.
 	// Empty for single-version presets.
 	PresetVersion string `yaml:"preset_version,omitempty"`
+	// ShareHosts mounts the browser-testing hosts file
+	// (~/.local/share/lerd/browser-hosts) into the container at /etc/hosts,
+	// so the container can resolve .test domains to the nginx container's IP
+	// on the Podman network. Used by browser testing services like Selenium
+	// that need to reach lerd sites by domain name.
+	ShareHosts bool `yaml:"share_hosts,omitempty" json:"share_hosts,omitempty"`
 	// DynamicEnv declares container env vars whose value is computed at
 	// quadlet generation time. Currently supported directive:
 	//   discover_family:<name>  -> comma-joined hostnames of every installed

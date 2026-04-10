@@ -374,6 +374,14 @@ func runStart(_ *cobra.Command, _ []string) error {
 	}
 	RunParallel(jobs) //nolint:errcheck
 
+	// Regenerate the browser-testing hosts file now that nginx has its IP.
+	// The file was written earlier with a possibly stale address; update it
+	// so containers like Selenium resolve .test domains to the current
+	// lerd-nginx container IP.
+	if err := podman.WriteContainerHosts(); err != nil {
+		fmt.Printf("  WARN: browser hosts file: %v\n", err)
+	}
+
 	// Sync the pasta DNS proxy (169.254.1.1) as the aardvark-dns upstream for the lerd
 	// network. This address chains through systemd-resolved, which resolves both .test
 	// domains (via lerd-dns) and internet domains. Using 169.254.1.1 instead of the

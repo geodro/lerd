@@ -363,10 +363,15 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		pickedFromYAML := lerdYAMLServices[svc.Name]
 		detectedFromEnv := false
 		if svc.EnvDetect != nil {
-			if val, exists := envMap[svc.EnvDetect.Key]; exists {
-				if svc.EnvDetect.ValuePrefix == "" || strings.HasPrefix(val, svc.EnvDetect.ValuePrefix) {
-					detectedFromEnv = true
+			if svc.EnvDetect.Key != "" {
+				if val, exists := envMap[svc.EnvDetect.Key]; exists {
+					if svc.EnvDetect.ValuePrefix == "" || strings.HasPrefix(val, svc.EnvDetect.ValuePrefix) {
+						detectedFromEnv = true
+					}
 				}
+			}
+			if svc.EnvDetect.Composer != "" && config.ComposerHasPackage(cwd, svc.EnvDetect.Composer) {
+				detectedFromEnv = true
 			}
 		}
 		if !pickedFromYAML && !detectedFromEnv {
@@ -415,7 +420,12 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 3c. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb (Laravel only)
+	// 3c. Patch DuskTestCase.php for lerd's Selenium container if applicable.
+	if _, hasDriver := updates["DUSK_DRIVER_URL"]; hasDriver {
+		patchDuskTestCase(cwd)
+	}
+
+	// 3d. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb (Laravel only)
 	if isLaravel && strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
 		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
 		for k, v := range reverbEnvUpdates(envMap, site.PrimaryDomain(), site.Secured, cwd) {
@@ -943,4 +953,66 @@ func randNumeric(n int) string {
 		b[i] = digits[int(c)%len(digits)]
 	}
 	return string(b)
+}
+
+// patchDuskTestCase modifies tests/DuskTestCase.php so it works with lerd's
+// Selenium container out of the box:
+//   - Skips starting a local ChromeDriver when DUSK_DRIVER_URL is set
+//   - Adds --ignore-certificate-errors so Chromium accepts mkcert certificates
+func patchDuskTestCase(dir string) {
+	path := filepath.Join(dir, "tests", "DuskTestCase.php")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no DuskTestCase — nothing to patch
+	}
+	src := string(data)
+	changed := false
+
+	// 1. Skip local ChromeDriver when DUSK_DRIVER_URL is set.
+	// The default Dusk scaffold has:
+	//   if (! static::runningInSail()) {
+	//       static::startChromeDriver(...)
+	// We add a check for DUSK_DRIVER_URL so the local driver isn't started
+	// when a remote Selenium container is configured.
+	old := "if (! static::runningInSail()) {"
+	replacement := "if (! static::runningInSail() && ! env('DUSK_DRIVER_URL')) {"
+	if strings.Contains(src, old) && !strings.Contains(src, replacement) {
+		src = strings.Replace(src, old, replacement, 1)
+		changed = true
+	}
+
+	// 2. Add --ignore-certificate-errors so Chromium trusts mkcert certs.
+	if !strings.Contains(src, "--ignore-certificate-errors") {
+		// Insert after --disable-smooth-scrolling or --disable-search-engine-choice-screen
+		for _, anchor := range []string{
+			"'--disable-smooth-scrolling',",
+			"'--disable-search-engine-choice-screen',",
+		} {
+			if idx := strings.Index(src, anchor); idx != -1 {
+				insertAt := idx + len(anchor)
+				// Detect indentation from the anchor line.
+				lineStart := strings.LastIndex(src[:idx], "\n") + 1
+				indent := ""
+				for _, ch := range src[lineStart:idx] {
+					if ch == ' ' || ch == '\t' {
+						indent += string(ch)
+					} else {
+						break
+					}
+				}
+				insert := "\n" + indent + "'--ignore-certificate-errors',"
+				src = src[:insertAt] + insert + src[insertAt:]
+				changed = true
+				break
+			}
+		}
+	}
+
+	if changed {
+		if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+			fmt.Printf("  [WARN] could not patch DuskTestCase.php: %v\n", err)
+			return
+		}
+		fmt.Println("  Patched tests/DuskTestCase.php for lerd Selenium")
+	}
 }

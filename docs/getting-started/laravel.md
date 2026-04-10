@@ -169,5 +169,6 @@ lerd worker start reverb
 - [Frameworks & Workers](../usage/frameworks.md) — add Horizon, Pulse, or other custom workers
 - [Database](../usage/database.md) — `lerd db:import`, `lerd db:shell`, switching engines
 - [Services](../usage/services.md) — start Meilisearch, RustFS (S3), Postgres, custom services
+- [Browser Testing](../usage/browser-testing.md) — run Laravel Dusk with Selenium, no local Chrome needed
 - [HTTPS](../features/https.md) — wildcard certs for git worktrees
 - [AI Integration (MCP)](../features/mcp.md) — drive lerd from Claude Code, Cursor, etc.
