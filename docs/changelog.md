@@ -11,6 +11,32 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.10.0] — 2026-04-10
+
+### Added
+
+- **Framework definition store** — community framework store backed by `geodro/lerd-frameworks` with `lerd framework search`, `lerd framework install`, and `lerd framework update` commands. Definitions auto-fetch when linking a project and auto-refresh after 24 hours. MCP tools `framework_search` and `framework_install` expose the store to AI assistants. (#103)
+- **Framework-agnostic worker system** — all hardcoded Laravel worker logic replaced with a generic system driven by framework YAML definitions. Dedicated commands (`queue`, `schedule`, `reverb`, `horizon`) are now aliases that read from the framework definition. Workers support `conflicts_with`, proxy config with auto port assignment, and port collision prevention across sites.
+- **Worker add/remove CLI and MCP tools** — `lerd worker add` and `lerd worker remove` manage custom workers in `.lerd.yaml` (project-level) or the global framework overlay (`--global`). Orphaned workers (running units with no framework definition) are detected and surfaced in `worker list`, `worker stop`, and setup.
+- **PHP version ranges** — framework definitions declare supported PHP min/max ranges. `lerd link` and `lerd init` clamp the PHP version to the framework's supported range. `lerd sites` and the UI show the framework version (e.g. "Laravel 11").
+- **`{{domain}}` and `{{scheme}}` template vars** — framework env var templates can reference the site's primary domain and TLS scheme. `.env` keys like `APP_URL`, `VITE_REVERB_HOST`, and `VITE_REVERB_SCHEME` sync automatically when the primary domain changes.
+- **Selenium service preset** — bundled `selenium` preset (selenium/standalone-chromium) for browser testing with Laravel Dusk. Auto-detected via `composer_detect` on `laravel/dusk`, patches `DuskTestCase.php`, and includes noVNC on port 7900 for watching tests live. New `share_hosts` field on custom services maps `.test` domains to the nginx container IP.
+- **Cursor MCP support** — `mcp:inject` and `mcp:enable-global` now write Cursor configuration (`.cursor/mcp.json` and `.cursor/rules/lerd.mdc`). (#132)
+- **Ghostscript in PHP-FPM** — `ghostscript` added to the base PHP-FPM image for PDF manipulation with libraries like Spatie MediaLibrary. (#138)
+- **mysql-client in PHP-FPM** — `mysql-client` added to the PHP-FPM image so `mysqldump` works inside `lerd php` sessions. (#142)
+
+### Changed
+
+- **MCP tool responses optimised for AI agents** — ANSI escape codes stripped from all CLI output. `doctor`, `check`, and `env_check` return structured JSON instead of raw text. `env:check` no longer exits non-zero.
+- **CI auto-rebuilds PHP images** — a scheduled workflow checks Docker Hub daily for upstream `php:X.Y-fpm-alpine` security patches and triggers a force rebuild when new digests appear.
+
+### Fixed
+
+- **`php:rebuild` reused stale base images** — `lerd php rebuild` now always pulls fresh base images instead of building on top of potentially outdated cached layers. (#140)
+- **`npm run build` failed when `node_modules` missing** — build step is now guarded so it skips gracefully when dependencies haven't been installed. (#133)
+
+---
+
 ## [1.9.4] — 2026-04-10
 
 ### Fixed
