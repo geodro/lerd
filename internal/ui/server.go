@@ -27,6 +27,7 @@ import (
 	nodePkg "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 )
@@ -1324,17 +1325,7 @@ func ensureServiceQuadlet(name string) error {
 
 // ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
 func ensureCustomServiceQuadlet(svc *config.CustomService) error {
-	if svc.DataDir != "" {
-		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
-			return fmt.Errorf("creating data directory for %s: %w", svc.Name, err)
-		}
-	}
-	content := podman.GenerateCustomQuadlet(svc)
-	quadletName := "lerd-" + svc.Name
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
-	}
-	return podman.DaemonReload()
+	return serviceops.EnsureCustomServiceQuadlet(svc)
 }
 
 // countSitesUsingService counts how many active site .env files reference lerd-{name}.

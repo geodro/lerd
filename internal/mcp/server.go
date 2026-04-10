@@ -1753,8 +1753,7 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 		if err != nil {
 			return toolErr("unknown service: " + name + ". Use service_add to register a custom service first."), nil
 		}
-		content := podman.GenerateCustomQuadlet(svc)
-		if err := podman.WriteQuadlet(unitName, content); err != nil {
+		if err := serviceops.EnsureCustomServiceQuadlet(svc); err != nil {
 			return toolErr("writing quadlet: " + err.Error()), nil
 		}
 	}
@@ -2832,19 +2831,8 @@ func execServiceAdd(args map[string]any) (any, *rpcError) {
 		return toolErr("saving service config: " + err.Error()), nil
 	}
 
-	if svc.DataDir != "" {
-		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
-			return toolErr("creating data directory: " + err.Error()), nil
-		}
-	}
-
-	content := podman.GenerateCustomQuadlet(svc)
-	unitName := "lerd-" + name
-	if err := podman.WriteQuadlet(unitName, content); err != nil {
+	if err := serviceops.EnsureCustomServiceQuadlet(svc); err != nil {
 		return toolErr("writing quadlet: " + err.Error()), nil
-	}
-	if err := podman.DaemonReload(); err != nil {
-		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 
 	return toolOK(fmt.Sprintf("Custom service %q added. Start it with service_start(name: %q).", name, name)), nil
