@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.10.1] — 2026-04-10
+
+### Fixed
+
+- **phpMyAdmin (and other `dynamic_env` presets) connected to wrong host** — the Web UI and MCP `service_start`/`service_add` code paths generated custom service quadlets without resolving `dynamic_env` directives, so `PMA_HOSTS` was never set and phpMyAdmin fell back to its default host `db`. All three paths now delegate to `serviceops.EnsureCustomServiceQuadlet` which handles `dynamic_env` resolution and file materialisation.
+
+---
+
 ## [1.10.0] — 2026-04-10
 
 ### Added
