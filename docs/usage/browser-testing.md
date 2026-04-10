@@ -15,7 +15,7 @@ lerd service start selenium
 
 This starts a `selenium/standalone-chromium` container with:
 - **WebDriver** on port 4444
-- **noVNC dashboard** on port 7900 — open [http://localhost:7900](http://localhost:7900) to watch tests run in the browser
+- **noVNC dashboard** on port 7900 — open `http://localhost:7900` to watch tests run in the browser
 
 The container automatically resolves `.test` domains to the nginx container so Chromium can load your sites over HTTP and HTTPS.
 
@@ -51,7 +51,7 @@ lerd artisan dusk --filter=homepage
 
 ## Watching tests
 
-Open the noVNC dashboard at [http://localhost:7900](http://localhost:7900) to see the Chromium browser in real time. This is useful for debugging failing tests or understanding what the browser sees.
+Open the noVNC dashboard at `http://localhost:7900` to see the Chromium browser in real time. This is useful for debugging failing tests or understanding what the browser sees.
 
 ---
 
