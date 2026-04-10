@@ -151,6 +151,16 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	updates := map[string]string{}
 	dbName := projectDBName(cwd)
 
+	scheme := "http"
+	if site.Secured {
+		scheme = "https"
+	}
+	tplCtx := siteTemplateCtx{
+		site:   dbName,
+		domain: site.PrimaryDomain(),
+		scheme: scheme,
+	}
+
 	// Load .lerd.yaml service hints so we can apply env vars for services
 	// listed there even when they are not yet referenced in the env file.
 	lerdYAMLServices := map[string]bool{}
@@ -209,7 +219,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			isDB := svc == "mysql" || svc == "postgres"
 			for _, kv := range def.Vars {
 				k, v, _ := strings.Cut(kv, "=")
-				updates[k] = applySiteHandle(v, dbName)
+				updates[k] = applySiteHandle(v, tplCtx)
 			}
 			if isDB {
 				if err := ensureServiceRunning(svc); err != nil {
@@ -377,7 +387,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 		for _, kv := range svc.EnvVars {
 			k, v, _ := strings.Cut(kv, "=")
-			updates[k] = applySiteHandle(v, dbName)
+			updates[k] = applySiteHandle(v, tplCtx)
 		}
 		family := config.InferFamily(svc.Name)
 		isDB := family == "mysql" || family == "mariadb" || family == "postgres"
@@ -401,7 +411,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			}
 		}
 		if svc.SiteInit != nil && svc.SiteInit.Exec != "" {
-			runSiteInit(svc, dbName)
+			runSiteInit(svc, tplCtx)
 		}
 	}
 
@@ -761,11 +771,25 @@ func artisanIn(dir string, args ...string) error {
 	return cmd.Run()
 }
 
-// applySiteHandle replaces {{site}}, {{site_testing}}, and service version
-// placeholders (e.g. {{mysql_version}}, {{postgres_version}}) in s.
-func applySiteHandle(s, site string) string {
-	s = strings.ReplaceAll(s, "{{site}}", site)
-	s = strings.ReplaceAll(s, "{{site_testing}}", site+"_testing")
+// siteTemplateCtx holds the values available to {{…}} placeholders in
+// framework env var templates.
+type siteTemplateCtx struct {
+	site   string // database / handle name
+	domain string // primary domain (e.g. myapp.test)
+	scheme string // "http" or "https"
+}
+
+// applySiteHandle replaces {{site}}, {{site_testing}}, {{domain}}, {{scheme}},
+// and service version placeholders (e.g. {{mysql_version}}, {{postgres_version}}) in s.
+func applySiteHandle(s string, ctx siteTemplateCtx) string {
+	s = strings.ReplaceAll(s, "{{site}}", ctx.site)
+	s = strings.ReplaceAll(s, "{{site_testing}}", ctx.site+"_testing")
+	if ctx.domain != "" {
+		s = strings.ReplaceAll(s, "{{domain}}", ctx.domain)
+	}
+	if ctx.scheme != "" {
+		s = strings.ReplaceAll(s, "{{scheme}}", ctx.scheme)
+	}
 	// Lazy-resolve service version placeholders only when present.
 	for _, svc := range []string{"mysql", "postgres", "redis", "meilisearch"} {
 		placeholder := "{{" + svc + "_version}}"
@@ -777,12 +801,12 @@ func applySiteHandle(s, site string) string {
 }
 
 // runSiteInit executes the site_init.exec command inside the service container.
-func runSiteInit(svc *config.CustomService, site string) {
+func runSiteInit(svc *config.CustomService, ctx siteTemplateCtx) {
 	container := svc.SiteInit.Container
 	if container == "" {
 		container = "lerd-" + svc.Name
 	}
-	script := applySiteHandle(svc.SiteInit.Exec, site)
+	script := applySiteHandle(svc.SiteInit.Exec, ctx)
 	cmd := exec.Command("podman", "exec", container, "sh", "-c", script)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
