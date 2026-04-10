@@ -330,43 +330,74 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 
-	step("Starting lerd-nginx")
-	if err := services.Mgr.Restart("lerd-nginx"); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
+	// Read the autostart flag once. When disabled (set explicitly via
+	// `lerd autostart disable`), install must not enable or start any
+	// service that the user has chosen to keep off — otherwise running
+	// `lerd update` would silently flip every disabled unit back on.
+	// The zero value (Disabled=false) is the historical autostart-on
+	// path, so existing users see no behaviour change.
+	autostartOn := lerdSystemd.IsAutostartEnabled()
+
+	if autostartOn {
+		step("Starting lerd-nginx")
+		if err := services.Mgr.Restart("lerd-nginx"); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
 	}
-	ok()
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
 		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
 			return err
 		}
-		if err := services.Mgr.Enable("lerd-watcher"); err != nil {
-			fmt.Printf("    WARN: %v\n", err)
+		if autostartOn {
+			if err := services.Mgr.Enable("lerd-watcher"); err != nil {
+				fmt.Printf("    WARN: %v\n", err)
+			}
 		}
 	}
 	ok()
 
-	step("Restarting watcher service")
-	if err := services.Mgr.Restart("lerd-watcher"); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
+	if autostartOn {
+		step("Restarting watcher service")
+		if err := services.Mgr.Restart("lerd-watcher"); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
 	}
-	ok()
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
 		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
 			return err
 		}
-		if err := services.Mgr.Enable("lerd-ui"); err != nil {
-			fmt.Printf("    WARN: %v\n", err)
+		if autostartOn {
+			if err := services.Mgr.Enable("lerd-ui"); err != nil {
+				fmt.Printf("    WARN: %v\n", err)
+			}
 		}
 	}
 	ok()
 
-	step("Starting lerd-ui")
-	if err := services.Mgr.Restart("lerd-ui"); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
+	if autostartOn {
+		step("Starting lerd-ui")
+		if err := services.Mgr.Restart("lerd-ui"); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
+	}
+
+	step("Writing tray service")
+	if content, err := lerdSystemd.GetUnit("lerd-tray"); err == nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
+			return err
+		}
+		if autostartOn {
+			if err := services.Mgr.Enable("lerd-tray"); err != nil {
+				fmt.Printf("    WARN: %v\n", err)
+			}
+		}
 	}
 	ok()
 
@@ -378,11 +409,20 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	installCleanupScript()
 	ok()
 
-	// Start restored services (mysql, redis, etc.) and workers.
-	// Service quadlets were written earlier; now pull images and start them.
-	// Then restore worker units from .lerd.yaml so everything comes back up.
-	startRestoredServices()
+	// Restore worker / queue / schedule unit FILES from .lerd.yaml so the
+	// systemd state is repaired regardless of the autostart setting — the
+	// files have to exist for the user to be able to flip autostart back
+	// on later. restoreSiteInfrastructure only writes files for units
+	// that don't already exist, so this is a no-op for ordinary updates.
 	restoreSiteInfrastructure()
+
+	// Start service containers and workers only when autostart is on.
+	// When the user has explicitly disabled autostart we leave them
+	// stopped — `lerd update` running install via re-exec must not flip
+	// disabled units back on.
+	if autostartOn {
+		startRestoredServices()
+	}
 
 	if wantLaravelInstaller {
 		fmt.Println("  --> Installing Laravel installer")
@@ -495,7 +535,7 @@ func installLaravelInstaller() error {
 	// --no-interaction prevents composer from blocking on plugin trust prompts
 	// (e.g. "Do you trust 'symfony/flex' to execute code?") which would hang
 	// the installer with no visible output.
-	cmd := exec.Command("podman", "exec", "-i",
+	cmd := exec.Command(podman.PodmanBin(), "exec", "-i",
 		"--env", "HOME="+home,
 		"--env", "COMPOSER_HOME="+composerHome,
 		container, "php", composerPhar, "global", "require", "--no-interaction", "laravel/installer",

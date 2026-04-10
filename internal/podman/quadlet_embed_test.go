@@ -5,6 +5,66 @@ import (
 	"testing"
 )
 
+func TestStripInstallSectionNoOpWhenEnabled(t *testing.T) {
+	in := "[Container]\nImage=foo\n\n[Install]\nWantedBy=default.target\n"
+	if got := StripInstallSection(in, false); got != in {
+		t.Errorf("expected unchanged content when autostartDisabled=false\ngot:\n%s", got)
+	}
+}
+
+func TestStripInstallSectionRemovesInstallBlock(t *testing.T) {
+	in := strings.Join([]string{
+		"[Container]",
+		"Image=foo",
+		"PublishPort=80:80",
+		"",
+		"[Install]",
+		"WantedBy=default.target",
+		"",
+	}, "\n")
+
+	out := StripInstallSection(in, true)
+	if strings.Contains(out, "[Install]") {
+		t.Errorf("expected [Install] section to be removed:\n%s", out)
+	}
+	if strings.Contains(out, "WantedBy=") {
+		t.Errorf("expected WantedBy line to be removed:\n%s", out)
+	}
+	if !strings.Contains(out, "Image=foo") {
+		t.Errorf("expected [Container] section to be preserved:\n%s", out)
+	}
+	if !strings.Contains(out, "PublishPort=80:80") {
+		t.Errorf("expected PublishPort to be preserved:\n%s", out)
+	}
+}
+
+func TestStripInstallSectionPreservesIntermediateSections(t *testing.T) {
+	// Some quadlets have a [Service] section between [Container] and
+	// [Install]. The strip must only drop [Install], not anything else.
+	in := strings.Join([]string{
+		"[Container]",
+		"Image=foo",
+		"",
+		"[Service]",
+		"Restart=on-failure",
+		"",
+		"[Install]",
+		"WantedBy=default.target",
+		"",
+	}, "\n")
+
+	out := StripInstallSection(in, true)
+	if !strings.Contains(out, "[Service]") {
+		t.Errorf("expected [Service] section to be preserved:\n%s", out)
+	}
+	if !strings.Contains(out, "Restart=on-failure") {
+		t.Errorf("expected Restart line to be preserved:\n%s", out)
+	}
+	if strings.Contains(out, "[Install]") {
+		t.Errorf("expected [Install] to be removed:\n%s", out)
+	}
+}
+
 func TestBindForLANUnexposedPrependsLoopback(t *testing.T) {
 	in := strings.Join([]string{
 		"[Container]",

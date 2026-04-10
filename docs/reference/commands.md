@@ -17,8 +17,6 @@
 | `lerd autostart enable` | Start Lerd automatically on every login |
 | `lerd autostart disable` | Disable autostart on login |
 | `lerd tray` | Launch the system tray applet (detaches from terminal) |
-| `lerd autostart tray enable` | Start the tray applet automatically on graphical login |
-| `lerd autostart tray disable` | Disable tray autostart |
 | `lerd dns:check` | Verify that `*.test` resolves to `127.0.0.1` |
 | `lerd status` | Health summary: DNS, nginx, PHP-FPM containers, watcher, services, cert expiry, LAN exposure and dashboard remote access; shows a notice if an update is available |
 | `lerd which` | Show resolved PHP version, Node version, document root, and nginx config for the current site |

@@ -235,11 +235,19 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	} else {
 		// Default Laravel-style detection.
-		// If the user has an explicit DB choice in .lerd.yaml (sqlite, mysql,
-		// or postgres), it overrides whatever the existing .env happens to say
-		// about DB_CONNECTION — otherwise switching from mysql → sqlite (or
-		// vice versa) via the wizard would silently keep the old credentials.
+		// If the user has an explicit DB choice in .lerd.yaml (sqlite, a
+		// built-in mysql/postgres, or any custom DB family alternate like
+		// mysql-5-6 / mariadb-11 / mongo-6), it overrides whatever the
+		// existing .env happens to say about DB_CONNECTION — otherwise
+		// switching DB types via the wizard would silently keep the old
+		// credentials.
 		userPickedDB := lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"]
+		for name := range lerdYAMLServices {
+			if fam := config.InferFamily(name); fam == "mysql" || fam == "mariadb" || fam == "postgres" || fam == "mongo" {
+				userPickedDB = true
+				break
+			}
+		}
 
 		for _, svc := range knownServices {
 			detector, ok := serviceDetectors[svc]
@@ -289,18 +297,19 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			}
 
 			if svc == "rustfs" {
-				updates["AWS_BUCKET"] = dbName
-				updates["AWS_URL"] = "http://localhost:9000/" + dbName
+				bucketName := s3BucketName(dbName)
+				updates["AWS_BUCKET"] = bucketName
+				updates["AWS_URL"] = "http://localhost:9000/" + bucketName
 				if err := ensureServiceRunning(svc); err != nil {
 					fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
 				} else {
-					created, err := createS3Bucket(dbName)
+					created, err := createS3Bucket(bucketName)
 					if err != nil {
-						fmt.Printf("  [WARN] could not create bucket %q: %v\n", dbName, err)
+						fmt.Printf("  [WARN] could not create bucket %q: %v\n", bucketName, err)
 					} else if created {
-						fmt.Printf("  Created bucket %q\n", dbName)
+						fmt.Printf("  Created bucket %q\n", bucketName)
 					} else {
-						fmt.Printf("  Bucket %q already exists\n", dbName)
+						fmt.Printf("  Bucket %q already exists\n", bucketName)
 					}
 				}
 				continue
@@ -333,27 +342,64 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 3b. Detect custom services
+	// 3b. Custom services. Three triggers:
+	//   - the service is listed in .lerd.yaml (user explicitly picked it)
+	//   - env_detect matches an existing key in the project's .env
+	//   - both
+	// DB family alternates (mysql-5-6, mariadb-11, postgres-14) need
+	// DB_DATABASE rewritten to the project name and the database created
+	// inside the container, mirroring what built-in mysql/postgres do above.
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
-		if svc.EnvDetect == nil || len(svc.EnvVars) == 0 {
+		pickedFromYAML := lerdYAMLServices[svc.Name]
+		detectedFromEnv := false
+		if svc.EnvDetect != nil {
+			if val, exists := envMap[svc.EnvDetect.Key]; exists {
+				if svc.EnvDetect.ValuePrefix == "" || strings.HasPrefix(val, svc.EnvDetect.ValuePrefix) {
+					detectedFromEnv = true
+				}
+			}
+		}
+		if !pickedFromYAML && !detectedFromEnv {
 			continue
 		}
-		val, exists := envMap[svc.EnvDetect.Key]
-		if !exists {
+		if len(svc.EnvVars) == 0 {
+			// Nothing to write — still ensure the container is up so the
+			// project can reach it once running.
+			if err := ensureServiceRunning(svc.Name); err != nil {
+				fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
+			}
 			continue
 		}
-		if svc.EnvDetect.ValuePrefix != "" && !strings.HasPrefix(val, svc.EnvDetect.ValuePrefix) {
-			continue
+		if pickedFromYAML {
+			fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", svc.Name)
+		} else {
+			fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc.Name)
 		}
-		fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc.Name)
 		for _, kv := range svc.EnvVars {
 			k, v, _ := strings.Cut(kv, "=")
 			updates[k] = applySiteHandle(v, dbName)
 		}
+		family := config.InferFamily(svc.Name)
+		isDB := family == "mysql" || family == "mariadb" || family == "postgres"
+		if isDB {
+			updates["DB_DATABASE"] = dbName
+		}
 		if err := ensureServiceRunning(svc.Name); err != nil {
 			fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
 			continue
+		}
+		if isDB {
+			for _, name := range []string{dbName, dbName + "_testing"} {
+				created, err := createDatabase(svc.Name, name)
+				if err != nil {
+					fmt.Printf("  [WARN] could not create database %q: %v\n", name, err)
+				} else if created {
+					fmt.Printf("  Created database %q\n", name)
+				} else {
+					fmt.Printf("  Database %q already exists\n", name)
+				}
+			}
 		}
 		if svc.SiteInit != nil && svc.SiteInit.Exec != "" {
 			runSiteInit(svc, dbName)
@@ -433,22 +479,46 @@ func frameworkServiceDetected(def config.FrameworkServiceDef, envMap map[string]
 
 // createDatabase creates a database with the given name in the mysql or postgres container.
 // Returns (true, nil) if created, (false, nil) if it already existed, or (false, err) on failure.
+// createDatabase creates dbName inside the named service container if it does
+// not already exist. svc is the service name (e.g. "mysql", "mysql-5-6",
+// "mariadb-11", "postgres-14"); the container is always "lerd-<svc>". The
+// SQL client used is determined by the family inferred from svc.
 func createDatabase(svc, name string) (bool, error) {
-	switch svc {
-	case "mysql":
-		// Query row count before and after to detect whether the DB was created.
-		check := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
-			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
-		out, err := check.Output()
-		if err == nil && strings.TrimSpace(string(out)) != "0" {
-			return false, nil
+	container := "lerd-" + svc
+	family := svc
+	if inferred := config.InferFamily(svc); inferred != "" {
+		family = inferred
+	}
+	switch family {
+	case "mysql", "mariadb":
+		// MariaDB 11 removed the `mysql` client symlink. Try `mariadb` first
+		// for the mariadb family, `mysql` first for the mysql family, then
+		// fall back to the other so old MariaDB images and new MySQL images
+		// both work.
+		binaries := []string{"mysql", "mariadb"}
+		if family == "mariadb" {
+			binaries = []string{"mariadb", "mysql"}
 		}
-		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
-			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
-		cmd.Stderr = os.Stderr
-		return true, cmd.Run()
+		var lastErr error
+		for _, bin := range binaries {
+			check := exec.Command(podman.PodmanBin(), "exec", container, bin, "-uroot", "-plerd",
+				"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
+			out, err := check.Output()
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if strings.TrimSpace(string(out)) != "0" {
+				return false, nil
+			}
+			cmd := exec.Command(podman.PodmanBin(), "exec", container, bin, "-uroot", "-plerd",
+				"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
+			cmd.Stderr = os.Stderr
+			return true, cmd.Run()
+		}
+		return false, lastErr
 	case "postgres":
-		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-postgres", "psql", "-U", "postgres",
+		cmd := exec.Command(podman.PodmanBin(), "exec", container, "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -461,6 +531,30 @@ func createDatabase(svc, name string) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// s3BucketName converts a project handle into a valid S3 bucket name:
+// lowercase, hyphens instead of underscores, leading/trailing non-alphanumerics
+// stripped, max length 63. Reuses the standard MinIO/S3 naming rules so the
+// resulting bucket is portable.
+func s3BucketName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.':
+			b.WriteRune(r)
+		case r == '_', r == '-', r == ' ':
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-.")
+	if len(out) > 63 {
+		out = out[:63]
+	}
+	if out == "" {
+		out = "lerd"
+	}
+	return out
 }
 
 // createS3Bucket creates a bucket for the given name in lerd-rustfs using an ephemeral mc container.

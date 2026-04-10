@@ -22,10 +22,11 @@ import (
 // arbitrary host filesystem paths as new sites. The local user can still
 // use them as normal because loopback bypasses everything.
 var loopbackOnlyRoutes = []string{
-	"/api/lerd/stop",  // shuts down all lerd containers
-	"/api/lerd/quit",  // exits the dashboard process
-	"/api/sites/link", // links arbitrary host filesystem paths
-	"/api/browse",     // browses host filesystem
+	"/api/lerd/stop",            // shuts down all lerd containers
+	"/api/lerd/quit",            // exits the dashboard process
+	"/api/lerd/update-terminal", // spawns a terminal emulator on the host
+	"/api/sites/link",           // links arbitrary host filesystem paths
+	"/api/browse",               // browses host filesystem
 }
 
 // loopbackOnlySiteSubactions are the per-site action suffixes (under

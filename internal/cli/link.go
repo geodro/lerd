@@ -20,6 +20,14 @@ import (
 // is called from within lerd setup / lerd init (prevents infinite recursion).
 var linkSkipSetupPrompt bool
 
+// presetVersionSuffix returns " (5.7)" for a non-empty version, otherwise "".
+func presetVersionSuffix(version string) string {
+	if version == "" {
+		return ""
+	}
+	return " (" + version + ")"
+}
+
 // NewLinkCmd returns the link command.
 func NewLinkCmd() *cobra.Command {
 	return &cobra.Command{
@@ -250,7 +258,18 @@ func runLink(args []string) error {
 		}
 
 		for _, svc := range proj.Services {
-			if svc.Custom != nil {
+			// Preset reference: install the bundled preset locally if the
+			// teammate's machine does not have it yet, so the project is
+			// portable across machines without inlining the definition.
+			if svc.Preset != "" {
+				if _, err := config.LoadCustomService(svc.Name); err != nil {
+					fmt.Printf("  Installing preset %s%s\n", svc.Preset, presetVersionSuffix(svc.PresetVersion))
+					if _, err := InstallPresetByName(svc.Preset, svc.PresetVersion); err != nil {
+						fmt.Printf("[WARN] installing preset %s: %v\n", svc.Preset, err)
+						continue
+					}
+				}
+			} else if svc.Custom != nil {
 				svc.Custom.Name = svc.Name
 				existing, loadErr := config.LoadCustomService(svc.Name)
 				shouldSave := true

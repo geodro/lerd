@@ -559,7 +559,7 @@ main() {
   echo "  ███████╗███████╗██║  ██║██████╔╝"
   echo "  ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ "
   echo -e "${RESET}"
-  echo "  Herd-like Podman dev environment for Linux and macOS"
+  echo "  Lerd — Podman-powered local PHP dev environment for Linux and macOS"
   echo "  https://github.com/${REPO}"
   echo ""
 

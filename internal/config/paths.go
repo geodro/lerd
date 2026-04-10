@@ -101,6 +101,13 @@ func CustomServicesDir() string {
 	return filepath.Join(ConfigDir(), "services")
 }
 
+// ServiceFilesDir returns the directory holding rendered FileMount content
+// for the named custom service. Each file is bind-mounted into the container
+// at its declared target path.
+func ServiceFilesDir(name string) string {
+	return filepath.Join(DataDir(), "service-files", name)
+}
+
 // FrameworksDir returns the directory for user-defined framework YAML files.
 func FrameworksDir() string {
 	return filepath.Join(ConfigDir(), "frameworks")

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/services"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/getlantern/systray"
@@ -239,7 +239,7 @@ func fetchSnapshot() *Snapshot {
 		return snap
 	}
 
-	snap.AutostartEnabled = services.Mgr.IsEnabled("lerd-autostart")
+	snap.AutostartEnabled = lerdSystemd.IsAutostartEnabled()
 
 	// LAN exposure state — read directly from config rather than the API
 	// because the tray cares about the persisted intent, not the live bind
@@ -358,7 +358,7 @@ func handlePHP(menu *menuState) {
 
 func handleAutostart(item *systray.MenuItem) {
 	for range item.ClickedCh {
-		if services.Mgr.IsEnabled("lerd-autostart") {
+		if lerdSystemd.IsAutostartEnabled() {
 			_ = exec.Command(lerdBin(), "autostart", "disable").Start()
 		} else {
 			_ = exec.Command(lerdBin(), "autostart", "enable").Start()

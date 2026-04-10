@@ -20,6 +20,7 @@ import (
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/geodro/lerd/internal/services"
 )
 
@@ -394,7 +395,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_add",
-			Description: "Register a new custom OCI-based service with lerd (e.g. MongoDB, RabbitMQ, Cassandra). Writes a systemd quadlet so the service can be started/stopped like built-in services.",
+			Description: "Register a new custom OCI-based service with lerd (e.g. RabbitMQ, Cassandra, a hand-rolled image). Writes a systemd quadlet so the service can be started/stopped like built-in services. For commonly-used services that ship as bundled presets (phpmyadmin, pgadmin, mongo, mongo-express, mysql alternates, mariadb, stripe-mock) prefer service_preset_install instead.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -483,6 +484,32 @@ func toolList() []mcpTool {
 					"name": {
 						Type:        "string",
 						Description: "Service name (e.g. \"mysql\", \"redis\", \"mongodb\")",
+					},
+				},
+				Required: []string{"name"},
+			},
+		},
+		{
+			Name:        "service_preset_list",
+			Description: "List bundled service presets that ship with lerd. Each entry includes the preset name, description, dashboard URL, declared dependencies, available versions (for multi-version presets like mysql or mariadb), and which versions are already installed locally. Use this before service_preset_install to see what's available.",
+			InputSchema: mcpSchema{
+				Type:       "object",
+				Properties: map[string]mcpProp{},
+			},
+		},
+		{
+			Name:        "service_preset_install",
+			Description: "Install a bundled service preset as a local custom service. Single-version presets (phpmyadmin, pgadmin, mongo, mongo-express, stripe-mock) are installed by name. Multi-version presets (mysql, mariadb) require a version argument; available versions come from service_preset_list. Dependencies that are themselves presets must be installed first — installing mongo-express without mongo errors out with a clear hint. After install the service can be started, stopped, removed, exposed, or pinned with the usual service_* tools.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {
+						Type:        "string",
+						Description: "Preset name (e.g. \"phpmyadmin\", \"pgadmin\", \"mongo\", \"mongo-express\", \"stripe-mock\", \"mysql\", \"mariadb\"). Run service_preset_list to see all bundled presets.",
+					},
+					"version": {
+						Type:        "string",
+						Description: "Version tag for multi-version presets (e.g. \"5.7\" for mysql, \"11\" for mariadb). Required when the preset declares versions. Empty for single-version presets.",
 					},
 				},
 				Required: []string{"name"},
@@ -1385,6 +1412,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execServiceRemove(args)
 	case "service_expose":
 		return execServiceExpose(args)
+	case "service_preset_list":
+		return execServicePresetList(args)
+	case "service_preset_install":
+		return execServicePresetInstall(args)
 	case "env_setup":
 		return execEnvSetup(args)
 	case "db_set":
@@ -2168,7 +2199,7 @@ func execVendorRun(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, binArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2448,6 +2479,88 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 	}
 
 	return toolOK(fmt.Sprintf("Service %q removed. Persistent data was NOT deleted.", name)), nil
+}
+
+func execServicePresetList(_ map[string]any) (any, *rpcError) {
+	presets, err := config.ListPresets()
+	if err != nil {
+		return toolErr("listing presets: " + err.Error()), nil
+	}
+	type versionEntry struct {
+		Tag       string `json:"tag"`
+		Label     string `json:"label,omitempty"`
+		Image     string `json:"image"`
+		Installed bool   `json:"installed"`
+	}
+	type entry struct {
+		Name           string         `json:"name"`
+		Description    string         `json:"description,omitempty"`
+		Image          string         `json:"image,omitempty"`
+		Dashboard      string         `json:"dashboard,omitempty"`
+		DependsOn      []string       `json:"depends_on,omitempty"`
+		Installed      bool           `json:"installed"`
+		DefaultVersion string         `json:"default_version,omitempty"`
+		Versions       []versionEntry `json:"versions,omitempty"`
+	}
+	out := make([]entry, 0, len(presets))
+	for _, p := range presets {
+		e := entry{
+			Name:           p.Name,
+			Description:    p.Description,
+			Image:          p.Image,
+			Dashboard:      p.Dashboard,
+			DependsOn:      p.DependsOn,
+			DefaultVersion: p.DefaultVersion,
+		}
+		if len(p.Versions) == 0 {
+			if _, err := config.LoadCustomService(p.Name); err == nil {
+				e.Installed = true
+			}
+		} else {
+			anyInstalled := false
+			for _, v := range p.Versions {
+				name := p.Name + "-" + config.SanitizeImageTag(v.Tag)
+				_, loadErr := config.LoadCustomService(name)
+				vi := versionEntry{
+					Tag:       v.Tag,
+					Label:     v.Label,
+					Image:     v.Image,
+					Installed: loadErr == nil,
+				}
+				if vi.Installed {
+					anyInstalled = true
+				}
+				e.Versions = append(e.Versions, vi)
+			}
+			e.Installed = anyInstalled
+		}
+		out = append(out, e)
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return toolErr("encoding presets: " + err.Error()), nil
+	}
+	return toolOK(string(data)), nil
+}
+
+func execServicePresetInstall(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	version := strArg(args, "version")
+	svc, err := serviceops.InstallPresetByName(name, version)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	msg := fmt.Sprintf("Installed preset %q. Start it with service_start(name: %q).", svc.Name, svc.Name)
+	if svc.Dashboard != "" {
+		msg += " Dashboard: " + svc.Dashboard
+	}
+	if len(svc.DependsOn) > 0 {
+		msg += " Dependencies (auto-started on start): " + strings.Join(svc.DependsOn, ", ")
+	}
+	return toolOK(msg), nil
 }
 
 func execServiceExpose(args map[string]any) (any, *rpcError) {

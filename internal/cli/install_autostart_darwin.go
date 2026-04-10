@@ -12,8 +12,9 @@ import (
 
 // installAutostart enables the lerd-autostart and lerd-tray launchd services on
 // macOS so that lerd and its tray applet start automatically on every login.
-// On macOS this is on by default (matching Herd's behaviour); on Linux it is
-// opt-in via `lerd autostart enable`.
+// lerd-autostart calls `lerd start` at login, which sequences the container
+// startup correctly (podman machine must be up before containers start).
+// Container plists are written with RunAtLoad=false, so they depend on this.
 func installAutostart() {
 	for _, unit := range []string{"lerd-autostart", "lerd-tray"} {
 		content, err := lerdSystemd.GetUnit(unit)

@@ -100,6 +100,18 @@ lerd link
 # → https://my-laravel-project.test
 ```
 
+`lerd install` already starts everything for you on first run, so you can `lerd link` immediately. Day-to-day:
+
+```bash
+lerd start          # boot DNS, nginx, PHP-FPM, services, workers, UI
+lerd stop           # stop containers and workers (UI and watcher stay up)
+lerd quit           # full shutdown including UI, watcher, and tray
+lerd autostart enable   # boot lerd on every login
+lerd status         # health snapshot
+```
+
+See [Start, Stop & Autostart](https://geodro.github.io/lerd/usage/lifecycle/) for the full lifecycle reference.
+
 ## Documentation
 
 📖 **[geodro.github.io/lerd](https://geodro.github.io/lerd/)**
@@ -107,6 +119,7 @@ lerd link
 - [Requirements](https://geodro.github.io/lerd/getting-started/requirements/)
 - [Installation](https://geodro.github.io/lerd/getting-started/installation/)
 - [Quick Start](https://geodro.github.io/lerd/getting-started/quick-start/)
+- [Start, Stop & Autostart](https://geodro.github.io/lerd/usage/lifecycle/)
 - [Services](https://geodro.github.io/lerd/usage/services/)
 - [Command Reference](https://geodro.github.io/lerd/reference/commands/)
 

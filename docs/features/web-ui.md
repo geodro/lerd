@@ -51,14 +51,20 @@ Selecting a site opens the detail panel with:
 - **Unlink button** — remove a site from nginx without touching the terminal
 - **Git Worktrees** — when the project uses git worktrees, each branch and its domain are listed with a direct open link
 - **Live PHP-FPM log** — streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
+- **Service badges** — beneath the path / git branch line, every service from the project's `.lerd.yaml` is shown as a small pill (green when running, grey when stopped). Click any badge to jump to that service's detail panel on the Services tab.
 
 ## Services
 
 ![Services tab](/assets/screenshots/app-2.png)
 
-The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit) and grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
+The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit), any installed preset alternates (e.g. MySQL 5.7, MariaDB 11, MongoDB) and admin UIs (phpMyAdmin, pgAdmin, Mongo Express), plus grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
-Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button.
+The header has a **+** button that opens the **preset picker modal**: a one-click installer for the bundled service presets. Multi-version presets like `mysql` and `mariadb` show a version dropdown next to the **Add** button. Already-installed entries are filtered out.
+
+Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button. Database service detail panels (mysql, postgres, mongo, and any installed alternate like `mysql-5-7`) get two extras:
+
+- **Suggestion banner** — a sky-blue tip offering to install the paired admin UI (phpMyAdmin / pgAdmin / Mongo Express) when it isn't installed yet. Dismissable per-preset; dismissal persists in `localStorage`.
+- **Open admin button** — when the paired admin UI is installed, a button on the header opens its dashboard in a new tab and auto-starts the admin service if needed. When no admin UI is installed and the service is active, a fallback **Open connection URL** anchor hands the `mysql://` / `postgresql://` / `mongodb://` URL to your registered DB client (DBeaver, TablePlus, Compass…).
 
 ## System
 
@@ -72,10 +78,10 @@ Selecting an item opens its detail panel:
 - **Node.js cards** — show which sites use the version, with a remove button. The **Install Node.js version** entry has an inline form — enter a version number (e.g. `22`) and click **Install**, equivalent to `lerd node:install <version>`.
 - **Watcher card** — shows whether `lerd-watcher` is running; a Start button appears when stopped. Streams live watcher logs (DNS repair events, fsnotify errors, worktree timeouts).
 - **Autostart card** — enable or disable automatic start of all services at login.
-- **Lerd card** — shows the current version and a **Check for updates** button. When an update is available, the version number and a `lerd update` instruction are shown.
+- **Lerd card** — shows the current version and a **Check for updates** button. The status dot next to the entry is green when DNS, nginx, and the watcher are all running, red when any of them is down, and yellow when an update is available. When an update is available, an **Open terminal & update** button spawns the user's preferred terminal emulator with `lerd update` pre-filled (loopback only — the host needs to prompt for sudo). A small yellow dot also appears on the lerd logo in the left rail; clicking the logo jumps straight to this entry.
 
 The **Start** / **Stop** buttons in the System panel header start or stop all core services (DNS, nginx, and all PHP-FPM containers for versions that have active sites).
 
 ## Updates
 
-Shows the current version. When an update is available, a notice with the version number is shown alongside an instruction to run `lerd update` in a terminal (the update requires `sudo` for sysctl/sudoers steps and cannot run in the background).
+Shows the current version. When an update is available, the Lerd entry exposes an **Open terminal & update** button that launches your terminal emulator running `lerd update`. The update requires `sudo` for sysctl/sudoers steps and so needs an interactive terminal — the button is loopback-only and is hidden when the dashboard is reached over the LAN.

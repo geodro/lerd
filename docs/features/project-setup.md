@@ -1,27 +1,59 @@
 # Project Setup
 
-`lerd setup` automates the standard steps for getting a fresh PHP project running locally. Run it from the project root:
+Two commands cover project bootstrap:
+
+| Command | What it does |
+|---|---|
+| `lerd init` | Runs the interactive wizard, writes `.lerd.yaml`, applies it (link, HTTPS, database, services) |
+| `lerd setup` | Runs `lerd init` first, then a checkbox list of install/migrate/build steps |
+
+Use `lerd init` when you only want to configure the site (PHP version, services, HTTPS). Use `lerd setup` when you also want to install dependencies, run migrations, and start workers in one go.
+
+---
+
+## `lerd init`
+
+`lerd init` is the entry point for `.lerd.yaml`. Run it from the project root:
 
 ```bash
 cd ~/Projects/my-app
-lerd setup
+lerd init
 ```
-
-Before the step selector, `lerd setup` runs the **lerd init wizard** — you choose the PHP version, Node version, HTTPS, and required services. The answers are saved to `.lerd.yaml` in the project root. Commit this file so on any future machine `lerd setup` (or even `lerd link`) reads it and skips the wizard entirely.
 
 ```
 → Configuring site...
 ? PHP version: 8.4
 ? Node version (leave blank to skip): 22
 ? Enable HTTPS? No
+? Database: mysql
 ? Services: [mysql, redis]
+? Workers to auto-start: [queue, schedule]
 Saved .lerd.yaml
 Linked: my-app -> my-app.test (PHP 8.4, Node 22, Framework: laravel)
 ```
 
-The services list includes both built-in services and any custom services already registered with `lerd service add`.
+The answers are saved to `.lerd.yaml` in the project root and applied immediately — the site is linked, HTTPS is enabled if requested, the database is created, and the chosen services are started.
 
-The init wizard also includes a workers step that lets you select which workers to auto-start. Available workers depend on the framework — Horizon is shown automatically when `laravel/horizon` is detected in `composer.json`, replacing the generic queue option.
+The services list includes both built-in services and any custom services already registered with `lerd service add`. The workers step pre-selects workers based on the framework and detected packages — Horizon is shown automatically when `laravel/horizon` is in `composer.json`, replacing the generic queue option.
+
+**Commit `.lerd.yaml` to your repo.** On any future machine, running `lerd link` (or `lerd init` again) reads the saved file and restores the full configuration non-interactively — no prompts.
+
+| Flag | Description |
+|---|---|
+| `--fresh` | Re-run the wizard with existing `.lerd.yaml` values as defaults instead of applying them silently |
+
+Use `--fresh` when you want to change the database engine, swap PHP versions, add or remove services, or otherwise re-answer the wizard.
+
+---
+
+## `lerd setup`
+
+`lerd setup` is the one-shot bootstrap command for a fresh PHP project. It runs `lerd init` first (so the wizard described above appears), then shows a checkbox list of install/migrate/build steps:
+
+```bash
+cd ~/Projects/my-app
+lerd setup
+```
 
 After the wizard, a checkbox list appears with all available steps pre-selected based on the current project state. Worker steps are pre-selected based on the `.lerd.yaml` workers list:
 

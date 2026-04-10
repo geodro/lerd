@@ -1,40 +1,45 @@
 # Quick Start
 
-Get a Laravel project running locally in three commands.
+After `lerd install`, two commands cover every project type:
 
 ```bash
-# 1. Park your projects directory
-#    Any Laravel project inside is auto-registered
+# Park a directory — every PHP project inside gets a .test domain automatically
 lerd park ~/Lerd
 
-# 2. Visit your project in a browser
-#    ~/Lerd/my-app  →  http://my-app.test
-
-# 3. Check everything is running
+# Confirm DNS, nginx, services, and certs are healthy
 lerd status
 ```
 { .annotate }
 
-1. `lerd park` registers the directory with the watcher service. Every subdirectory that looks like a Laravel project gets a `.test` domain automatically.
-2. No `/etc/hosts` edits needed — DNS is handled by dnsmasq running in a Podman container.
-3. `lerd status` shows a health summary: DNS, nginx, PHP-FPM containers, services, and cert expiry.
+1. `lerd park` registers the directory with the watcher service. Every subdirectory that looks like a PHP project gets a `.test` domain — no `/etc/hosts` edits, DNS is handled by dnsmasq running in a Podman container.
+2. `lerd status` shows a health summary: DNS, nginx, PHP-FPM containers, services, and cert expiry.
 
-That's it. Nginx is serving your project through PHP-FPM, all inside Podman containers on the `lerd` network.
+If you only want to register a single project, `cd` into it and run `lerd link` instead of `lerd park`.
 
 ---
 
-## First project bootstrap
+## Pick your framework
 
-For a freshly cloned project, use `lerd setup` to run all the standard setup steps in one go:
+The next steps depend on what you're building. Each walkthrough is end-to-end — from an empty directory to an HTTPS site with a database, dependencies installed, and workers running:
 
-```bash
-cd ~/Lerd/my-app
-lerd setup
-```
+- [**Laravel**](laravel.md) — built-in framework, queue + scheduler + Reverb workers
+- [**Symfony**](symfony.md) — Doctrine migrations, Messenger worker, MySQL or Postgres
+- [**WordPress**](wordpress.md) — manual `wp-config.php` setup, MySQL
 
-A checkbox list appears with all available steps pre-selected. Toggle steps with space, confirm with enter, and watch them run sequentially.
+Already cloning an existing repo with a committed `.lerd.yaml`? `cd` in and run `lerd setup` — it reads the config and runs every install/migrate/build step automatically. See [Project Setup](../features/project-setup.md).
 
-See [Project Setup](../features/project-setup.md) for the full details.
+---
+
+## Add extra services
+
+Lerd ships with **MySQL, PostgreSQL, Redis, Meilisearch, RustFS, and Mailpit** built in. Need anything else? The [**Services walkthrough**](services.md) has copy-paste recipes for the most common ones:
+
+- **MongoDB** — document store with per-site database auto-provisioning
+- **phpMyAdmin / pgAdmin / Adminer** — web UIs for MySQL and PostgreSQL
+- **Elasticsearch** — full-text search
+- **RabbitMQ** — message broker with management UI
+
+Each recipe is a single YAML file plus `lerd service add` and `lerd service start` — that's it.
 
 ---
 

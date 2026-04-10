@@ -66,11 +66,26 @@ export default defineConfig({
             { text: 'Comparison', link: '/getting-started/comparison' },
           ],
         },
+        {
+          text: 'Framework walkthroughs',
+          items: [
+            { text: 'Laravel', link: '/getting-started/laravel' },
+            { text: 'Symfony', link: '/getting-started/symfony' },
+            { text: 'WordPress', link: '/getting-started/wordpress' },
+          ],
+        },
+        {
+          text: 'Add-ons',
+          items: [
+            { text: 'Services (MongoDB, phpMyAdmin, …)', link: '/getting-started/services' },
+          ],
+        },
       ],
       '/usage/': [
         {
           text: 'Usage',
           items: [
+            { text: 'Start, Stop & Autostart', link: '/usage/lifecycle' },
             { text: 'Site Management', link: '/usage/sites' },
             { text: 'PHP', link: '/usage/php' },
             { text: 'Node', link: '/usage/node' },

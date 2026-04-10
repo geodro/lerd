@@ -145,7 +145,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		}
 		installedCount++
 		status, _ := services.Mgr.UnitStatus(unit)
-		label := svc.Name + " [custom]"
+		tag := "[custom]"
+		if svc.Preset != "" {
+			tag = "[preset]"
+		}
+		label := svc.Name + " " + tag
 		switch status {
 		case "active":
 			ok2(label)

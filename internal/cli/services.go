@@ -3,12 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -99,6 +100,7 @@ func NewServiceCmd() *cobra.Command {
 	cmd.AddCommand(newServiceStatusCmd())
 	cmd.AddCommand(newServiceListCmd())
 	cmd.AddCommand(newServiceAddCmd())
+	cmd.AddCommand(newServicePresetCmd())
 	cmd.AddCommand(newServiceRemoveCmd())
 	cmd.AddCommand(newServiceExposeCmd())
 	cmd.AddCommand(newServicePinCmd())
@@ -130,6 +132,12 @@ func newServiceStartCmd() *cobra.Command {
 				if err := ensureCustomServiceQuadlet(svc); err != nil {
 					return err
 				}
+				// Make sure every declared dependency is up first. Without
+				// this, starting e.g. mongo-express by itself would leave
+				// mongo stopped and the container would fail to connect.
+				if err := StartServiceDependencies(svc); err != nil {
+					return err
+				}
 				image = svc.Image
 			}
 
@@ -157,6 +165,12 @@ func newServiceStartCmd() *cobra.Command {
 				}
 			}
 
+			// Restart family consumers (e.g. phpMyAdmin) so they pick up
+			// the freshly-started member without DNS / connection caching.
+			if fam := serviceops.ServiceFamily(name); fam != "" {
+				serviceops.RegenerateFamilyConsumers(fam)
+			}
+
 			printEnvVars(name)
 			return nil
 		},
@@ -170,12 +184,21 @@ func newServiceStopCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
-			stopServiceAndDependents(name)
+			StopServiceAndDependents(name)
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
+			if fam := serviceops.ServiceFamily(name); fam != "" {
+				serviceops.RegenerateFamilyConsumers(fam)
+			}
 			return nil
 		},
 	}
+}
+
+// RegenerateFamilyConsumersForService is the public entry the Web UI uses
+// after a start/stop. Forwards to serviceops.
+func RegenerateFamilyConsumersForService(name string) {
+	serviceops.RegenerateFamilyConsumersForService(name)
 }
 
 func newServiceRestartCmd() *cobra.Command {
@@ -372,6 +395,167 @@ Or specify inline with flags (--name and --image are required):
 	return cmd
 }
 
+// newServicePresetCmd returns the `service preset` command.
+func newServicePresetCmd() *cobra.Command {
+	var version string
+	cmd := &cobra.Command{
+		Use:   "preset [name]",
+		Short: "Install a bundled service preset (e.g. phpmyadmin, pgadmin)",
+		Long: `Install a bundled, opt-in service preset.
+
+Run with no arguments to list the available presets:
+  lerd service preset
+
+Install a preset by name:
+  lerd service preset phpmyadmin
+
+Pick a specific version on multi-version presets like mysql or postgres.
+When --version is omitted on a multi-version preset and the terminal is
+interactive, lerd prompts for the version:
+  lerd service preset mysql --version 5.7
+  lerd service preset mysql           # interactive picker
+
+Presets are installed as ordinary custom services. They can then be started,
+stopped, removed, exposed, or pinned with the usual service subcommands.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return printPresetList()
+			}
+			name := args[0]
+			pickedVersion := version
+			if pickedVersion == "" {
+				if loaded, err := config.LoadPreset(name); err == nil && len(loaded.Versions) > 0 {
+					if isInteractive() {
+						pickedVersion, err = promptPresetVersion(loaded)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+			svc, err := InstallPresetByName(name, pickedVersion)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Installed preset %q. Start it with: lerd service start %s\n", svc.Name, svc.Name)
+			if svc.Dashboard != "" {
+				fmt.Printf("Dashboard: %s\n", svc.Dashboard)
+			}
+			if len(svc.DependsOn) > 0 {
+				fmt.Printf("Depends on: %s (will be auto-started)\n", strings.Join(svc.DependsOn, ", "))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&version, "version", "", "Pick a specific version for multi-version presets (e.g. 5.7)")
+	return cmd
+}
+
+// promptPresetVersion shows an interactive picker for the versions a
+// multi-version preset offers, defaulting to the preset's DefaultVersion and
+// excluding any version tag that's already installed locally.
+func promptPresetVersion(p *config.Preset) (string, error) {
+	options := make([]huh.Option[string], 0, len(p.Versions))
+	for _, v := range p.Versions {
+		svcName := p.Name + "-" + config.SanitizeImageTag(v.Tag)
+		label := v.Label
+		if label == "" {
+			label = v.Tag
+		}
+		if _, err := config.LoadCustomService(svcName); err == nil {
+			label += " (already installed)"
+		}
+		options = append(options, huh.NewOption(label, v.Tag))
+	}
+	if len(options) == 0 {
+		return "", fmt.Errorf("preset %s has no versions", p.Name)
+	}
+	picked := p.DefaultVersion
+	if picked == "" {
+		picked = p.Versions[0].Tag
+	}
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title(fmt.Sprintf("Which %s version do you want to install?", p.Name)).
+			Options(options...).
+			Value(&picked),
+	)).WithTheme(huh.ThemeCatppuccin())
+	if err := form.Run(); err != nil {
+		return "", err
+	}
+	return picked, nil
+}
+
+// printPresetList prints the bundled presets in a simple table.
+func printPresetList() error {
+	presets, err := config.ListPresets()
+	if err != nil {
+		return err
+	}
+	if len(presets) == 0 {
+		fmt.Println("No presets bundled with this build.")
+		return nil
+	}
+	fmt.Printf("%-14s %-10s %s\n", "Preset", "Status", "Description")
+	fmt.Printf("%s\n", strings.Repeat("─", 60))
+	for _, p := range presets {
+		status := "available"
+		if len(p.Versions) == 0 {
+			if _, err := config.LoadCustomService(p.Name); err == nil {
+				status = "installed"
+			}
+		} else {
+			anyInstalled := false
+			for _, v := range p.Versions {
+				if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+					anyInstalled = true
+					break
+				}
+			}
+			if anyInstalled {
+				status = "installed"
+			}
+		}
+		fmt.Printf("%-14s %-10s %s\n", p.Name, status, p.Description)
+		if len(p.DependsOn) > 0 {
+			fmt.Printf("%-14s %-10s depends on: %s\n", "", "", strings.Join(p.DependsOn, ", "))
+		}
+		if p.Dashboard != "" {
+			fmt.Printf("%-14s %-10s dashboard:  %s\n", "", "", p.Dashboard)
+		}
+		for _, v := range p.Versions {
+			versionStatus := "available"
+			label := v.Tag
+			if v.Label != "" {
+				label = v.Label
+			}
+			if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+				versionStatus = "installed"
+			}
+			marker := " "
+			if v.Tag == p.DefaultVersion {
+				marker = "*"
+			}
+			fmt.Printf("%-14s %-10s %s %-9s %-13s %s\n", "", "", marker, versionStatus, v.Tag, label)
+		}
+	}
+	fmt.Println("\n* = default version")
+	fmt.Println("Install with: lerd service preset <name> [--version <tag>]")
+	return nil
+}
+
+// InstallPresetByName is a thin wrapper around serviceops.InstallPresetByName
+// kept for the existing call sites in cli (init wizard, link, web UI handler).
+func InstallPresetByName(name, version string) (*config.CustomService, error) {
+	return serviceops.InstallPresetByName(name, version)
+}
+
+// MissingPresetDependencies is a thin wrapper around the serviceops helper.
+func MissingPresetDependencies(svc *config.CustomService) []string {
+	return serviceops.MissingPresetDependencies(svc)
+}
+
 // newServiceRemoveCmd returns the `service remove` command.
 func newServiceRemoveCmd() *cobra.Command {
 	return &cobra.Command{
@@ -383,6 +567,12 @@ func newServiceRemoveCmd() *cobra.Command {
 
 			if isKnownService(name) {
 				return fmt.Errorf("%q is a built-in service and cannot be removed", name)
+			}
+
+			// Capture the family before deletion so consumers can be regenerated.
+			var family string
+			if existing, err := config.LoadCustomService(name); err == nil {
+				family = existing.Family
 			}
 
 			unit := "lerd-" + name
@@ -405,9 +595,12 @@ func newServiceRemoveCmd() *cobra.Command {
 				fmt.Printf("  WARN: daemon-reload failed: %v\n", err)
 			}
 
-			// Remove config file
 			if err := config.RemoveCustomService(name); err != nil {
 				return fmt.Errorf("removing service config: %w", err)
+			}
+
+			if family != "" {
+				serviceops.RegenerateFamilyConsumers(family)
 			}
 
 			dataPath := config.DataSubDir(name)
@@ -436,19 +629,10 @@ func ensureServiceQuadlet(name string) error {
 	return services.Mgr.DaemonReload()
 }
 
-// ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
+// ensureCustomServiceQuadlet defers to serviceops so the CLI and the MCP
+// tools generate identical quadlets.
 func ensureCustomServiceQuadlet(svc *config.CustomService) error {
-	if svc.DataDir != "" {
-		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
-			return fmt.Errorf("creating data directory for %s: %w", svc.Name, err)
-		}
-	}
-	content := podman.GenerateCustomQuadlet(svc)
-	quadletName := "lerd-" + svc.Name
-	if err := services.Mgr.WriteContainerUnit(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
-	}
-	return services.Mgr.DaemonReload()
+	return serviceops.EnsureCustomServiceQuadlet(svc)
 }
 
 // newServiceExposeCmd returns the `service expose` command.
@@ -576,18 +760,14 @@ func newServiceUnpinCmd() *cobra.Command {
 	}
 }
 
-// stopServiceAndDependents stops all custom services that depend on name
-// (depth-first), then stops name itself.
-func stopServiceAndDependents(name string) {
-	for _, dep := range config.CustomServicesDependingOn(name) {
-		stopServiceAndDependents(dep)
-	}
-	unit := "lerd-" + name
-	status, _ := services.Mgr.UnitStatus(unit)
-	if status == "active" || status == "activating" {
-		fmt.Printf("Stopping %s...\n", unit)
-		_ = services.Mgr.Stop(unit)
-	}
+// StartServiceDependencies and StopServiceAndDependents are thin wrappers so
+// the Web UI can share the same semantics as the CLI.
+func StartServiceDependencies(svc *config.CustomService) error {
+	return serviceops.StartDependencies(svc)
+}
+
+func StopServiceAndDependents(name string) {
+	serviceops.StopWithDependents(name)
 }
 
 // autoStopUnusedServices stops any running service that has no active sites
@@ -605,7 +785,7 @@ func autoStopUnusedServices() {
 			unit := "lerd-" + name
 			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" || status == "activating" {
-				stopServiceAndDependents(name)
+				StopServiceAndDependents(name)
 			}
 		}
 	}

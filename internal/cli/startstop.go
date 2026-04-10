@@ -304,6 +304,11 @@ func checkPortConflicts(units []string) {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
+	// On macOS, Podman requires a VM. Start it if it is stopped.
+	if err := podman.EnsureMachineRunning(); err != nil {
+		return err
+	}
+
 	// Restore quadlets and worker units that may be missing after an
 	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
 	restoreSiteInfrastructure()
@@ -405,16 +410,18 @@ func runStart(_ *cobra.Command, _ []string) error {
 	autoStopUnusedFPMs()
 
 	// Restart the tray applet, stopping any existing instance first.
-	// Prefer the systemd service when enabled; otherwise launch directly.
+	// killTray() is always called so that accumulated tray processes from
+	// previous lerd start runs (not tracked by launchd/systemd) are cleaned
+	// up before the new one is launched.
 	fmt.Print("  --> lerd-tray ... ")
+	killTray()
 	if services.Mgr.IsEnabled("lerd-tray") {
-		if err := services.Mgr.Restart("lerd-tray"); err != nil {
+		if err := services.Mgr.Start("lerd-tray"); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
 		} else {
 			fmt.Println("OK")
 		}
 	} else {
-		killTray()
 		exe, err := os.Executable()
 		if err == nil {
 			err = exec.Command(exe, "tray").Start()
@@ -454,7 +461,7 @@ func startRestoredServices() {
 		pullJobs = append(pullJobs, BuildJob{
 			Label: "Pulling " + img,
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", img)
+				cmd := exec.Command(podman.PodmanBin(), "pull", img)
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -531,14 +538,21 @@ func restoreSiteInfrastructure() {
 			continue
 		}
 
-		// Restore service quadlets.
+		// Resolve() returns the rendered CustomService for inline + preset
+		// references (e.g. mariadb-11) and (nil, nil) for built-ins. Without
+		// it, preset references slipped through to the built-in template path.
 		for _, svc := range proj.Services {
 			if seenSvc[svc.Name] {
 				continue
 			}
 			seenSvc[svc.Name] = true
-			if svc.Custom != nil {
-				ensureCustomServiceQuadlet(svc.Custom) //nolint:errcheck
+			cs, err := svc.Resolve()
+			if err != nil {
+				fmt.Printf("[WARN] resolving service %q for %s: %v\n", svc.Name, s.Name, err)
+				continue
+			}
+			if cs != nil {
+				ensureCustomServiceQuadlet(cs) //nolint:errcheck
 			} else {
 				ensureServiceQuadlet(svc.Name) //nolint:errcheck
 			}
