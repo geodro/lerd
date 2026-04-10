@@ -130,6 +130,34 @@ func TestApplyUpdates_skipsCommentedKeys(t *testing.T) {
 	}
 }
 
+func TestApplyUpdates_uncomments(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\nDB_DATABASE=laravel\n")
+	if err := ApplyUpdates(f, map[string]string{
+		"DB_HOST": "mysql.internal",
+		"DB_PORT": "3307",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnv(t, f)
+	if !strings.Contains(got, "DB_HOST=mysql.internal") {
+		t.Errorf("commented DB_HOST should be uncommented and updated, got:\n%s", got)
+	}
+	if !strings.Contains(got, "DB_PORT=3307") {
+		t.Errorf("commented DB_PORT should be uncommented and updated, got:\n%s", got)
+	}
+	// Should be in place, not appended at the end
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Errorf("expected 4 lines (no appended duplicates), got %d:\n%s", len(lines), got)
+	}
+	if !strings.Contains(got, "APP_NAME=MyApp") {
+		t.Error("existing keys should be preserved")
+	}
+	if !strings.Contains(got, "DB_DATABASE=laravel") {
+		t.Error("existing keys should be preserved")
+	}
+}
+
 // ── UpdateAppURL ──────────────────────────────────────────────────────────────
 
 func TestUpdateAppURL_setsHTTPS(t *testing.T) {

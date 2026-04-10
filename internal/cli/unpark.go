@@ -8,6 +8,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -90,6 +91,9 @@ func runUnpark(_ *cobra.Command, args []string) error {
 			fmt.Printf("  [WARN] nginx reload: %v\n", err)
 		}
 	}
+
+	// Rewrite FPM quadlets to remove volume mounts that are no longer needed.
+	_ = podman.RewriteFPMQuadlets()
 
 	return nil
 }

@@ -93,5 +93,8 @@ func UnlinkSite(name string) error {
 	autoStopUnusedServices()
 	autoStopUnusedFPMs()
 
+	// Rewrite FPM quadlets to remove volume mounts that are no longer needed.
+	_ = podman.RewriteFPMQuadlets()
+
 	return nil
 }

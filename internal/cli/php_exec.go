@@ -68,6 +68,7 @@ func RunPHP(cwd string, args []string) error {
 		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)
 	}
 
+	podman.EnsurePathMounted(cwd, version)
 	ensureServicesForCwd(cwd)
 
 	// If any positional arg is an absolute path to a file that exists on the

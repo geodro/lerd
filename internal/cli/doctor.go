@@ -56,6 +56,12 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		ok("podman")
 	}
 
+	if _, err := exec.LookPath("crun"); err != nil {
+		warn("OCI runtime", "crun not found — recommended for rootless podman (install: sudo pacman -S crun / sudo apt install crun / sudo dnf install crun)")
+	} else {
+		ok("OCI runtime (crun)")
+	}
+
 	if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
 		// exit non-zero but "degraded" is acceptable
 		state := strings.TrimSpace(string(out))

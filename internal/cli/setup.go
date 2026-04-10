@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -470,6 +471,8 @@ func composerInContainer(dir string, args ...string) error {
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
 
+	podman.EnsurePathMounted(dir, version)
+
 	home := os.Getenv("HOME")
 	composerPhar := filepath.Join(config.BinDir(), "composer.phar")
 
@@ -495,6 +498,7 @@ func execInContainer(dir, command string) error {
 	}
 	short := strings.ReplaceAll(version, ".", "")
 	container := "lerd-php" + short + "-fpm"
+	podman.EnsurePathMounted(dir, version)
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
 		return fmt.Errorf("empty setup command")

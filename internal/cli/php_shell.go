@@ -49,6 +49,7 @@ func runPhpShell(_ *cobra.Command, _ []string) error {
 	// otherwise fall back to cwd.
 	workDir := siteRootFor(cwd)
 
+	podman.EnsurePathMounted(workDir, version)
 	ensureServicesForCwd(workDir)
 
 	cmd := exec.Command("podman", "exec", "-it", "-w", workDir, container, "sh")

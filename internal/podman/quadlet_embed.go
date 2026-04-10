@@ -3,6 +3,7 @@ package podman
 import (
 	"embed"
 	"fmt"
+	"os/exec"
 	"strings"
 )
 
@@ -68,6 +69,49 @@ func StripInstallSection(content string, autostartDisabled bool) string {
 	}
 	out = append(out, "")
 	return strings.Join(out, "\n")
+}
+
+// InjectExtraVolumes adds Volume= lines for paths that are not already covered
+// by the %h:%h mount. Each path is bind-mounted read-write at the same location
+// inside the container. Existing Volume= lines for the same host path are not
+// duplicated.
+func InjectExtraVolumes(content string, paths []string) string {
+	if len(paths) == 0 {
+		return content
+	}
+	var extra []string
+	for _, p := range paths {
+		// Check if this path is already mounted (with any flags).
+		prefix := fmt.Sprintf("Volume=%s:%s:", p, p)
+		if strings.Contains(content, prefix) {
+			continue
+		}
+		extra = append(extra, fmt.Sprintf("Volume=%s:%s:rw", p, p))
+	}
+	if len(extra) == 0 {
+		return content
+	}
+	// Insert after the Volume=%h:%h line (matches both :rw and :ro).
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "Volume=%h:%h:") {
+			out := make([]string, 0, len(lines)+len(extra))
+			out = append(out, lines[:i+1]...)
+			out = append(out, extra...)
+			out = append(out, lines[i+1:]...)
+			return strings.Join(out, "\n")
+		}
+	}
+	return content
+}
+
+// OCIRuntime returns the name of the OCI runtime podman is currently configured to use.
+func OCIRuntime() string {
+	out, err := exec.Command("podman", "info", "--format", "{{.Host.OCIRuntime.Name}}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // BindForLAN rewrites every PublishPort= line in a quadlet so the host-side
