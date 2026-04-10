@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.2] — 2026-04-10
+
+### Fixed
+
+- **Site service badges missed .env-detected services** — badges on the site detail panel only showed services declared in `.lerd.yaml`. Now also scans the site's `.env` for `lerd-{name}` references (both built-in and custom services), matching the same auto-detection logic the Services tab already uses.
+
+---
+
 ## [1.9.1] — 2026-04-09
 
 ### Fixed
