@@ -25,6 +25,7 @@ RUN apk update && apk add --no-cache \
         openldap-dev \
         sqlite-dev \
         libxslt-dev \
+        mysql-client \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) \
         curl \
