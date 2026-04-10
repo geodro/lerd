@@ -8,6 +8,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
+	dockerDet "github.com/geodro/lerd/internal/docker"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
@@ -179,6 +180,38 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 			fail("port 443", "in use by another process", "find the process: ss -tlnp sport = :443")
 		} else {
 			ok("port 443 (free)")
+		}
+	}
+
+	// ── Docker Compatibility ─────────────────────────────────────────────────
+	if dockerPath, isReal := dockerDet.IsDockerInstalled(); dockerPath != "" && isReal {
+		fmt.Println("\n[Docker Compatibility]")
+		warn("Docker CLI installed", "real Docker Engine detected at "+dockerPath)
+
+		if dockerDet.IsDaemonRunning() {
+			warn("Docker daemon active", "may cause port conflicts and iptables interference — stop with: sudo systemctl stop docker")
+
+			if containers, err := dockerDet.ListRunningContainers(); err == nil && len(containers) > 0 {
+				for port, name := range dockerDet.ConflictingPorts(containers) {
+					warn(fmt.Sprintf("port %s", port), fmt.Sprintf("held by Docker container %q", name))
+				}
+			}
+
+			if dockerDet.HasIPTablesDockerChain() {
+				warn("Docker iptables rules", "may interfere with rootless Podman networking")
+			}
+
+			if vols, err := dockerDet.ListVolumes(); err == nil {
+				if dbVols := dockerDet.FindDatabaseVolumes(vols); len(dbVols) > 0 {
+					names := make([]string, len(dbVols))
+					for i, v := range dbVols {
+						names[i] = v.Name
+					}
+					info("Docker DB volumes", strings.Join(names, ", ")+" — run: lerd docker:import --list")
+				}
+			}
+		} else {
+			ok("Docker daemon not running")
 		}
 	}
 

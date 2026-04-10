@@ -107,6 +107,7 @@ func main() {
 	root.AddCommand(cli.NewNewCmd())
 	root.AddCommand(cli.NewSetupCmd())
 	root.AddCommand(cli.NewMinioMigrateCmd())
+	root.AddCommand(cli.NewDockerImportCmd())
 	root.AddCommand(cli.NewPauseCmd())
 	root.AddCommand(cli.NewUnpauseCmd())
 	root.AddCommand(cli.NewTrayCmd())
