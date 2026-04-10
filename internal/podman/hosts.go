@@ -19,6 +19,17 @@ func WriteContainerHosts() error {
 		return fmt.Errorf("loading sites: %w", err)
 	}
 
+	path := config.ContainerHostsFile()
+
+	// On macOS, WriteContainerUnit pre-creates volume sources as directories.
+	// If the hosts path was incorrectly created as a directory, remove it so
+	// we can write the file in its place.
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("removing stale hosts directory: %w", err)
+		}
+	}
+
 	var sb strings.Builder
 	sb.WriteString("127.0.0.1 localhost\n")
 	sb.WriteString("::1 localhost\n")
@@ -30,5 +41,5 @@ func WriteContainerHosts() error {
 		}
 	}
 
-	return os.WriteFile(config.ContainerHostsFile(), []byte(sb.String()), 0644)
+	return os.WriteFile(path, []byte(sb.String()), 0644)
 }

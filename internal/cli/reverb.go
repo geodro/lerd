@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +37,7 @@ func NewReverbStopCmd() *cobra.Command { return newReverbStopCmd("reverb:stop") 
 func newReverbStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start the Laravel Reverb WebSocket server for the current site as a systemd service",
+		Short: "Start the Laravel Reverb WebSocket server for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -101,13 +102,9 @@ func newReverbStopCmd(use string) *cobra.Command {
 // ReverbStartForSite starts the Reverb WebSocket server for the named site.
 func ReverbStartForSite(siteName, sitePath, phpVersion string) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-reverb-" + siteName
 
 	// Read the port Reverb should listen on from the site's .env.
-	// If absent (e.g. UI toggle before lerd env was run), auto-assign a collision-free port
-	// and persist it so nginx and future starts use the same value.
 	envPath := filepath.Join(sitePath, ".env")
 	reverbPort := envfile.ReadKey(envPath, "REVERB_SERVER_PORT")
 	if reverbPort == "" {
@@ -115,7 +112,40 @@ func ReverbStartForSite(siteName, sitePath, phpVersion string) error {
 		_ = envfile.ApplyUpdates(envPath, map[string]string{"REVERB_SERVER_PORT": reverbPort})
 	}
 
-	unit := fmt.Sprintf(`[Unit]
+	if runtime.GOOS == "darwin" {
+		image := "lerd-php" + versionShort + "-fpm:local"
+		if !podman.ImageExists(image) {
+			return fmt.Errorf("PHP %s image not found — run `lerd use %s` to build it", phpVersion, phpVersion)
+		}
+		_ = podman.EnsureUserIni(phpVersion)
+		unit := fmt.Sprintf(`[Container]
+ContainerName=%s
+Image=%s
+Network=lerd
+Volume=%s:%s
+Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini
+Volume=%s:/usr/local/etc/php/conf.d/99-user.ini
+Volume=%s:/etc/hosts
+WorkingDir=%s
+Exec=php artisan reverb:start --port=%s
+`, unitName, image,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			config.ContainerHostsFile(),
+			sitePath, reverbPort)
+		if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
+			return fmt.Errorf("writing container unit: %w", err)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting reverb: %w", err)
+		}
+		fmt.Printf("Reverb started for %s\n", siteName)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
+	} else {
+		fpmUnit := "lerd-php" + versionShort + "-fpm"
+		container := fpmUnit
+		unit := fmt.Sprintf(`[Unit]
 Description=Lerd Reverb (%s)
 After=network.target %s.service
 BindsTo=%s.service
@@ -124,29 +154,34 @@ BindsTo=%s.service
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan reverb:start --port=%s
+ExecStart=%s exec -w %s %s php artisan reverb:start --port=%s
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container, reverbPort)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container, reverbPort)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
-	if err != nil {
-		return fmt.Errorf("writing service unit: %w", err)
-	}
-	if changed {
-		if err := podman.DaemonReload(); err != nil {
-			return fmt.Errorf("daemon-reload: %w", err)
+		changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
+		if err != nil {
+			return fmt.Errorf("writing service unit: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
-			fmt.Printf("[WARN] enable: %v\n", err)
+		if changed {
+			if err := services.Mgr.DaemonReload(); err != nil {
+				return fmt.Errorf("daemon-reload: %w", err)
+			}
+			if err := services.Mgr.Enable(unitName); err != nil {
+				fmt.Printf("[WARN] enable: %v\n", err)
+			}
 		}
+		waitForFPMContainer(container)
+		if running, _ := podman.ContainerRunning(container); !running {
+			return fmt.Errorf("%s container is not running — run `lerd start` first", container)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting reverb: %w", err)
+		}
+		fmt.Printf("Reverb started for %s\n", siteName)
+		fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
 	}
-	if err := lerdSystemd.StartService(unitName); err != nil {
-		return fmt.Errorf("starting reverb: %w", err)
-	}
-	fmt.Printf("Reverb started for %s\n", siteName)
-	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
 
 	// Regenerate the nginx vhost so the /app WebSocket proxy block is added.
 	if site, err := config.FindSite(siteName); err == nil {
@@ -170,15 +205,14 @@ WantedBy=default.target
 // ReverbStopForSite stops and removes the Reverb unit for the named site.
 func ReverbStopForSite(siteName string) error {
 	unitName := "lerd-reverb-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 	fmt.Printf("Reverb stopped for %s\n", siteName)

@@ -4,6 +4,7 @@ package tray
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/getlantern/systray"
@@ -76,7 +77,9 @@ func buildMenu() *menuState {
 	systray.AddSeparator()
 
 	m.mAutostart = systray.AddMenuItem("Autostart at login: Off", "Toggle lerd autostart on login")
-	m.mLAN = systray.AddMenuItem("Expose to LAN: Off", "Toggle whether lerd is reachable from other devices on the local network")
+	if runtime.GOOS != "darwin" {
+		m.mLAN = systray.AddMenuItem("Expose to LAN: Off", "Toggle whether lerd is reachable from other devices on the local network")
+	}
 	m.mUpdate = systray.AddMenuItem("Check for update...", "Check for a newer version of Lerd")
 	m.mQuit = systray.AddMenuItem("Quit Lerd", "Stop all Lerd processes and containers")
 
@@ -167,11 +170,13 @@ func (m *menuState) apply(snap *Snapshot) {
 		m.mAutostart.SetTitle("Autostart at login: Off")
 	}
 
-	// LAN exposure
-	if snap.LANExposed {
-		m.mLAN.SetTitle("Expose to LAN: ✔ On")
-	} else {
-		m.mLAN.SetTitle("Expose to LAN: Off")
+	// LAN exposure (not shown on macOS — DNS-only, nginx 80/443 always LAN-accessible)
+	if m.mLAN != nil {
+		if snap.LANExposed {
+			m.mLAN.SetTitle("Expose to LAN: ✔ On")
+		} else {
+			m.mLAN.SetTitle("Expose to LAN: Off")
+		}
 	}
 
 	// Update availability

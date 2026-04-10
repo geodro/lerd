@@ -25,6 +25,24 @@ import (
 // before nginx / DNS are up.
 const apiBase = "http://127.0.0.1:7073"
 
+// lerdBin returns the path to the running lerd binary, falling back to
+// well-known install locations when PATH is restricted (e.g. launchd).
+func lerdBin() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	for _, p := range []string{
+		os.ExpandEnv("$HOME/.local/bin/lerd"),
+		"/opt/homebrew/bin/lerd",
+		"/usr/local/bin/lerd",
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "lerd"
+}
+
 // dashboardURL is the user-facing URL opened by "Open Dashboard" — the
 // nginx-proxied vhost so the dashboard shows up under lerd.localhost
 // rather than a bare IP:port.
@@ -141,7 +159,6 @@ func onReady(mono bool) {
 	} else {
 		systray.SetIcon(iconPNG)
 	}
-	systray.SetTitle("Lerd")
 	systray.SetTooltip("Lerd — local dev environment")
 
 	menu := buildMenu()
@@ -157,7 +174,9 @@ func onReady(mono bool) {
 	go handleServices(menu)
 	go handlePHP(menu)
 	go handleAutostart(menu.mAutostart)
-	go handleLAN(menu.mLAN)
+	if menu.mLAN != nil {
+		go handleLAN(menu.mLAN)
+	}
 	go handleUpdate(menu.mUpdate)
 	go handleQuit(menu.mQuit, cancel)
 }
@@ -295,7 +314,7 @@ func handleToggle(item *systray.MenuItem) {
 			} else {
 				arg = "start"
 			}
-			_ = exec.Command("lerd", arg).Start()
+			_ = exec.Command(lerdBin(), arg).Start()
 		}()
 	}
 }
@@ -315,7 +334,7 @@ func handleServices(menu *menuState) {
 				if status == "active" {
 					arg = "stop"
 				}
-				_ = exec.Command("lerd", "service", arg, name).Start()
+				_ = exec.Command(lerdBin(), "service", arg, name).Start()
 			}
 		}(i)
 	}
@@ -331,7 +350,7 @@ func handlePHP(menu *menuState) {
 				if version == "" {
 					continue
 				}
-				_ = exec.Command("lerd", "use", version).Start()
+				_ = exec.Command(lerdBin(), "use", version).Start()
 			}
 		}(i)
 	}
@@ -340,9 +359,9 @@ func handlePHP(menu *menuState) {
 func handleAutostart(item *systray.MenuItem) {
 	for range item.ClickedCh {
 		if lerdSystemd.IsAutostartEnabled() {
-			_ = exec.Command("lerd", "autostart", "disable").Start()
+			_ = exec.Command(lerdBin(), "autostart", "disable").Start()
 		} else {
-			_ = exec.Command("lerd", "autostart", "enable").Start()
+			_ = exec.Command(lerdBin(), "autostart", "enable").Start()
 		}
 	}
 }
@@ -404,10 +423,14 @@ func openUpdateTerminal(latestVer string) {
 func handleQuit(item *systray.MenuItem, cancel context.CancelFunc) {
 	<-item.ClickedCh
 	cancel()
-	_ = exec.Command("lerd", "quit").Run()
+	_ = exec.Command(lerdBin(), "quit").Run()
 	systray.Quit()
 }
 
 func openURL(url string) {
-	_ = exec.Command("xdg-open", url).Start()
+	cmd := "xdg-open"
+	if _, err := exec.LookPath("open"); err == nil {
+		cmd = "open"
+	}
+	_ = exec.Command(cmd, url).Start()
 }

@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/spf13/cobra"
@@ -51,41 +53,45 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	if _, err := exec.LookPath("podman"); err != nil {
 		fail("podman binary", "not found in PATH", "install podman: https://podman.io/docs/installation")
 	} else if err := podman.RunSilent("info"); err != nil {
-		fail("podman", "podman info failed — daemon not running?", "podman system service --time=0 &  or  systemctl --user start podman.socket")
+		fail("podman", "podman info failed — daemon not running?", podmanDaemonHint())
 	} else {
 		ok("podman")
 	}
 
-	if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
-		// exit non-zero but "degraded" is acceptable
-		state := strings.TrimSpace(string(out))
-		if state == "degraded" {
-			warn("systemd user session", "degraded — some units have failed")
+	if runtime.GOOS == "linux" {
+		if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
+			// exit non-zero but "degraded" is acceptable
+			state := strings.TrimSpace(string(out))
+			if state == "degraded" {
+				warn("systemd user session", "degraded — some units have failed")
+			} else {
+				fail("systemd user session", fmt.Sprintf("state=%q", state), "log in as a real user (not su); run: systemctl --user status")
+			}
 		} else {
-			fail("systemd user session", fmt.Sprintf("state=%q", state), "log in as a real user (not su); run: systemctl --user status")
+			ok("systemd user session")
 		}
-	} else {
-		ok("systemd user session")
 	}
 
-	currentUser := os.Getenv("USER")
-	if currentUser == "" {
-		currentUser = os.Getenv("LOGNAME")
-	}
-	if currentUser != "" {
-		out, err := exec.Command("loginctl", "show-user", currentUser).Output()
-		if err != nil || !strings.Contains(string(out), "Linger=yes") {
-			warn("systemd linger", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
-		} else {
-			ok("systemd linger")
+	if runtime.GOOS == "linux" {
+		currentUser := os.Getenv("USER")
+		if currentUser == "" {
+			currentUser = os.Getenv("LOGNAME")
+		}
+		if currentUser != "" {
+			out, err := exec.Command("loginctl", "show-user", currentUser).Output()
+			if err != nil || !strings.Contains(string(out), "Linger=yes") {
+				warn("systemd linger", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
+			} else {
+				ok("systemd linger")
+			}
 		}
 	}
 
 	quadletDir := config.QuadletDir()
 	if err := checkDirWritable(quadletDir); err != nil {
-		fail("quadlet dir writable", err.Error(), "mkdir -p "+quadletDir)
+		fail("service config dir writable", err.Error(), "mkdir -p "+quadletDir)
 	} else {
-		ok("quadlet dir writable")
+		ok("service config dir writable")
 	}
 
 	dataDir := config.DataDir()
@@ -156,8 +162,14 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Port 5300 conflict (only check when DNS container is not running)
-	dnsRunning, _ := podman.ContainerRunning("lerd-dns")
+	// Port 5300 conflict (only warn when lerd-dns is not actively managing port 5300)
+	dnsRunning := services.Mgr.IsActive("lerd-dns")
+	if !dnsRunning {
+		// Also accept a running container (Linux path).
+		if cr, _ := podman.ContainerRunning("lerd-dns"); cr {
+			dnsRunning = true
+		}
+	}
 	if !dnsRunning && portInUse("5300") {
 		warn("DNS port 5300", "port in use by another process — lerd-dns may fail to start")
 	}
@@ -185,10 +197,10 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	// ── Containers & Images ──────────────────────────────────────────────────
 	fmt.Println("\n[Containers & Images]")
 
-	if !podman.QuadletInstalled("lerd-nginx") {
-		fail("lerd-nginx quadlet", "not installed", "run: lerd install")
+	if !services.Mgr.ContainerUnitInstalled("lerd-nginx") {
+		fail("lerd-nginx service", "not installed", "run: lerd install")
 	} else {
-		ok("lerd-nginx quadlet installed")
+		ok("lerd-nginx service installed")
 	}
 
 	phpVersions, _ := phpPkg.ListInstalled()
@@ -258,6 +270,7 @@ func checkDirWritable(dir string) error {
 }
 
 // ssOutput runs ss -tlnp once and returns its output for batch port checks.
+// Returns "" on platforms where ss is not available (e.g. macOS).
 func ssOutput() string {
 	out, err := exec.Command("ss", "-tlnp").Output()
 	if err != nil {
@@ -271,7 +284,4 @@ func portInUseIn(port, output string) bool {
 	return strings.Contains(output, ":"+port+" ")
 }
 
-// portInUse returns true if something is listening on the given TCP port.
-func portInUse(port string) bool {
-	return portInUseIn(port, ssOutput())
-}
+// portInUse is implemented per-platform in doctor_linux.go / doctor_darwin.go.

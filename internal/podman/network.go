@@ -8,7 +8,7 @@ import (
 // NetworkGateway returns the gateway IP of the named Podman network.
 // Falls back to "127.0.0.1" if it cannot be determined.
 func NetworkGateway(name string) string {
-	out, err := exec.Command("podman", "network", "inspect", name,
+	out, err := exec.Command(podmanBin(), "network", "inspect", name,
 		"--format", "{{range .Subnets}}{{.Gateway}}{{end}}").Output()
 	if err != nil || strings.TrimSpace(string(out)) == "" {
 		return "127.0.0.1"

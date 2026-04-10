@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/geodro/lerd/internal/config"
@@ -51,5 +50,5 @@ func runOpen(_ *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Opening %s\n", url)
-	return exec.Command("xdg-open", url).Start()
+	return openBrowser(url)
 }

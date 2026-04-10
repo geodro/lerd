@@ -103,10 +103,21 @@ func runParallelTUI(jobs []BuildJob) error {
 	// Ctrl+O toggles output visibility.
 	var showOutput atomic.Bool
 
+	// Open /dev/tty directly for keypress reading so this goroutine never
+	// touches os.Stdin — subprocesses (e.g. sudo) can then use stdin freely.
+	tty, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+
 	// Enter raw terminal mode so we can read single keypresses.
 	var restore func()
-	if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
-		restore = func() { term.Restore(int(os.Stdin.Fd()), oldState) } //nolint:errcheck
+	if ttyErr == nil {
+		if oldState, err := term.MakeRaw(int(tty.Fd())); err == nil {
+			restore = func() {
+				term.Restore(int(tty.Fd()), oldState) //nolint:errcheck
+				tty.Close()
+			}
+		} else {
+			restore = func() { tty.Close() }
+		}
 	} else {
 		restore = func() {}
 	}
@@ -121,11 +132,15 @@ func runParallelTUI(jobs []BuildJob) error {
 		os.Exit(1)
 	}()
 
-	// Read single keypresses.
+	// Read single keypresses from /dev/tty. Closing tty (in restore) causes
+	// the Read to return an error, cleanly stopping this goroutine.
 	go func() {
+		if ttyErr != nil {
+			return
+		}
 		b := make([]byte, 1)
 		for {
-			if _, err := os.Stdin.Read(b); err != nil {
+			if _, err := tty.Read(b); err != nil {
 				return
 			}
 			switch b[0] {

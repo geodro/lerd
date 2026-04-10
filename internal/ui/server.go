@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ import (
 	nodePkg "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	svcpkg "github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 )
@@ -229,6 +231,27 @@ func openTerminalAt(dir string) error {
 		candidates = append(candidates, termCmd{t, []string{}})
 	}
 
+	// macOS: use AppleScript so LaunchServices routes through the user's window
+	// server session. Direct binary execution fails from a launchd background service.
+	if runtime.GOOS == "darwin" {
+		if osa, err := exec.LookPath("osascript"); err == nil {
+			var script string
+			if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
+				script = `tell application "iTerm"
+	activate
+	create window with default profile command "cd ` + dir + ` && exec $SHELL"
+end tell`
+			} else {
+				script = `tell application "Terminal"
+	do script "cd ` + dir + `"
+	activate
+end tell`
+			}
+			return exec.Command(osa, "-e", script).Start()
+		}
+		return fmt.Errorf("osascript not found")
+	}
+
 	candidates = append(candidates,
 		termCmd{"kitty", []string{"--directory", dir}},
 		termCmd{"foot", []string{"--working-directory", dir}},
@@ -256,6 +279,11 @@ func openTerminalAt(dir string) error {
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
 		return cmd.Start()
+	}
+	// macOS fallback: open Terminal.app via osascript
+	if osa, err := exec.LookPath("osascript"); err == nil {
+		script := `tell application "Terminal" to do script "cd ` + dir + `"`
+		return exec.Command(osa, "-e", script).Start()
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
 }
@@ -304,8 +332,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 	dnsOK, _ := dns.Check(tld)
 	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	watcherRunning := watcherCmd.Run() == nil
+	watcherRunning := svcpkg.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpPkg.ListInstalled()
 	var phpStatuses []PHPStatus
@@ -449,7 +476,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 
 		// Stripe is Laravel-only
 		if isLaravel {
-			stripeStatus, _ = podman.UnitStatus("lerd-stripe-" + s.Name)
+			stripeStatus, _ = svcpkg.Mgr.UnitStatus("lerd-stripe-" + s.Name)
 			stripeSecretSet = cli.StripeSecretSet(s.Path)
 		}
 
@@ -457,11 +484,11 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		if hasFw && fw.Workers != nil {
 			if _, ok := fw.Workers["queue"]; ok {
 				hasQueueWorker = true
-				queueStatus, _ = podman.UnitStatus("lerd-queue-" + s.Name)
+				queueStatus, _ = svcpkg.Mgr.UnitStatus("lerd-queue-" + s.Name)
 			}
 			if _, ok := fw.Workers["schedule"]; ok {
 				hasScheduleWorker = true
-				scheduleStatus, _ = podman.UnitStatus("lerd-schedule-" + s.Name)
+				scheduleStatus, _ = svcpkg.Mgr.UnitStatus("lerd-schedule-" + s.Name)
 			}
 			if _, ok := fw.Workers["reverb"]; ok {
 				// For Laravel, reverb toggle still requires the package/env to be present.
@@ -472,13 +499,13 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 					hasReverb = true
 				}
 				if hasReverb {
-					reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
+					reverbStatus, _ = svcpkg.Mgr.UnitStatus("lerd-reverb-" + s.Name)
 				}
 			}
 		}
 		// For Laravel without reverb in workers map (shouldn't happen with built-in, but guard anyway)
 		if isLaravel && !hasReverb {
-			reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
+			reverbStatus, _ = svcpkg.Mgr.UnitStatus("lerd-reverb-" + s.Name)
 			hasReverb = cli.SiteUsesReverb(s.Path)
 		}
 
@@ -487,7 +514,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		var hasHorizon bool
 		if isLaravel && cli.SiteHasHorizon(s.Path) {
 			hasHorizon = true
-			horizonStatus, _ = podman.UnitStatus("lerd-horizon-" + s.Name)
+			horizonStatus, _ = svcpkg.Mgr.UnitStatus("lerd-horizon-" + s.Name)
 			hasQueueWorker = false // Horizon manages queues; suppress the plain queue toggle
 		}
 
@@ -508,7 +535,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			sort.Strings(names)
 			for _, wname := range names {
 				w := fw.Workers[wname]
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
+				unitStatus, _ := svcpkg.Mgr.UnitStatus("lerd-" + wname + "-" + s.Name)
 				label := w.Label
 				if label == "" {
 					label = wname
@@ -663,7 +690,7 @@ var builtinConnectionURLs = map[string]string{
 
 func buildServiceResponse(name string) ServiceResponse {
 	unit := "lerd-" + name
-	status, _ := podman.UnitStatus(unit)
+	status, _ := svcpkg.Mgr.UnitStatus(unit)
 	if status == "" {
 		status = "inactive"
 	}
@@ -703,17 +730,17 @@ func frameworkLabel(name string) string {
 }
 
 func listActiveQueueWorkers() []string {
-	return listActiveUnitsBySuffix("lerd-queue-*.service", "lerd-queue-")
+	return listActiveUnitsBySuffix("lerd-queue-*", "lerd-queue-")
 }
 
 // listActiveScheduleWorkers returns site names of active lerd-schedule-* units.
 func listActiveScheduleWorkers() []string {
-	return listActiveUnitsBySuffix("lerd-schedule-*.service", "lerd-schedule-")
+	return listActiveUnitsBySuffix("lerd-schedule-*", "lerd-schedule-")
 }
 
 // listActiveReverbServers returns site names of active lerd-reverb-* units.
 func listActiveReverbServers() []string {
-	return listActiveUnitsBySuffix("lerd-reverb-*.service", "lerd-reverb-")
+	return listActiveUnitsBySuffix("lerd-reverb-*", "lerd-reverb-")
 }
 
 // listActiveHorizonWorkers returns site names of active lerd-horizon-* units.
@@ -725,33 +752,18 @@ func listActiveHorizonWorkers() []string {
 // that were started by `lerd stripe:listen` (i.e. have a .service file in the
 // systemd user dir, as opposed to quadlet-based services like stripe-mock).
 func listActiveStripeListeners() []string {
-	all := listActiveUnitsBySuffix("lerd-stripe-*.service", "lerd-stripe-")
-	var result []string
-	for _, name := range all {
-		unitFile := filepath.Join(config.SystemdUserDir(), "lerd-stripe-"+name+".service")
-		if _, err := os.Stat(unitFile); err == nil {
-			result = append(result, name)
-		}
-	}
-	return result
+	return listActiveUnitsBySuffix("lerd-stripe-*", "lerd-stripe-")
 }
 
-func listActiveUnitsBySuffix(pattern, prefix string) []string {
-	out, err := exec.Command("systemctl", "--user", "list-units", "--state=active",
-		"--no-legend", "--plain", pattern).Output()
-	if err != nil {
-		return nil
-	}
+func listActiveUnitsBySuffix(nameGlob, prefix string) []string {
+	units := svcpkg.Mgr.ListServiceUnits(nameGlob)
 	var sites []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		unit := strings.TrimSuffix(fields[0], ".service")
-		siteName := strings.TrimPrefix(unit, prefix)
-		if siteName != unit && siteName != "" {
-			sites = append(sites, siteName)
+	for _, unit := range units {
+		if svcpkg.Mgr.IsActive(unit) {
+			siteName := strings.TrimPrefix(unit, prefix)
+			if siteName != unit && siteName != "" {
+				sites = append(sites, siteName)
+			}
 		}
 	}
 	return sites
@@ -765,7 +777,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
 		unit := "lerd-" + svc.Name
-		status, _ := podman.UnitStatus(unit)
+		status, _ := svcpkg.Mgr.UnitStatus(unit)
 		if status == "" {
 			status = "inactive"
 		}
@@ -852,7 +864,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 				case "queue", "schedule", "reverb":
 					continue
 				}
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
+				unitStatus, _ := svcpkg.Mgr.UnitStatus("lerd-" + wname + "-" + s.Name)
 				if unitStatus == "active" {
 					label := w.Label
 					if label == "" {
@@ -1011,7 +1023,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	if !isCustom && strings.HasPrefix(name, "queue-") {
 		siteName := strings.TrimPrefix(name, "queue-")
 		if action == "stop" {
-			opErr := podman.StopUnit("lerd-queue-" + siteName)
+			opErr := svcpkg.Mgr.Stop("lerd-queue-" + siteName)
 			resp := ServiceActionResponse{
 				ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, QueueSite: siteName},
 				OK:              opErr == nil,
@@ -1203,7 +1215,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Retry to handle Quadlet generator latency after daemon-reload.
 		for attempt := range 5 {
-			opErr = podman.StartUnit(unit)
+			opErr = svcpkg.Mgr.Start(unit)
 			if opErr == nil || !strings.Contains(opErr.Error(), "not found") {
 				break
 			}
@@ -1222,7 +1234,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		cli.StopServiceAndDependents(name)
 		// Cover the parent itself in case the recursive helper short-circuited
 		// (e.g. unit was reported inactive but the user explicitly clicked stop).
-		opErr = podman.StopUnit(unit)
+		opErr = svcpkg.Mgr.Stop(unit)
 		if opErr == nil {
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
@@ -1233,13 +1245,12 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot remove built-in service", http.StatusForbidden)
 			return
 		}
-		_ = podman.StopUnit(unit)
-		podman.RemoveContainer(unit)
-		if err := podman.RemoveQuadlet(unit); err != nil {
+		_ = svcpkg.Mgr.Stop(unit)
+		if err := svcpkg.Mgr.RemoveContainerUnit(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = svcpkg.Mgr.DaemonReload()
 		if err := config.RemoveCustomService(name); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
@@ -1248,7 +1259,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	case "pin":
 		if opErr = config.SetServicePinned(name, true); opErr == nil {
-			status, _ := podman.UnitStatus(unit)
+			status, _ := svcpkg.Mgr.UnitStatus(unit)
 			if status != "active" {
 				if isBuiltin {
 					_ = ensureServiceQuadlet(name)
@@ -1256,7 +1267,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 					_ = ensureCustomServiceQuadlet(customSvc)
 				}
 				for attempt := range 5 {
-					opErr = podman.StartUnit(unit)
+					opErr = svcpkg.Mgr.Start(unit)
 					if opErr == nil || !strings.Contains(opErr.Error(), "not found") {
 						break
 					}
@@ -1297,10 +1308,10 @@ func ensureServiceQuadlet(name string) error {
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+	if err := svcpkg.Mgr.WriteContainerUnit(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return svcpkg.Mgr.DaemonReload()
 }
 
 // ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
@@ -1312,10 +1323,10 @@ func ensureCustomServiceQuadlet(svc *config.CustomService) error {
 	}
 	content := podman.GenerateCustomQuadlet(svc)
 	quadletName := "lerd-" + svc.Name
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+	if err := svcpkg.Mgr.WriteContainerUnit(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
 	}
-	return podman.DaemonReload()
+	return svcpkg.Mgr.DaemonReload()
 }
 
 // countSitesUsingService counts how many active site .env files reference lerd-{name}.
@@ -1346,12 +1357,7 @@ func sitesUsingService(name string) []string {
 	return domains
 }
 
-// serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
-func serviceRecentLogs(unit string) string {
-	cmd := exec.Command("journalctl", "--user", "-u", unit+".service", "-n", "20", "--no-pager", "--output=short")
-	out, _ := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out))
-}
+// serviceRecentLogs is implemented per-platform in logs_linux.go / logs_darwin.go.
 
 // VersionResponse is the response for GET /api/version.
 type VersionResponse struct {
@@ -1911,7 +1917,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		if err := podman.StartUnit(unit); err != nil {
+		if err := podman.StartUnitFn(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -1919,7 +1925,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "stop":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		if err := podman.StopUnit(unit); err != nil {
+		if err := podman.StopUnitFn(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
@@ -1927,12 +1933,12 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	case "remove":
 		short := strings.ReplaceAll(version, ".", "")
 		unit := "lerd-php" + short + "-fpm"
-		_ = podman.StopUnit(unit)
-		if err := podman.RemoveQuadlet(unit); err != nil {
+		_ = svcpkg.Mgr.Stop(unit)
+		if err := svcpkg.Mgr.RemoveContainerUnit(unit); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = svcpkg.Mgr.DaemonReload()
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)
@@ -2046,9 +2052,36 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 
+	// On macOS some units are native services (e.g. lerd-dns), not containers.
+	// Fall back to the platform log stream (file tail) for those.
 	if exists, _ := podman.ContainerExists(container); !exists {
-		fmt.Fprintf(w, "data: container %s is not running\n\n", container)
-		flusher.Flush()
+		if isContainerUnit(container) {
+			fmt.Fprintf(w, "data: container %s is not running\n\n", container)
+			flusher.Flush()
+			return
+		}
+		// Native service — use platform log stream directly.
+		pr, pw := io.Pipe()
+		cmd := logStreamCmd(r.Context(), container)
+		cmd.Stdout = pw
+		cmd.Stderr = pw
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
+			flusher.Flush()
+			return
+		}
+		go func() { cmd.Wait(); pw.Close() }() //nolint:errcheck
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			fmt.Fprintf(w, "data: %s\n\n", strings.ReplaceAll(scanner.Text(), "\\", "\\\\"))
+			flusher.Flush()
+			if r.Context().Err() != nil {
+				break
+			}
+		}
+		if cmd.Process != nil {
+			cmd.Process.Kill() //nolint:errcheck
+		}
 		return
 	}
 
@@ -2058,7 +2091,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", tail, container)
+	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), "logs", "-f", "--tail", tail, container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -2073,17 +2106,38 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		pw.Close()
 	}()
 
+	lines := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+
+	// Send a keepalive comment every 30s so nginx (proxy_read_timeout 60s)
+	// does not close the SSE connection during idle PHP-FPM periods, which
+	// would cause the frontend to show "connecting..." indefinitely.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	var lineID int
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Escape backslashes and encode as a single SSE data line.
-		escaped := strings.ReplaceAll(line, "\\", "\\\\")
-		lineID++
-		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", lineID, escaped)
-		flusher.Flush()
-		if r.Context().Err() != nil {
-			break
+loop:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break loop
+			}
+			lineID++
+			escaped := strings.ReplaceAll(line, "\\", "\\\\")
+			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", lineID, escaped)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			break loop
 		}
 	}
 	if cmd.Process != nil {
@@ -2227,6 +2281,11 @@ func openTerminalCommand(script string) error {
 		}
 		return exec.Command(bin, t.args...).Start()
 	}
+	// macOS fallback: open Terminal.app via osascript
+	if osa, err := exec.LookPath("osascript"); err == nil {
+		osaScript := `tell application "Terminal" to do script ` + shQuote(script)
+		return exec.Command(osa, "-e", osaScript).Start()
+	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
 }
 
@@ -2279,7 +2338,7 @@ func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := svcpkg.Mgr.Restart(unit); err != nil {
 		fmt.Printf("[WARN] restart %s: %v\n", unit, err)
 	}
 
@@ -2332,7 +2391,7 @@ func handleWatcherStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := lerdSystemd.StartService("lerd-watcher"); err != nil {
+	if err := svcpkg.Mgr.Start("lerd-watcher"); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
@@ -2445,16 +2504,14 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	cursor := r.Header.Get("Last-Event-ID")
-	args := []string{"--user", "-u", unit, "-f", "--no-pager", "--output=json"}
-	if cursor != "" {
-		args = append(args, "--after-cursor="+cursor)
-	} else {
-		args = append(args, "-n", "100")
-	}
+	// Emit an initial line immediately so the frontend transitions from
+	// "Waiting for log output..." to showing real content. This is especially
+	// useful for queue workers that produce no output when idle.
+	fmt.Fprintf(w, "data: [%s] streaming logs — waiting for output...\n\n", unit)
+	flusher.Flush()
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", args...)
+	cmd := logStreamCmd(r.Context(), unit)
 	cmd.Stdout = pw
 	cmd.Stderr = io.Discard
 
@@ -2469,30 +2526,35 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 		pw.Close()
 	}()
 
-	type journalEntry struct {
-		Cursor  string          `json:"__CURSOR"`
-		Message json.RawMessage `json:"MESSAGE"`
-	}
+	lines := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
 
-	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		var entry journalEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		var msg string
-		if len(entry.Message) > 0 && entry.Message[0] == '"' {
-			json.Unmarshal(entry.Message, &msg) //nolint:errcheck
-		} else {
-			// journalctl encodes binary messages as a JSON array of bytes
-			var b []byte
-			if json.Unmarshal(entry.Message, &b) == nil {
-				msg = string(b)
+	// Send a keepalive comment every 30s so nginx (proxy_read_timeout 60s)
+	// does not close the SSE connection during idle periods, which would cause
+	// the frontend to reconnect and replay --tail lines as duplicates.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+loop:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break loop
 			}
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			break loop
 		}
-		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", entry.Cursor, msg)
-		flusher.Flush()
 	}
 }
 

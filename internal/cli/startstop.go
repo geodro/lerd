@@ -15,7 +15,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +60,7 @@ func ensureImages() {
 				Label: "Building dnsmasq",
 				Run: func(w io.Writer) error {
 					containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-					cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+					cmd := exec.Command(podman.PodmanBin(), "build", "-t", "lerd-dnsmasq:local", "-")
 					cmd.Stdin = strings.NewReader(containerfile)
 					cmd.Stdout = w
 					cmd.Stderr = w
@@ -83,7 +83,7 @@ func ensureImages() {
 			jobs = append(jobs, BuildJob{
 				Label: "Pulling " + label,
 				Run: func(w io.Writer) error {
-					cmd := exec.Command("podman", "pull", label)
+					cmd := exec.Command(podman.PodmanBin(), "pull", label)
 					cmd.Stdout = w
 					cmd.Stderr = w
 					return cmd.Run()
@@ -147,13 +147,13 @@ func coreUnits() []string {
 func installedServiceUnits() []string {
 	var units []string
 	for _, svc := range knownServices {
-		if podman.QuadletInstalled("lerd-"+svc) && !config.ServiceIsPaused(svc) {
+		if services.Mgr.ContainerUnitInstalled("lerd-"+svc) && !config.ServiceIsPaused(svc) {
 			units = append(units, "lerd-"+svc)
 		}
 	}
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
-		if podman.QuadletInstalled("lerd-"+svc.Name) && !config.ServiceIsPaused(svc.Name) {
+		if services.Mgr.ContainerUnitInstalled("lerd-"+svc.Name) && !config.ServiceIsPaused(svc.Name) {
 			units = append(units, "lerd-"+svc.Name)
 		}
 	}
@@ -165,13 +165,13 @@ func installedServiceUnits() []string {
 func allInstalledServiceUnits() []string {
 	var units []string
 	for _, svc := range knownServices {
-		if podman.QuadletInstalled("lerd-" + svc) {
+		if services.Mgr.ContainerUnitInstalled("lerd-" + svc) {
 			units = append(units, "lerd-"+svc)
 		}
 	}
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
-		if podman.QuadletInstalled("lerd-" + svc.Name) {
+		if services.Mgr.ContainerUnitInstalled("lerd-" + svc.Name) {
 			units = append(units, "lerd-"+svc.Name)
 		}
 	}
@@ -304,6 +304,11 @@ func checkPortConflicts(units []string) {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
+	// On macOS, Podman requires a VM. Start it if it is stopped.
+	if err := podman.EnsureMachineRunning(); err != nil {
+		return err
+	}
+
 	// Restore quadlets and worker units that may be missing after an
 	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
 	restoreSiteInfrastructure()
@@ -347,70 +352,76 @@ func runStart(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Start lerd-dns first on its own so we can run ConfigureResolver (which
+	// may prompt for sudo) before RunParallel puts the terminal in raw mode.
+	fmt.Println("Starting Lerd...")
+	fmt.Print("  --> dns ... ")
+	if err := podman.RestartUnitFn("lerd-dns"); err != nil {
+		fmt.Printf("WARN (%v)\n", err)
+	} else {
+		fmt.Println("OK")
+	}
+
+	// Sync the pasta DNS proxy upstream for the lerd network.
+	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
+		fmt.Printf("  WARN: network DNS: %v\n", err)
+	}
+
+	// Wait for lerd-dns to be ready before configuring the resolver.
+	fmt.Print("  --> lerd-dns ready check ... ")
+	if err := dns.WaitReady(10 * time.Second); err != nil {
+		fmt.Printf("WARN (%v)\n", err)
+	} else {
+		fmt.Println("OK")
+	}
+
+	// Configure the OS resolver now — before RunParallel — so any sudo prompt
+	// runs with the terminal in normal (cooked) mode.
+	if err := dns.ConfigureResolver(); err != nil {
+		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
+	}
+
+	// Start all remaining services in parallel.
 	units = append(coreUnits(), installedServiceUnits()...)
 	units = append(units, "lerd-ui", "lerd-watcher")
 	units = append(units, registeredQueueUnits()...)
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+	// Remove lerd-dns — already started above.
+	filtered := units[:0]
+	for _, u := range units {
+		if u != "lerd-dns" {
+			filtered = append(filtered, u)
+		}
+	}
 
-	fmt.Println("Starting Lerd...")
-
-	jobs := make([]BuildJob, len(units))
-	for i, u := range units {
+	jobs := make([]BuildJob, len(filtered))
+	for i, u := range filtered {
 		unit := u
 		label := strings.TrimPrefix(unit, "lerd-")
 		jobs[i] = BuildJob{
 			Label: label,
-			Run: func(w io.Writer) error {
-				if unit == "lerd-dns" {
-					// Always restart lerd-dns to pick up the refreshed dnsmasq config
-					// and clear any stale cached DNS entries.
-					return podman.RestartUnit(unit)
-				}
-				return podman.StartUnit(unit)
-			},
+			Run:   func(w io.Writer) error { return podman.StartUnitFn(unit) },
 		}
 	}
 	RunParallel(jobs) //nolint:errcheck
 
-	// Sync the pasta DNS proxy (169.254.1.1) as the aardvark-dns upstream for the lerd
-	// network. This address chains through systemd-resolved, which resolves both .test
-	// domains (via lerd-dns) and internet domains. Using 169.254.1.1 instead of the
-	// host's real upstream avoids NXDOMAIN for .test while retaining internet access.
-	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
-		fmt.Printf("  WARN: network DNS: %v\n", err)
-	}
-
-	// Wait for lerd-dns to be ready before configuring the resolver.
-	// systemctl start returns when the unit is active, but dnsmasq inside the
-	// container may not be listening yet. If we set resolvectl to use port 5300
-	// before it's up, systemd-resolved marks it failed and falls back to the
-	// upstream DNS server, breaking .test resolution until manually fixed.
-	if err := dns.WaitReady(10 * time.Second); err != nil {
-		fmt.Printf("  WARN: %v\n", err)
-	}
-
-	// Re-apply DNS routing so .test resolves via lerd-dns on every start.
-	// resolvectl settings are ephemeral and reset on reboot; the NM dispatcher
-	// script fires on interface "up" but that event precedes lerd-dns starting.
-	if err := dns.ConfigureResolver(); err != nil {
-		fmt.Printf("  WARN: DNS resolver config: %v\n", err)
-	}
-
 	autoStopUnusedFPMs()
 
 	// Restart the tray applet, stopping any existing instance first.
-	// Prefer the systemd service when enabled; otherwise launch directly.
+	// killTray() is always called so that accumulated tray processes from
+	// previous lerd start runs (not tracked by launchd/systemd) are cleaned
+	// up before the new one is launched.
 	fmt.Print("  --> lerd-tray ... ")
-	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		if err := lerdSystemd.RestartService("lerd-tray"); err != nil {
+	killTray()
+	if services.Mgr.IsEnabled("lerd-tray") {
+		if err := services.Mgr.Start("lerd-tray"); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
 		} else {
 			fmt.Println("OK")
 		}
 	} else {
-		killTray()
 		exe, err := os.Executable()
 		if err == nil {
 			err = exec.Command(exe, "tray").Start()
@@ -450,7 +461,7 @@ func startRestoredServices() {
 		pullJobs = append(pullJobs, BuildJob{
 			Label: "Pulling " + img,
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", img)
+				cmd := exec.Command(podman.PodmanBin(), "pull", img)
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -468,20 +479,29 @@ func startRestoredServices() {
 		label := strings.TrimPrefix(unit, "lerd-")
 		startJobs = append(startJobs, BuildJob{
 			Label: label,
-			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+			Run:   func(_ io.Writer) error { return services.Mgr.Start(unit) },
 		})
 	}
 	RunParallel(startJobs) //nolint:errcheck
 }
 
-// killTray kills any running lerd tray process (launched directly or as lerd-tray binary).
+// killTray kills any running lerd tray process (launched directly or as lerd-tray binary)
+// and waits for the processes to exit before returning.
 func killTray() {
 	exec.Command("pkill", "-f", "lerd tray").Run()
 	exec.Command("pkill", "-f", "lerd-tray").Run()
+	// Wait until no matching process remains so the new tray doesn't race with
+	// the dying one (macOS pkill returns before the process has fully exited).
+	for i := 0; i < 20; i++ {
+		a := exec.Command("pgrep", "-f", "lerd tray").Run()
+		b := exec.Command("pgrep", "-f", "lerd-tray").Run()
+		if a != nil && b != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
-// registeredStripeUnits returns unit names for all lerd-stripe-* service files
-// present in the systemd user dir (i.e. started via `lerd stripe:listen`).
 // restoreSiteInfrastructure ensures FPM quadlets, service quadlets, and worker
 // units exist for all registered (non-paused) sites. This repairs state after
 // an uninstall/reinstall cycle where unit files were deleted but site configs
@@ -503,8 +523,9 @@ func restoreSiteInfrastructure() {
 		// Restore FPM quadlet for this site's PHP version.
 		phpVer := s.PHPVersion
 		if phpVer == "" {
-			cfg, _ := config.LoadGlobal()
-			phpVer = cfg.PHP.DefaultVersion
+			if cfg, _ := config.LoadGlobal(); cfg != nil {
+				phpVer = cfg.PHP.DefaultVersion
+			}
 		}
 		if phpVer != "" && !seenPHP[phpVer] {
 			seenPHP[phpVer] = true
@@ -540,15 +561,15 @@ func restoreSiteInfrastructure() {
 		// Restore worker units from saved worker names.
 		for _, w := range proj.Workers {
 			unitName := "lerd-" + w + "-" + s.Name
-			unitPath := filepath.Join(config.SystemdUserDir(), unitName+".service")
-			if _, statErr := os.Stat(unitPath); statErr == nil {
-				continue // unit file already exists
+			if services.Mgr.IsEnabled(unitName) {
+				continue // unit already registered
 			}
 			// Recreate the worker unit by starting it (which writes the unit file).
 			phpVersion := s.PHPVersion
 			if phpVersion == "" {
-				cfg, _ := config.LoadGlobal()
-				phpVersion = cfg.PHP.DefaultVersion
+				if cfg, _ := config.LoadGlobal(); cfg != nil {
+					phpVersion = cfg.PHP.DefaultVersion
+				}
 			}
 			switch w {
 			case "queue":
@@ -578,47 +599,28 @@ func restoreSiteInfrastructure() {
 			}
 		}
 	}
-	podman.DaemonReload() //nolint:errcheck
+	podman.DaemonReloadFn() //nolint:errcheck
 }
 
+// registeredStripeUnits returns unit names for all lerd-stripe-* service files
+// present in the service manager (i.e. started via `lerd stripe:listen`).
 func registeredStripeUnits() []string {
-	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-stripe-*.service"))
-	units := make([]string, 0, len(entries))
-	for _, e := range entries {
-		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
-	}
-	return units
+	return services.Mgr.ListServiceUnits("lerd-stripe-*")
 }
 
-// registeredQueueUnits returns unit names for all lerd-queue-* service files
-// present in the systemd user dir (i.e. started via `lerd queue:start`).
+// registeredQueueUnits returns unit names for all lerd-queue-* service files.
 func registeredQueueUnits() []string {
-	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-queue-*.service"))
-	units := make([]string, 0, len(entries))
-	for _, e := range entries {
-		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
-	}
-	return units
+	return services.Mgr.ListServiceUnits("lerd-queue-*")
 }
 
 // registeredScheduleUnits returns unit names for all lerd-schedule-* service files.
 func registeredScheduleUnits() []string {
-	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-schedule-*.service"))
-	units := make([]string, 0, len(entries))
-	for _, e := range entries {
-		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
-	}
-	return units
+	return services.Mgr.ListServiceUnits("lerd-schedule-*")
 }
 
 // registeredReverbUnits returns unit names for all lerd-reverb-* service files.
 func registeredReverbUnits() []string {
-	entries, _ := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-reverb-*.service"))
-	units := make([]string, 0, len(entries))
-	for _, e := range entries {
-		units = append(units, strings.TrimSuffix(filepath.Base(e), ".service"))
-	}
-	return units
+	return services.Mgr.ListServiceUnits("lerd-reverb-*")
 }
 
 // RunStart starts all lerd services (exported for use by the UI server).
@@ -645,7 +647,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		label := strings.TrimPrefix(unit, "lerd-")
 		jobs[i] = BuildJob{
 			Label: label,
-			Run:   func(w io.Writer) error { return podman.StopUnit(unit) },
+			Run:   func(w io.Writer) error { return podman.StopUnitFn(unit) },
 		}
 	}
 	RunParallel(jobs) //nolint:errcheck
@@ -661,7 +663,7 @@ func runQuit(_ *cobra.Command, _ []string) error {
 	// Stop process units.
 	for _, unit := range []string{"lerd-ui", "lerd-watcher"} {
 		fmt.Printf("  --> %s ... ", unit)
-		if err := podman.StopUnit(unit); err != nil {
+		if err := services.Mgr.Stop(unit); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
 		} else {
 			fmt.Println("OK")

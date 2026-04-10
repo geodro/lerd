@@ -8,6 +8,12 @@ import (
 )
 
 func TestAddShellShims_LaravelShim(t *testing.T) {
+	// Stub out installCompletionFn to avoid spawning the test binary, which
+	// would re-run all tests and cause infinite recursion.
+	orig := installCompletionFn
+	installCompletionFn = func(_, _, _, _ string) {}
+	t.Cleanup(func() { installCompletionFn = orig })
+
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
 	t.Setenv("HOME", tmp)
@@ -44,6 +50,10 @@ func TestAddShellShims_LaravelShim(t *testing.T) {
 }
 
 func TestAddShellShims_LaravelShimRespectsComposerHome(t *testing.T) {
+	orig := installCompletionFn
+	installCompletionFn = func(_, _, _, _ string) {}
+	t.Cleanup(func() { installCompletionFn = orig })
+
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
 	t.Setenv("HOME", tmp)

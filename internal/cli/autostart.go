@@ -3,12 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -112,15 +112,15 @@ func ApplyAutostart(disabled bool) error {
 	if err := rewriteQuadletsForAutostart(disabled); err != nil {
 		return fmt.Errorf("rewriting quadlets: %w", err)
 	}
-	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	_ = services.Mgr.DaemonReload()
 
 	units := lerdSystemd.AutostartUserUnits()
 	for _, u := range units {
 		name := strings.TrimSuffix(u, ".service")
 		if disabled {
-			_ = lerdSystemd.DisableService(name)
+			_ = services.Mgr.Disable(name)
 		} else {
-			_ = lerdSystemd.EnableService(name)
+			_ = services.Mgr.Enable(name)
 		}
 	}
 	return nil

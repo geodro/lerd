@@ -17,7 +17,7 @@ func NewAboutCmd() *cobra.Command {
 }
 
 func runAbout(_ *cobra.Command, _ []string) error {
-	fmt.Println("Lerd — Podman-powered local PHP development environment for Linux")
+	fmt.Println("Lerd — Podman-powered local PHP development environment for Linux & macOS")
 	fmt.Println()
 	fmt.Printf("  Version  %s\n", version.Version)
 	fmt.Printf("  Commit   %s\n", version.Commit)

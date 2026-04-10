@@ -10,6 +10,7 @@ import (
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -151,7 +152,7 @@ func newServiceStartCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Starting %s...\n", unit)
-			if err := podman.StartUnit(unit); err != nil {
+			if err := services.Mgr.Start(unit); err != nil {
 				return err
 			}
 			_ = config.SetServicePaused(name, false)
@@ -209,7 +210,7 @@ func newServiceRestartCmd() *cobra.Command {
 			name := args[0]
 			unit := "lerd-" + name
 			fmt.Printf("Restarting %s...\n", unit)
-			if err := podman.RestartUnit(unit); err != nil {
+			if err := services.Mgr.Restart(unit); err != nil {
 				return err
 			}
 			printEnvVars(name)
@@ -225,7 +226,7 @@ func newServiceStatusCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			unit := "lerd-" + args[0]
-			status, err := podman.UnitStatus(unit)
+			status, err := services.Mgr.UnitStatus(unit)
 			if err != nil {
 				return err
 			}
@@ -248,7 +249,7 @@ func newServiceListCmd() *cobra.Command {
 			fmt.Printf("%s\n", strings.Repeat("─", 32))
 			for _, svc := range knownServices {
 				unit := "lerd-" + svc
-				status, err := podman.UnitStatus(unit)
+				status, err := services.Mgr.UnitStatus(unit)
 				if err != nil {
 					status = "unknown"
 				}
@@ -262,7 +263,7 @@ func newServiceListCmd() *cobra.Command {
 			customs, _ := config.ListCustomServices()
 			for _, svc := range customs {
 				unit := "lerd-" + svc.Name
-				status, err := podman.UnitStatus(unit)
+				status, err := services.Mgr.UnitStatus(unit)
 				if err != nil {
 					status = "unknown"
 				}
@@ -302,7 +303,7 @@ func newServiceAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [file.yaml]",
 		Short: "Define a new custom service (from a YAML file or flags)",
-		Long: `Define a new custom service and write its systemd quadlet.
+		Long: `Define a new custom service and register it as a background service.
 
 Load from a YAML file:
   lerd service add mongodb.yaml
@@ -577,19 +578,20 @@ func newServiceRemoveCmd() *cobra.Command {
 			unit := "lerd-" + name
 
 			// Stop the unit if it is running.
-			status, _ := podman.UnitStatus(unit)
+			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" || status == "activating" {
 				fmt.Printf("Stopping %s...\n", unit)
-				if err := podman.StopUnit(unit); err != nil {
+				if err := services.Mgr.Stop(unit); err != nil {
 					return fmt.Errorf("could not stop %s: %w\nRemove aborted — the service is still running", unit, err)
 				}
 			}
 			podman.RemoveContainer(unit)
 
-			if err := podman.RemoveQuadlet(unit); err != nil {
+			// Remove quadlet and reload
+			if err := services.Mgr.RemoveContainerUnit(unit); err != nil {
 				fmt.Printf("  WARN: could not remove quadlet: %v\n", err)
 			}
-			if err := podman.DaemonReload(); err != nil {
+			if err := services.Mgr.DaemonReload(); err != nil {
 				fmt.Printf("  WARN: daemon-reload failed: %v\n", err)
 			}
 
@@ -621,10 +623,10 @@ func ensureServiceQuadlet(name string) error {
 			content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 		}
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
+	if err := services.Mgr.WriteContainerUnit(quadletName, content); err != nil {
 		return fmt.Errorf("writing quadlet for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return services.Mgr.DaemonReload()
 }
 
 // ensureCustomServiceQuadlet defers to serviceops so the CLI and the MCP
@@ -664,10 +666,10 @@ func newServiceExposeCmd() *cobra.Command {
 			if err := ensureServiceQuadlet(name); err != nil {
 				return err
 			}
-			status, _ := podman.UnitStatus("lerd-" + name)
+			status, _ := services.Mgr.UnitStatus("lerd-" + name)
 			if status == "active" {
 				fmt.Printf("Restarting lerd-%s to apply port changes...\n", name)
-				_ = podman.RestartUnit("lerd-" + name)
+				_ = services.Mgr.Restart("lerd-" + name)
 			}
 			if remove {
 				fmt.Printf("Removed extra port %s from %s.\n", port, name)
@@ -781,7 +783,7 @@ func autoStopUnusedServices() {
 	for _, name := range candidates {
 		if config.CountSitesUsingService(name) == 0 && !config.ServiceIsManuallyStarted(name) && !config.ServiceIsPinned(name) {
 			unit := "lerd-" + name
-			status, _ := podman.UnitStatus(unit)
+			status, _ := services.Mgr.UnitStatus(unit)
 			if status == "active" || status == "activating" {
 				StopServiceAndDependents(name)
 			}
@@ -826,9 +828,9 @@ func autoStopUnusedFPMs() {
 			continue
 		}
 		unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
-		status, _ := podman.UnitStatus(unit)
+		status, _ := podman.UnitStatusFn(unit)
 		if status == "active" || status == "activating" {
-			if err := podman.StopUnit(unit); err != nil {
+			if err := podman.StopUnitFn(unit); err != nil {
 				fmt.Printf("[WARN] stopping %s: %v\n", unit, err)
 			}
 		}

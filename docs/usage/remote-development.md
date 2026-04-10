@@ -85,6 +85,13 @@ This single command:
 
 Reverse with `lerd lan:unexpose` (also revokes any outstanding remote-setup code). Inspect the current state with `lerd lan:status`.
 
+!!! warning "macOS limitation: ports 80/443 are always reachable from the LAN"
+    On macOS, lerd runs containers inside a podman machine (a Linux VM). The VM's network layer (gvproxy) does not support IP-specific bindings for privileged ports — it is not possible to restrict ports 80 and 443 to `127.0.0.1` the way Linux does with `PublishPort=127.0.0.1:80:80`.
+
+    As a result, **`lerd lan:expose` / `lerd lan:unexpose` only controls DNS** on macOS: when unexposed, dnsmasq resolves `*.test` to `127.0.0.1` so LAN clients cannot discover your site addresses. Ports 80 and 443 remain technically reachable from the LAN at all times.
+
+    Non-privileged service ports (MySQL 3306, Redis 6379, PostgreSQL 5432, etc.) **are** properly restricted to `127.0.0.1` in both modes.
+
 You can do the same thing from the dashboard: in **Lerd settings → LAN exposure**, click **Expose to LAN** and watch the per-step progress stream live.
 
 The dashboard at port 7073 is gated independently. By default it returns 403 to LAN clients even when `lan:expose` is on — set HTTP Basic auth credentials with `lerd remote-control on` (or via the **Remote dashboard access** card in the dashboard) to grant LAN access. The two switches are independent: you can have sites LAN-reachable without exposing the dashboard, or vice versa.

@@ -21,7 +21,7 @@ import (
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 )
 
 const protocolVersion = "2024-11-05"
@@ -1585,7 +1585,7 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, artisanArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -1631,7 +1631,7 @@ func execSites() (any, *rpcError) {
 			if fw, ok := config.GetFramework(fwName); ok {
 				for wname := range fw.Workers {
 					unitName := "lerd-" + wname + "-" + s.Name
-					status, _ := podman.UnitStatus(unitName)
+					status, _ := services.Mgr.UnitStatus(unitName)
 					workers = append(workers, workerStatus{Name: wname, Running: status == "active"})
 				}
 				sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
@@ -1675,7 +1675,7 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 				content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 			}
 		}
-		if err := podman.WriteQuadlet(unitName, content); err != nil {
+		if err := services.Mgr.WriteContainerUnit(unitName, content); err != nil {
 			return toolErr("writing quadlet: " + err.Error()), nil
 		}
 	} else {
@@ -1684,15 +1684,15 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 			return toolErr("unknown service: " + name + ". Use service_add to register a custom service first."), nil
 		}
 		content := podman.GenerateCustomQuadlet(svc)
-		if err := podman.WriteQuadlet(unitName, content); err != nil {
+		if err := services.Mgr.WriteContainerUnit(unitName, content); err != nil {
 			return toolErr("writing quadlet: " + err.Error()), nil
 		}
 	}
 
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	if err := podman.StartUnit(unitName); err != nil {
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting " + name + ": " + err.Error()), nil
 	}
 	return toolOK(name + " started"), nil
@@ -1703,7 +1703,7 @@ func execServiceStop(args map[string]any) (any, *rpcError) {
 	if name == "" {
 		return toolErr("name is required"), nil
 	}
-	if err := podman.StopUnit("lerd-" + name); err != nil {
+	if err := services.Mgr.Stop("lerd-" + name); err != nil {
 		return toolErr("stopping " + name + ": " + err.Error()), nil
 	}
 	return toolOK(name + " stopped"), nil
@@ -1753,14 +1753,14 @@ ExecStart=podman exec -w %s %s php artisan %s
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, site.Path, container, artisanArgs)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting queue worker: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Queue worker started for %s (queue: %s)\nLogs: journalctl --user -u %s -f", siteName, queue, unitName)), nil
@@ -1775,12 +1775,12 @@ func execQueueStop(args map[string]any) (any, *rpcError) {
 	unitName := "lerd-queue-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK("Queue worker stopped for " + siteName), nil
 }
 
@@ -1817,14 +1817,14 @@ ExecStart=podman exec -w %s %s php artisan reverb:start
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, site.Path, container)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting reverb: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Reverb started for %s\nLogs: journalctl --user -u %s -f", siteName, unitName)), nil
@@ -1837,12 +1837,12 @@ func execReverbStop(args map[string]any) (any, *rpcError) {
 	}
 	unitName := "lerd-reverb-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK("Reverb stopped for " + siteName), nil
 }
 
@@ -1884,14 +1884,14 @@ ExecStart=podman exec -w %s %s php artisan horizon
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, site.Path, container)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting horizon: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Horizon started for %s\nLogs: journalctl --user -u %s -f", siteName, unitName)), nil
@@ -1904,12 +1904,12 @@ func execHorizonStop(args map[string]any) (any, *rpcError) {
 	}
 	unitName := "lerd-horizon-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK("Horizon stopped for " + siteName), nil
 }
 
@@ -1946,14 +1946,14 @@ ExecStart=podman exec -w %s %s php artisan schedule:work
 WantedBy=default.target
 `, siteName, fpmUnit, fpmUnit, site.Path, container)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting scheduler: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Scheduler started for %s\nLogs: journalctl --user -u %s -f", siteName, unitName)), nil
@@ -1966,12 +1966,12 @@ func execScheduleStop(args map[string]any) (any, *rpcError) {
 	}
 	unitName := "lerd-schedule-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK("Scheduler stopped for " + siteName), nil
 }
 
@@ -2017,14 +2017,14 @@ ExecStart=podman run --rm --replace --name %s --network host docker.io/stripe/st
 WantedBy=default.target
 `, siteName, containerName, apiKey, forwardTo)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr("starting stripe listener: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Stripe listener started for %s\nForwarding to: %s\nLogs: journalctl --user -u %s -f", siteName, forwardTo, unitName)), nil
@@ -2037,12 +2037,12 @@ func execStripeListenStop(args map[string]any) (any, *rpcError) {
 	}
 	unitName := "lerd-stripe-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK("Stripe listener stopped for " + siteName), nil
 }
 
@@ -2069,7 +2069,7 @@ func execLogs(args map[string]any) (any, *rpcError) {
 	}
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", "logs", "--tail", fmt.Sprintf("%d", lines), container)
+	cmd := exec.Command(podman.PodmanBin(), "logs", "--tail", fmt.Sprintf("%d", lines), container)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	_ = cmd.Run() // non-zero exit if container not running is fine — we return what we have
@@ -2127,7 +2127,7 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, composerArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2199,7 +2199,7 @@ func execVendorRun(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, binArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2337,7 +2337,7 @@ func execStatus() (any, *rpcError) {
 	r.DNS.TLD = tld
 	r.DNS.OK, _ = dns.Check(tld)
 	r.Nginx.Running, _ = podman.ContainerRunning("lerd-nginx")
-	r.Watcher.Running = exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher").Run() == nil
+	r.Watcher.Running = services.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpDet.ListInstalled()
 	for _, v := range versions {
@@ -2449,10 +2449,10 @@ func execServiceAdd(args map[string]any) (any, *rpcError) {
 
 	content := podman.GenerateCustomQuadlet(svc)
 	unitName := "lerd-" + name
-	if err := podman.WriteQuadlet(unitName, content); err != nil {
+	if err := services.Mgr.WriteContainerUnit(unitName, content); err != nil {
 		return toolErr("writing quadlet: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 
@@ -2469,12 +2469,11 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 	}
 
 	unit := "lerd-" + name
-	_ = podman.StopUnit(unit)
-	podman.RemoveContainer(unit)
-	if err := podman.RemoveQuadlet(unit); err != nil {
+	_ = services.Mgr.Stop(unit)
+	if err := services.Mgr.RemoveContainerUnit(unit); err != nil {
 		return toolErr("removing quadlet: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	if err := config.RemoveCustomService(name); err != nil {
 		return toolErr("removing service config: " + err.Error()), nil
 	}
@@ -2616,16 +2615,16 @@ func execServiceExpose(args map[string]any) (any, *rpcError) {
 	if len(svcCfg.ExtraPorts) > 0 {
 		content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 	}
-	if err := podman.WriteQuadlet(unitName, content); err != nil {
+	if err := services.Mgr.WriteContainerUnit(unitName, content); err != nil {
 		return toolErr("writing quadlet: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 
-	status, _ := podman.UnitStatus(unitName)
+	status, _ := services.Mgr.UnitStatus(unitName)
 	if status == "active" {
-		_ = podman.RestartUnit(unitName)
+		_ = services.Mgr.Restart(unitName)
 	}
 
 	action := "added to"
@@ -2846,8 +2845,8 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		// Non-fatal: container may already be running.
 		_ = err
 	} else {
-		_ = podman.DaemonReload()
-		_ = podman.StartUnit("lerd-php" + short + "-fpm")
+		_ = services.Mgr.DaemonReload()
+		_ = services.Mgr.Start("lerd-php" + short + "-fpm")
 	}
 
 	if err := nginx.Reload(); err != nil {
@@ -3155,7 +3154,7 @@ func execXdebugToggle(args map[string]any, enable bool) (any, *rpcError) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := services.Mgr.Restart(unit); err != nil {
 		return toolOK(fmt.Sprintf("Xdebug %s for PHP %s\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", state, version, err, unit)), nil
 	}
 
@@ -3217,10 +3216,10 @@ func execDBExport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+		cmd = exec.Command(podman.PodmanBin(), "exec", "-i", "lerd-mysql",
 			"mysqldump", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = exec.Command(podman.PodmanBin(), "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "pg_dump", "-U", env.username, env.database)
 	default:
 		_ = os.Remove(output)
@@ -3605,14 +3604,14 @@ ExecStart=podman exec -w %s %s %s
 WantedBy=default.target
 `, label, siteName, fpmUnit, fpmUnit, restart, site.Path, container, worker.Command)
 
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
+	if err := services.Mgr.WriteServiceUnit(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	_ = services.Mgr.Enable(unitName)
+	if err := services.Mgr.Start(unitName); err != nil {
 		return toolErr(fmt.Sprintf("starting %s: %v", workerName, err)), nil
 	}
 	return toolOK(fmt.Sprintf("%s started for %s\nLogs: journalctl --user -u %s -f", label, siteName, unitName)), nil
@@ -3629,12 +3628,12 @@ func execWorkerStop(args map[string]any) (any, *rpcError) {
 	}
 	unitName := "lerd-" + workerName + "-" + siteName
 	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
+	_ = services.Mgr.Disable(unitName)
+	_ = services.Mgr.Stop(unitName)
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = services.Mgr.DaemonReload()
 	return toolOK(fmt.Sprintf("%s worker stopped for %s", workerName, siteName)), nil
 }
 
@@ -3675,7 +3674,7 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 	var result []workerInfo
 	for wname, w := range fw.Workers {
 		unitName := "lerd-" + wname + "-" + siteName
-		status, _ := podman.UnitStatus(unitName)
+		status, _ := services.Mgr.UnitStatus(unitName)
 		label := w.Label
 		if label == "" {
 			label = wname
@@ -3930,10 +3929,10 @@ func execDBImport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+		cmd = exec.Command(podman.PodmanBin(), "exec", "-i", "lerd-mysql",
 			"mysql", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = exec.Command(podman.PodmanBin(), "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "psql", "-U", env.username, env.database)
 	default:
 		return toolErr("unsupported DB_CONNECTION: " + env.connection), nil
@@ -3995,13 +3994,13 @@ func execDBCreate(args map[string]any) (any, *rpcError) {
 func mcpCreateDatabase(svc, name string) (bool, error) {
 	switch svc {
 	case "mysql":
-		check := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		check := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 		out, err := check.Output()
 		if err == nil && strings.TrimSpace(string(out)) != "0" {
 			return false, nil
 		}
-		cmd := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -4010,7 +4009,7 @@ func mcpCreateDatabase(svc, name string) (bool, error) {
 		}
 		return true, nil
 	case "postgres":
-		cmd := exec.Command("podman", "exec", "lerd-postgres", "psql", "-U", "postgres",
+		cmd := exec.Command(podman.PodmanBin(), "exec", "lerd-postgres", "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -4130,7 +4129,7 @@ func execPHPExtAdd(args map[string]any) (any, *rpcError) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := podman.RestartUnitFn(unit); err != nil {
 		return toolOK(fmt.Sprintf("Extension %q added to PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
 	}
 	return toolOK(fmt.Sprintf("Extension %q added to PHP %s. FPM container restarted.", ext, version)), nil
@@ -4164,7 +4163,7 @@ func execPHPExtRemove(args map[string]any) (any, *rpcError) {
 
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
+	if err := podman.RestartUnitFn(unit); err != nil {
 		return toolOK(fmt.Sprintf("Extension %q removed from PHP %s.\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", ext, version, err, unit)), nil
 	}
 	return toolOK(fmt.Sprintf("Extension %q removed from PHP %s. FPM container restarted.", ext, version)), nil

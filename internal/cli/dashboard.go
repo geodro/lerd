@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +16,7 @@ func NewDashboardCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Printf("Opening %s\n", dashboardURL)
-			return exec.Command("xdg-open", dashboardURL).Start()
+			return openBrowser(dashboardURL)
 		},
 	}
 }

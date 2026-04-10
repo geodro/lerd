@@ -6,7 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -39,10 +39,10 @@ func runMinioMigrate(_ *cobra.Command, _ []string) error {
 	fmt.Println("Migrating MinIO data to RustFS...")
 
 	// Stop minio if running.
-	status, _ := podman.UnitStatus("lerd-minio")
+	status, _ := services.Mgr.UnitStatus("lerd-minio")
 	if status == "active" || status == "activating" {
 		fmt.Print("  Stopping lerd-minio...          ")
-		if err := podman.StopUnit("lerd-minio"); err != nil {
+		if err := services.Mgr.Stop("lerd-minio"); err != nil {
 			return fmt.Errorf("could not stop lerd-minio: %w", err)
 		}
 		fmt.Println("done")
@@ -50,12 +50,12 @@ func runMinioMigrate(_ *cobra.Command, _ []string) error {
 
 	// Remove minio quadlet so it no longer auto-starts.
 	fmt.Print("  Removing MinIO quadlet...       ")
-	if err := podman.RemoveQuadlet("lerd-minio"); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveContainerUnit("lerd-minio"); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("warn (%v)\n", err)
 	} else {
 		fmt.Println("done")
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("  warn: daemon-reload failed: %v\n", err)
 	}
 
@@ -99,7 +99,7 @@ func runMinioMigrate(_ *cobra.Command, _ []string) error {
 	fmt.Println("done")
 
 	fmt.Print("  Starting lerd-rustfs...         ")
-	if err := podman.StartUnit("lerd-rustfs"); err != nil {
+	if err := services.Mgr.Start("lerd-rustfs"); err != nil {
 		return fmt.Errorf("starting lerd-rustfs: %w", err)
 	}
 	_ = config.SetServiceManuallyStarted("rustfs", true)

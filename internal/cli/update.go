@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -44,6 +45,12 @@ func NewUpdateCmd(currentVersion string) *cobra.Command {
 }
 
 func runUpdate(currentVersion string, beta bool) error {
+	if runtime.GOOS == "darwin" {
+		fmt.Println("Lerd on macOS is managed by Homebrew.")
+		fmt.Println("To upgrade, run:  brew upgrade lerd")
+		return nil
+	}
+
 	fmt.Println("==> Checking for updates")
 
 	var latest string
@@ -178,7 +185,7 @@ func runUpdate(currentVersion string, beta bool) error {
 		for _, v := range versions {
 			unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
 			fmt.Printf("  --> %s ... ", unit)
-			if err := podman.StartUnit(unit); err != nil {
+			if err := services.Mgr.Start(unit); err != nil {
 				fmt.Printf("WARN (%v)\n", err)
 			} else {
 				fmt.Println("OK")
@@ -196,7 +203,7 @@ func downloadReleaseBinary(version string) (string, func(), error) {
 	arch := runtime.GOARCH // "amd64" or "arm64"
 	ver := stripV(version)
 
-	filename := fmt.Sprintf("lerd_%s_linux_%s.tar.gz", ver, arch)
+	filename := fmt.Sprintf("lerd_%s_%s_%s.tar.gz", ver, runtime.GOOS, arch)
 	url := fmt.Sprintf("%s/v%s/%s", githubDownloadBase, ver, filename)
 
 	tmp, err := os.MkdirTemp("", "lerd-update-*")

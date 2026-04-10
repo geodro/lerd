@@ -3,13 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +33,7 @@ func NewScheduleStopCmd() *cobra.Command { return newScheduleStopCmd("schedule:s
 func newScheduleStartCmd(use string) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
-		Short: "Start the Laravel task scheduler for the current site as a systemd service",
+		Short: "Start the Laravel task scheduler for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -92,10 +92,43 @@ func newScheduleStopCmd(use string) *cobra.Command {
 // ScheduleStartForSite starts the Laravel task scheduler for the named site.
 func ScheduleStartForSite(siteName, sitePath, phpVersion string) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-schedule-" + siteName
 
+	if runtime.GOOS == "darwin" {
+		image := "lerd-php" + versionShort + "-fpm:local"
+		if !podman.ImageExists(image) {
+			return fmt.Errorf("PHP %s image not found — run `lerd use %s` to build it", phpVersion, phpVersion)
+		}
+		_ = podman.EnsureUserIni(phpVersion)
+		unit := fmt.Sprintf(`[Container]
+ContainerName=%s
+Image=%s
+Network=lerd
+Volume=%s:%s
+Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini
+Volume=%s:/usr/local/etc/php/conf.d/99-user.ini
+Volume=%s:/etc/hosts
+WorkingDir=%s
+Exec=php artisan schedule:work
+`, unitName, image,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			config.ContainerHostsFile(),
+			sitePath)
+		if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
+			return fmt.Errorf("writing container unit: %w", err)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting scheduler: %w", err)
+		}
+		fmt.Printf("Scheduler started for %s\n", siteName)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
+		return nil
+	}
+
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	container := fpmUnit
 	unit := fmt.Sprintf(`[Unit]
 Description=Lerd Scheduler (%s)
 After=network.target %s.service
@@ -105,25 +138,29 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan schedule:work
+ExecStart=%s exec -w %s %s php artisan schedule:work
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
+		if err := services.Mgr.DaemonReload(); err != nil {
 			return fmt.Errorf("daemon-reload: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	waitForFPMContainer(container)
+	if running, _ := podman.ContainerRunning(container); !running {
+		return fmt.Errorf("%s container is not running — run `lerd start` first", container)
+	}
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting scheduler: %w", err)
 	}
 	fmt.Printf("Scheduler started for %s\n", siteName)
@@ -134,15 +171,14 @@ WantedBy=default.target
 // ScheduleStopForSite stops and removes the scheduler unit for the named site.
 func ScheduleStopForSite(siteName string) error {
 	unitName := "lerd-schedule-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 	fmt.Printf("Scheduler stopped for %s\n", siteName)

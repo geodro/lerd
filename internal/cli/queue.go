@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +39,7 @@ func newQueueStartCmd(use string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   use,
-		Short: "Start a queue worker for the current site as a systemd service",
+		Short: "Start a queue worker for the current site as a background service",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runQueueStart(queue, tries, timeout)
 		},
@@ -127,26 +128,83 @@ func runQueueStop() error {
 }
 
 func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, timeout int) error {
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	unitName := "lerd-queue-" + siteName
+
+	if runtime.GOOS == "darwin" {
+		// On macOS there are no systemd After=/Wants= deps, so pre-flight:
+		// make sure the queue's backing service is running before starting the
+		// container worker, or it will fail immediately with a cryptic DNS error.
+		envPath := filepath.Join(sitePath, ".env")
+		if envfile.ReadKey(envPath, "QUEUE_CONNECTION") == "redis" {
+			if running, _ := podman.ContainerRunning("lerd-redis"); !running {
+				return fmt.Errorf("queue worker requires Redis (QUEUE_CONNECTION=redis in .env) but lerd-redis is not running\nStart it first: lerd services start redis")
+			}
+		}
+
+		// On macOS, run the worker as its own container (podman run) rather than
+		// exec-ing into the FPM container. When launchd kills a host-side
+		// `podman exec` process, the exec session is left dangling in Podman's
+		// database and produces stale-session errors on every subsequent podman
+		// call. A dedicated container is stopped cleanly via `podman stop`
+		// (SIGTERM) and the Stop() method handles removal — no orphaned sessions.
+		image := "lerd-php" + versionShort + "-fpm:local"
+		if !podman.ImageExists(image) {
+			return fmt.Errorf("PHP %s image not found — run `lerd use %s` to build it", phpVersion, phpVersion)
+		}
+		_ = podman.EnsureUserIni(phpVersion)
+		artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
+		unit := fmt.Sprintf(`[Container]
+ContainerName=%s
+Image=%s
+Network=lerd
+Volume=%s:%s
+Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini
+Volume=%s:/usr/local/etc/php/conf.d/99-user.ini
+Volume=%s:/etc/hosts
+WorkingDir=%s
+Exec=php artisan %s
+`, unitName, image,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			config.ContainerHostsFile(),
+			sitePath, artisanArgs)
+		if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
+			return fmt.Errorf("writing container unit: %w", err)
+		}
+		if err := services.Mgr.Start(unitName); err != nil {
+			return fmt.Errorf("starting queue worker: %w", err)
+		}
+		fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
+		fmt.Printf("  Logs: podman logs -f %s\n", unitName)
+		return nil
+	}
+
+	// Linux: use buildQueueUnit which wires systemd After=/Wants= deps so
+	// the backing service (redis, mysql, etc.) is started before the worker.
+	container := "lerd-php" + versionShort + "-fpm"
 	unit := buildQueueUnit(siteName, sitePath, phpVersion, queue, tries, timeout)
 
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 	if err != nil {
 		return fmt.Errorf("writing service unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
+		if err := services.Mgr.DaemonReload(); err != nil {
 			return fmt.Errorf("daemon-reload: %w", err)
 		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
-
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	waitForFPMContainer(container)
+	if running, _ := podman.ContainerRunning(container); !running {
+		return fmt.Errorf("%s container is not running — run `lerd start` first", container)
+	}
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting queue worker: %w", err)
 	}
-
 	fmt.Printf("Queue worker started for %s (queue: %s)\n", siteName, queue)
 	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
 	return nil
@@ -218,22 +276,26 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 	}
 
 	unitName := "lerd-queue-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	if _, err := os.Stat(unitFile); os.IsNotExist(err) {
-		return nil // no queue worker for this site
+	if !services.Mgr.IsActive(unitName) {
+		return nil // no queue worker running for this site
 	}
 
-	// Upgrade legacy units that used Restart=on-failure — queue:restart causes a
-	// clean exit (code 0) which on-failure does not restart.
-	if data, err := os.ReadFile(unitFile); err == nil {
-		if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
-			if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
-				_ = podman.DaemonReload()
+	// Upgrade legacy Linux units that used Restart=on-failure.
+	if runtime.GOOS != "darwin" {
+		unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+		if data, err := os.ReadFile(unitFile); err == nil {
+			if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
+				if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
+					_ = services.Mgr.DaemonReload()
+				}
 			}
 		}
 	}
 
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	// On macOS the worker runs in its own container; on Linux it's exec'd into the FPM container.
+	// Either way, queue:restart signals via the cache (Redis/DB), so executing it in the FPM
+	// container is sufficient on both platforms.
 	container := "lerd-php" + versionShort + "-fpm"
 
 	if running, _ := podman.ContainerRunning(container); !running {
@@ -250,17 +312,18 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 // QueueStopForSite stops and removes the queue worker for the named site.
 func QueueStopForSite(siteName string) error {
 	unitName := "lerd-queue-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
 	// Stop and disable — ignore errors if already stopped.
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
+	// On macOS, Stop() also calls `podman stop + rm` on the worker container,
+	// giving SIGTERM a chance to let the worker finish its current job.
+	_ = services.Mgr.Disable(unitName)
+	services.Mgr.Stop(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
 
-	if err := podman.DaemonReload(); err != nil {
+	if err := services.Mgr.DaemonReload(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 

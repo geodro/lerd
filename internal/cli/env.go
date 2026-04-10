@@ -19,6 +19,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -500,7 +501,7 @@ func createDatabase(svc, name string) (bool, error) {
 		}
 		var lastErr error
 		for _, bin := range binaries {
-			check := exec.Command("podman", "exec", container, bin, "-uroot", "-plerd",
+			check := exec.Command(podman.PodmanBin(), "exec", container, bin, "-uroot", "-plerd",
 				"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 			out, err := check.Output()
 			if err != nil {
@@ -510,14 +511,14 @@ func createDatabase(svc, name string) (bool, error) {
 			if strings.TrimSpace(string(out)) != "0" {
 				return false, nil
 			}
-			cmd := exec.Command("podman", "exec", container, bin, "-uroot", "-plerd",
+			cmd := exec.Command(podman.PodmanBin(), "exec", container, bin, "-uroot", "-plerd",
 				"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 			cmd.Stderr = os.Stderr
 			return true, cmd.Run()
 		}
 		return false, lastErr
 	case "postgres":
-		cmd := exec.Command("podman", "exec", container, "psql", "-U", "postgres",
+		cmd := exec.Command(podman.PodmanBin(), "exec", container, "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -565,19 +566,19 @@ func createS3Bucket(name string) (bool, error) {
 		mcEnv   = "MC_HOST_lerd=http://lerd:lerdpassword@lerd-rustfs:9000"
 	)
 
-	lsCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	lsCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "ls", alias+"/"+name)
 	if err := lsCmd.Run(); err == nil {
 		return false, nil
 	}
 
-	mbCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	mbCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "mb", alias+"/"+name)
 	if out, err := mbCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
 	}
 
-	pubCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	pubCmd := exec.Command(podman.PodmanBin(), "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "anonymous", "set", "public", alias+"/"+name)
 	if out, err := pubCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("mc anonymous set public: %s", strings.TrimSpace(string(out)))
@@ -589,12 +590,11 @@ func createS3Bucket(name string) (bool, error) {
 // waits until it is ready to accept connections before returning.
 func ensureServiceRunning(name string) error {
 	unit := "lerd-" + name
-	status, _ := podman.UnitStatus(unit)
-	if status == "active" {
-		if err := podman.WaitReady(name, 30*time.Second); err != nil {
-			return fmt.Errorf("%s is active but not yet ready: %w", name, err)
-		}
-		return nil
+	// On macOS, UnitStatus returns "active" only after launchd has kicked the
+	// podman run command; the container itself may still be starting. Use
+	// ContainerRunning as the authoritative check.
+	if running, _ := podman.ContainerRunning(unit); running {
+		return waitForServiceReady(name, unit)
 	}
 	if isKnownService(name) {
 		fmt.Printf("  Starting %s...\n", name)
@@ -616,10 +616,51 @@ func ensureServiceRunning(name string) error {
 			return err
 		}
 	}
-	if err := podman.StartUnit(unit); err != nil {
+	if err := services.Mgr.Start(unit); err != nil {
 		return err
 	}
-	return podman.WaitReady(name, 60*time.Second)
+	// Wait up to 15s for the container to actually be running.
+	for range 30 {
+		time.Sleep(500 * time.Millisecond)
+		if running, _ := podman.ContainerRunning(unit); running {
+			return waitForServiceReady(name, unit)
+		}
+	}
+	return fmt.Errorf("timed out waiting for %s container to start", unit)
+}
+
+// waitForServiceReady waits for the service inside the container to be ready to
+// accept connections. For databases this is essential — the container may be
+// running but MySQL/Postgres can take additional seconds to initialise.
+func waitForServiceReady(name, container string) error {
+	var readyCmd func() *exec.Cmd
+	switch name {
+	case "mysql":
+		readyCmd = func() *exec.Cmd {
+			return exec.Command(podman.PodmanBin(), "exec", container,
+				"mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-plerd", "--silent")
+		}
+	case "postgres":
+		readyCmd = func() *exec.Cmd {
+			return exec.Command(podman.PodmanBin(), "exec", container,
+				"pg_isready", "-U", "postgres")
+		}
+	case "rustfs":
+		readyCmd = func() *exec.Cmd {
+			// nc exits 0 if the port is open
+			return exec.Command("nc", "-z", "localhost", "9000")
+		}
+	default:
+		return nil // no readiness probe for other services
+	}
+	// Poll up to 60s for the service to be ready.
+	for range 120 {
+		time.Sleep(500 * time.Millisecond)
+		if readyCmd().Run() == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s started but is not accepting connections after 60s", name)
 }
 
 // resolveAppURL returns the URL lerd should write to APP_URL for the project,
@@ -755,7 +796,7 @@ func artisanIn(dir string, args ...string) error {
 	cmdArgs := []string{"exec", "-i", "-w", dir, container, "php", "artisan"}
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := exec.Command(podman.PodmanBin(), cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -783,7 +824,7 @@ func runSiteInit(svc *config.CustomService, site string) {
 		container = "lerd-" + svc.Name
 	}
 	script := applySiteHandle(svc.SiteInit.Exec, site)
-	cmd := exec.Command("podman", "exec", container, "sh", "-c", script)
+	cmd := exec.Command(podman.PodmanBin(), "exec", container, "sh", "-c", script)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -887,7 +928,7 @@ func assignReverbServerPort(sitePath string) int {
 			} else {
 				// No REVERB_SERVER_PORT in .env — if Reverb is actively running for this site
 				// it must be on the default 8080.
-				if status, _ := podman.UnitStatus("lerd-reverb-" + s.Name); status == "active" {
+				if services.Mgr.IsActive("lerd-reverb-" + s.Name) {
 					used[8080] = true
 				}
 			}

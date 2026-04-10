@@ -22,6 +22,12 @@ func WriteQuadlet(name, content string) error {
 	return err
 }
 
+// AfterQuadletWriteFn, if non-nil, is called by WriteQuadletDiff after
+// writing the .container file. On macOS it is set to the launchd plist
+// writer so both formats stay in sync (the .container file is the
+// canonical source of truth; the plist is the live runtime unit).
+var AfterQuadletWriteFn func(name, content string) error
+
 // WriteQuadletDiff writes a quadlet like WriteQuadlet, but also reports
 // whether the on-disk file actually changed. Callers can use this to
 // daemon-reload + restart only the units that need it (e.g. lerd install
@@ -42,10 +48,25 @@ func WriteQuadletDiff(name, content string) (changed bool, err error) {
 	content = BindForLAN(content, lanExposed)
 	content = StripInstallSection(content, autostartDisabled)
 	path := filepath.Join(dir, name+".container")
+	fileChanged := true
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
-		return false, nil
+		fileChanged = false
 	}
-	return true, os.WriteFile(path, []byte(content), 0644)
+	if fileChanged {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return false, err
+		}
+	}
+	// Always sync the platform unit (e.g. macOS launchd plist) so it stays
+	// consistent with the .container file — even if the file didn't change,
+	// the plist may be stale (e.g. migrating from a build that wrote bare
+	// 80:80 binds before BindForLAN was introduced).
+	if AfterQuadletWriteFn != nil {
+		if err := AfterQuadletWriteFn(name, content); err != nil {
+			return fileChanged, err
+		}
+	}
+	return fileChanged, nil
 }
 
 // QuadletInstalled returns true if a quadlet .container file exists for the given unit name.
@@ -124,13 +145,13 @@ func WaitReady(service string, timeout time.Duration) error {
 	switch service {
 	case "mysql":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-mysql",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-mysql",
 				"mysqladmin", "ping", "-uroot", "-plerd", "--silent")
 			return cmd.Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-postgres",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-postgres",
 				"pg_isready", "-U", "postgres")
 			return cmd.Run() == nil
 		}
@@ -145,7 +166,7 @@ func WaitReady(service string, timeout time.Duration) error {
 		}
 	default:
 		probe = func() bool {
-			status, _ := UnitStatus(unit)
+			status, _ := UnitStatusFn(unit)
 			return status == "active"
 		}
 	}
