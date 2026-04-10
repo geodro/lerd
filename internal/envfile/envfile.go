@@ -39,7 +39,27 @@ func ApplyUpdates(path string, updates map[string]string) error {
 	}
 
 	for k, v := range updates {
-		if !applied[k] {
+		if applied[k] {
+			continue
+		}
+		// Look for a commented-out version to uncomment in place.
+		found := false
+		for i, line := range lines {
+			if !strings.HasPrefix(line, "#") {
+				continue
+			}
+			trimmed := strings.TrimLeft(line, "# ")
+			if !strings.Contains(trimmed, "=") {
+				continue
+			}
+			ck, _, _ := strings.Cut(trimmed, "=")
+			if strings.TrimSpace(ck) == k {
+				lines[i] = k + "=" + v
+				found = true
+				break
+			}
+		}
+		if !found {
 			lines = append(lines, k+"="+v)
 		}
 	}
