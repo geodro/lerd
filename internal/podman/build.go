@@ -441,6 +441,10 @@ func RewriteFPMQuadlets() error {
 		for _, unit := range changedUnits {
 			_ = RestartUnit(unit)
 		}
+		// Nginx may have restarted and received a new IP. Regenerate the
+		// browser-testing hosts file so Selenium resolves .test domains to
+		// the current nginx container address.
+		_ = WriteContainerHosts()
 	}
 	return nil
 }

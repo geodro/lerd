@@ -30,6 +30,8 @@ php artisan migrate
 composer install
 ```
 
+Because the `php` shim runs inside the PHP-FPM container, `php artisan`, `lerd artisan`, and the MCP `artisan` tool are all equivalent — they all execute inside the same container with the same PHP version and extensions. Use whichever form you prefer.
+
 ### Shortcuts and `vendor/bin` fallback
 
 For common workflows there are a few built-in shortcuts:

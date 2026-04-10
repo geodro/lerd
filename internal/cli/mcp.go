@@ -18,7 +18,7 @@ func NewMCPCmd() *cobra.Command {
 		Use:   "mcp",
 		Short: "Start the lerd MCP server (JSON-RPC 2.0 over stdio)",
 		Long: `Starts a Model Context Protocol server that allows AI assistants
-(Claude Code, JetBrains Junie, etc.) to manage lerd sites, run artisan
+(Claude Code, Cursor, JetBrains Junie, etc.) to manage lerd sites, run artisan
 commands, and control services.
 
 This command is normally invoked automatically by the AI assistant via
@@ -38,8 +38,10 @@ func NewMCPInjectCmd() *cobra.Command {
 		Short: "Inject lerd MCP config and AI skill files into a project",
 		Long: `Writes the following files into the target project directory:
 
-  .mcp.json                    MCP server config for Claude Code
+  .mcp.json                     MCP server config for Claude Code
   .claude/skills/lerd/SKILL.md  Claude Code skill (lerd tools reference)
+  .cursor/mcp.json              MCP server config for Cursor
+  .cursor/rules/lerd.mdc        Cursor rules file (lerd tools reference)
   .junie/mcp/mcp.json           MCP server config for JetBrains Junie
 
 Run this from a Laravel project root, or use --path to specify a directory.`,
@@ -79,6 +81,16 @@ func runMCPInject(targetPath string) error {
 	rel1 := ".mcp.json"
 	fmt.Printf("  updated %s\n", rel1)
 
+	// .cursor/mcp.json — Cursor
+	cursorPath := filepath.Join(abs, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(cursorPath), 0755); err != nil {
+		return fmt.Errorf("creating .cursor: %w", err)
+	}
+	if err := mergeMCPServersJSON(cursorPath, lerdEntry); err != nil {
+		return err
+	}
+	fmt.Printf("  updated .cursor/mcp.json\n")
+
 	// .ai/mcp/mcp.json — same mcpServers format (Windsurf and others)
 	aiPath := filepath.Join(abs, ".ai", "mcp", "mcp.json")
 	if err := os.MkdirAll(filepath.Dir(aiPath), 0755); err != nil {
@@ -109,6 +121,16 @@ func runMCPInject(targetPath string) error {
 	}
 	fmt.Printf("  wrote   .claude/skills/lerd/SKILL.md\n")
 
+	// .cursor/rules/lerd.mdc — Cursor rules file (always overwrite, we own it)
+	cursorRulesPath := filepath.Join(abs, ".cursor", "rules", "lerd.mdc")
+	if err := os.MkdirAll(filepath.Dir(cursorRulesPath), 0755); err != nil {
+		return fmt.Errorf("creating .cursor/rules: %w", err)
+	}
+	if err := os.WriteFile(cursorRulesPath, []byte(cursorRulesContent), 0644); err != nil {
+		return fmt.Errorf("writing lerd.mdc: %w", err)
+	}
+	fmt.Printf("  wrote   .cursor/rules/lerd.mdc\n")
+
 	// .junie/guidelines.md — merge our section (Junie's equivalent of Claude skills)
 	guidelinesPath := filepath.Join(abs, ".junie", "guidelines.md")
 	if err := mergeJunieGuidelines(guidelinesPath, junieGuidelinesSection); err != nil {
@@ -133,6 +155,7 @@ no LERD_SITE_PATH configuration needed.
 
 This command updates:
   claude mcp add --scope user   Claude Code user-scope MCP registration
+  ~/.cursor/mcp.json            Cursor global MCP config
   ~/.ai/mcp/mcp.json            Windsurf global MCP config
   ~/.junie/mcp/mcp.json         JetBrains Junie global MCP config`,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -167,6 +190,16 @@ func RunMCPEnableGlobal() error {
 	if err != nil {
 		return err
 	}
+
+	// Cursor global.
+	cursorPath := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(cursorPath), 0755); err != nil {
+		return fmt.Errorf("creating ~/.cursor: %w", err)
+	}
+	if err := mergeMCPServersJSON(cursorPath, lerdEntry); err != nil {
+		return err
+	}
+	fmt.Println("  updated ~/.cursor/mcp.json")
 
 	// Windsurf global.
 	aiPath := filepath.Join(home, ".ai", "mcp", "mcp.json")
@@ -482,7 +515,7 @@ service_start(name: "phpmyadmin")   // starts mysql first, then phpmyadmin
 ### ` + bt + `service_preset_list` + bt + ` / ` + bt + `service_preset_install` + bt + `
 Lerd ships a small catalogue of opt-in **service presets** — bundled YAML definitions for common dev services that become normal custom services once installed. Use ` + bt + `service_preset_list` + bt + ` to see what's available and ` + bt + `service_preset_install` + bt + ` to install one. Prefer this over hand-rolling ` + bt + `service_add` + bt + ` for anything in the catalogue: presets ship sane defaults, dependency wiring, dashboard URLs, and (where relevant) rendered config files.
 
-Current catalogue: ` + bt + `phpmyadmin` + bt + ` (depends on built-in mysql), ` + bt + `pgadmin` + bt + ` (depends on built-in postgres, ships a pre-loaded servers.json + pgpass), ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + ` (depends on the ` + bt + `mongo` + bt + ` preset), ` + bt + `stripe-mock` + bt + `. Some presets (e.g. ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `) declare multiple versions in a single family — pass ` + bt + `version` + bt + ` to pick one, otherwise lerd installs the family default.
+Current catalogue: ` + bt + `phpmyadmin` + bt + ` (depends on built-in mysql), ` + bt + `pgadmin` + bt + ` (depends on built-in postgres, ships a pre-loaded servers.json + pgpass), ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + ` (depends on the ` + bt + `mongo` + bt + ` preset), ` + bt + `selenium` + bt + ` (Chromium for browser testing — Dusk, Panther, etc.), ` + bt + `stripe-mock` + bt + `. Some presets (e.g. ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `) declare multiple versions in a single family — pass ` + bt + `version` + bt + ` to pick one, otherwise lerd installs the family default.
 
 Arguments:
 - ` + bt + `service_preset_list()` + bt + ` — returns each preset with its image, declared versions, dependencies, dashboard URL, and an ` + bt + `installed` + bt + ` flag
@@ -559,7 +592,9 @@ app_url: http://myapp.test/api
 If the configured ` + bt + `app_url` + bt + ` happens to point at a domain that the conflict filter dropped, lerd silently falls through to the next precedence level so ` + bt + `.env` + bt + ` doesn't end up writing a hostname owned by another site.
 
 ### ` + bt + `env_check` + bt + `
-Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and show a table of missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
+Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and return structured JSON with missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
+
+Returns: ` + bt + `{"in_sync": bool, "keys": [{key, in_example, files: {filename: bool}}], "out_of_sync_count": N}` + bt + `
 
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
@@ -756,7 +791,9 @@ Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 
 ### ` + bt + `check` + bt + `
-Validate a project's ` + bt + `.lerd.yaml` + bt + ` file. Checks YAML syntax, PHP version format and installation status, service definitions (built-in, custom, and inline), and framework references. Reports OK/WARN/FAIL per field with a summary.
+Validate a project's ` + bt + `.lerd.yaml` + bt + ` file. Returns structured JSON with per-field status (ok/warn/fail). Checks PHP version format and installation, service definitions (built-in, custom, inline), framework references, and worker configuration.
+
+Returns: ` + bt + `{"valid": bool, "errors": N, "warnings": N, "items": [{name, status, detail}]}` + bt + `
 
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root containing ` + bt + `.lerd.yaml` + bt + ` — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
@@ -764,7 +801,11 @@ Arguments:
 > **Use this before** ` + bt + `env_setup` + bt + ` or ` + bt + `site_link` + bt + ` to catch configuration errors early.
 
 ### ` + bt + `doctor` + bt + `
-Run a full environment diagnostic. Checks podman availability, systemd user session, linger, quadlet/data dir writability, config validity, DNS resolution, port 80/443 conflicts, PHP image presence, and available updates. Returns a text report with OK/FAIL/WARN per check and hints for each failure. **Use this when the user reports setup issues or unexpected behaviour.**
+Run a full environment diagnostic. Returns structured JSON with per-check status (ok/warn/fail): podman, systemd, linger, dir writability, config validity, DNS resolution, nginx, PHP images, and update availability.
+
+Returns: ` + bt + `{"version": "...", "checks": [{name, status, detail}], "failures": N, "warnings": N, "php_installed": [...], "php_default": "...", "node_default": "..."}` + bt + `
+
+**Use this when the user reports setup issues or unexpected behaviour.**
 
 ## Common Workflows
 
@@ -969,7 +1010,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
-| ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` and flag missing or extra keys |
+| ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` — returns structured JSON with per-key sync status |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
 | ` + bt + `site_domain_add` + bt + ` | Add an additional domain to a site (without TLD) |
@@ -984,7 +1025,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `service_start` + bt + ` | Start a built-in or custom service |
 | ` + bt + `service_stop` + bt + ` | Stop a service |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
-| ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, stripe-mock, …) with versions and install state |
+| ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, selenium, stripe-mock, …) with versions and install state |
 | ` + bt + `service_preset_install` + bt + ` | Install a bundled preset by name (` + bt + `version` + bt + ` for multi-version families); becomes a normal custom service |
 | ` + bt + `service_remove` + bt + ` | Stop and deregister a custom service |
 | ` + bt + `service_expose` + bt + ` | Add or remove an extra published port on a built-in service (persisted) |
@@ -1017,9 +1058,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
-| ` + bt + `doctor` + bt + ` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates |
+| ` + bt + `doctor` + bt + ` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates |
 | ` + bt + `which` + bt + ` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
-| ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` syntax, PHP version, services, and framework references — reports OK/WARN/FAIL per field |
+| ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` as structured JSON — PHP version, services, framework references with per-field ok/warn/fail |
 
 ### Key conventions
 
@@ -1041,7 +1082,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
-- Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first
+- Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `selenium` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first
 - ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
 - ` + bt + `framework_add` + bt + ` accepts ` + bt + `workers` + bt + ` (map) and ` + bt + `setup` + bt + ` (array) — both support an optional ` + bt + `check` + bt + ` field (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `) to conditionally show based on project deps; for Laravel, custom setup commands replace built-in storage:link/migrate/db:seed
 - Framework env vars support service version placeholders: ` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + ` — resolved from the running service image tag
@@ -1050,3 +1091,11 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist
 - ` + bt + `park` + bt + ` auto-registers all PHP subdirectories as sites in one call; ` + bt + `unpark` + bt + ` removes them all — project files are NOT deleted
 `
+
+// cursorRulesContent is the Cursor rules file written to .cursor/rules/lerd.mdc.
+const cursorRulesContent = `---
+description: Lerd local PHP development environment — use the lerd MCP tools to manage sites, services, workers, and PHP/Node runtimes.
+globs:
+alwaysApply: true
+---
+` + junieGuidelinesSection

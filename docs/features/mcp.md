@@ -1,6 +1,6 @@
 # AI Integration (MCP)
 
-Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, letting AI assistants (Claude Code, JetBrains Junie, and any other MCP-compatible tool) manage your dev environment directly — run migrations, start services, toggle queue workers, and inspect logs without leaving the chat.
+Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, letting AI assistants (Claude Code, Cursor, JetBrains Junie, and any other MCP-compatible tool) manage your dev environment directly — run migrations, start services, toggle queue workers, and inspect logs without leaving the chat.
 
 ---
 
@@ -16,7 +16,7 @@ Run once after installing lerd:
 lerd mcp:enable-global
 ```
 
-This registers the lerd MCP server at **user scope** — available in every Claude Code session, regardless of which directory you open. It also updates Windsurf and JetBrains Junie global configs.
+This registers the lerd MCP server at **user scope** — available in every Claude Code session, regardless of which directory you open. It also updates Cursor, Windsurf, and JetBrains Junie global configs.
 
 When running globally, the server uses the **directory Claude is opened in** as the site context. No further configuration is needed — just open your AI assistant in a project directory and lerd tools work immediately.
 
@@ -31,12 +31,14 @@ cd ~/Lerd/my-app
 lerd mcp:inject
 ```
 
-This writes five files into the project directory:
+This writes seven files into the project directory:
 
 | File | Purpose |
 |---|---|
 | `.mcp.json` | MCP server entry for Claude Code |
 | `.claude/skills/lerd/SKILL.md` | Skill file that teaches Claude about lerd tools |
+| `.cursor/mcp.json` | MCP server entry for Cursor |
+| `.cursor/rules/lerd.mdc` | Cursor rules file that teaches Cursor about lerd tools |
 | `.ai/mcp/mcp.json` | MCP server entry for Windsurf and other MCP-compatible tools |
 | `.junie/mcp/mcp.json` | MCP server entry for JetBrains Junie |
 | `.junie/guidelines.md` | Lerd context section for JetBrains Junie (merged, not overwritten) |
@@ -79,7 +81,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `node_install` | Install a Node.js version via fnm (e.g. `"20"`, `"lts"`) |
 | `node_uninstall` | Uninstall a Node.js version via fnm |
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
-| `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
+| `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys (returns structured JSON) |
 | `site_link` | Register a directory as a lerd site — generates nginx vhost and `.test` domain |
 | `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |
 | `site_domain_add` | Add an additional domain to a site (without TLD) |
@@ -124,9 +126,9 @@ Once the MCP server is connected, your AI assistant has access to:
 | `stripe_listen_stop` | Stop the Stripe webhook listener |
 | `logs` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher — use when a site isn't loading |
-| `doctor` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates — use when the user reports setup issues |
+| `doctor` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates — use when the user reports setup issues |
 | `which` | Show the resolved PHP version, Node version, document root, and nginx config for the current site |
-| `check` | Validate `.lerd.yaml` syntax, PHP version, services, and framework — reports OK/WARN/FAIL per field |
+| `check` | Validate `.lerd.yaml` as structured JSON: PHP version, services, framework — returns valid/errors/warnings with per-field status |
 
 ---
 

@@ -1,0 +1,15 @@
+name: selenium
+image: docker.io/selenium/standalone-chromium:latest
+description: Selenium + Chromium for browser testing (Laravel Dusk, Symfony Panther, etc.)
+ports:
+  - "4444:4444"
+  - "7900:7900"
+environment:
+  SE_NODE_MAX_SESSIONS: "3"
+  SE_VNC_NO_PASSWORD: "1"
+share_hosts: true
+env_vars:
+  - DUSK_DRIVER_URL=http://lerd-selenium:4444
+env_detect:
+  composer: laravel/dusk
+dashboard: http://localhost:7900/?autoconnect=1&resize=scale

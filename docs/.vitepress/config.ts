@@ -93,6 +93,7 @@ export default defineConfig({
             { text: 'Database', link: '/usage/database' },
             { text: 'Frameworks & Workers', link: '/usage/frameworks' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
+            { text: 'Browser Testing', link: '/usage/browser-testing' },
             { text: 'Stripe', link: '/usage/stripe' },
             { text: 'Remote / LAN Development', link: '/usage/remote-development' },
           ],

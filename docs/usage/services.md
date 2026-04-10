@@ -140,6 +140,7 @@ plays nicely with every `lerd service` subcommand (start/stop/remove/expose/pin)
 | `mariadb` | `11` (default) / `10.11` LTS | — | `127.0.0.1:3411` / `127.0.0.1:3410` |
 | `mongo` | `docker.io/library/mongo:7` | — | `127.0.0.1:27017` |
 | `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
+| `selenium` | `docker.io/selenium/standalone-chromium:latest` | — | `http://localhost:7900` (noVNC) |
 | `stripe-mock` | `docker.io/stripemock/stripe-mock:latest` | — | `127.0.0.1:12111` |
 
 ```bash

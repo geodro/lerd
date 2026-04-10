@@ -14,9 +14,10 @@ import (
 // NewEnvCheckCmd returns the env:check command.
 func NewEnvCheckCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "env:check",
-		Short: "Compare all .env files against .env.example and flag missing keys",
-		RunE:  runEnvCheck,
+		Use:          "env:check",
+		Short:        "Compare all .env files against .env.example and flag missing keys",
+		SilenceUsage: true,
+		RunE:         runEnvCheck,
 	}
 }
 
@@ -217,9 +218,6 @@ func runEnvCheck(_ *cobra.Command, _ []string) error {
 	fmt.Println()
 	fmt.Printf("  %d key(s) out of sync\n", len(sortedKeys))
 
-	if totalMissing > 0 {
-		return fmt.Errorf("env check failed")
-	}
 	return nil
 }
 

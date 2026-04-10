@@ -139,6 +139,26 @@ func runSetup(allSteps, skipOpen bool) error {
 			label:   "npm run " + buildScript,
 			enabled: hasPackageJSON && buildScript != "",
 			run: func() error {
+				if _, err := os.Stat(cwd + "/node_modules"); os.IsNotExist(err) {
+					fmt.Println("  node_modules not found.")
+					fmt.Print("  Run npm install first? [Y/n]: ")
+					scanner := bufio.NewScanner(os.Stdin)
+					if scanner.Scan() {
+						answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+						if answer == "" || answer == "y" || answer == "yes" {
+							installCmd := "install"
+							if hasLockFile {
+								installCmd = "ci"
+							}
+							fmt.Printf("\n→ Running: npm %s\n", installCmd)
+							if err := runWithFnm("npm", []string{installCmd}); err != nil {
+								return fmt.Errorf("npm %s failed: %w", installCmd, err)
+							}
+						} else {
+							return fmt.Errorf("node_modules not found — skipping build")
+						}
+					}
+				}
 				return runWithFnm("npm", []string{"run", buildScript})
 			},
 		},

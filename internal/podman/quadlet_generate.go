@@ -24,6 +24,10 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 	fmt.Fprintf(&b, "ContainerName=lerd-%s\n", svc.Name)
 	b.WriteString("Network=lerd\n")
 
+	if svc.ShareHosts {
+		fmt.Fprintf(&b, "Volume=%s:/etc/hosts:ro,z\n", config.BrowserHostsFile())
+	}
+
 	for _, port := range svc.Ports {
 		fmt.Fprintf(&b, "PublishPort=%s\n", port)
 	}
