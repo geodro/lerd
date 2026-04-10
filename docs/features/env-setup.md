@@ -72,4 +72,15 @@ When everything is in sync:
 
 The command automatically discovers all `.env*` files in the project directory (`.env`, `.env.testing`, `.env.local`, etc.) and checks each one against `.env.example`. Only keys that differ in at least one file are shown.
 
-The command exits with a non-zero status when any `.env` file is missing a key defined in `.env.example` (✓ in `.env.example`, ✗ in an env file). Extra keys (present in an env file but not in `.env.example`) are reported but don't cause a failure.
+When called via the MCP server (AI assistants), `env_check` returns structured JSON instead of the formatted table:
+
+```json
+{
+  "in_sync": false,
+  "keys": [
+    {"key": "STRIPE_KEY", "in_example": true, "files": {".env": false, ".env.testing": false}},
+    {"key": "LEGACY_TOKEN", "in_example": false, "files": {".env": true, ".env.testing": false}}
+  ],
+  "out_of_sync_count": 3
+}
+```

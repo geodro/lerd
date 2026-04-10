@@ -132,3 +132,49 @@ func UpdateAppURL(projectPath, scheme, domain string) error {
 		"APP_URL": scheme + "://" + domain,
 	})
 }
+
+// SyncPrimaryDomain updates APP_URL and VITE_REVERB_HOST/SCHEME/PORT in the
+// project's .env to reflect the current primary domain and TLS state.
+// Only keys that already exist in the .env are touched.
+// Silently does nothing if no .env exists.
+func SyncPrimaryDomain(projectPath, domain string, secured bool) error {
+	envPath := filepath.Join(projectPath, ".env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	keys, err := ReadKeys(envPath)
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		present[k] = true
+	}
+
+	scheme := "http"
+	port := "80"
+	if secured {
+		scheme = "https"
+		port = "443"
+	}
+
+	updates := map[string]string{}
+	if present["APP_URL"] {
+		updates["APP_URL"] = scheme + "://" + domain
+	}
+	if present["VITE_REVERB_HOST"] {
+		updates["VITE_REVERB_HOST"] = domain
+	}
+	if present["VITE_REVERB_SCHEME"] {
+		updates["VITE_REVERB_SCHEME"] = scheme
+	}
+	if present["VITE_REVERB_PORT"] {
+		updates["VITE_REVERB_PORT"] = port
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+	return ApplyUpdates(envPath, updates)
+}

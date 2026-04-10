@@ -219,6 +219,16 @@ env:
   url_key: DEFAULT_URI            # env key holding the app URL (default: APP_URL)
 
   # Per-service env detection and variable injection for `lerd env`
+  #
+  # Template variables available in vars values:
+  #   {{site}}              — project database / handle name (e.g. myapp)
+  #   {{site_testing}}      — testing database name (e.g. myapp_testing)
+  #   {{domain}}            — site's primary domain (e.g. myapp.test)
+  #   {{scheme}}            — http or https depending on TLS status
+  #   {{mysql_version}}     — running MySQL server version
+  #   {{postgres_version}}  — running PostgreSQL server version
+  #   {{redis_version}}     — running Redis server version
+  #   {{meilisearch_version}} — running Meilisearch server version
   services:
     mysql:
       detect:
