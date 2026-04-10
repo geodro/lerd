@@ -592,7 +592,9 @@ app_url: http://myapp.test/api
 If the configured ` + bt + `app_url` + bt + ` happens to point at a domain that the conflict filter dropped, lerd silently falls through to the next precedence level so ` + bt + `.env` + bt + ` doesn't end up writing a hostname owned by another site.
 
 ### ` + bt + `env_check` + bt + `
-Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and show a table of missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
+Compare all ` + bt + `.env` + bt + ` files (` + bt + `.env` + bt + `, ` + bt + `.env.testing` + bt + `, ` + bt + `.env.local` + bt + `, …) against ` + bt + `.env.example` + bt + ` and return structured JSON with missing or extra keys. Useful for catching "works on my machine" bugs caused by env drift after pulling new code.
+
+Returns: ` + bt + `{"in_sync": bool, "keys": [{key, in_example, files: {filename: bool}}], "out_of_sync_count": N}` + bt + `
 
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
@@ -789,7 +791,9 @@ Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 
 ### ` + bt + `check` + bt + `
-Validate a project's ` + bt + `.lerd.yaml` + bt + ` file. Checks YAML syntax, PHP version format and installation status, service definitions (built-in, custom, and inline), and framework references. Reports OK/WARN/FAIL per field with a summary.
+Validate a project's ` + bt + `.lerd.yaml` + bt + ` file. Returns structured JSON with per-field status (ok/warn/fail). Checks PHP version format and installation, service definitions (built-in, custom, inline), framework references, and worker configuration.
+
+Returns: ` + bt + `{"valid": bool, "errors": N, "warnings": N, "items": [{name, status, detail}]}` + bt + `
 
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root containing ` + bt + `.lerd.yaml` + bt + ` — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
@@ -797,7 +801,11 @@ Arguments:
 > **Use this before** ` + bt + `env_setup` + bt + ` or ` + bt + `site_link` + bt + ` to catch configuration errors early.
 
 ### ` + bt + `doctor` + bt + `
-Run a full environment diagnostic. Checks podman availability, systemd user session, linger, quadlet/data dir writability, config validity, DNS resolution, port 80/443 conflicts, PHP image presence, and available updates. Returns a text report with OK/FAIL/WARN per check and hints for each failure. **Use this when the user reports setup issues or unexpected behaviour.**
+Run a full environment diagnostic. Returns structured JSON with per-check status (ok/warn/fail): podman, systemd, linger, dir writability, config validity, DNS resolution, nginx, PHP images, and update availability.
+
+Returns: ` + bt + `{"version": "...", "checks": [{name, status, detail}], "failures": N, "warnings": N, "php_installed": [...], "php_default": "...", "node_default": "..."}` + bt + `
+
+**Use this when the user reports setup issues or unexpected behaviour.**
 
 ## Common Workflows
 
@@ -1002,7 +1010,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
-| ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` and flag missing or extra keys |
+| ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` — returns structured JSON with per-key sync status |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
 | ` + bt + `site_domain_add` + bt + ` | Add an additional domain to a site (without TLD) |
@@ -1050,9 +1058,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
-| ` + bt + `doctor` + bt + ` | Full diagnostic: podman, systemd, DNS, ports, PHP images, config, updates |
+| ` + bt + `doctor` + bt + ` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates |
 | ` + bt + `which` + bt + ` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
-| ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` syntax, PHP version, services, and framework references — reports OK/WARN/FAIL per field |
+| ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` as structured JSON — PHP version, services, framework references with per-field ok/warn/fail |
 
 ### Key conventions
 

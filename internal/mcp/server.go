@@ -22,6 +22,8 @@ import (
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	lerdUpdate "github.com/geodro/lerd/internal/update"
+	"github.com/geodro/lerd/internal/version"
 )
 
 const protocolVersion = "2024-11-05"
@@ -81,6 +83,7 @@ var builtinServiceEnv = map[string][]string{
 
 // phpVersionRe matches PHP version strings like "8.4" or "8.3" — digits only, no domain names.
 var phpVersionRe = regexp.MustCompile(`^\d+\.\d+$`)
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 // defaultSitePath is resolved at startup: LERD_SITE_PATH takes precedence (injected by
 // mcp:inject for project-scoped use); if not set, the working directory is used so that
@@ -1498,6 +1501,10 @@ func toolErr(text string) map[string]any {
 	}
 }
 
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
 func strArg(args map[string]any, key string) string {
 	if v, ok := args[key]; ok {
 		if s, ok := v.(string); ok {
@@ -1589,9 +1596,9 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("artisan failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("artisan failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execSites() (any, *rpcError) {
@@ -2074,7 +2081,7 @@ func execLogs(args map[string]any) (any, *rpcError) {
 	cmd.Stderr = &out
 	_ = cmd.Run() // non-zero exit if container not running is fine — we return what we have
 
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func resolveLogsContainer(target string) (string, error) {
@@ -2131,9 +2138,9 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("composer failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("composer failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execVendorBins(args map[string]any) (any, *rpcError) {
@@ -2203,9 +2210,9 @@ func execVendorRun(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("vendor/bin/%s failed (%v):\n%s", bin, err, out.String())), nil
+		return toolErr(fmt.Sprintf("vendor/bin/%s failed (%v):\n%s", bin, err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execNodeInstall(args map[string]any) (any, *rpcError) {
@@ -2224,9 +2231,9 @@ func execNodeInstall(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("fnm install %s failed (%v):\n%s", version, err, out.String())), nil
+		return toolErr(fmt.Sprintf("fnm install %s failed (%v):\n%s", version, err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execNodeUninstall(args map[string]any) (any, *rpcError) {
@@ -2245,9 +2252,9 @@ func execNodeUninstall(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("fnm uninstall %s failed (%v):\n%s", version, err, out.String())), nil
+		return toolErr(fmt.Sprintf("fnm uninstall %s failed (%v):\n%s", version, err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execRuntimeVersions() (any, *rpcError) {
@@ -2351,12 +2358,167 @@ func execStatus() (any, *rpcError) {
 }
 
 func execDoctor() (any, *rpcError) {
-	cmd := exec.Command("lerd", "doctor")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	cmd.Run() //nolint:errcheck
-	return toolOK(out.String()), nil
+	type checkResult struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Detail string `json:"detail,omitempty"`
+	}
+	type doctorResult struct {
+		Version      string        `json:"version"`
+		Checks       []checkResult `json:"checks"`
+		Failures     int           `json:"failures"`
+		Warnings     int           `json:"warnings"`
+		UpdateAvail  string        `json:"update_available,omitempty"`
+		PHPInstalled []string      `json:"php_installed"`
+		PHPDefault   string        `json:"php_default,omitempty"`
+		NodeDefault  string        `json:"node_default,omitempty"`
+	}
+
+	var r doctorResult
+	r.Version = version.String()
+	var checks []checkResult
+
+	add := func(name, status, detail string) {
+		checks = append(checks, checkResult{Name: name, Status: status, Detail: detail})
+	}
+
+	// Prerequisites
+	if _, err := exec.LookPath("podman"); err != nil {
+		add("podman", "fail", "not found in PATH")
+	} else if err := podman.RunSilent("info"); err != nil {
+		add("podman", "fail", "podman info failed — daemon not running?")
+	} else {
+		add("podman", "ok", "")
+	}
+
+	if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
+		state := strings.TrimSpace(string(out))
+		if state == "degraded" {
+			add("systemd_user_session", "warn", "degraded — some units have failed")
+		} else {
+			add("systemd_user_session", "fail", "state="+state)
+		}
+	} else {
+		add("systemd_user_session", "ok", "")
+	}
+
+	currentUser := os.Getenv("USER")
+	if currentUser == "" {
+		currentUser = os.Getenv("LOGNAME")
+	}
+	if currentUser != "" {
+		out, err := exec.Command("loginctl", "show-user", currentUser).Output()
+		if err != nil || !strings.Contains(string(out), "Linger=yes") {
+			add("systemd_linger", "warn", "services won't survive logout")
+		} else {
+			add("systemd_linger", "ok", "")
+		}
+	}
+
+	quadletDir := config.QuadletDir()
+	if err := dirWritable(quadletDir); err != nil {
+		add("quadlet_dir", "fail", err.Error())
+	} else {
+		add("quadlet_dir", "ok", "")
+	}
+
+	dataDir := config.DataDir()
+	if err := dirWritable(dataDir); err != nil {
+		add("data_dir", "fail", err.Error())
+	} else {
+		add("data_dir", "ok", "")
+	}
+
+	// Configuration
+	cfg, cfgErr := config.LoadGlobal()
+	if cfgErr != nil {
+		add("config", "fail", cfgErr.Error())
+		cfg = nil
+	} else {
+		add("config", "ok", "")
+	}
+
+	if cfg != nil {
+		if cfg.PHP.DefaultVersion == "" {
+			add("php_default_version", "warn", "not set")
+		} else {
+			add("php_default_version", "ok", cfg.PHP.DefaultVersion)
+			r.PHPDefault = cfg.PHP.DefaultVersion
+		}
+		r.NodeDefault = cfg.Node.DefaultVersion
+
+		if cfg.Nginx.HTTPPort <= 0 || cfg.Nginx.HTTPSPort <= 0 {
+			add("nginx_ports", "fail", fmt.Sprintf("http=%d https=%d", cfg.Nginx.HTTPPort, cfg.Nginx.HTTPSPort))
+		} else {
+			add("nginx_ports", "ok", fmt.Sprintf("%d/%d", cfg.Nginx.HTTPPort, cfg.Nginx.HTTPSPort))
+		}
+	}
+
+	// DNS
+	tld := "test"
+	if cfg != nil && cfg.DNS.TLD != "" {
+		tld = cfg.DNS.TLD
+	}
+	if resolved, _ := dns.Check(tld); resolved {
+		add("dns_resolution", "ok", "."+tld)
+	} else {
+		add("dns_resolution", "fail", "."+tld+" not resolving")
+	}
+
+	// Ports
+	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
+	if nginxRunning {
+		add("nginx", "ok", "running")
+	} else {
+		add("nginx", "warn", "not running")
+	}
+
+	// PHP images
+	phpVersions, _ := phpDet.ListInstalled()
+	r.PHPInstalled = phpVersions
+	if r.PHPInstalled == nil {
+		r.PHPInstalled = []string{}
+	}
+	for _, v := range phpVersions {
+		short := strings.ReplaceAll(v, ".", "")
+		image := "lerd-php" + short + "-fpm:local"
+		if !podman.ImageExists(image) {
+			add("php_"+v+"_image", "fail", "missing")
+		} else {
+			add("php_"+v+"_image", "ok", "")
+		}
+	}
+
+	// Update check
+	if updateInfo, _ := lerdUpdate.CachedUpdateCheck(version.Version); updateInfo != nil {
+		r.UpdateAvail = updateInfo.LatestVersion
+	}
+
+	r.Checks = checks
+	for _, c := range checks {
+		switch c.Status {
+		case "fail":
+			r.Failures++
+		case "warn":
+			r.Warnings++
+		}
+	}
+
+	data, _ := json.MarshalIndent(r, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+func dirWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("cannot create: %v", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".lerd-mcp-*")
+	if err != nil {
+		return fmt.Errorf("not writable: %v", err)
+	}
+	tmp.Close()
+	os.Remove(tmp.Name())
+	return nil
 }
 
 func execWhich(args map[string]any) (any, *rpcError) {
@@ -2376,9 +2538,9 @@ func execWhich(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("which failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("which failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 func execCheck(args map[string]any) (any, *rpcError) {
@@ -2387,18 +2549,184 @@ func execCheck(args map[string]any) (any, *rpcError) {
 		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
-	self, err := os.Executable()
-	if err != nil {
-		return toolErr("could not resolve lerd executable: " + err.Error()), nil
+	path := filepath.Join(projectPath, ".lerd.yaml")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return toolErr("no .lerd.yaml found in " + projectPath), nil
 	}
 
-	var out bytes.Buffer
-	cmd := exec.Command(self, "check")
-	cmd.Dir = projectPath
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	cmd.Run() //nolint:errcheck
-	return toolOK(out.String()), nil
+	cfg, err := config.LoadProjectConfig(projectPath)
+	if err != nil {
+		return toolErr("invalid .lerd.yaml: " + err.Error()), nil
+	}
+
+	type checkItem struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Detail string `json:"detail,omitempty"`
+	}
+	type checkResult struct {
+		Valid    bool        `json:"valid"`
+		Errors   int         `json:"errors"`
+		Warnings int         `json:"warnings"`
+		Items    []checkItem `json:"items"`
+	}
+
+	var r checkResult
+	add := func(name, status, detail string) {
+		r.Items = append(r.Items, checkItem{Name: name, Status: status, Detail: detail})
+		switch status {
+		case "fail":
+			r.Errors++
+		case "warn":
+			r.Warnings++
+		}
+	}
+
+	// PHP version
+	if cfg.PHPVersion != "" {
+		if err := validatePHPVersionMCP(cfg.PHPVersion); err != nil {
+			add("php_version", "fail", cfg.PHPVersion+" — "+err.Error())
+		} else if !phpDet.IsInstalled(cfg.PHPVersion) {
+			add("php_version", "warn", cfg.PHPVersion+" not installed")
+		} else {
+			add("php_version", "ok", cfg.PHPVersion)
+		}
+	}
+
+	// Node version
+	if cfg.NodeVersion != "" {
+		add("node_version", "ok", cfg.NodeVersion)
+	}
+
+	// Framework
+	if cfg.Framework != "" {
+		if cfg.FrameworkDef != nil {
+			add("framework", "ok", cfg.Framework+" (inline)")
+		} else if _, ok := config.GetFramework(cfg.Framework); ok {
+			add("framework", "ok", cfg.Framework)
+		} else {
+			add("framework", "warn", cfg.Framework+" is not a known framework")
+		}
+	}
+
+	// Workers
+	if len(cfg.Workers) > 0 {
+		fwName := cfg.Framework
+		if fwName == "" {
+			fwName, _ = config.DetectFramework(projectPath)
+		}
+		fw, hasFw := config.GetFramework(fwName)
+
+		hasQueue, hasHorizon := false, false
+		for _, w := range cfg.Workers {
+			if w == "queue" {
+				hasQueue = true
+			}
+			if w == "horizon" {
+				hasHorizon = true
+			}
+			switch w {
+			case "horizon":
+				if !siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
+					add("worker_"+w, "warn", "laravel/horizon not installed")
+				} else {
+					add("worker_"+w, "ok", "")
+				}
+			case "reverb":
+				if !siteUsesReverb(projectPath) {
+					add("worker_"+w, "warn", "reverb not configured")
+				} else {
+					add("worker_"+w, "ok", "")
+				}
+			case "queue", "schedule":
+				if hasFw && fw.Workers != nil {
+					if _, ok := fw.Workers[w]; ok {
+						add("worker_"+w, "ok", "")
+					} else {
+						add("worker_"+w, "warn", "not defined for framework "+fwName)
+					}
+				} else {
+					add("worker_"+w, "warn", "no framework detected")
+				}
+			default:
+				if hasFw && fw.Workers != nil {
+					if _, ok := fw.Workers[w]; ok {
+						add("worker_"+w, "ok", "")
+					} else {
+						add("worker_"+w, "fail", "not defined for framework "+fwName)
+					}
+				} else {
+					add("worker_"+w, "fail", "no framework worker definition found")
+				}
+			}
+		}
+		if hasQueue && hasHorizon {
+			add("workers_conflict", "warn", "both queue and horizon listed — horizon manages queues")
+		}
+		if hasQueue && siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
+			add("workers_conflict", "warn", "queue listed but horizon installed — horizon will be started instead")
+		}
+	}
+
+	// Services
+	for _, svc := range cfg.Services {
+		if svc.Custom != nil {
+			if svc.Custom.Image == "" {
+				add("service_"+svc.Name, "fail", "inline definition missing image")
+			} else {
+				add("service_"+svc.Name, "ok", "inline, image: "+svc.Custom.Image)
+			}
+			continue
+		}
+		if isKnownService(svc.Name) {
+			add("service_"+svc.Name, "ok", "")
+			continue
+		}
+		if _, err := config.LoadCustomService(svc.Name); err == nil {
+			add("service_"+svc.Name, "ok", "custom")
+		} else {
+			add("service_"+svc.Name, "fail", "not a built-in and no definition found")
+		}
+	}
+
+	r.Valid = r.Errors == 0
+	data, _ := json.MarshalIndent(r, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+func validatePHPVersionMCP(s string) error {
+	parts := strings.SplitN(s, ".", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("must be MAJOR.MINOR format")
+	}
+	for _, p := range parts {
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return fmt.Errorf("must be MAJOR.MINOR format")
+			}
+		}
+	}
+	return nil
+}
+
+func siteHasComposerPkg(sitePath, pkg string) bool {
+	data, err := os.ReadFile(filepath.Join(sitePath, "composer.json"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), pkg)
+}
+
+func siteUsesReverb(sitePath string) bool {
+	if siteHasComposerPkg(sitePath, `"laravel/reverb"`) {
+		return true
+	}
+	for _, name := range []string{".env", ".env.example"} {
+		if envfile.ReadKey(filepath.Join(sitePath, name), "BROADCAST_CONNECTION") == "reverb" {
+			return true
+		}
+	}
+	return false
 }
 
 func execServiceAdd(args map[string]any) (any, *rpcError) {
@@ -2681,9 +3009,9 @@ func execEnvSetup(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("env setup failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("env setup failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 // execDbSet sets the database for a Laravel project: persists the choice to
@@ -2753,18 +3081,105 @@ func execEnvCheck(args map[string]any) (any, *rpcError) {
 		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 
-	self, err := os.Executable()
-	if err != nil {
-		return toolErr("could not resolve lerd executable: " + err.Error()), nil
+	examplePath := filepath.Join(projectPath, ".env.example")
+	if _, err := os.Stat(examplePath); os.IsNotExist(err) {
+		return toolErr("no .env.example found in " + projectPath), nil
 	}
 
-	var out bytes.Buffer
-	cmd := exec.Command(self, "env:check")
-	cmd.Dir = projectPath
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	_ = cmd.Run() // non-zero exit is expected when keys are missing
-	return toolOK(strings.TrimSpace(out.String())), nil
+	exampleKeys, err := envfile.ReadKeys(examplePath)
+	if err != nil {
+		return toolErr("reading .env.example: " + err.Error()), nil
+	}
+	exampleSet := make(map[string]bool, len(exampleKeys))
+	for _, k := range exampleKeys {
+		exampleSet[k] = true
+	}
+
+	// Find all .env* files (excluding .env.example).
+	entries, err := os.ReadDir(projectPath)
+	if err != nil {
+		return toolErr("reading directory: " + err.Error()), nil
+	}
+	type fileInfo struct {
+		name   string
+		keySet map[string]bool
+		keys   []string
+	}
+	var files []fileInfo
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, ".env") || e.IsDir() || name == ".env.example" {
+			continue
+		}
+		keys, err := envfile.ReadKeys(filepath.Join(projectPath, name))
+		if err != nil {
+			continue
+		}
+		set := make(map[string]bool, len(keys))
+		for _, k := range keys {
+			set[k] = true
+		}
+		files = append(files, fileInfo{name: name, keySet: set, keys: keys})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
+
+	if len(files) == 0 {
+		return toolErr("no .env files found — run env_setup first"), nil
+	}
+
+	// Build per-key status across all files.
+	type keyStatus struct {
+		Key     string          `json:"key"`
+		Example bool            `json:"in_example"`
+		Files   map[string]bool `json:"files"`
+	}
+
+	// Collect keys with at least one mismatch.
+	mismatched := make(map[string]bool)
+	for _, k := range exampleKeys {
+		for _, f := range files {
+			if !f.keySet[k] {
+				mismatched[k] = true
+				break
+			}
+		}
+	}
+	for _, f := range files {
+		for _, k := range f.keys {
+			if !exampleSet[k] {
+				mismatched[k] = true
+			}
+		}
+	}
+
+	var keys []keyStatus
+	sortedKeys := make([]string, 0, len(mismatched))
+	for k := range mismatched {
+		sortedKeys = append(sortedKeys, k)
+	}
+	sort.Strings(sortedKeys)
+
+	for _, k := range sortedKeys {
+		fs := make(map[string]bool, len(files))
+		for _, f := range files {
+			fs[f.name] = f.keySet[k]
+		}
+		keys = append(keys, keyStatus{Key: k, Example: exampleSet[k], Files: fs})
+	}
+
+	type result struct {
+		InSync bool        `json:"in_sync"`
+		Keys   []keyStatus `json:"keys,omitempty"`
+		Count  int         `json:"out_of_sync_count"`
+	}
+	r := result{
+		InSync: len(keys) == 0,
+		Keys:   keys,
+		Count:  len(keys),
+	}
+
+	data, _ := json.MarshalIndent(r, "", "  ")
+	return toolOK(string(data)), nil
 }
 
 func execSiteLink(args map[string]any) (any, *rpcError) {
@@ -2949,6 +3364,10 @@ func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
 	_ = podman.WriteContainerHosts()
 	_ = nginx.Reload()
 
+	if site.PrimaryDomain() != oldPrimary {
+		_ = envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured)
+	}
+
 	return toolOK(fmt.Sprintf("Added domain %s to site %s", fullDomain, site.Name)), nil
 }
 
@@ -3007,6 +3426,10 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 
 	_ = podman.WriteContainerHosts()
 	_ = nginx.Reload()
+
+	if site.PrimaryDomain() != oldPrimary {
+		_ = envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured)
+	}
 
 	return toolOK(fmt.Sprintf("Removed domain %s from site %s", fullDomain, site.Name)), nil
 }
@@ -3232,7 +3655,7 @@ func execDBExport(args map[string]any) (any, *rpcError) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(output)
-		return toolErr(fmt.Sprintf("export failed (%v):\n%s", err, stderr.String())), nil
+		return toolErr(fmt.Sprintf("export failed (%v):\n%s", err, stripANSI(stderr.String()))), nil
 	}
 	return toolOK(fmt.Sprintf("Exported %s (%s) to %s", env.database, env.connection, output)), nil
 }
@@ -3747,10 +4170,10 @@ func execProjectNew(args map[string]any) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("scaffold command failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("scaffold command failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
 	return toolOK(fmt.Sprintf("Project created at %s\n\nNext steps:\n  site_link(path: %q)\n  env_setup(path: %q)\n\n%s",
-		projectPath, projectPath, projectPath, strings.TrimSpace(out.String()))), nil
+		projectPath, projectPath, projectPath, stripANSI(strings.TrimSpace(out.String())))), nil
 }
 
 func execSitePHP(args map[string]any) (any, *rpcError) {
@@ -3895,9 +4318,9 @@ func runLerdCmd(cmdArgs ...string) (any, *rpcError) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("command failed (%v):\n%s", err, out.String())), nil
+		return toolErr(fmt.Sprintf("command failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
-	return toolOK(strings.TrimSpace(out.String())), nil
+	return toolOK(stripANSI(strings.TrimSpace(out.String()))), nil
 }
 
 // ---- DB import / create ----
@@ -3943,7 +4366,7 @@ func execDBImport(args map[string]any) (any, *rpcError) {
 	cmd.Stdin = f
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return toolErr(fmt.Sprintf("import failed (%v):\n%s", err, stderr.String())), nil
+		return toolErr(fmt.Sprintf("import failed (%v):\n%s", err, stripANSI(stderr.String()))), nil
 	}
 	return toolOK(fmt.Sprintf("Imported %s into %s (%s)", file, env.database, env.connection)), nil
 }
