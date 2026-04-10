@@ -462,22 +462,3 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
-
-// ── IsLaravel ─────────────────────────────────────────────────────────────────
-
-func TestIsLaravel(t *testing.T) {
-	cases := []struct {
-		framework string
-		want      bool
-	}{
-		{"laravel", true},
-		{"symfony", false},
-		{"", false},
-	}
-	for _, c := range cases {
-		s := Site{Framework: c.framework}
-		if got := s.IsLaravel(); got != c.want {
-			t.Errorf("IsLaravel() for framework=%q = %v, want %v", c.framework, got, c.want)
-		}
-	}
-}

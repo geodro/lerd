@@ -8,8 +8,6 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -89,36 +87,18 @@ func newHorizonStopCmd(use string) *cobra.Command {
 	}
 }
 
-// HorizonStartForSite starts Laravel Horizon for the named site as a systemd service.
-// If a queue worker is running for the same site it is stopped first, since Horizon
-// manages queues and the two must not run simultaneously.
+// HorizonStartForSite starts Horizon for the named site. Conflicting workers
+// (defined via ConflictsWith in the framework definition) are stopped first.
 func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
-	if status, _ := podman.UnitStatus("lerd-queue-" + siteName); status == "active" {
-		if err := QueueStopForSite(siteName); err != nil {
-			fmt.Printf("[WARN] stopping queue worker before horizon: %v\n", err)
-		}
+	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	if !ok {
+		return fmt.Errorf("no framework found for site %q", siteName)
 	}
-	unitName := "lerd-horizon-" + siteName
-	unit := buildHorizonUnit(siteName, sitePath, phpVersion)
-
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
-	if err != nil {
-		return fmt.Errorf("writing service unit: %w", err)
+	worker, ok := fw.Workers["horizon"]
+	if !ok {
+		return fmt.Errorf("framework %q has no worker named \"horizon\"", fw.Label)
 	}
-	if changed {
-		if err := podman.DaemonReload(); err != nil {
-			return fmt.Errorf("daemon-reload: %w", err)
-		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
-			fmt.Printf("[WARN] enable: %v\n", err)
-		}
-	}
-	if err := lerdSystemd.StartService(unitName); err != nil {
-		return fmt.Errorf("starting horizon: %w", err)
-	}
-	fmt.Printf("Horizon started for %s\n", siteName)
-	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
-	return nil
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "horizon", worker)
 }
 
 // buildHorizonUnit renders the Horizon systemd unit body. Horizon always
@@ -147,20 +127,7 @@ WantedBy=default.target
 
 // HorizonStopForSite stops and removes the Horizon unit for the named site.
 func HorizonStopForSite(siteName string) error {
-	unitName := "lerd-horizon-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
-
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing unit file: %w", err)
-	}
-	if err := podman.DaemonReload(); err != nil {
-		fmt.Printf("[WARN] daemon-reload: %v\n", err)
-	}
-	fmt.Printf("Horizon stopped for %s\n", siteName)
-	return nil
+	return WorkerStopForSite(siteName, "horizon")
 }
 
 // SiteHasHorizon returns true if composer.json lists laravel/horizon as a dependency.

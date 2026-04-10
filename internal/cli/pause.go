@@ -241,23 +241,10 @@ func CollectRunningWorkerNames(site *config.Site) []string {
 func collectRunningWorkers(site *config.Site) []string {
 	var active []string
 
-	for _, w := range []string{"queue", "schedule", "reverb", "horizon"} {
-		if lerdSystemd.IsServiceActiveOrRestarting("lerd-" + w + "-" + site.Name) {
-			active = append(active, w)
-		}
-	}
-	if lerdSystemd.IsServiceActiveOrRestarting("lerd-stripe-" + site.Name) {
-		active = append(active, "stripe")
-	}
-
-	// Framework-defined custom workers (skip built-ins already checked above).
-	if fw, ok := config.GetFramework(site.Framework); ok && fw.Workers != nil {
+	// Enumerate all workers from the framework definition.
+	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok && fw.Workers != nil {
 		names := make([]string, 0, len(fw.Workers))
 		for wName := range fw.Workers {
-			switch wName {
-			case "queue", "schedule", "reverb":
-				continue
-			}
 			names = append(names, wName)
 		}
 		sort.Strings(names)
@@ -268,55 +255,49 @@ func collectRunningWorkers(site *config.Site) []string {
 		}
 	}
 
+	// Stripe is not a framework worker — check it separately.
+	if lerdSystemd.IsServiceActiveOrRestarting("lerd-stripe-" + site.Name) {
+		active = append(active, "stripe")
+	}
+
+	// Detect orphaned workers — running units with no framework definition.
+	known := make(map[string]bool, len(active))
+	for _, a := range active {
+		known[a] = true
+	}
+	active = append(active, lerdSystemd.FindOrphanedWorkers(site.Name, known)...)
+
 	return active
 }
 
 // stopWorkerByName stops a single named worker for the site.
 func stopWorkerByName(site *config.Site, workerName string) {
-	switch workerName {
-	case "queue":
-		QueueStopForSite(site.Name) //nolint:errcheck
-	case "schedule":
-		ScheduleStopForSite(site.Name) //nolint:errcheck
-	case "reverb":
-		ReverbStopForSite(site.Name) //nolint:errcheck
-	case "horizon":
-		HorizonStopForSite(site.Name) //nolint:errcheck
-	case "stripe":
+	if workerName == "stripe" {
 		StripeStopForSite(site.Name) //nolint:errcheck
-	default:
-		WorkerStopForSite(site.Name, workerName) //nolint:errcheck
+		return
 	}
+	WorkerStopForSite(site.Name, workerName) //nolint:errcheck
 }
 
 // resumeWorkerByName restarts a single named worker for the site.
 func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
-	switch workerName {
-	case "queue":
-		QueueStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
-	case "schedule":
-		ScheduleStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
-	case "reverb":
-		ReverbStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
-	case "horizon":
-		HorizonStartForSite(site.Name, site.Path, phpVersion) //nolint:errcheck
-	case "stripe":
+	if workerName == "stripe" {
 		scheme := "http"
 		if site.Secured {
 			scheme = "https"
 		}
 		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
-	default:
-		fw, ok := config.GetFramework(site.Framework)
-		if !ok || fw.Workers == nil {
-			return
-		}
-		worker, ok := fw.Workers[workerName]
-		if !ok {
-			return
-		}
-		WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
+		return
 	}
+	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !ok || fw.Workers == nil {
+		return
+	}
+	worker, ok := fw.Workers[workerName]
+	if !ok {
+		return
+	}
+	WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
 }
 
 // pausedPageHTML is the static HTML for the shared paused-site landing page.

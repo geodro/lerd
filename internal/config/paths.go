@@ -13,6 +13,14 @@ func xdgConfigHome() string {
 	return filepath.Join(home, ".config")
 }
 
+func xdgCacheHome() string {
+	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
+		return v
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache")
+}
+
 func xdgDataHome() string {
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
 		return v
@@ -111,6 +119,16 @@ func ServiceFilesDir(name string) string {
 // FrameworksDir returns the directory for user-defined framework YAML files.
 func FrameworksDir() string {
 	return filepath.Join(ConfigDir(), "frameworks")
+}
+
+// StoreFrameworksDir returns the directory for store-installed framework YAML files.
+func StoreFrameworksDir() string {
+	return filepath.Join(DataDir(), "frameworks")
+}
+
+// StoreCacheDir returns the directory for cached framework store data.
+func StoreCacheDir() string {
+	return filepath.Join(xdgCacheHome(), "lerd", "store")
 }
 
 // UpdateCheckFile returns the path to the cached update-check state file.

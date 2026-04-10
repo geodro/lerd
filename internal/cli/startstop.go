@@ -502,6 +502,19 @@ func restoreSiteInfrastructure() {
 
 	seenPHP := map[string]bool{}
 	seenSvc := map[string]bool{}
+	dirty := false
+
+	// Backfill framework for all sites (including paused) that were linked
+	// before detection was added.
+	for i, s := range reg.Sites {
+		if s.Ignored || s.Framework != "" {
+			continue
+		}
+		if name, ok := config.DetectFramework(s.Path); ok {
+			reg.Sites[i].Framework = name
+			dirty = true
+		}
+	}
 
 	for _, s := range reg.Sites {
 		if s.Paused || s.Ignored {
@@ -558,33 +571,28 @@ func restoreSiteInfrastructure() {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
-			switch w {
-			case "queue":
-				QueueStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
-			case "schedule":
-				ScheduleStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
-			case "reverb":
-				ReverbStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
-			case "horizon":
-				HorizonStartForSite(s.Name, s.Path, phpVersion) //nolint:errcheck
-			case "stripe":
+			// Stripe is not a framework worker.
+			if w == "stripe" {
 				base := siteURL(s.Path)
 				if base != "" {
 					StripeStartForSite(s.Name, s.Path, base) //nolint:errcheck
 				}
-			default:
-				// Custom framework worker — look up definition.
-				fwName := s.Framework
-				if fwName == "" {
-					fwName, _ = config.DetectFramework(s.Path)
-				}
-				if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
-					if wDef, ok := fw.Workers[w]; ok {
-						WorkerStartForSite(s.Name, s.Path, phpVersion, w, wDef) //nolint:errcheck
+				continue
+			}
+			// All other workers come from the framework definition.
+			fwName := s.Framework
+			if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok && fw.Workers != nil {
+				if wDef, ok := fw.Workers[w]; ok {
+					for _, conflict := range wDef.ConflictsWith {
+						WorkerStopForSite(s.Name, conflict) //nolint:errcheck
 					}
+					WorkerStartForSite(s.Name, s.Path, phpVersion, w, wDef) //nolint:errcheck
 				}
 			}
 		}
+	}
+	if dirty {
+		config.SaveSites(reg) //nolint:errcheck
 	}
 	podman.DaemonReload() //nolint:errcheck
 }

@@ -12,6 +12,7 @@ import (
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/store"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -56,12 +57,14 @@ func runLink(args []string) error {
 	proj, _ := config.LoadProjectConfig(cwd)
 
 	// Restore embedded custom framework definition before resolveFramework runs.
+	// The embedded def in .lerd.yaml is the project's known-good configuration.
+	// Compare against whichever definition is currently active (user-defined or store-installed).
 	if proj != nil && proj.Framework != "" && proj.FrameworkDef != nil {
 		proj.FrameworkDef.Name = proj.Framework
-		existing, exists := config.GetFramework(proj.Framework)
+		existing, exists := config.GetFrameworkForDir(proj.Framework, cwd)
 		if !exists {
-			// Does not exist locally — save without prompting.
-			_ = config.SaveFramework(proj.FrameworkDef)
+			// No definition anywhere — save the embedded one to the store dir.
+			_ = config.SaveStoreFramework(proj.FrameworkDef)
 		} else {
 			action, err := confirmReplace("framework", proj.Framework, existing, proj.FrameworkDef)
 			if err != nil {
@@ -69,8 +72,10 @@ func runLink(args []string) error {
 			}
 			switch action {
 			case replaceFromProject:
-				_ = config.SaveFramework(proj.FrameworkDef)
+				// User chose the .lerd.yaml version — save to store dir.
+				_ = config.SaveStoreFramework(proj.FrameworkDef)
 			case replaceFromDisk:
+				// User chose the local/store version — update .lerd.yaml.
 				proj.FrameworkDef = existing
 				_ = config.SaveProjectConfig(cwd, proj)
 			}
@@ -145,6 +150,18 @@ func runLink(args []string) error {
 	detectedPublicDir := ""
 	if !ok {
 		detectedPublicDir = config.DetectPublicDir(cwd)
+	}
+
+	// Clamp PHP version to the framework's supported range.
+	if framework != "" {
+		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
+			clamped := phpDet.ClampToRange(phpVersion, fw.PHP.Min, fw.PHP.Max)
+			if clamped != phpVersion {
+				fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
+					phpVersion, fw.Label, fw.PHP.Min, fw.PHP.Max, clamped)
+				phpVersion = clamped
+			}
+		}
 	}
 
 	// Check if this path already has registered sites (re-link scenario).
@@ -339,41 +356,55 @@ func runLink(args []string) error {
 }
 
 // startWorkersForSite starts the named workers for a site.
-// It applies the same detection as the init wizard: if horizon is installed,
-// "queue" is upgraded to "horizon"; if reverb is not configured, it is skipped.
+// Workers with a Check rule that doesn't pass are skipped. Workers that conflict
+// with another requested worker are resolved via ConflictsWith (e.g. horizon replaces queue).
 func startWorkersForSite(site *config.Site, workers []string, phpVersion string) {
-	hasHorizon := SiteHasHorizon(site.Path)
-	hasReverb := SiteUsesReverb(site.Path)
-	fw, hasFw := config.GetFramework(site.Framework)
+	fw, hasFw := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !hasFw || fw.Workers == nil {
+		return
+	}
 
+	// Build a set of requested workers, applying conflict resolution.
+	// If a worker with ConflictsWith is requested AND its conflicts are also
+	// requested, the conflicting workers are removed (e.g. horizon removes queue).
+	requested := make(map[string]bool, len(workers))
 	for _, w := range workers {
-		// If horizon is installed, start horizon instead of queue.
-		if w == "queue" && hasHorizon {
-			w = "horizon"
-		}
-		// Skip reverb if not configured in the project.
-		if w == "reverb" && !hasReverb {
+		requested[w] = true
+	}
+
+	// Check if any worker with conflicts should replace others.
+	for _, w := range workers {
+		wDef, ok := fw.Workers[w]
+		if !ok {
 			continue
 		}
-
-		var err error
-		switch w {
-		case "queue":
-			err = QueueStartForSite(site.Name, site.Path, phpVersion)
-		case "schedule":
-			err = ScheduleStartForSite(site.Name, site.Path, phpVersion)
-		case "reverb":
-			err = ReverbStartForSite(site.Name, site.Path, phpVersion)
-		case "horizon":
-			err = HorizonStartForSite(site.Name, site.Path, phpVersion)
-		default:
-			if hasFw && fw.Workers != nil {
-				if worker, ok := fw.Workers[w]; ok {
-					err = WorkerStartForSite(site.Name, site.Path, phpVersion, w, worker)
-				}
-			}
+		// Skip workers whose check doesn't pass.
+		if wDef.Check != nil && !config.MatchesRule(site.Path, *wDef.Check) {
+			delete(requested, w)
+			continue
 		}
-		if err != nil {
+		for _, conflict := range wDef.ConflictsWith {
+			delete(requested, conflict)
+		}
+	}
+
+	for _, w := range workers {
+		if !requested[w] {
+			continue
+		}
+		worker, ok := fw.Workers[w]
+		if !ok {
+			continue
+		}
+		// Skip workers whose check doesn't pass.
+		if worker.Check != nil && !config.MatchesRule(site.Path, *worker.Check) {
+			continue
+		}
+		// Stop conflicting workers before starting.
+		for _, conflict := range worker.ConflictsWith {
+			WorkerStopForSite(site.Name, conflict) //nolint:errcheck
+		}
+		if err := WorkerStartForSite(site.Name, site.Path, phpVersion, w, worker); err != nil {
 			fmt.Printf("[WARN] starting worker %s: %v\n", w, err)
 		}
 	}
@@ -395,18 +426,73 @@ func isInteractive() bool {
 // framework definition is found.
 func resolveFramework(dir string) (string, bool) {
 	if proj, err := config.LoadProjectConfig(dir); err == nil && proj.Framework != "" {
-		if _, ok := config.GetFramework(proj.Framework); ok {
+		// Check user-defined first (local overrides always win).
+		if fw := config.LoadUserFramework(proj.Framework); fw != nil {
 			return proj.Framework, true
 		}
-		// Framework definition not found locally — restore from the embedded def
-		// in .lerd.yaml if present (enables portability across machines).
+		// Embedded definition in .lerd.yaml is the project's known-good config,
+		// committed to git. Restore it to the store dir so it takes effect.
 		if proj.FrameworkDef != nil {
 			proj.FrameworkDef.Name = proj.Framework
-			if saveErr := config.SaveFramework(proj.FrameworkDef); saveErr == nil {
+			if saveErr := config.SaveStoreFramework(proj.FrameworkDef); saveErr == nil {
 				return proj.Framework, true
 			}
 		}
+		// Fall back to store-installed.
+		if _, ok := config.GetFrameworkForDir(proj.Framework, dir); ok {
+			return proj.Framework, true
+		}
+		// Not installed anywhere — try to fetch from store.
+		if fetchFrameworkFromStore(proj.Framework, dir) {
+			return proj.Framework, true
+		}
 		return "", false
 	}
-	return config.DetectFramework(dir)
+	if name, ok := config.DetectFramework(dir); ok {
+		return name, true
+	}
+	return store.DetectFrameworkWithStore(dir)
+}
+
+// fetchFrameworkFromStore attempts to install a framework definition from the
+// store. Returns true if successful.
+func fetchFrameworkFromStore(name, dir string) bool {
+	client := store.NewClient()
+	version := ""
+	// Try to detect version from the store index + composer.lock.
+	if idx, err := client.FetchIndex(); err == nil {
+		for _, entry := range idx.Frameworks {
+			if entry.Name == name {
+				for _, rule := range entry.Detect {
+					if rule.Composer != "" {
+						if v := store.DetectFrameworkVersion(dir, rule.Composer); v != "" {
+							for _, ev := range entry.Versions {
+								if ev == v {
+									version = v
+									break
+								}
+							}
+						}
+					}
+					if version != "" {
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+	fw, err := client.FetchFramework(name, version)
+	if err != nil {
+		return false
+	}
+	if err := config.SaveStoreFramework(fw); err != nil {
+		return false
+	}
+	v := fw.Version
+	if v == "" {
+		v = "latest"
+	}
+	fmt.Printf("  Installed %s@%s from store\n", name, v)
+	return true
 }

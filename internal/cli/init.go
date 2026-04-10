@@ -91,6 +91,17 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
+	// Clamp PHP version to the framework's supported range.
+	framework, _ := resolveFramework(cwd)
+	if framework != "" {
+		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
+			clamped := phpPkg.ClampToRange(phpDefault, fw.PHP.Min, fw.PHP.Max)
+			if clamped != phpDefault {
+				phpDefault = clamped
+			}
+		}
+	}
+
 	// Database is picked as a single choice (sqlite | mysql family member |
 	// postgres family member), while other services are a multi-select. This
 	// mirrors the runtime prompt in `lerd env` and prevents users from
@@ -154,38 +165,22 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	nodeVersion := defaults.NodeVersion
 	secured := defaults.Secured
 
-	// Detect available workers from the framework definition.
-	// If horizon is installed, show it instead of queue (they're mutually exclusive).
-	framework, _ := resolveFramework(cwd)
-	hasHorizon := SiteHasHorizon(cwd)
-	hasReverb := SiteUsesReverb(cwd)
-	var workerOptions []string
-	if fw, ok := config.GetFramework(framework); ok && fw.Workers != nil {
-		for name, wDef := range fw.Workers {
-			// Skip workers whose check doesn't pass.
-			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
-				continue
-			}
-			// Skip queue when horizon is installed — horizon manages queues.
-			if name == "queue" && hasHorizon {
-				continue
-			}
-			// Skip reverb when not configured.
-			if name == "reverb" && !hasReverb {
-				continue
-			}
-			workerOptions = append(workerOptions, name)
-		}
-		// Horizon is not in the framework workers map — it's auto-detected from
-		// composer.json. Add it explicitly when installed.
-		if hasHorizon {
-			workerOptions = append(workerOptions, "horizon")
-		}
-		sort.Strings(workerOptions)
-	}
 	selectedWorkers := defaults.Workers
 	if len(selectedWorkers) == 0 {
 		selectedWorkers = []string{}
+	}
+
+	// If there are custom workers from the existing config, let the user
+	// choose which to keep before the workers step.
+	var customWorkerNames []string
+	var keepCustomWorkers []string
+	if len(defaults.CustomWorkers) > 0 {
+		for name := range defaults.CustomWorkers {
+			customWorkerNames = append(customWorkerNames, name)
+		}
+		sort.Strings(customWorkerNames)
+		keepCustomWorkers = make([]string, len(customWorkerNames))
+		copy(keepCustomWorkers, customWorkerNames)
 	}
 
 	formGroups := []*huh.Group{
@@ -217,18 +212,93 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		),
 	}
 
-	if len(workerOptions) > 0 {
+	if len(customWorkerNames) > 0 {
 		formGroups = append(formGroups, huh.NewGroup(
 			huh.NewMultiSelect[string]().
-				Title("Workers").
-				Description("Auto-start when linking").
-				Options(huh.NewOptions(workerOptions...)...).
-				Value(&selectedWorkers),
+				Title("Custom workers").
+				Description("Deselect to remove from .lerd.yaml").
+				Options(huh.NewOptions(customWorkerNames...)...).
+				Value(&keepCustomWorkers),
 		))
 	}
 
 	if err := huh.NewForm(formGroups...).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
 		return nil, err
+	}
+
+	// Build the set of kept custom workers.
+	keptSet := make(map[string]bool, len(keepCustomWorkers))
+	for _, name := range keepCustomWorkers {
+		keptSet[name] = true
+	}
+
+	// Detect available workers from the framework definition.
+	// Workers with ConflictsWith suppress conflicted workers (e.g. horizon suppresses queue).
+	// Custom workers that were removed are excluded, and their conflict rules
+	// no longer apply — so previously suppressed workers become available again.
+	var workerOptions []string
+	if fw, ok := config.GetFrameworkForDir(framework, cwd); ok && fw.Workers != nil {
+		// First pass: identify which workers are removed custom workers.
+		removedCustom := map[string]bool{}
+		for name := range fw.Workers {
+			if defaults.CustomWorkers[name].Command != "" && !keptSet[name] {
+				removedCustom[name] = true
+			}
+		}
+		// Build suppression set only from workers that are NOT removed.
+		suppressed := map[string]bool{}
+		for name, wDef := range fw.Workers {
+			if removedCustom[name] {
+				continue
+			}
+			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+				continue
+			}
+			for _, c := range wDef.ConflictsWith {
+				suppressed[c] = true
+			}
+		}
+		for name, wDef := range fw.Workers {
+			if removedCustom[name] {
+				continue
+			}
+			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+				continue
+			}
+			if suppressed[name] {
+				continue
+			}
+			workerOptions = append(workerOptions, name)
+		}
+		sort.Strings(workerOptions)
+	}
+
+	// Remove any selected workers that are no longer available.
+	filtered := selectedWorkers[:0]
+	availableSet := make(map[string]bool, len(workerOptions))
+	for _, w := range workerOptions {
+		availableSet[w] = true
+	}
+	for _, w := range selectedWorkers {
+		if availableSet[w] {
+			filtered = append(filtered, w)
+		}
+	}
+	selectedWorkers = filtered
+
+	if len(workerOptions) > 0 {
+		workerGroups := []*huh.Group{
+			huh.NewGroup(
+				huh.NewMultiSelect[string]().
+					Title("Workers").
+					Description("Auto-start when linking").
+					Options(huh.NewOptions(workerOptions...)...).
+					Value(&selectedWorkers),
+			),
+		}
+		if err := huh.NewForm(workerGroups...).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Recombine the database pick and the non-DB multi-select into a single
@@ -237,12 +307,16 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	selectedServices = append(selectedServices, dbChoice)
 	selectedServices = append(selectedServices, nonDBSelected...)
 
-	// For custom (non-built-in) frameworks, embed the definition so the project
-	// is fully portable — another machine can restore it from .lerd.yaml alone.
+	// Only embed the framework definition in .lerd.yaml for user-defined
+	// frameworks that aren't available from the store. Built-in (laravel) and
+	// store-installed frameworks can be fetched on any machine.
 	var frameworkDef *config.Framework
-	if framework != "" && framework != "laravel" {
-		if fw, ok := config.GetFramework(framework); ok {
-			frameworkDef = fw
+	if framework != "" {
+		info := config.GetFrameworkSource(framework)
+		if info == config.SourceUser {
+			if fw, ok := config.GetFramework(framework); ok {
+				frameworkDef = fw
+			}
 		}
 	}
 
@@ -287,14 +361,37 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		services[i] = config.ProjectService{Name: name, Custom: loaded}
 	}
 
+	// Resolve framework version from the definition that was used.
+	frameworkVersion := ""
+	if frameworkDef != nil && frameworkDef.Version != "" {
+		frameworkVersion = frameworkDef.Version
+	} else if fw, ok := config.GetFrameworkForDir(framework, cwd); ok && fw.Version != "" {
+		frameworkVersion = fw.Version
+	}
+
+	// Filter custom workers to only those the user chose to keep.
+	var filteredCustomWorkers map[string]config.FrameworkWorker
+	if len(keepCustomWorkers) > 0 {
+		filteredCustomWorkers = make(map[string]config.FrameworkWorker, len(keepCustomWorkers))
+		for _, name := range keepCustomWorkers {
+			if w, ok := defaults.CustomWorkers[name]; ok {
+				filteredCustomWorkers[name] = w
+			}
+		}
+	}
+
 	return &config.ProjectConfig{
-		PHPVersion:   phpVersion,
-		NodeVersion:  nodeVersion,
-		Framework:    framework,
-		FrameworkDef: frameworkDef,
-		Secured:      secured,
-		Services:     services,
-		Workers:      selectedWorkers,
+		PHPVersion:       phpVersion,
+		NodeVersion:      nodeVersion,
+		Framework:        framework,
+		FrameworkVersion: frameworkVersion,
+		FrameworkDef:     frameworkDef,
+		Secured:          secured,
+		Services:         services,
+		Workers:          selectedWorkers,
+		CustomWorkers:    filteredCustomWorkers,
+		AppURL:           defaults.AppURL,
+		Domains:          defaults.Domains,
 	}, nil
 }
 

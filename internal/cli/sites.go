@@ -46,12 +46,12 @@ func runSites(_ *cobra.Command, _ []string) error {
 			continue
 		}
 		fwName := s.Framework
-		if fwName == "" {
-			fwName, _ = config.DetectFramework(s.Path)
-		}
 		fwLabel := ""
-		if fw, ok := config.GetFramework(fwName); ok {
+		if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok {
 			fwLabel = fw.Label
+			if fw.Version != "" {
+				fwLabel += " " + fw.Version
+			}
 		}
 
 		var worktrees []gitpkg.Worktree

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -96,4 +97,42 @@ func IsServiceActiveOrRestarting(name string) bool {
 	out, _ := cmd.Output()
 	state := strings.TrimSpace(string(out))
 	return state == "active" || state == "activating"
+}
+
+// FindOrphanedWorkers scans systemd unit files for worker units belonging to
+// the given site that are running but not present in the known workers set.
+func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
+	suffix := "-" + siteName + ".service"
+	prefix := "lerd-"
+	entries, err := os.ReadDir(config.SystemdUserDir())
+	if err != nil {
+		return nil
+	}
+	var orphans []string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		workerName := strings.TrimPrefix(name, prefix)
+		workerName = strings.TrimSuffix(workerName, suffix)
+		if workerName == "" {
+			continue
+		}
+		// Skip non-worker units.
+		switch workerName {
+		case "php84-fpm", "php83-fpm", "php82-fpm", "php81-fpm", "php80-fpm",
+			"nginx", "dns", "dns-forwarder", "watcher", "ui", "stripe":
+			continue
+		}
+		if known[workerName] {
+			continue
+		}
+		unitName := strings.TrimSuffix(name, ".service")
+		if IsServiceActiveOrRestarting(unitName) {
+			orphans = append(orphans, workerName)
+		}
+	}
+	sort.Strings(orphans)
+	return orphans
 }

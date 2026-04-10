@@ -111,8 +111,6 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("'lerd env' is not supported for %s\nConfigure the env section in the framework YAML to enable it", fw.Label)
 	}
 
-	isLaravel := fwName == "laravel"
-
 	envRelPath, envFormat := fw.Env.Resolve(cwd)
 	envPath := filepath.Join(cwd, envRelPath)
 
@@ -425,8 +423,10 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		patchDuskTestCase(cwd)
 	}
 
-	// 3d. Generate REVERB_ env vars if BROADCAST_CONNECTION=reverb (Laravel only)
-	if isLaravel && strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
+	// 3d. Generate REVERB_ env vars if a worker with proxy config is detected and
+	// BROADCAST_CONNECTION=reverb is set.
+	if fw.HasWorker("reverb", cwd) &&
+		strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
 		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
 		for k, v := range reverbEnvUpdates(envMap, site.PrimaryDomain(), site.Secured, cwd) {
 			updates[k] = v
@@ -460,20 +460,26 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 6. Generate APP_KEY if missing or empty (Laravel only).
-	// Prefer artisan key:generate when vendor/ exists; otherwise write a
-	// random base64 key directly so composer post-install scripts can boot.
-	if isLaravel && strings.TrimSpace(envMap["APP_KEY"]) == "" {
-		if _, statErr := os.Stat(filepath.Join(cwd, "vendor")); statErr == nil {
-			fmt.Println("  Generating APP_KEY...")
-			if err := artisanIn(cwd, "key:generate"); err != nil {
-				fmt.Printf("  [WARN] key:generate failed: %v\n", err)
+	// 6. Generate application key if the framework defines key generation and the key is missing.
+	if kg := fw.Env.KeyGeneration; kg != nil && strings.TrimSpace(envMap[kg.EnvKey]) == "" {
+		if kg.Command != "" {
+			if _, statErr := os.Stat(filepath.Join(cwd, "vendor")); statErr == nil {
+				fmt.Printf("  Generating %s...\n", kg.EnvKey)
+				if err := artisanIn(cwd, kg.Command); err != nil {
+					fmt.Printf("  [WARN] %s failed: %v\n", kg.Command, err)
+				}
+			} else if kg.FallbackPrefix != "" {
+				fmt.Printf("  Generating %s (vendor not installed yet)...\n", kg.EnvKey)
+				key := generateRandomKey(kg.FallbackPrefix)
+				if err := envfile.ApplyUpdates(envPath, map[string]string{kg.EnvKey: key}); err != nil {
+					fmt.Printf("  [WARN] writing %s: %v\n", kg.EnvKey, err)
+				}
 			}
-		} else {
-			fmt.Println("  Generating APP_KEY (vendor not installed yet)...")
-			key := generateLaravelAppKey()
-			if err := envfile.ApplyUpdates(envPath, map[string]string{"APP_KEY": key}); err != nil {
-				fmt.Printf("  [WARN] writing APP_KEY: %v\n", err)
+		} else if kg.FallbackPrefix != "" {
+			fmt.Printf("  Generating %s...\n", kg.EnvKey)
+			key := generateRandomKey(kg.FallbackPrefix)
+			if err := envfile.ApplyUpdates(envPath, map[string]string{kg.EnvKey: key}); err != nil {
+				fmt.Printf("  [WARN] writing %s: %v\n", kg.EnvKey, err)
 			}
 		}
 	}
@@ -752,14 +758,12 @@ func parseEnvMap(path string) (map[string]string, error) {
 	return m, scanner.Err()
 }
 
-// artisanIn runs php artisan <args> in the given directory using the project's PHP container.
-// generateLaravelAppKey generates a base64-encoded 32-byte random key in the
-// format Laravel expects (base64:...). Used when vendor/ is not installed yet
-// and artisan key:generate cannot run.
-func generateLaravelAppKey() string {
+// generateRandomKey generates a random 32-byte key with the given prefix.
+// Example: generateRandomKey("base64:") returns "base64:<base64-encoded-32-bytes>".
+func generateRandomKey(prefix string) string {
 	key := make([]byte, 32)
 	crand.Read(key) //nolint:errcheck
-	return "base64:" + base64.StdEncoding.EncodeToString(key)
+	return prefix + base64.StdEncoding.EncodeToString(key)
 }
 
 func artisanIn(dir string, args ...string) error {
@@ -865,7 +869,7 @@ func reverbEnvUpdates(envMap map[string]string, domain string, secured bool, sit
 	// REVERB_SERVER_PORT is the port Reverb listens on inside the PHP-FPM container.
 	// Auto-assign a unique port per site to prevent collisions when multiple apps run Reverb.
 	if missing("REVERB_SERVER_PORT") {
-		updates["REVERB_SERVER_PORT"] = strconv.Itoa(assignReverbServerPort(sitePath))
+		updates["REVERB_SERVER_PORT"] = strconv.Itoa(assignWorkerProxyPort(sitePath, "REVERB_SERVER_PORT", 8080))
 	}
 	serverPort := envMap["REVERB_SERVER_PORT"]
 	if v, ok := updates["REVERB_SERVER_PORT"]; ok {
@@ -901,37 +905,6 @@ func reverbEnvUpdates(envMap map[string]string, domain string, secured bool, sit
 	updates["VITE_REVERB_SCHEME"] = externalScheme
 
 	return updates
-}
-
-// assignReverbServerPort returns the port Reverb should listen on for the site at sitePath.
-// It scans all other linked sites and picks the lowest port >= 8080 not already in use.
-// A site's port is read from REVERB_SERVER_PORT in its .env; if absent but the site's Reverb
-// unit is active, 8080 is assumed (pre-fix sites that started without an explicit port).
-func assignReverbServerPort(sitePath string) int {
-	used := map[int]bool{}
-	if reg, err := config.LoadSites(); err == nil {
-		for _, s := range reg.Sites {
-			if filepath.Clean(s.Path) == filepath.Clean(sitePath) {
-				continue
-			}
-			if v := envfile.ReadKey(filepath.Join(s.Path, ".env"), "REVERB_SERVER_PORT"); v != "" {
-				if p, err := strconv.Atoi(v); err == nil {
-					used[p] = true
-				}
-			} else {
-				// No REVERB_SERVER_PORT in .env — if Reverb is actively running for this site
-				// it must be on the default 8080.
-				if status, _ := podman.UnitStatus("lerd-reverb-" + s.Name); status == "active" {
-					used[8080] = true
-				}
-			}
-		}
-	}
-	port := 8080
-	for used[port] {
-		port++
-	}
-	return port
 }
 
 const alphanumChars = "abcdefghijklmnopqrstuvwxyz0123456789"

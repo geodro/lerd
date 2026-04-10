@@ -10,14 +10,16 @@ import (
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
-	Domains      []string         `yaml:"domains,omitempty"`
-	PHPVersion   string           `yaml:"php_version,omitempty"`
-	NodeVersion  string           `yaml:"node_version,omitempty"`
-	Framework    string           `yaml:"framework,omitempty"`
-	FrameworkDef *Framework       `yaml:"framework_def,omitempty"`
-	Secured      bool             `yaml:"secured,omitempty"`
-	Services     []ProjectService `yaml:"services,omitempty"`
-	Workers      []string         `yaml:"workers,omitempty"`
+	Domains          []string                   `yaml:"domains,omitempty"`
+	PHPVersion       string                     `yaml:"php_version,omitempty"`
+	NodeVersion      string                     `yaml:"node_version,omitempty"`
+	Framework        string                     `yaml:"framework,omitempty"`
+	FrameworkVersion string                     `yaml:"framework_version,omitempty"`
+	FrameworkDef     *Framework                 `yaml:"framework_def,omitempty"`
+	Secured          bool                       `yaml:"secured,omitempty"`
+	Services         []ProjectService           `yaml:"services,omitempty"`
+	Workers          []string                   `yaml:"workers,omitempty"`
+	CustomWorkers    map[string]FrameworkWorker `yaml:"custom_workers,omitempty"`
 	// AppURL, when set, is the value lerd writes to the project's APP_URL (or
 	// the framework-configured URL key) on every `lerd env` run. Committed to
 	// the repo so the choice is shared across machines. Takes precedence over

@@ -83,10 +83,7 @@ func runCheck(_ *cobra.Command, _ []string) error {
 	// Workers
 	if len(cfg.Workers) > 0 {
 		fwName := cfg.Framework
-		if fwName == "" {
-			fwName, _ = config.DetectFramework(cwd)
-		}
-		fw, hasFw := config.GetFramework(fwName)
+		fw, hasFw := config.GetFrameworkForDir(fwName, cwd)
 
 		hasQueue := false
 		hasHorizon := false
@@ -98,48 +95,28 @@ func runCheck(_ *cobra.Command, _ []string) error {
 				hasHorizon = true
 			}
 
-			switch w {
-			case "horizon":
-				if !SiteHasHorizon(cwd) {
-					fmt.Printf("  WARN  worker: %s — laravel/horizon is not installed\n", w)
-					warnings++
-				} else {
-					fmt.Printf("  OK    worker: %s\n", w)
-				}
-			case "reverb":
-				if !SiteUsesReverb(cwd) {
-					fmt.Printf("  WARN  worker: %s — reverb is not configured (no laravel/reverb in composer.json and no BROADCAST_CONNECTION=reverb in .env)\n", w)
-					warnings++
-				} else {
-					fmt.Printf("  OK    worker: %s\n", w)
-				}
-			case "queue", "schedule":
-				if hasFw && fw.Workers != nil {
-					if _, ok := fw.Workers[w]; ok {
-						fmt.Printf("  OK    worker: %s\n", w)
-					} else {
-						fmt.Printf("  WARN  worker: %q is not defined for framework %s\n", w, fwName)
-						warnings++
-					}
-				} else if fwName != "" {
+			if !hasFw || fw.Workers == nil {
+				if fwName != "" {
 					fmt.Printf("  WARN  worker: %q — framework %s has no worker definitions\n", w, fwName)
 					warnings++
 				} else {
 					fmt.Printf("  WARN  worker: %q — no framework detected\n", w)
 					warnings++
 				}
-			default:
-				if hasFw && fw.Workers != nil {
-					if _, ok := fw.Workers[w]; ok {
-						fmt.Printf("  OK    worker: %s (custom)\n", w)
-					} else {
-						fmt.Printf("  FAIL  worker: %q is not defined for framework %s\n", w, fwName)
-						errors++
-					}
-				} else {
-					fmt.Printf("  FAIL  worker: %q — no framework worker definition found\n", w)
-					errors++
-				}
+				continue
+			}
+			wDef, ok := fw.Workers[w]
+			if !ok {
+				fmt.Printf("  FAIL  worker: %q is not defined for framework %s\n", w, fwName)
+				errors++
+				continue
+			}
+			// Check if the worker's prerequisite (Check rule) is satisfied.
+			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+				fmt.Printf("  WARN  worker: %s — prerequisite not met (check rule failed)\n", w)
+				warnings++
+			} else {
+				fmt.Printf("  OK    worker: %s\n", w)
 			}
 		}
 

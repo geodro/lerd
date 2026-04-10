@@ -196,10 +196,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				}
 				// Check custom framework workers.
 				fwName := s.Framework
-				if fwName == "" {
-					fwName, _ = config.DetectFramework(s.Path)
-				}
-				if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
+				if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok && fw.Workers != nil {
 					for wName, wDef := range fw.Workers {
 						switch wName {
 						case "queue", "schedule", "reverb":

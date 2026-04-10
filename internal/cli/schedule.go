@@ -3,13 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -89,62 +85,21 @@ func newScheduleStopCmd(use string) *cobra.Command {
 	}
 }
 
-// ScheduleStartForSite starts the Laravel task scheduler for the named site.
+// ScheduleStartForSite starts the task scheduler for the named site using
+// the "schedule" worker from the framework definition.
 func ScheduleStartForSite(siteName, sitePath, phpVersion string) error {
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
-	unitName := "lerd-schedule-" + siteName
-
-	unit := fmt.Sprintf(`[Unit]
-Description=Lerd Scheduler (%s)
-After=network.target %s.service
-BindsTo=%s.service
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=5
-ExecStart=podman exec -w %s %s php artisan schedule:work
-
-[Install]
-WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, sitePath, container)
-
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
-	if err != nil {
-		return fmt.Errorf("writing service unit: %w", err)
+	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	if !ok {
+		return fmt.Errorf("no framework found for site %q", siteName)
 	}
-	if changed {
-		if err := podman.DaemonReload(); err != nil {
-			return fmt.Errorf("daemon-reload: %w", err)
-		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
-			fmt.Printf("[WARN] enable: %v\n", err)
-		}
+	worker, ok := fw.Workers["schedule"]
+	if !ok {
+		return fmt.Errorf("framework %q has no worker named \"schedule\"", fw.Label)
 	}
-	if err := lerdSystemd.StartService(unitName); err != nil {
-		return fmt.Errorf("starting scheduler: %w", err)
-	}
-	fmt.Printf("Scheduler started for %s\n", siteName)
-	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
-	return nil
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "schedule", worker)
 }
 
 // ScheduleStopForSite stops and removes the scheduler unit for the named site.
 func ScheduleStopForSite(siteName string) error {
-	unitName := "lerd-schedule-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-
-	_ = lerdSystemd.DisableService(unitName)
-	podman.StopUnit(unitName) //nolint:errcheck
-
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing unit file: %w", err)
-	}
-	if err := podman.DaemonReload(); err != nil {
-		fmt.Printf("[WARN] daemon-reload: %v\n", err)
-	}
-	fmt.Printf("Scheduler stopped for %s\n", siteName)
-	return nil
+	return WorkerStopForSite(siteName, "schedule")
 }

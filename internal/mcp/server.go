@@ -21,6 +21,7 @@ import (
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/store"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
@@ -205,17 +206,20 @@ func dispatch(req *rpcRequest) (any, *rpcError) {
 
 // ---- Tool definitions ----
 
-// siteIsLaravel returns true when the default site path points to a registered
-// Laravel site, or when no path is configured (safe default: show all tools).
-func siteIsLaravel() bool {
-	if defaultSitePath == "" {
-		return true
+// siteHasConsole returns true when the site's framework defines a console command.
+func siteHasConsole() bool {
+	fw, ok := siteFramework()
+	return ok && fw.Console != ""
+}
+
+// siteHasWorker returns true when the site's framework defines the named worker
+// and its check rule passes.
+func siteHasWorker(name string) bool {
+	fw, ok := siteFramework()
+	if !ok {
+		return false
 	}
-	site, err := config.FindSiteByPath(defaultSitePath)
-	if err != nil {
-		return true // unknown site → show all tools
-	}
-	return site.IsLaravel()
+	return fw.HasWorker(name, defaultSitePath)
 }
 
 // siteFramework returns the framework definition for the configured site path.
@@ -228,11 +232,7 @@ func siteFramework() (*config.Framework, bool) {
 	if err != nil {
 		return nil, false
 	}
-	fwName := site.Framework
-	if fwName == "" {
-		fwName, _ = config.DetectFramework(defaultSitePath)
-	}
-	return config.GetFramework(fwName)
+	return config.GetFrameworkForDir(site.Framework, site.Path)
 }
 
 func toolList() []mcpTool {
@@ -863,7 +863,7 @@ func toolList() []mcpTool {
 		},
 	}
 
-	if siteIsLaravel() {
+	if siteHasConsole() {
 		tools = append(tools,
 			mcpTool{
 				Name:        "artisan",
@@ -1046,7 +1046,7 @@ func toolList() []mcpTool {
 		)
 	}
 
-	if fw, ok := siteFramework(); ok && !siteIsLaravel() && fw.Console != "" {
+	if fw, ok := siteFramework(); ok && fw.Console != "" && fw.Console != "artisan" {
 		tools = append(tools, mcpTool{
 			Name:        "console",
 			Description: fmt.Sprintf("Run a framework console command (php %s) inside the lerd PHP-FPM container for the project.", fw.Console),
@@ -1119,6 +1119,41 @@ func toolList() []mcpTool {
 			},
 		},
 		mcpTool{
+			Name:        "worker_add",
+			Description: "Add or update a custom worker for a project. Saves to .lerd.yaml custom_workers by default, or to the global user framework overlay (~/.config/lerd/frameworks/) with global: true. Does not auto-start — use worker_start afterwards.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site":               {Type: "string", Description: "Site name as shown by the sites tool"},
+					"name":               {Type: "string", Description: "Worker name (slug, e.g. pdf-generator)"},
+					"command":            {Type: "string", Description: "Command to run inside the PHP-FPM container"},
+					"label":              {Type: "string", Description: "Human-readable label (optional)"},
+					"restart":            {Type: "string", Description: "Restart policy: always or on-failure (default: always)"},
+					"check_file":         {Type: "string", Description: "Only show worker when this file exists (optional)"},
+					"check_composer":     {Type: "string", Description: "Only show worker when this Composer package is installed (optional)"},
+					"conflicts_with":     {Type: "array", Description: "Workers to stop before starting this one (optional)"},
+					"proxy_path":         {Type: "string", Description: "URL path to proxy (optional, e.g. /app)"},
+					"proxy_port_env_key": {Type: "string", Description: "Env key holding the worker port (optional)"},
+					"proxy_default_port": {Type: "number", Description: "Default port if env key is missing (optional)"},
+					"global":             {Type: "boolean", Description: "Save to global framework overlay instead of project .lerd.yaml (default: false)"},
+				},
+				Required: []string{"site", "name", "command"},
+			},
+		},
+		mcpTool{
+			Name:        "worker_remove",
+			Description: "Remove a custom worker from a project's .lerd.yaml or global framework overlay. Stops the worker if running.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site":   {Type: "string", Description: "Site name as shown by the sites tool"},
+					"name":   {Type: "string", Description: "Worker name to remove"},
+					"global": {Type: "boolean", Description: "Remove from global framework overlay instead of .lerd.yaml (default: false)"},
+				},
+				Required: []string{"site", "name"},
+			},
+		},
+		mcpTool{
 			Name:        "framework_list",
 			Description: "List all available framework definitions (laravel built-in plus any user-defined YAMLs), including their defined workers and setup commands. Use this before framework_add to see what is already defined.",
 			InputSchema: mcpSchema{Type: "object", Properties: map[string]mcpProp{}},
@@ -1183,13 +1218,49 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "framework_remove",
-			Description: "Delete a user-defined framework YAML by name. For laravel, removes only custom worker additions (built-in definition remains).",
+			Description: "Delete a framework definition (user-defined or store-installed) by name. For laravel, removes only custom worker additions (built-in definition remains). Use version to remove a specific version, or omit to remove all.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"name": {
 						Type:        "string",
-						Description: "Framework name to remove",
+						Description: "Framework name to remove (e.g. 'symfony')",
+					},
+					"version": {
+						Type:        "string",
+						Description: "Specific version to remove (e.g. '7'). Omit to remove all versions.",
+					},
+				},
+				Required: []string{"name"},
+			},
+		},
+		mcpTool{
+			Name:        "framework_search",
+			Description: "Search the community framework store for available definitions. Returns matching frameworks with their available versions.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"query": {
+						Type:        "string",
+						Description: "Search query (matches framework name or label, case-insensitive)",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+		mcpTool{
+			Name:        "framework_install",
+			Description: "Install a framework definition from the community store. If no version is specified, auto-detects from composer.lock or uses the latest available version.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {
+						Type:        "string",
+						Description: "Framework name to install (e.g. symfony, wordpress)",
+					},
+					"version": {
+						Type:        "string",
+						Description: "Framework major version (e.g. 11, 7). Omit to auto-detect or use latest.",
 					},
 				},
 				Required: []string{"name"},
@@ -1335,15 +1406,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		args = map[string]any{}
 	}
 
-	laravelOnly := func() (any, *rpcError) {
-		return toolErr(fmt.Sprintf("tool %q is only available for Laravel projects", p.Name)), nil
-	}
-
 	switch p.Name {
 	case "artisan":
-		if !siteIsLaravel() {
-			return laravelOnly()
-		}
 		return execArtisan(args)
 	case "console":
 		return execArtisan(args)
@@ -1370,19 +1434,17 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 	case "schedule_stop":
 		return execScheduleStop(args)
 	case "stripe_listen":
-		if !siteIsLaravel() {
-			return laravelOnly()
-		}
 		return execStripeListen(args)
 	case "stripe_listen_stop":
-		if !siteIsLaravel() {
-			return laravelOnly()
-		}
 		return execStripeListenStop(args)
 	case "worker_start":
 		return execWorkerStart(args)
 	case "worker_stop":
 		return execWorkerStop(args)
+	case "worker_add":
+		return execWorkerAdd(args)
+	case "worker_remove":
+		return execWorkerRemove(args)
 	case "worker_list":
 		return execWorkerList(args)
 	case "logs":
@@ -1451,6 +1513,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execFrameworkAdd(args)
 	case "framework_remove":
 		return execFrameworkRemove(args)
+	case "framework_search":
+		return execFrameworkSearch(args)
+	case "framework_install":
+		return execFrameworkInstall(args)
 	case "project_new":
 		return execProjectNew(args)
 	case "site_php":
@@ -1630,12 +1696,9 @@ func execSites() (any, *rpcError) {
 		}
 
 		fwName := s.Framework
-		if fwName == "" {
-			fwName, _ = config.DetectFramework(s.Path)
-		}
 		var workers []workerStatus
 		if fwName != "" {
-			if fw, ok := config.GetFramework(fwName); ok {
+			if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok {
 				for wname := range fw.Workers {
 					unitName := "lerd-" + wname + "-" + s.Name
 					status, _ := podman.UnitStatus(unitName)
@@ -3981,12 +4044,9 @@ func execWorkerStart(args map[string]any) (any, *rpcError) {
 
 	fwName := site.Framework
 	if fwName == "" {
-		fwName, _ = config.DetectFramework(site.Path)
+		return toolErr("site has no framework assigned — run lerd link first"), nil
 	}
-	if fwName == "" {
-		return toolErr("no framework detected for site " + siteName), nil
-	}
-	fw, ok := config.GetFramework(fwName)
+	fw, ok := config.GetFrameworkForDir(fwName, site.Path)
 	if !ok {
 		return toolErr("framework not found: " + fwName), nil
 	}
@@ -4074,29 +4134,29 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 
 	fwName := site.Framework
 	if fwName == "" {
-		fwName, _ = config.DetectFramework(site.Path)
-	}
-	if fwName == "" {
 		data, _ := json.MarshalIndent([]struct{}{}, "", "  ")
 		return toolOK(string(data)), nil
 	}
-	fw, ok := config.GetFramework(fwName)
+	fw, ok := config.GetFrameworkForDir(fwName, site.Path)
 	if !ok || len(fw.Workers) == 0 {
 		data, _ := json.MarshalIndent([]struct{}{}, "", "  ")
 		return toolOK(string(data)), nil
 	}
 
 	type workerInfo struct {
-		Name    string `json:"name"`
-		Label   string `json:"label"`
-		Command string `json:"command"`
-		Restart string `json:"restart"`
-		Running bool   `json:"running"`
-		Unit    string `json:"unit"`
+		Name     string `json:"name"`
+		Label    string `json:"label"`
+		Command  string `json:"command"`
+		Restart  string `json:"restart"`
+		Running  bool   `json:"running"`
+		Unit     string `json:"unit"`
+		Orphaned bool   `json:"orphaned,omitempty"`
 	}
 
+	known := make(map[string]bool, len(fw.Workers))
 	var result []workerInfo
 	for wname, w := range fw.Workers {
+		known[wname] = true
 		unitName := "lerd-" + wname + "-" + siteName
 		status, _ := podman.UnitStatus(unitName)
 		label := w.Label
@@ -4116,10 +4176,169 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 			Unit:    unitName,
 		})
 	}
+
+	// Detect orphaned workers — running units with no framework definition.
+	orphans := lerdSystemd.FindOrphanedWorkers(siteName, known)
+	for _, wname := range orphans {
+		unitName := "lerd-" + wname + "-" + siteName
+		result = append(result, workerInfo{
+			Name:     wname,
+			Label:    wname + " (orphaned)",
+			Running:  true,
+			Unit:     unitName,
+			Orphaned: true,
+		})
+	}
+
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return toolOK(string(data)), nil
+}
+
+func execWorkerAdd(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	command := strArg(args, "command")
+	if command == "" {
+		return toolErr("command is required"), nil
+	}
+
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
+	}
+
+	w := config.FrameworkWorker{
+		Label:   strArg(args, "label"),
+		Command: command,
+		Restart: strArg(args, "restart"),
+	}
+	checkFile := strArg(args, "check_file")
+	checkComposer := strArg(args, "check_composer")
+	if checkFile != "" || checkComposer != "" {
+		w.Check = &config.FrameworkRule{File: checkFile, Composer: checkComposer}
+	}
+	if cw := strSliceArg(args, "conflicts_with"); len(cw) > 0 {
+		w.ConflictsWith = cw
+	}
+	proxyPath := strArg(args, "proxy_path")
+	if proxyPath != "" {
+		w.Proxy = &config.WorkerProxy{
+			Path:        proxyPath,
+			PortEnvKey:  strArg(args, "proxy_port_env_key"),
+			DefaultPort: intArg(args, "proxy_default_port", 0),
+		}
+	}
+
+	action := "added"
+	if boolArg(args, "global") {
+		fwName := site.Framework
+		if fwName == "" {
+			return toolErr("site has no framework assigned"), nil
+		}
+		fw := config.LoadUserFramework(fwName)
+		if fw == nil {
+			fw = &config.Framework{Name: fwName}
+		}
+		if fw.Workers == nil {
+			fw.Workers = make(map[string]config.FrameworkWorker)
+		}
+		if _, exists := fw.Workers[name]; exists {
+			action = "updated"
+		}
+		fw.Workers[name] = w
+		if err := config.SaveFramework(fw); err != nil {
+			return toolErr("saving framework overlay: " + err.Error()), nil
+		}
+		return toolOK(fmt.Sprintf("Custom worker %q %s in global %s overlay. Start it with worker_start(site: %q, worker: %q).", name, action, fwName, siteName, name)), nil
+	}
+
+	proj, err := config.LoadProjectConfig(site.Path)
+	if err != nil {
+		return toolErr("loading .lerd.yaml: " + err.Error()), nil
+	}
+	if proj.CustomWorkers == nil {
+		proj.CustomWorkers = make(map[string]config.FrameworkWorker)
+	}
+	if _, exists := proj.CustomWorkers[name]; exists {
+		action = "updated"
+	}
+	proj.CustomWorkers[name] = w
+	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+		return toolErr("saving .lerd.yaml: " + err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Custom worker %q %s in .lerd.yaml. Start it with worker_start(site: %q, worker: %q).", name, action, siteName, name)), nil
+}
+
+func execWorkerRemove(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
+	}
+
+	// Stop the worker if running.
+	unitName := "lerd-" + name + "-" + siteName
+	if status, _ := podman.UnitStatus(unitName); status == "active" {
+		_ = lerdSystemd.DisableService(unitName)
+		podman.StopUnit(unitName) //nolint:errcheck
+		unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
+		_ = os.Remove(unitFile)
+		_ = podman.DaemonReload()
+	}
+
+	if boolArg(args, "global") {
+		fwName := site.Framework
+		if fwName == "" {
+			return toolErr("site has no framework assigned"), nil
+		}
+		fw := config.LoadUserFramework(fwName)
+		if fw == nil || fw.Workers == nil {
+			return toolErr(fmt.Sprintf("no global overlay for framework %q", fwName)), nil
+		}
+		if _, exists := fw.Workers[name]; !exists {
+			return toolErr(fmt.Sprintf("worker %q not found in global %s overlay", name, fwName)), nil
+		}
+		delete(fw.Workers, name)
+		if len(fw.Workers) == 0 {
+			fw.Workers = nil
+		}
+		if err := config.SaveFramework(fw); err != nil {
+			return toolErr("saving framework overlay: " + err.Error()), nil
+		}
+		return toolOK(fmt.Sprintf("Custom worker %q removed from global %s overlay", name, fwName)), nil
+	}
+
+	proj, err := config.LoadProjectConfig(site.Path)
+	if err != nil {
+		return toolErr("loading .lerd.yaml: " + err.Error()), nil
+	}
+	if _, exists := proj.CustomWorkers[name]; !exists {
+		return toolErr(fmt.Sprintf("custom worker %q not found in .lerd.yaml for site %q", name, siteName)), nil
+	}
+	delete(proj.CustomWorkers, name)
+	if len(proj.CustomWorkers) == 0 {
+		proj.CustomWorkers = nil
+	}
+	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+		return toolErr("saving .lerd.yaml: " + err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Custom worker %q removed from %s", name, siteName)), nil
 }
 
 func execFrameworkRemove(args map[string]any) (any, *rpcError) {
@@ -4127,19 +4346,124 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 	if name == "" {
 		return toolErr("name is required"), nil
 	}
-	if err := config.RemoveFramework(name); err != nil {
-		if os.IsNotExist(err) {
-			if name == "laravel" {
+	version := strArg(args, "version")
+
+	if name == "laravel" {
+		if err := config.RemoveFramework(name); err != nil {
+			if os.IsNotExist(err) {
 				return toolErr("no custom workers defined for laravel"), nil
 			}
+			return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
+		}
+		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
+	}
+
+	if version != "" {
+		files := config.ListFrameworkFiles(name)
+		for _, f := range files {
+			if f.Version == version {
+				if err := config.RemoveFrameworkFile(f.Path); err != nil {
+					return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
+				}
+				return toolOK(fmt.Sprintf("Removed %s@%s.", name, version)), nil
+			}
+		}
+		return toolErr(fmt.Sprintf("framework %q version %q not found", name, version)), nil
+	}
+
+	if err := config.RemoveFramework(name); err != nil {
+		if os.IsNotExist(err) {
 			return toolErr(fmt.Sprintf("framework %q not found", name)), nil
 		}
 		return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
 	}
-	if name == "laravel" {
-		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
-	}
 	return toolOK(fmt.Sprintf("Framework %q removed.", name)), nil
+}
+
+func execFrameworkSearch(args map[string]any) (any, *rpcError) {
+	query := strArg(args, "query")
+	if query == "" {
+		return toolErr("query is required"), nil
+	}
+
+	client := store.NewClient()
+	results, err := client.Search(query)
+	if err != nil {
+		return toolErr(fmt.Sprintf("searching store: %v", err)), nil
+	}
+
+	type searchResult struct {
+		Name     string   `json:"name"`
+		Label    string   `json:"label"`
+		Versions []string `json:"versions"`
+		Latest   string   `json:"latest"`
+	}
+	out := make([]searchResult, len(results))
+	for i, r := range results {
+		out[i] = searchResult{
+			Name:     r.Name,
+			Label:    r.Label,
+			Versions: r.Versions,
+			Latest:   r.Latest,
+		}
+	}
+	data, _ := json.Marshal(out)
+	return toolOK(string(data)), nil
+}
+
+func execFrameworkInstall(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	version := strArg(args, "version")
+
+	client := store.NewClient()
+
+	// Auto-detect version from site path if not specified
+	if version == "" {
+		sitePath := defaultSitePath
+		if sitePath != "" {
+			idx, err := client.FetchIndex()
+			if err == nil {
+				for _, entry := range idx.Frameworks {
+					if entry.Name == name {
+						for _, rule := range entry.Detect {
+							if rule.Composer != "" {
+								if v := store.DetectFrameworkVersion(sitePath, rule.Composer); v != "" {
+									for _, ev := range entry.Versions {
+										if ev == v {
+											version = v
+											break
+										}
+									}
+								}
+							}
+							if version != "" {
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	fw, err := client.FetchFramework(name, version)
+	if err != nil {
+		return toolErr(fmt.Sprintf("fetching framework: %v", err)), nil
+	}
+
+	if err := config.SaveStoreFramework(fw); err != nil {
+		return toolErr(fmt.Sprintf("saving framework: %v", err)), nil
+	}
+
+	versionStr := fw.Version
+	if versionStr == "" {
+		versionStr = "latest"
+	}
+	return toolOK(fmt.Sprintf("Installed %s@%s (%s). Saved to %s/%s.yaml", fw.Name, versionStr, fw.Label, config.StoreFrameworksDir(), fw.Name)), nil
 }
 
 func execProjectNew(args map[string]any) (any, *rpcError) {

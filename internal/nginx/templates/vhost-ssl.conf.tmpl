@@ -12,10 +12,10 @@ server {
 
     ssl_certificate /etc/nginx/certs/{{.CertDomain}}.crt;
     ssl_certificate_key /etc/nginx/certs/{{.CertDomain}}.key;
-{{if .Reverb}}
-    location /app {
-        set $reverb "lerd-php{{.PHPVersionShort}}-fpm";
-        proxy_pass http://$reverb:{{.ReverbPort}};
+{{if .Proxy}}
+    location {{.ProxyPath}} {
+        set $proxybackend "lerd-php{{.PHPVersionShort}}-fpm";
+        proxy_pass http://$proxybackend:{{.ProxyPort}};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

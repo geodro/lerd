@@ -438,69 +438,69 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			fpmRunning, _ = podman.ContainerRunning("lerd-php" + short + "-fpm")
 		}
 		fwName := s.Framework
-		if fwName == "" {
-			fwName, _ = config.DetectFramework(s.Path)
-		}
-		isLaravel := fwName == "laravel"
-		fw, hasFw := config.GetFramework(fwName)
+		fw, hasFw := config.GetFrameworkForDir(fwName, s.Path)
 
 		var queueStatus, stripeStatus, scheduleStatus, reverbStatus string
 		var stripeSecretSet, hasReverb, hasQueueWorker, hasScheduleWorker bool
 
-		// Stripe is Laravel-only
-		if isLaravel {
+		// Stripe: check if the framework defines stripe support (currently Laravel only by convention)
+		if cli.StripeSecretSet(s.Path) {
 			stripeStatus, _ = podman.UnitStatus("lerd-stripe-" + s.Name)
-			stripeSecretSet = cli.StripeSecretSet(s.Path)
+			stripeSecretSet = true
 		}
 
-		// queue/schedule/reverb: driven by framework worker definitions
+		// Build a set of workers suppressed by a running worker's ConflictsWith.
+		suppressed := make(map[string]bool)
 		if hasFw && fw.Workers != nil {
-			if _, ok := fw.Workers["queue"]; ok {
+			for wn, wDef := range fw.Workers {
+				if len(wDef.ConflictsWith) == 0 {
+					continue
+				}
+				if st, _ := podman.UnitStatus("lerd-" + wn + "-" + s.Name); st == "active" {
+					for _, c := range wDef.ConflictsWith {
+						suppressed[c] = true
+					}
+				}
+			}
+		}
+
+		// queue/schedule/reverb/horizon: driven by framework worker definitions
+		var horizonStatus string
+		var hasHorizon bool
+		if hasFw && fw.Workers != nil {
+			if fw.HasWorker("queue", s.Path) && !suppressed["queue"] {
 				hasQueueWorker = true
 				queueStatus, _ = podman.UnitStatus("lerd-queue-" + s.Name)
 			}
-			if _, ok := fw.Workers["schedule"]; ok {
+			if fw.HasWorker("schedule", s.Path) && !suppressed["schedule"] {
 				hasScheduleWorker = true
 				scheduleStatus, _ = podman.UnitStatus("lerd-schedule-" + s.Name)
 			}
-			if _, ok := fw.Workers["reverb"]; ok {
-				// For Laravel, reverb toggle still requires the package/env to be present.
-				// For other frameworks, defining the worker is enough to show the toggle.
-				if isLaravel {
-					hasReverb = cli.SiteUsesReverb(s.Path)
-				} else {
-					hasReverb = true
-				}
-				if hasReverb {
-					reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
-				}
+			if fw.HasWorker("reverb", s.Path) && !suppressed["reverb"] {
+				hasReverb = true
+				reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
+			}
+			if fw.HasWorker("horizon", s.Path) && !suppressed["horizon"] {
+				hasHorizon = true
+				horizonStatus, _ = podman.UnitStatus("lerd-horizon-" + s.Name)
+				hasQueueWorker = false // Horizon manages queues; suppress the plain queue toggle
 			}
 		}
-		// For Laravel without reverb in workers map (shouldn't happen with built-in, but guard anyway)
-		if isLaravel && !hasReverb {
-			reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
-			hasReverb = cli.SiteUsesReverb(s.Path)
-		}
 
-		// Horizon: auto-detected from composer.json; replaces the queue toggle.
-		var horizonStatus string
-		var hasHorizon bool
-		if isLaravel && cli.SiteHasHorizon(s.Path) {
-			hasHorizon = true
-			horizonStatus, _ = podman.UnitStatus("lerd-horizon-" + s.Name)
-			hasQueueWorker = false // Horizon manages queues; suppress the plain queue toggle
-		}
+		// Collect framework workers that aren't the well-known ones handled above.
 
-		// Collect custom framework workers (non-builtin names)
 		var fwWorkers []WorkerStatus
 		if hasFw && fw.Workers != nil {
 			names := make([]string, 0, len(fw.Workers))
 			for n, wDef := range fw.Workers {
 				switch n {
-				case "queue", "schedule", "reverb":
+				case "queue", "schedule", "reverb", "horizon":
 					continue
 				}
 				if wDef.Check != nil && !config.MatchesRule(s.Path, *wDef.Check) {
+					continue
+				}
+				if suppressed[n] {
 					continue
 				}
 				names = append(names, n)
@@ -613,8 +613,8 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			NodeVersion:        nodeVersion,
 			TLS:                s.Secured,
 			Framework:          s.Framework,
-			IsLaravel:          isLaravel,
-			FrameworkLabel:     frameworkLabel(fwName),
+			IsLaravel:          fwName == "laravel",
+			FrameworkLabel:     frameworkLabel(fwName, s.Path),
 			FPMRunning:         fpmRunning,
 			QueueRunning:       queueStatus == "active",
 			QueueFailing:       queueStatus == "activating" || queueStatus == "failed",
@@ -631,7 +631,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			HasQueueWorker:     hasQueueWorker,
 			HasScheduleWorker:  hasScheduleWorker,
 			FrameworkWorkers:   fwWorkers,
-			HasAppLogs:         hasFw && len(fw.Logs) > 0,
+			HasAppLogs:         hasLogFiles(hasFw, fw, s.Path),
 			LatestLogTime:      latestLogTime(hasFw, fw, s.Path),
 			HasFavicon:         detectFavicon(s.Path, s.PublicDir) != "",
 			Paused:             s.Paused,
@@ -712,13 +712,16 @@ func buildServiceResponse(name string) ServiceResponse {
 }
 
 // listActiveQueueWorkers returns the site names of active lerd-queue-* systemd units.
-// frameworkLabel returns the display label for a framework name.
+// frameworkLabel returns the display label (with version) for a framework name.
 // Returns the Label field from the framework definition, or an empty string if not found.
-func frameworkLabel(name string) string {
+func frameworkLabel(name, path string) string {
 	if name == "" {
 		return ""
 	}
-	if fw, ok := config.GetFramework(name); ok {
+	if fw, ok := config.GetFrameworkForDir(name, path); ok {
+		if fw.Version != "" {
+			return fw.Label + " " + fw.Version
+		}
 		return fw.Label
 	}
 	return name
@@ -862,9 +865,6 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 				continue
 			}
 			fwN := s.Framework
-			if fwN == "" {
-				fwN, _ = config.DetectFramework(s.Path)
-			}
 			fw2, ok2 := config.GetFramework(fwN)
 			if !ok2 || fw2.Workers == nil {
 				continue
@@ -1138,9 +1138,6 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				fwN3 := s.Framework
-				if fwN3 == "" {
-					fwN3, _ = config.DetectFramework(s.Path)
-				}
 				fw3, ok3 := config.GetFramework(fwN3)
 				if !ok3 || fw3.Workers == nil {
 					continue
@@ -1856,33 +1853,31 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			parts := strings.SplitN(action, ":", 3)
 			if len(parts) == 3 && (parts[2] == "start" || parts[2] == "stop") {
 				workerName := parts[1]
-				fwN := site.Framework
-				if fwN == "" {
-					fwN, _ = config.DetectFramework(site.Path)
-				}
-				fw, ok := config.GetFramework(fwN)
-				if !ok || fw.Workers == nil {
-					writeJSON(w, SiteActionResponse{Error: "framework has no workers defined"})
-					return
-				}
-				worker, ok := fw.Workers[workerName]
-				if !ok {
-					writeJSON(w, SiteActionResponse{Error: "worker " + workerName + " not defined for this framework"})
-					return
-				}
-				phpVersion := site.PHPVersion
-				if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
-					phpVersion = detected
-				}
-				if parts[2] == "start" {
-					go cli.WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
-					go syncLerdYAMLWorkersDelayed(site)
-				} else {
+				if parts[2] == "stop" {
+					// Allow stopping orphaned workers that have no definition.
 					if err := cli.WorkerStopForSite(site.Name, workerName); err != nil {
 						writeJSON(w, SiteActionResponse{Error: err.Error()})
 						return
 					}
 					syncLerdYAMLWorkers(site)
+				} else {
+					fwN := site.Framework
+					fw, ok := config.GetFrameworkForDir(fwN, site.Path)
+					if !ok || fw.Workers == nil {
+						writeJSON(w, SiteActionResponse{Error: "framework has no workers defined"})
+						return
+					}
+					worker, ok := fw.Workers[workerName]
+					if !ok {
+						writeJSON(w, SiteActionResponse{Error: "worker " + workerName + " not defined for this framework"})
+						return
+					}
+					phpVersion := site.PHPVersion
+					if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
+						phpVersion = detected
+					}
+					go cli.WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
+					go syncLerdYAMLWorkersDelayed(site)
 				}
 				writeJSON(w, SiteActionResponse{OK: true})
 				return
@@ -2367,6 +2362,21 @@ func handleWatcherLogs(w http.ResponseWriter, r *http.Request) {
 
 // latestLogTime returns the ISO 8601 timestamp of the most recently modified
 // log file for a site, or empty string if no log files exist.
+// hasLogFiles returns true if the framework defines log sources and at least one
+// matching log file exists on disk.
+func hasLogFiles(hasFw bool, fw *config.Framework, projectPath string) bool {
+	if !hasFw || len(fw.Logs) == 0 {
+		return false
+	}
+	for _, src := range fw.Logs {
+		matches, _ := filepath.Glob(filepath.Join(projectPath, src.Path))
+		if len(matches) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func latestLogTime(hasFw bool, fw *config.Framework, projectPath string) string {
 	if !hasFw || len(fw.Logs) == 0 {
 		return ""

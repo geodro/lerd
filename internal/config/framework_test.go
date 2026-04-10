@@ -233,6 +233,51 @@ func TestListFrameworks_IncludesLogs(t *testing.T) {
 	}
 }
 
+// ── RemoveFramework ─────────────────────────────────────────────────────────
+
+func TestRemoveFramework_UserDefined(t *testing.T) {
+	setConfigDir(t)
+
+	dir := FrameworksDir()
+	os.MkdirAll(dir, 0755)
+	os.WriteFile(filepath.Join(dir, "myfw.yaml"), []byte("name: myfw\n"), 0644)
+
+	if err := RemoveFramework("myfw"); err != nil {
+		t.Fatalf("RemoveFramework(user): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "myfw.yaml")); !os.IsNotExist(err) {
+		t.Error("expected user file to be removed")
+	}
+}
+
+func TestRemoveFramework_StoreInstalled(t *testing.T) {
+	setConfigDir(t)
+
+	dir := StoreFrameworksDir()
+	os.MkdirAll(dir, 0755)
+	os.WriteFile(filepath.Join(dir, "symfony.yaml"), []byte("name: symfony\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "symfony@7.yaml"), []byte("name: symfony\nversion: \"7\"\n"), 0644)
+
+	if err := RemoveFramework("symfony"); err != nil {
+		t.Fatalf("RemoveFramework(store): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "symfony.yaml")); !os.IsNotExist(err) {
+		t.Error("expected unversioned store file to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "symfony@7.yaml")); !os.IsNotExist(err) {
+		t.Error("expected versioned store file to be removed")
+	}
+}
+
+func TestRemoveFramework_NotFound(t *testing.T) {
+	setConfigDir(t)
+
+	err := RemoveFramework("nonexistent")
+	if !os.IsNotExist(err) {
+		t.Errorf("expected os.IsNotExist error, got: %v", err)
+	}
+}
+
 // ── FrameworkLogSource YAML round-trip ────────────────────────────────────────
 
 func TestFrameworkLogSource_YAMLRoundTrip(t *testing.T) {

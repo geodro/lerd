@@ -248,3 +248,45 @@ func TestDetectExtensions_NoExtRequires(t *testing.T) {
 		t.Errorf("expected no extensions, got %v", exts)
 	}
 }
+
+// ── ClampToRange ─────────────────────────────────────────────────────────────
+
+func TestClampToRange(t *testing.T) {
+	tests := []struct {
+		version, min, max, want string
+	}{
+		// In range — no change.
+		{"8.3", "8.2", "8.4", "8.3"},
+		{"8.2", "8.2", "8.4", "8.2"},
+		{"8.4", "8.2", "8.4", "8.4"},
+		// Empty range — no change.
+		{"8.3", "", "", "8.3"},
+		{"8.3", "", "8.4", "8.3"},
+		{"8.3", "8.2", "", "8.3"},
+		// Below min — clamps (falls back to min if no installed version).
+		{"8.1", "8.2", "8.4", "8.2"},
+		{"7.4", "8.2", "8.5", "8.2"},
+		// Above max — clamps.
+		{"8.5", "8.2", "8.4", "8.4"},
+	}
+	for _, tt := range tests {
+		got := ClampToRange(tt.version, tt.min, tt.max)
+		// ClampToRange may pick a different installed version within range,
+		// but when no installed version matches it falls back to min/max boundary.
+		// We check that the result is within the stated range.
+		if tt.min != "" {
+			gMaj, gMin := parseMajorMinor(got)
+			mMaj, mMin := parseMajorMinor(tt.min)
+			if gMaj < mMaj || (gMaj == mMaj && gMin < mMin) {
+				t.Errorf("ClampToRange(%q, %q, %q) = %q, below min", tt.version, tt.min, tt.max, got)
+			}
+		}
+		if tt.max != "" {
+			gMaj, gMin := parseMajorMinor(got)
+			mMaj, mMin := parseMajorMinor(tt.max)
+			if gMaj > mMaj || (gMaj == mMaj && gMin > mMin) {
+				t.Errorf("ClampToRange(%q, %q, %q) = %q, above max", tt.version, tt.min, tt.max, got)
+			}
+		}
+	}
+}

@@ -14,6 +14,8 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/store"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -83,7 +85,6 @@ func runSetup(allSteps, skipOpen bool) error {
 	}
 
 	site, _ := config.FindSiteByPath(cwd)
-	isLaravel := site != nil && site.IsLaravel()
 
 	// Load saved workers from .lerd.yaml to pre-select them in the step selector.
 	projCfg, _ := config.LoadProjectConfig(cwd)
@@ -168,7 +169,7 @@ func runSetup(allSteps, skipOpen bool) error {
 	if site != nil {
 		fwName := site.Framework
 		if fwName == "" {
-			fwName, _ = config.DetectFramework(cwd)
+			fwName, _ = store.DetectFrameworkWithStore(cwd)
 		}
 		if fw, ok := config.GetFramework(fwName); ok {
 			for _, sc := range fw.Setup {
@@ -178,10 +179,6 @@ func runSetup(allSteps, skipOpen bool) error {
 				}
 				setupCmd := sc
 				enabled := setupCmd.Default
-				// Laravel dynamic default: only enable storage:link when actually needed.
-				if fwName == "laravel" && strings.Contains(setupCmd.Command, "storage:link") {
-					enabled = siteNeedsStorageLink(cwd)
-				}
 				steps = append(steps, setupStep{
 					label:   setupCmd.Label,
 					enabled: enabled,
@@ -204,128 +201,53 @@ func runSetup(allSteps, skipOpen bool) error {
 		})
 	}
 
-	if isLaravel {
-		// Show horizon instead of queue when laravel/horizon is installed.
-		if SiteHasHorizon(cwd) {
+	// Orphaned workers — running units with no framework definition.
+	// Shown before framework workers so they are stopped first.
+	if site != nil {
+		known := make(map[string]bool)
+		if fw, ok := config.GetFrameworkForDir(site.Framework, cwd); ok {
+			for wn := range fw.Workers {
+				known[wn] = true
+			}
+		}
+		orphans := lerdSystemd.FindOrphanedWorkers(site.Name, known)
+		for _, oName := range orphans {
+			on := oName
 			steps = append(steps, setupStep{
-				label:   "horizon:start",
-				enabled: savedWorkers["horizon"],
+				label:   on + ":stop (orphaned)",
+				enabled: true,
 				run: func() error {
-					s, err := config.FindSiteByPath(cwd)
-					if err != nil {
-						return fmt.Errorf("site not registered: %w", err)
-					}
-					phpVersion := s.PHPVersion
-					if phpVersion == "" {
-						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
-							phpVersion = detected
-						} else {
-							cfg, _ := config.LoadGlobal()
-							phpVersion = cfg.PHP.DefaultVersion
-						}
-					}
-					return HorizonStartForSite(s.Name, cwd, phpVersion)
-				},
-			})
-		} else {
-			steps = append(steps, setupStep{
-				label:   "queue:start",
-				enabled: savedWorkers["queue"] || siteUsesRedisQueue(cwd),
-				run: func() error {
-					s, err := config.FindSiteByPath(cwd)
-					if err != nil {
-						return fmt.Errorf("site not registered: %w", err)
-					}
-					phpVersion := s.PHPVersion
-					if phpVersion == "" {
-						if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
-							phpVersion = detected
-						} else {
-							cfg, _ := config.LoadGlobal()
-							phpVersion = cfg.PHP.DefaultVersion
-						}
-					}
-					return QueueStartForSite(s.Name, cwd, phpVersion)
+					return WorkerStopForSite(site.Name, on)
 				},
 			})
 		}
-
-		steps = append(steps, setupStep{
-			label:   "stripe:listen",
-			enabled: siteHasStripeSecret(cwd),
-			run: func() error {
-				s, err := config.FindSiteByPath(cwd)
-				if err != nil {
-					return fmt.Errorf("site not registered: %w", err)
-				}
-				base := siteURL(cwd)
-				if base == "" {
-					return fmt.Errorf("could not resolve site URL — run 'lerd link' first")
-				}
-				return StripeStartForSite(s.Name, cwd, base)
-			},
-		})
-
-		steps = append(steps, setupStep{
-			label:   "schedule:start",
-			enabled: savedWorkers["schedule"],
-			run: func() error {
-				s, err := config.FindSiteByPath(cwd)
-				if err != nil {
-					return fmt.Errorf("site not registered: %w", err)
-				}
-				phpVersion := s.PHPVersion
-				if phpVersion == "" {
-					if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
-						phpVersion = detected
-					} else {
-						cfg, _ := config.LoadGlobal()
-						phpVersion = cfg.PHP.DefaultVersion
-					}
-				}
-				return ScheduleStartForSite(s.Name, cwd, phpVersion)
-			},
-		})
-
-		steps = append(steps, setupStep{
-			label:   "reverb:start",
-			enabled: savedWorkers["reverb"] || SiteUsesReverb(cwd),
-			run: func() error {
-				s, err := config.FindSiteByPath(cwd)
-				if err != nil {
-					return fmt.Errorf("site not registered: %w", err)
-				}
-				phpVersion := s.PHPVersion
-				if phpVersion == "" {
-					if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
-						phpVersion = detected
-					} else {
-						cfg, _ := config.LoadGlobal()
-						phpVersion = cfg.PHP.DefaultVersion
-					}
-				}
-				return ReverbStartForSite(s.Name, cwd, phpVersion)
-			},
-		})
 	}
 
-	// Custom framework workers (e.g. messenger for Symfony).
-	// For Laravel, skip built-in worker names already handled above.
+	// Framework workers — driven entirely by the framework definition.
+	// Workers with ConflictsWith suppress the conflicted worker from the list
+	// (e.g. horizon replaces queue when horizon's check passes).
 	if site != nil {
 		fwName := site.Framework
 		if fwName == "" {
-			fwName, _ = config.DetectFramework(cwd)
+			fwName, _ = store.DetectFrameworkWithStore(cwd)
 		}
 		if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
+			suppressed := map[string]bool{}
+			for _, wDef := range fw.Workers {
+				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+					continue
+				}
+				for _, c := range wDef.ConflictsWith {
+					suppressed[c] = true
+				}
+			}
+
 			for wName, wDef := range fw.Workers {
 				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
 					continue
 				}
-				if isLaravel {
-					switch wName {
-					case "queue", "schedule", "reverb":
-						continue
-					}
+				if suppressed[wName] {
+					continue
 				}
 				wn := wName
 				wd := wDef
@@ -346,11 +268,33 @@ func runSetup(allSteps, skipOpen bool) error {
 								phpVersion = cfg.PHP.DefaultVersion
 							}
 						}
+						for _, conflict := range wd.ConflictsWith {
+							WorkerStopForSite(s.Name, conflict) //nolint:errcheck
+						}
 						return WorkerStartForSite(s.Name, cwd, phpVersion, wn, wd)
 					},
 				})
 			}
 		}
+	}
+
+	// Stripe listener (not a framework worker — still special-cased).
+	if siteHasStripeSecret(cwd) {
+		steps = append(steps, setupStep{
+			label:   "stripe:listen",
+			enabled: siteHasStripeSecret(cwd),
+			run: func() error {
+				s, err := config.FindSiteByPath(cwd)
+				if err != nil {
+					return fmt.Errorf("site not registered: %w", err)
+				}
+				base := siteURL(cwd)
+				if base == "" {
+					return fmt.Errorf("could not resolve site URL — run 'lerd link' first")
+				}
+				return StripeStartForSite(s.Name, cwd, base)
+			},
+		})
 	}
 
 	if !skipOpen {

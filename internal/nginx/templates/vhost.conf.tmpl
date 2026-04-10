@@ -3,10 +3,10 @@ server {
     server_name {{.ServerNames}};
     root {{.Path}}/{{.PublicDir}};
     index index.php index.html;
-{{if .Reverb}}
-    location /app {
-        set $reverb "lerd-php{{.PHPVersionShort}}-fpm";
-        proxy_pass http://$reverb:{{.ReverbPort}};
+{{if .Proxy}}
+    location {{.ProxyPath}} {
+        set $proxybackend "lerd-php{{.PHPVersionShort}}-fpm";
+        proxy_pass http://$proxybackend:{{.ProxyPort}};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

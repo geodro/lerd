@@ -91,6 +91,58 @@ func DetectVersion(dir string) (string, error) {
 	return cfg.PHP.DefaultVersion, nil
 }
 
+// ClampToRange checks if version falls within [min, max] and returns the best
+// installed version within range if it doesn't. Returns the original version if
+// min/max are empty or the version is already in range. This is used to respect
+// framework PHP version constraints during site linking.
+func ClampToRange(version, min, max string) string {
+	if min == "" && max == "" {
+		return version
+	}
+
+	major, minor := parseMajorMinor(version)
+	if major < 0 {
+		return version
+	}
+
+	inRange := true
+	if min != "" {
+		mMajor, mMinor := parseMajorMinor(min)
+		if mMajor >= 0 && (major < mMajor || (major == mMajor && minor < mMinor)) {
+			inRange = false
+		}
+	}
+	if max != "" {
+		mMajor, mMinor := parseMajorMinor(max)
+		if mMajor >= 0 && (major > mMajor || (major == mMajor && minor > mMinor)) {
+			inRange = false
+		}
+	}
+
+	if inRange {
+		return version
+	}
+
+	// Build a composer-style constraint from min/max and find best installed.
+	var parts []string
+	if min != "" {
+		parts = append(parts, ">="+min)
+	}
+	if max != "" {
+		parts = append(parts, "<="+max)
+	}
+	constraint := strings.Join(parts, " ")
+	if best := bestInstalledVersion(constraint); best != "" {
+		return best
+	}
+
+	// No installed version in range; fall back to min if set.
+	if min != "" {
+		return min
+	}
+	return version
+}
+
 // parseComposerPHP extracts a simple major.minor version from a composer PHP constraint.
 // e.g. "^8.2" → "8.2", ">=8.1" → "8.1", "~8.3.0" → "8.3"
 func parseComposerPHP(constraint string) string {

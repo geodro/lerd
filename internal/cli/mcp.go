@@ -663,6 +663,28 @@ List all workers defined for a site's framework, with their running status, comm
 Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 
+### ` + bt + `worker_add` + bt + `
+Add or update a custom worker for a project. Saves to ` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + ` by default, or to the global framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) with ` + bt + `global: true` + bt + `. Does not auto-start — use ` + bt + `worker_start` + bt + ` afterwards.
+
+Arguments:
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `name` + bt + ` (required): worker name (slug, e.g. ` + bt + `"pdf-generator"` + bt + `)
+- ` + bt + `command` + bt + ` (required): command to run inside the PHP-FPM container
+- ` + bt + `label` + bt + `: human-readable label
+- ` + bt + `restart` + bt + `: ` + bt + `"always"` + bt + ` or ` + bt + `"on-failure"` + bt + ` (default: always)
+- ` + bt + `check_file` + bt + `: only show worker when this file exists
+- ` + bt + `check_composer` + bt + `: only show worker when this Composer package is installed
+- ` + bt + `conflicts_with` + bt + `: array of workers to stop before starting this one
+- ` + bt + `global` + bt + `: save to global framework overlay instead of ` + bt + `.lerd.yaml` + bt + `
+
+### ` + bt + `worker_remove` + bt + `
+Remove a custom worker from a project's ` + bt + `.lerd.yaml` + bt + ` or global framework overlay. Stops the worker if running.
+
+Arguments:
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `name` + bt + ` (required): worker name to remove
+- ` + bt + `global` + bt + `: remove from global framework overlay instead of ` + bt + `.lerd.yaml` + bt + `
+
 ### ` + bt + `project_new` + bt + `
 Scaffold a new PHP project using a framework's create command. For Laravel, runs ` + bt + `composer create-project --no-install --no-plugins --no-scripts laravel/laravel <path>` + bt + `. Other frameworks must have a ` + bt + `create` + bt + ` field in their YAML definition.
 
@@ -986,7 +1008,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Nginx routes ` + bt + `*.test` + bt + ` domains to the correct PHP-FPM container
 - Services (MySQL, Redis, PostgreSQL, etc.) and custom services run as Podman containers via systemd quadlets
 - Node.js versions are managed by fnm; per-project version is set via a ` + bt + `.node-version` + bt + ` file
-- Framework workers (queue, schedule, reverb, horizon, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML definitions; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies
+- Framework workers (queue, schedule, reverb, horizon, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML definitions; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies; workers with ` + bt + `conflicts_with` + bt + ` auto-stop conflicting workers on start and hide them from the UI
+- Custom workers can be added per-project (` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + `) or globally (` + bt + `~/.config/lerd/frameworks/<name>.yaml` + bt + `); use ` + bt + `worker_add` + bt + ` / ` + bt + `worker_remove` + bt + ` — both survive framework store updates
 - Framework setup commands (one-off bootstrap steps like migrations, storage links) are defined in the framework YAML and shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed; custom frameworks can define their own
 - Service version placeholders (` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + `) are available in framework env vars and are resolved from the service image tag at ` + bt + `lerd env` + bt + ` time
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
@@ -1044,6 +1067,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `worker_start` + bt + ` | Start any named framework worker (e.g. messenger, pulse) |
 | ` + bt + `worker_stop` + bt + ` | Stop a named framework worker |
 | ` + bt + `worker_list` + bt + ` | List all workers defined for a site's framework with running status |
+| ` + bt + `worker_add` + bt + ` | Add a custom worker to a project or global framework overlay |
+| ` + bt + `worker_remove` + bt + ` | Remove a custom worker; stops it if running |
 | ` + bt + `project_new` + bt + ` | Scaffold a new PHP project (runs the framework's create command); follow with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` |
 | ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers and setup commands |
 | ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers or setup commands to Laravel |
@@ -1077,6 +1102,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `queue_start` + bt + ` requires Redis to be running when ` + bt + `QUEUE_CONNECTION=redis` + bt + `; call ` + bt + `service_start(name: "redis")` + bt + ` first
 - If ` + bt + `sites` + bt + ` returns ` + bt + `has_horizon: true` + bt + ` for a site, use ` + bt + `horizon_start` + bt + ` / ` + bt + `horizon_stop` + bt + ` instead of ` + bt + `queue_start` + bt + ` / ` + bt + `queue_stop` + bt + ` — Horizon manages queues and they are mutually exclusive
 - Use ` + bt + `worker_list` + bt + ` first to discover what workers are available for a site before calling ` + bt + `worker_start` + bt + `
+- ` + bt + `worker_add` + bt + ` saves custom workers to ` + bt + `.lerd.yaml` + bt + ` by default (project-level, committed to git); use ` + bt + `global: true` + bt + ` to save to the user framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) for all projects of that framework; does not auto-start — call ` + bt + `worker_start` + bt + ` afterwards
+- ` + bt + `worker_remove` + bt + ` stops a running worker before removing it from config; use ` + bt + `global: true` + bt + ` to target the framework overlay
+- Workers with ` + bt + `conflicts_with` + bt + ` automatically stop conflicting workers when started (e.g. a custom queue processor that conflicts with the default queue worker); conflicted workers are hidden from the UI while the conflicting worker runs
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `, ` + bt + `lerd-horizon-myapp` + bt + `)
 - ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + ` change the PHP/Node version for a site; the FPM container for the new PHP version must be running after calling ` + bt + `site_php` + bt + `
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts

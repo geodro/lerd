@@ -46,11 +46,6 @@ func (s *Site) HasDomain(domain string) bool {
 	return false
 }
 
-// IsLaravel returns true if this site uses the Laravel framework.
-func (s *Site) IsLaravel() bool {
-	return s.Framework == "laravel"
-}
-
 // siteYAML is the on-disk YAML representation of a Site, supporting both the
 // legacy single "domain" field and the new "domains" array.
 type siteYAML struct {

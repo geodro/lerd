@@ -14,30 +14,29 @@ import (
 	"github.com/geodro/lerd/internal/podman"
 )
 
-// detectSiteReverb returns true when the project at sitePath uses Laravel Reverb —
-// either as a composer dependency or with BROADCAST_CONNECTION=reverb in .env/.env.example.
-func detectSiteReverb(sitePath string) bool {
-	if data, err := os.ReadFile(filepath.Join(sitePath, "composer.json")); err == nil {
-		if strings.Contains(string(data), `"laravel/reverb"`) {
-			return true
-		}
+// detectSiteProxy checks the site's framework definition for a worker with a
+// proxy configuration. Returns the proxy path and port if found.
+func detectSiteProxy(site config.Site) (path string, port int, ok bool) {
+	fw, fwOK := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !fwOK {
+		return "", 0, false
 	}
-	for _, name := range []string{".env", ".env.example"} {
-		if data, err := os.ReadFile(filepath.Join(sitePath, name)); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "#") {
-					continue
-				}
-				if strings.EqualFold(line, "BROADCAST_CONNECTION=reverb") ||
-					strings.EqualFold(line, `BROADCAST_CONNECTION="reverb"`) ||
-					strings.EqualFold(line, `BROADCAST_CONNECTION='reverb'`) {
-					return true
-				}
+	proxy, _ := fw.DetectProxy(site.Path)
+	if proxy == nil {
+		return "", 0, false
+	}
+	proxyPort := proxy.DefaultPort
+	if proxyPort == 0 {
+		proxyPort = 8080
+	}
+	if proxy.PortEnvKey != "" {
+		if v := envfile.ReadKey(filepath.Join(site.Path, ".env"), proxy.PortEnvKey); v != "" {
+			if p, err := strconv.Atoi(v); err == nil && p > 0 {
+				proxyPort = p
 			}
 		}
 	}
-	return false
+	return proxy.Path, proxyPort, true
 }
 
 type nginxConfData struct {
@@ -53,18 +52,9 @@ type VhostData struct {
 	PHPVersionShort string
 	CertDomain      string // domain whose cert files to use (defaults to Domain)
 	PublicDir       string // document root subdirectory, e.g. "public", "web", "."
-	Reverb          bool   // true when the site uses Laravel Reverb (adds /app WebSocket proxy)
-	ReverbPort      int    // port Reverb listens on inside the PHP-FPM container (default 8080)
-}
-
-// detectSiteReverbPort reads REVERB_SERVER_PORT from the site's .env, falling back to 8080.
-func detectSiteReverbPort(sitePath string) int {
-	if v := envfile.ReadKey(filepath.Join(sitePath, ".env"), "REVERB_SERVER_PORT"); v != "" {
-		if port, err := strconv.Atoi(v); err == nil && port > 0 {
-			return port
-		}
-	}
-	return 8080
+	Proxy           bool   // true when the site has a worker with WebSocket/HTTP proxy config
+	ProxyPath       string // URL path for the proxy (e.g. "/app")
+	ProxyPort       int    // port the worker listens on inside the PHP-FPM container
 }
 
 // phpShort converts "8.4" → "84".
@@ -79,7 +69,7 @@ func resolvePublicDir(site config.Site) string {
 	if site.PublicDir != "" {
 		return site.PublicDir
 	}
-	if fw, ok := config.GetFramework(site.Framework); ok && fw.PublicDir != "" {
+	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok && fw.PublicDir != "" {
 		return fw.PublicDir
 	}
 	return "public"
@@ -112,6 +102,7 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 	publicDir := resolvePublicDir(site)
 	serverNames := serverNamesWithWildcards(site.Domains)
 
+	proxyPath, proxyPort, hasProxy := detectSiteProxy(site)
 	data := VhostData{
 		Domain:          site.PrimaryDomain(),
 		ServerNames:     serverNames,
@@ -119,8 +110,9 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
 		PublicDir:       publicDir,
-		Reverb:          detectSiteReverb(site.Path),
-		ReverbPort:      detectSiteReverbPort(site.Path),
+		Proxy:           hasProxy,
+		ProxyPath:       proxyPath,
+		ProxyPort:       proxyPort,
 	}
 
 	var buf bytes.Buffer
@@ -150,6 +142,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 	publicDir := resolvePublicDir(site)
 	serverNames := serverNamesWithWildcards(site.Domains)
 
+	proxyPath, proxyPort, hasProxy := detectSiteProxy(site)
 	data := VhostData{
 		Domain:          site.PrimaryDomain(),
 		ServerNames:     serverNames,
@@ -158,8 +151,9 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 		PHPVersionShort: phpShort(phpVersion),
 		CertDomain:      site.PrimaryDomain(),
 		PublicDir:       publicDir,
-		Reverb:          detectSiteReverb(site.Path),
-		ReverbPort:      detectSiteReverbPort(site.Path),
+		Proxy:           hasProxy,
+		ProxyPath:       proxyPath,
+		ProxyPort:       proxyPort,
 	}
 
 	var buf bytes.Buffer
