@@ -595,7 +595,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			TLS:                s.Secured,
 			Framework:          s.Framework,
 			IsLaravel:          fwName == "laravel",
-			FrameworkLabel:     frameworkLabel(fwName),
+			FrameworkLabel:     frameworkLabel(fwName, s.Path),
 			FPMRunning:         fpmRunning,
 			QueueRunning:       queueStatus == "active",
 			QueueFailing:       queueStatus == "activating" || queueStatus == "failed",
@@ -612,7 +612,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			HasQueueWorker:     hasQueueWorker,
 			HasScheduleWorker:  hasScheduleWorker,
 			FrameworkWorkers:   fwWorkers,
-			HasAppLogs:         hasFw && len(fw.Logs) > 0,
+			HasAppLogs:         hasLogFiles(hasFw, fw, s.Path),
 			LatestLogTime:      latestLogTime(hasFw, fw, s.Path),
 			HasFavicon:         detectFavicon(s.Path, s.PublicDir) != "",
 			Paused:             s.Paused,
@@ -693,13 +693,16 @@ func buildServiceResponse(name string) ServiceResponse {
 }
 
 // listActiveQueueWorkers returns the site names of active lerd-queue-* systemd units.
-// frameworkLabel returns the display label for a framework name.
+// frameworkLabel returns the display label (with version) for a framework name.
 // Returns the Label field from the framework definition, or an empty string if not found.
-func frameworkLabel(name string) string {
+func frameworkLabel(name, path string) string {
 	if name == "" {
 		return ""
 	}
-	if fw, ok := config.GetFramework(name); ok {
+	if fw, ok := config.GetFrameworkForDir(name, path); ok {
+		if fw.Version != "" {
+			return fw.Label + " " + fw.Version
+		}
 		return fw.Label
 	}
 	return name
@@ -2339,6 +2342,21 @@ func handleWatcherLogs(w http.ResponseWriter, r *http.Request) {
 
 // latestLogTime returns the ISO 8601 timestamp of the most recently modified
 // log file for a site, or empty string if no log files exist.
+// hasLogFiles returns true if the framework defines log sources and at least one
+// matching log file exists on disk.
+func hasLogFiles(hasFw bool, fw *config.Framework, projectPath string) bool {
+	if !hasFw || len(fw.Logs) == 0 {
+		return false
+	}
+	for _, src := range fw.Logs {
+		matches, _ := filepath.Glob(filepath.Join(projectPath, src.Path))
+		if len(matches) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func latestLogTime(hasFw bool, fw *config.Framework, projectPath string) string {
 	if !hasFw || len(fw.Logs) == 0 {
 		return ""

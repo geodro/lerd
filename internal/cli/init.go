@@ -91,6 +91,17 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
+	// Clamp PHP version to the framework's supported range.
+	framework, _ := resolveFramework(cwd)
+	if framework != "" {
+		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
+			clamped := phpPkg.ClampToRange(phpDefault, fw.PHP.Min, fw.PHP.Max)
+			if clamped != phpDefault {
+				phpDefault = clamped
+			}
+		}
+	}
+
 	// Database is picked as a single choice (sqlite | mysql family member |
 	// postgres family member), while other services are a multi-select. This
 	// mirrors the runtime prompt in `lerd env` and prevents users from
@@ -156,7 +167,6 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 
 	// Detect available workers from the framework definition.
 	// Workers with ConflictsWith suppress conflicted workers (e.g. horizon suppresses queue).
-	framework, _ := resolveFramework(cwd)
 	var workerOptions []string
 	if fw, ok := config.GetFrameworkForDir(framework, cwd); ok && fw.Workers != nil {
 		// Build set of workers suppressed by conflict rules.

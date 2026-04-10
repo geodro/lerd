@@ -172,25 +172,25 @@ func TestFetchFramework_NotFound(t *testing.T) {
 	}
 }
 
-func TestFetchFramework_CacheHit(t *testing.T) {
+func TestFetchFramework_AlwaysFresh(t *testing.T) {
 	srv := testServer(t)
 	defer srv.Close()
 	c := testClient(t, srv)
 
-	// First fetch
-	_, err := c.FetchFramework("symfony", "7")
-	if err != nil {
-		t.Fatalf("first FetchFramework() error: %v", err)
-	}
-
-	// Stop server — second call should use cache
-	srv.Close()
+	// Fetch should always hit the server (no local cache).
 	fw, err := c.FetchFramework("symfony", "7")
 	if err != nil {
-		t.Fatalf("cached FetchFramework() error: %v", err)
+		t.Fatalf("FetchFramework() error: %v", err)
 	}
 	if fw.Name != "symfony" {
-		t.Errorf("expected name=symfony from cache, got %q", fw.Name)
+		t.Errorf("expected name=symfony, got %q", fw.Name)
+	}
+
+	// Stop server — second call should fail (no cache fallback).
+	srv.Close()
+	_, err = c.FetchFramework("symfony", "7")
+	if err == nil {
+		t.Error("expected error when server is down, got nil")
 	}
 }
 

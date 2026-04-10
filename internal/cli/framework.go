@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"sort"
@@ -47,6 +48,10 @@ Use --check to compare local definitions against the store and show update statu
 func runFrameworkList(check bool) error {
 	frameworks := config.ListFrameworksDetailed()
 
+	// Try to resolve versions from composer.lock in cwd for frameworks
+	// that don't have a static version (e.g. built-in laravel).
+	cwd, _ := os.Getwd()
+
 	// Fetch store index if --check is requested.
 	var storeIndex *store.Index
 	if check {
@@ -71,6 +76,9 @@ func runFrameworkList(check bool) error {
 
 	for _, info := range frameworks {
 		version := info.Version
+		if version == "" && cwd != "" {
+			version = config.ComposerLockMajorVersion(cwd, info.Name)
+		}
 		if version == "" {
 			version = "—"
 		}
@@ -273,25 +281,108 @@ YAML file format:
 }
 
 func newFrameworkRemoveCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove <name>",
-		Short: "Remove a user-defined framework definition",
-		Args:  cobra.ExactArgs(1),
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "remove <name>[@version]",
+		Short: "Remove a framework definition (user-defined or store-installed)",
+		Long: `Remove a framework definition. If multiple versions are installed and no
+version is specified, you will be prompted to choose which to remove.
+
+Use --all to remove all versions without prompting.
+
+Examples:
+  lerd framework remove symfony          # prompt if multiple versions
+  lerd framework remove symfony@7        # remove specific version
+  lerd framework remove symfony --all    # remove all versions`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			name := args[0]
-			if err := config.RemoveFramework(name); err != nil {
-				if os.IsNotExist(err) {
-					if name == "laravel" {
+			name, version := parseNameVersion(args[0])
+
+			if name == "laravel" {
+				if err := config.RemoveFramework(name); err != nil {
+					if os.IsNotExist(err) {
 						return fmt.Errorf("no custom workers defined for laravel")
 					}
-					return fmt.Errorf("framework %q not found", name)
+					return err
 				}
+				fmt.Printf("Custom laravel overlay removed (built-in definition remains).\n")
+				return nil
+			}
+
+			files := config.ListFrameworkFiles(name)
+			if len(files) == 0 {
+				return fmt.Errorf("framework %q not found", name)
+			}
+
+			// Specific version requested.
+			if version != "" {
+				for _, f := range files {
+					if f.Version == version {
+						if err := config.RemoveFrameworkFile(f.Path); err != nil {
+							return err
+						}
+						fmt.Printf("Removed %s@%s.\n", name, version)
+						return nil
+					}
+				}
+				return fmt.Errorf("framework %q version %q not found", name, version)
+			}
+
+			// Single file or --all: remove everything.
+			if len(files) == 1 || all {
+				if err := config.RemoveFramework(name); err != nil {
+					return err
+				}
+				fmt.Printf("Framework %q removed.\n", name)
+				return nil
+			}
+
+			// Multiple files: prompt.
+			fmt.Printf("Multiple definitions found for %q:\n", name)
+			labels := make([]string, len(files))
+			for i, f := range files {
+				v := f.Version
+				if v == "" {
+					v = "unversioned"
+				}
+				labels[i] = fmt.Sprintf("%s (%s)", v, f.Source)
+				fmt.Printf("  %d) %s\n", i+1, labels[i])
+			}
+			fmt.Printf("  %d) all\n", len(files)+1)
+			fmt.Printf("Choose [1-%d]: ", len(files)+1)
+
+			reader := bufio.NewReader(os.Stdin)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+			choice := 0
+			fmt.Sscanf(line, "%d", &choice)
+
+			if choice == len(files)+1 {
+				if err := config.RemoveFramework(name); err != nil {
+					return err
+				}
+				fmt.Printf("Framework %q removed (all versions).\n", name)
+				return nil
+			}
+
+			if choice < 1 || choice > len(files) {
+				return fmt.Errorf("invalid choice")
+			}
+
+			f := files[choice-1]
+			if err := config.RemoveFrameworkFile(f.Path); err != nil {
 				return err
 			}
-			fmt.Printf("Framework %q removed.\n", name)
+			v := f.Version
+			if v == "" {
+				v = "unversioned"
+			}
+			fmt.Printf("Removed %s (%s).\n", name, v)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "Remove all versions without prompting")
+	return cmd
 }
 
 func newFrameworkSearchCmd() *cobra.Command {

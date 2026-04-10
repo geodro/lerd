@@ -18,7 +18,8 @@ Laravel has a built-in definition. Other frameworks (Symfony, WordPress, Drupal,
 | `lerd framework update [name[@version]]` | Update installed definitions from the store |
 | `lerd framework update --diff` | Preview changes before applying updates |
 | `lerd framework add <name>` | Add or update a user-defined framework definition |
-| `lerd framework remove <name>` | Remove a user-defined framework definition |
+| `lerd framework remove <name>[@version]` | Remove a framework definition (prompts if multiple versions) |
+| `lerd framework remove <name> --all` | Remove all versions of a framework definition |
 
 ---
 
@@ -35,7 +36,7 @@ lerd framework search
 ```
 Name            Label           Latest       Versions
 ───────────────────────────────────────────────────────
-laravel         Laravel         13           13, 12
+laravel         Laravel         13           13, 12, 11, 10
 symfony         Symfony         8            8, 7
 wordpress       WordPress       6            6, 5
 drupal          Drupal          11           11, 10
@@ -79,14 +80,16 @@ lerd framework update                 # update all installed frameworks
 lerd framework update --diff          # show changes before applying
 ```
 
-### Auto-detection
+### Auto-detection and auto-fetch
 
-When `lerd link`, `lerd init`, or `lerd setup` detects a framework with no local definition, it checks the store:
+When any command needs a framework definition that isn't installed locally, lerd fetches it from the store automatically. The version is resolved from `composer.lock`, so a Laravel 11 project gets `laravel@11.yaml` and a Laravel 12 project gets `laravel@12.yaml`.
+
+Locally installed definitions are refreshed from the store every 24 hours to pick up upstream fixes (e.g. new log sources, corrected PHP ranges).
+
+During `lerd link`, `lerd init`, or `lerd setup`, if no framework is detected at all:
 
 - **Interactive mode**: prompts to install from the store
 - **Non-interactive mode**: fetches silently when `.lerd.yaml` specifies a framework name
-
-Framework detection only happens during `lerd link`, `lerd init`, `lerd env`, and `lerd setup`. All other commands read the saved framework from the site registry.
 
 ### Contributing to the store
 
@@ -100,10 +103,10 @@ Lerd resolves framework definitions from multiple sources. Higher priority wins:
 
 | Priority | Source | Location | Purpose |
 |----------|--------|----------|---------|
-| 1 | User-defined | `~/.config/lerd/frameworks/<name>.yaml` | Manual overrides and custom frameworks |
+| 1 | User overlay | `~/.config/lerd/frameworks/<name>.yaml` | Manual overrides (merged on top) |
 | 2 | Project embedded | `.lerd.yaml` `framework_def` | Portability for user-defined frameworks |
-| 3 | Store-installed | `~/.local/share/lerd/frameworks/<name>@<version>.yaml` | Community definitions |
-| 4 | Built-in | Compiled into lerd binary | Laravel only |
+| 3 | Store-installed | `~/.local/share/lerd/frameworks/<name>@<version>.yaml` | Community definitions (auto-fetched) |
+| 4 | Built-in | Compiled into lerd binary | Laravel fallback only |
 
 ### Worker merging
 
@@ -257,11 +260,11 @@ journalctl --user -u lerd-messenger-myapp -f
 
 ---
 
-## Built-in Laravel definition
+## Laravel definition
 
-Laravel is the only framework with a built-in definition compiled into the binary. It is always available without any YAML file or store install.
+Laravel has a built-in definition compiled into the binary as a fallback. When a project is linked, lerd auto-fetches the version-specific definition from the store (e.g. `laravel@11`, `laravel@12`), which includes the correct PHP version range and version-specific behaviour (e.g. Laravel 10 uses `schedule:run` instead of `schedule:work`, and doesn't include Reverb).
 
-Built-in workers:
+Default workers:
 
 | Worker | Label | Command | Check | Extra |
 |---|---|---|---|---|
@@ -292,6 +295,28 @@ To remove the overlay (built-in workers remain):
 ```bash
 lerd framework remove laravel
 ```
+
+### Removing framework definitions
+
+```bash
+lerd framework remove symfony          # prompts if multiple versions installed
+lerd framework remove symfony@7        # remove a specific version
+lerd framework remove symfony --all    # remove all versions
+```
+
+When multiple versions of a framework are installed, `lerd framework remove` prompts you to choose which version to remove.
+
+---
+
+## PHP version clamping
+
+When a framework definition includes `php.min` and `php.max`, `lerd link` and `lerd init` automatically clamp the detected PHP version to the supported range. For example, if you link a Laravel 10 project (max PHP 8.3) but your system defaults to PHP 8.4, lerd will select PHP 8.3 instead:
+
+```
+PHP 8.4 is outside Laravel's supported range (8.1–8.3), using PHP 8.3.
+```
+
+This prevents accidentally running a project on an unsupported PHP version.
 
 ---
 
@@ -341,6 +366,11 @@ public_dir: public                # document root relative to project
 
 # Version (required for store definitions)
 version: "8"                      # framework major version this definition targets
+
+# PHP version range (optional, used during lerd link/init to clamp PHP version)
+php:
+  min: "8.2"                      # minimum supported PHP version
+  max: "8.5"                      # maximum supported PHP version
 
 # Detection rules — any match is sufficient
 detect:
@@ -444,7 +474,7 @@ If no framework matches and no `--public-dir` is specified, lerd tries these can
 
 ## Log viewer
 
-Frameworks can define application log file locations so they appear in the UI's **App Logs** tab. Laravel has this built-in (`storage/logs/*.log` with Monolog parsing). Custom frameworks can add their own:
+Frameworks can define application log file locations so they appear in the UI's **App Logs** tab. The tab only appears when matching log files actually exist on disk — for example, WordPress defines `wp-content/debug.log` but the tab stays hidden until `WP_DEBUG_LOG` is enabled. Custom frameworks can add their own:
 
 ```yaml
 logs:

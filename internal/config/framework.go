@@ -7,16 +7,34 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// FrameworkFetchFunc is a callback that fetches a framework definition from the
+// store and saves it locally. It is called when GetFrameworkForDir cannot find a
+// local definition for the detected version. The store package registers this at
+// startup to avoid a circular import.
+type FrameworkFetchFunc func(name, version string) (*Framework, error)
+
+// frameworkFetchHook is set by the store package via RegisterFrameworkFetchHook.
+var frameworkFetchHook FrameworkFetchFunc
+
+// RegisterFrameworkFetchHook sets the callback used to auto-fetch missing
+// framework definitions from the store.
+func RegisterFrameworkFetchHook(fn FrameworkFetchFunc) {
+	frameworkFetchHook = fn
+}
 
 // Framework describes a PHP project framework type.
 type Framework struct {
 	Name  string `yaml:"name"`
 	Label string `yaml:"label"`
 	// Version is the framework major version this definition targets (e.g. "11", "7").
-	Version   string                     `yaml:"version,omitempty"`
+	Version string `yaml:"version,omitempty"`
+	// PHP defines the supported PHP version range for this framework version.
+	PHP       FrameworkPHP               `yaml:"php,omitempty"`
 	Detect    []FrameworkRule            `yaml:"detect,omitempty"`
 	PublicDir string                     `yaml:"public_dir"`
 	Env       FrameworkEnvConf           `yaml:"env,omitempty"`
@@ -66,6 +84,12 @@ type FrameworkSetupCmd struct {
 	Command string         `yaml:"command"`
 	Default bool           `yaml:"default,omitempty"`
 	Check   *FrameworkRule `yaml:"check,omitempty"` // only show when check passes (file exists or composer package installed)
+}
+
+// FrameworkPHP defines the supported PHP version range for a framework version.
+type FrameworkPHP struct {
+	Min string `yaml:"min,omitempty"` // minimum PHP version (e.g. "8.2")
+	Max string `yaml:"max,omitempty"` // maximum PHP version (e.g. "8.4")
 }
 
 // FrameworkRule is a single detection rule for a framework.
@@ -365,24 +389,26 @@ func mergeUserOverlay(base *Framework) *Framework {
 		base.Setup = append(base.Setup, overlay.Setup...)
 	}
 
+	// Merge logs (overlay replaces the full list if provided).
+	if overlay.Logs != nil {
+		base.Logs = overlay.Logs
+	}
+
 	return base
 }
 
 // GetFrameworkForDir is like GetFramework but auto-detects the framework version
 // from composer.lock in projectDir. If a version-specific store definition exists
 // it is preferred over an unversioned one. User overlay workers are always merged.
+// When a version is detected but no local definition exists, it attempts to fetch
+// the definition from the store automatically.
 func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 	if name == "" {
 		return nil, false
 	}
 
-	// Laravel built-in handling is version-agnostic.
-	if name == "laravel" {
-		return GetFramework(name)
-	}
-
 	// 1. Resolve version from composer.lock (source of truth) or .lerd.yaml (fallback).
-	version := composerLockMajorVersion(projectDir, name)
+	version := ComposerLockMajorVersion(projectDir, name)
 	if proj, err := LoadProjectConfig(projectDir); err == nil {
 		if version == "" && proj.FrameworkVersion != "" {
 			version = proj.FrameworkVersion
@@ -392,11 +418,31 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 		}
 	}
 
-	// 2. Find the base definition from the store.
+	// 2. Find the base definition from the store directory.
 	var base *Framework
+	versionedPath := ""
 	if version != "" {
-		base = loadFrameworkYAML(filepath.Join(StoreFrameworksDir(), name+"@"+version+".yaml"))
+		versionedPath = filepath.Join(StoreFrameworksDir(), name+"@"+version+".yaml")
+		base = loadFrameworkYAML(versionedPath)
 	}
+
+	// 3. Auto-fetch from the store: either the file is missing, or it's older
+	//    than 24 hours and may have been updated upstream.
+	if version != "" && frameworkFetchHook != nil {
+		shouldFetch := base == nil
+		if !shouldFetch && versionedPath != "" {
+			if info, err := os.Stat(versionedPath); err == nil {
+				shouldFetch = time.Since(info.ModTime()) > 24*time.Hour
+			}
+		}
+		if shouldFetch {
+			if fetched, err := frameworkFetchHook(name, version); err == nil && fetched != nil {
+				base = fetched
+			}
+		}
+	}
+
+	// 4. Fall back to any available local definition.
 	if base == nil {
 		base = loadFrameworkYAML(filepath.Join(StoreFrameworksDir(), name+".yaml"))
 	}
@@ -405,13 +451,19 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 	}
 
 	if base != nil {
-		// Merge user overlay on top of the store base.
 		base = mergeUserOverlay(base)
-		// Merge project-specific custom workers from .lerd.yaml.
 		return mergeProjectWorkers(base, projectDir), true
 	}
 
-	// 3. No store definition — check user-only definition (custom framework).
+	// 4. For Laravel, fall back to the built-in definition.
+	if name == "laravel" {
+		fw, ok := GetFramework(name)
+		if ok {
+			return mergeProjectWorkers(fw, projectDir), true
+		}
+	}
+
+	// 5. No store definition — check user-only definition (custom framework).
 	if fw := loadFrameworkYAML(filepath.Join(FrameworksDir(), name+".yaml")); fw != nil {
 		return mergeProjectWorkers(fw, projectDir), true
 	}
@@ -597,37 +649,50 @@ type FrameworkInfo struct {
 // Frameworks with a store base + user overlay show as "store" with merged workers.
 func ListFrameworksDetailed() []FrameworkInfo {
 	var result []FrameworkInfo
-	seen := map[string]bool{}
+	seenNameVersion := map[string]bool{}
+	hasStoreLaravel := false
 
-	// Built-in Laravel (merged with user overlay).
-	if fw, ok := GetFramework("laravel"); ok {
-		result = append(result, FrameworkInfo{Framework: fw, Source: SourceBuiltIn})
-	}
-	seen["laravel"] = true
+	key := func(name, version string) string { return name + "@" + version }
 
-	// Store-installed (merged with user overlay).
+	// Store-installed: each versioned file is a separate entry.
 	storeEntries, _ := filepath.Glob(filepath.Join(StoreFrameworksDir(), "*.yaml"))
 	sort.Sort(sort.Reverse(sort.StringSlice(storeEntries)))
 	for _, yamlPath := range storeEntries {
 		fw := loadFrameworkYAML(yamlPath)
-		if fw == nil || seen[fw.Name] {
+		if fw == nil {
 			continue
 		}
-		seen[fw.Name] = true
-		// Use GetFramework to get the merged result (store base + user overlay).
-		if merged, ok := GetFramework(fw.Name); ok {
-			result = append(result, FrameworkInfo{Framework: merged, Source: SourceStore})
+		k := key(fw.Name, fw.Version)
+		if seenNameVersion[k] {
+			continue
+		}
+		seenNameVersion[k] = true
+		merged := mergeUserOverlay(fw)
+		result = append(result, FrameworkInfo{Framework: merged, Source: SourceStore})
+		if fw.Name == "laravel" {
+			hasStoreLaravel = true
 		}
 	}
 
-	// User-only (no store base).
+	// Built-in Laravel (only if no store-installed version exists).
+	if !hasStoreLaravel {
+		if fw, ok := GetFramework("laravel"); ok {
+			result = append(result, FrameworkInfo{Framework: fw, Source: SourceBuiltIn})
+		}
+	}
+
+	// User-only (skip if a store version for the same name already listed).
+	seenName := map[string]bool{"laravel": true}
+	for _, info := range result {
+		seenName[info.Name] = true
+	}
 	entries, _ := filepath.Glob(filepath.Join(FrameworksDir(), "*.yaml"))
 	for _, yamlPath := range entries {
 		fw := loadFrameworkYAML(yamlPath)
-		if fw == nil || seen[fw.Name] {
+		if fw == nil || seenName[fw.Name] {
 			continue
 		}
-		seen[fw.Name] = true
+		seenName[fw.Name] = true
 		result = append(result, FrameworkInfo{Framework: fw, Source: SourceUser})
 	}
 
@@ -704,10 +769,63 @@ func RemoveUserFramework(name string) {
 	os.Remove(filepath.Join(FrameworksDir(), name+".yaml")) //nolint:errcheck
 }
 
-// RemoveFramework deletes a user-defined framework YAML. For "laravel" it only
-// removes the user workers overlay (the built-in definition remains).
+// FrameworkFile describes a framework definition file on disk.
+type FrameworkFile struct {
+	Path    string
+	Version string // "" for unversioned
+	Source  FrameworkSource
+}
+
+// ListFrameworkFiles returns all definition files for a framework across user
+// and store directories.
+func ListFrameworkFiles(name string) []FrameworkFile {
+	var files []FrameworkFile
+	seen := make(map[string]bool)
+
+	add := func(path string, source FrameworkSource) {
+		if seen[path] {
+			return
+		}
+		if _, err := os.Stat(path); err != nil {
+			return
+		}
+		seen[path] = true
+		version := ""
+		base := filepath.Base(path)
+		if i := strings.IndexByte(base, '@'); i != -1 {
+			version = strings.TrimSuffix(base[i+1:], ".yaml")
+		}
+		files = append(files, FrameworkFile{Path: path, Version: version, Source: source})
+	}
+
+	add(filepath.Join(FrameworksDir(), name+".yaml"), SourceUser)
+
+	storeDir := StoreFrameworksDir()
+	add(filepath.Join(storeDir, name+".yaml"), SourceStore)
+	matches, _ := filepath.Glob(filepath.Join(storeDir, name+"@*.yaml"))
+	for _, m := range matches {
+		add(m, SourceStore)
+	}
+
+	return files
+}
+
+// RemoveFrameworkFile removes a single framework definition file.
+func RemoveFrameworkFile(path string) error {
+	return os.Remove(path)
+}
+
+// RemoveFramework deletes all framework definition files (user and store) for
+// the given name.
 func RemoveFramework(name string) error {
-	return os.Remove(filepath.Join(FrameworksDir(), name+".yaml"))
+	files := ListFrameworkFiles(name)
+	if len(files) == 0 {
+		return &os.PathError{Op: "remove", Path: name, Err: os.ErrNotExist}
+	}
+	for _, f := range files {
+		os.Remove(f.Path) //nolint:errcheck
+	}
+	return nil
 }
 
 // HasWorker returns true if the framework defines a worker with the given name
@@ -772,8 +890,10 @@ func matchesFramework(dir string, fw *Framework) bool {
 	return false
 }
 
-// composerLockMajorVersion detects the major version of a framework from composer.lock.
-func composerLockMajorVersion(projectDir, frameworkName string) string {
+// ComposerLockMajorVersion detects the major version of a framework from composer.lock.
+// It scans store-installed definitions to find the composer package name for the framework,
+// then looks up the version in composer.lock. Returns "" if not determinable.
+func ComposerLockMajorVersion(projectDir, frameworkName string) string {
 	if projectDir == "" {
 		return ""
 	}

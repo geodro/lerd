@@ -1183,13 +1183,17 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "framework_remove",
-			Description: "Delete a user-defined framework YAML by name. For laravel, removes only custom worker additions (built-in definition remains).",
+			Description: "Delete a framework definition (user-defined or store-installed) by name. For laravel, removes only custom worker additions (built-in definition remains). Use version to remove a specific version, or omit to remove all.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"name": {
 						Type:        "string",
-						Description: "Framework name to remove",
+						Description: "Framework name to remove (e.g. 'symfony')",
+					},
+					"version": {
+						Type:        "string",
+						Description: "Specific version to remove (e.g. '7'). Omit to remove all versions.",
 					},
 				},
 				Required: []string{"name"},
@@ -4141,17 +4145,36 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 	if name == "" {
 		return toolErr("name is required"), nil
 	}
-	if err := config.RemoveFramework(name); err != nil {
-		if os.IsNotExist(err) {
-			if name == "laravel" {
+	version := strArg(args, "version")
+
+	if name == "laravel" {
+		if err := config.RemoveFramework(name); err != nil {
+			if os.IsNotExist(err) {
 				return toolErr("no custom workers defined for laravel"), nil
 			}
+			return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
+		}
+		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
+	}
+
+	if version != "" {
+		files := config.ListFrameworkFiles(name)
+		for _, f := range files {
+			if f.Version == version {
+				if err := config.RemoveFrameworkFile(f.Path); err != nil {
+					return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
+				}
+				return toolOK(fmt.Sprintf("Removed %s@%s.", name, version)), nil
+			}
+		}
+		return toolErr(fmt.Sprintf("framework %q version %q not found", name, version)), nil
+	}
+
+	if err := config.RemoveFramework(name); err != nil {
+		if os.IsNotExist(err) {
 			return toolErr(fmt.Sprintf("framework %q not found", name)), nil
 		}
 		return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
-	}
-	if name == "laravel" {
-		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
 	}
 	return toolOK(fmt.Sprintf("Framework %q removed.", name)), nil
 }

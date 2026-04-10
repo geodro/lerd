@@ -40,6 +40,25 @@ type IndexEntry struct {
 	Detect   []config.FrameworkRule `json:"detect"`
 }
 
+func init() {
+	config.RegisterFrameworkFetchHook(autoFetchFramework)
+}
+
+// autoFetchFramework downloads a framework definition from the store and saves
+// it to the local store directory. Called automatically by config.GetFrameworkForDir
+// when a version-specific definition is missing locally.
+func autoFetchFramework(name, version string) (*config.Framework, error) {
+	client := NewClient()
+	fw, err := client.FetchFramework(name, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := config.SaveStoreFramework(fw); err != nil {
+		return nil, err
+	}
+	return fw, nil
+}
+
 // NewClient returns a store client with default settings.
 func NewClient() *Client {
 	return &Client{
@@ -82,7 +101,7 @@ func (c *Client) FetchIndex() (*Index, error) {
 }
 
 // FetchFramework downloads a framework definition from the store.
-// Versioned definitions are cached indefinitely (they are immutable).
+// Always fetches from remote to ensure definitions are up to date.
 func (c *Client) FetchFramework(name, version string) (*config.Framework, error) {
 	if version == "" {
 		// Resolve latest from index
@@ -97,17 +116,6 @@ func (c *Client) FetchFramework(name, version string) (*config.Framework, error)
 		version = entry.Latest
 	}
 
-	cacheFile := filepath.Join(c.CacheDir, name, version+".yaml")
-
-	// Versioned definitions are immutable — cache hit means done
-	if data, err := os.ReadFile(cacheFile); err == nil {
-		var fw config.Framework
-		if yaml.Unmarshal(data, &fw) == nil && fw.Name != "" {
-			return &fw, nil
-		}
-	}
-
-	// Fetch from remote
 	remotePath := name + "/" + version + ".yaml"
 	data, err := c.fetch(remotePath)
 	if err != nil {
@@ -120,11 +128,6 @@ func (c *Client) FetchFramework(name, version string) (*config.Framework, error)
 	}
 	if fw.Name == "" {
 		return nil, fmt.Errorf("invalid framework definition for %s@%s: missing name", name, version)
-	}
-
-	// Write to cache
-	if mkErr := os.MkdirAll(filepath.Dir(cacheFile), 0o755); mkErr == nil {
-		os.WriteFile(cacheFile, data, 0o644) //nolint:errcheck
 	}
 
 	return &fw, nil

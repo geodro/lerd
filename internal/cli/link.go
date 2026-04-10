@@ -152,6 +152,18 @@ func runLink(args []string) error {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 
+	// Clamp PHP version to the framework's supported range.
+	if framework != "" {
+		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
+			clamped := phpDet.ClampToRange(phpVersion, fw.PHP.Min, fw.PHP.Max)
+			if clamped != phpVersion {
+				fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
+					phpVersion, fw.Label, fw.PHP.Min, fw.PHP.Max, clamped)
+				phpVersion = clamped
+			}
+		}
+	}
+
 	// Check if this path already has registered sites (re-link scenario).
 	// Carry over secured state and clean up any old registrations at this path.
 	secured := false
