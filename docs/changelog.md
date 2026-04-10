@@ -11,6 +11,19 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.3] — 2026-04-10
+
+### Fixed
+
+- **Projects outside `$HOME` failed with "chdir: No such file or directory"** — the PHP-FPM and nginx containers only bind-mount `$HOME`, so projects in `/var/www`, `/opt/projects`, or similar paths could not be served or exec'd into. Lerd now automatically injects extra volume mounts into both containers when it detects a project outside the home directory. Mounts are added transparently during `lerd link`, `lerd park`, or any exec command (`lerd php`, `composer`, `laravel new`) and cleaned up on `lerd unlink` / `lerd unpark`. (#120)
+- **Env file keys appended instead of uncommented** — when a `.env` key existed but was commented out (`#DB_HOST=...`), `lerd env` appended a duplicate instead of uncommenting the existing line in place.
+
+### Added
+
+- **`lerd doctor` checks for crun** — warns when `crun` is not installed, since it is the recommended OCI runtime for rootless Podman.
+
+---
+
 ## [1.9.2] — 2026-04-10
 
 ### Fixed
