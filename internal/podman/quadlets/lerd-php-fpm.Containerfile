@@ -6,6 +6,7 @@ RUN apk update && apk add --no-cache \
         make \
         g++ \
         git \
+        ghostscript \
         curl-dev \
         libzip-dev \
         libpng-dev \
