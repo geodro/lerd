@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -10,6 +11,8 @@ import (
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
+
+var validExtNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // NewPhpExtCmd returns the php:ext parent command.
 func NewPhpExtCmd() *cobra.Command {
@@ -30,6 +33,9 @@ func newPhpExtAddCmd() *cobra.Command {
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			ext := args[0]
+			if !validExtNameRe.MatchString(ext) {
+				return fmt.Errorf("invalid extension name %q: must contain only letters, digits, hyphens, and underscores", ext)
+			}
 			version, err := phpExtVersion(args[1:])
 			if err != nil {
 				return err
@@ -72,6 +78,9 @@ func newPhpExtRemoveCmd() *cobra.Command {
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			ext := args[0]
+			if !validExtNameRe.MatchString(ext) {
+				return fmt.Errorf("invalid extension name %q: must contain only letters, digits, hyphens, and underscores", ext)
+			}
 			version, err := phpExtVersion(args[1:])
 			if err != nil {
 				return err

@@ -149,8 +149,10 @@ func runDbImport(file, database string) error {
 func dbImportCmd(env *dbEnv) (*exec.Cmd, error) {
 	switch env.connection {
 	case "mysql", "mariadb":
-		return exec.Command("podman", "exec", "-i", "lerd-mysql",
-			"mysql", "-u"+env.username, "-p"+env.password, env.database), nil
+		return exec.Command("podman", "exec", "-i",
+			"-e", "MYSQL_PWD="+env.password,
+			"lerd-mysql",
+			"mysql", "-u"+env.username, env.database), nil
 	case "pgsql", "postgres":
 		return exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "psql", "-U", env.username, env.database), nil
@@ -204,8 +206,10 @@ func runDbExport(output, database string) error {
 func dbExportCmd(env *dbEnv) (*exec.Cmd, error) {
 	switch env.connection {
 	case "mysql", "mariadb":
-		return exec.Command("podman", "exec", "-i", "lerd-mysql",
-			"mysqldump", "-u"+env.username, "-p"+env.password, env.database), nil
+		return exec.Command("podman", "exec", "-i",
+			"-e", "MYSQL_PWD="+env.password,
+			"lerd-mysql",
+			"mysqldump", "-u"+env.username, env.database), nil
 	case "pgsql", "postgres":
 		return exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "pg_dump", "-U", env.username, env.database), nil
