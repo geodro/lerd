@@ -50,6 +50,10 @@ type Framework struct {
 	Create string `yaml:"create,omitempty"`
 	// Logs defines where application log files live for this framework.
 	Logs []FrameworkLogSource `yaml:"logs,omitempty"`
+	// Favicon is the path to the favicon file relative to the public directory.
+	// When set, detectFavicon checks this path in addition to the standard candidates.
+	// Example: "core/misc/favicon.ico" for Drupal.
+	Favicon string `yaml:"favicon,omitempty"`
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.

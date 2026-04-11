@@ -1432,8 +1432,9 @@ var faviconCandidates = []string{
 // the site's public directory (or project root when publicDir is "." or empty).
 // Returns "" when no favicon is found.
 func detectFavicon(sitePath, publicDir, framework string) string {
+	fw, hasFw := config.GetFrameworkForDir(framework, sitePath)
 	if publicDir == "" {
-		if fw, ok := config.GetFrameworkForDir(framework, sitePath); ok && fw.PublicDir != "" {
+		if hasFw && fw.PublicDir != "" {
 			publicDir = fw.PublicDir
 		} else {
 			publicDir = config.DetectPublicDir(sitePath)
@@ -1442,6 +1443,13 @@ func detectFavicon(sitePath, publicDir, framework string) string {
 	base := sitePath
 	if publicDir != "." {
 		base = filepath.Join(sitePath, publicDir)
+	}
+	// Check framework-specific favicon path first.
+	if hasFw && fw.Favicon != "" {
+		p := filepath.Join(base, fw.Favicon)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
 	}
 	for _, name := range faviconCandidates {
 		p := filepath.Join(base, name)
