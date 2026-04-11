@@ -27,6 +27,14 @@ type ProjectConfig struct {
 	AppURL string `yaml:"app_url,omitempty"`
 }
 
+// IsEmpty returns true when the config has no meaningful content, which
+// typically means .lerd.yaml did not exist.
+func (c *ProjectConfig) IsEmpty() bool {
+	return len(c.Domains) == 0 && c.PHPVersion == "" && c.NodeVersion == "" &&
+		c.Framework == "" && len(c.Services) == 0 && len(c.Workers) == 0 &&
+		len(c.CustomWorkers) == 0 && !c.Secured && c.AppURL == ""
+}
+
 // ServiceNames returns the name of every service in the config, for callers
 // that only need the list of names (e.g. the init wizard multi-select).
 func (p *ProjectConfig) ServiceNames() []string {
