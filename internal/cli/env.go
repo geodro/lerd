@@ -96,7 +96,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 	fwName := site.Framework
 	if fwName == "" {
-		fwName, _ = config.DetectFramework(cwd)
+		fwName, _ = config.DetectFrameworkForDir(cwd)
 	}
 	if fwName == "" {
 		return fmt.Errorf("no framework detected for this site\nDefine one with 'lerd framework add' or add a framework YAML to %s", config.FrameworksDir())

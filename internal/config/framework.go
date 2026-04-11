@@ -581,6 +581,35 @@ func DetectPublicDir(dir string) string {
 	return "."
 }
 
+// DetectFrameworkForDir is the primary entry point for framework detection.
+// It checks .lerd.yaml first (committed source of truth), restoring embedded
+// definitions if needed, then falls back to file/composer-based detection.
+// Does NOT prompt or fetch from the remote store — callers that need store
+// interaction should fall back to store.DetectFrameworkWithStore.
+func DetectFrameworkForDir(dir string) (string, bool) {
+	// 1. .lerd.yaml — committed source of truth.
+	if proj, err := LoadProjectConfig(dir); err == nil && proj.Framework != "" {
+		name := proj.Framework
+		// User-defined override always wins.
+		if LoadUserFramework(name) != nil {
+			return name, true
+		}
+		// Restore embedded definition from .lerd.yaml to the store dir.
+		if proj.FrameworkDef != nil {
+			proj.FrameworkDef.Name = name
+			_ = SaveStoreFramework(proj.FrameworkDef)
+		}
+		// Check store-installed (may have just been restored above).
+		if _, ok := GetFrameworkForDir(name, dir); ok {
+			return name, true
+		}
+		return "", false
+	}
+
+	// 2. File/composer-based detection.
+	return DetectFramework(dir)
+}
+
 // DetectFramework inspects dir and returns the detected framework name.
 // It checks user-defined and store-installed frameworks first so that more
 // specific frameworks (e.g. Statamic, which also contains an artisan file)

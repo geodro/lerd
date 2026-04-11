@@ -2675,7 +2675,7 @@ func execCheck(args map[string]any) (any, *rpcError) {
 	if len(cfg.Workers) > 0 {
 		fwName := cfg.Framework
 		if fwName == "" {
-			fwName, _ = config.DetectFramework(projectPath)
+			fwName, _ = config.DetectFrameworkForDir(projectPath)
 		}
 		fw, hasFw := config.GetFramework(fwName)
 
@@ -3255,9 +3255,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 
 	// Detect framework so the correct public_dir and workers are used.
 	framework := ""
-	if name, ok := config.DetectFramework(projectPath); ok {
-		framework = name
-	} else if name, ok := store.DetectFrameworkWithStore(projectPath); ok {
+	if name, ok := config.DetectFrameworkForDir(projectPath); ok {
 		framework = name
 	}
 

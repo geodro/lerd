@@ -2422,7 +2422,7 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 
 	fwName := site.Framework
 	if fwName == "" {
-		fwName, _ = config.DetectFramework(site.Path)
+		fwName, _ = config.DetectFrameworkForDir(site.Path)
 	}
 	fw, hasFw := config.GetFramework(fwName)
 	if !hasFw || len(fw.Logs) == 0 {

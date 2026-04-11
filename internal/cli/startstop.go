@@ -510,7 +510,7 @@ func restoreSiteInfrastructure() {
 		if s.Ignored || s.Framework != "" {
 			continue
 		}
-		if name, ok := config.DetectFramework(s.Path); ok {
+		if name, ok := config.DetectFrameworkForDir(s.Path); ok {
 			reg.Sites[i].Framework = name
 			dirty = true
 		}

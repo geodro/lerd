@@ -204,7 +204,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		return false, nil
 	}
 
-	framework, ok := config.DetectFramework(projectDir)
+	framework, ok := config.DetectFrameworkForDir(projectDir)
 	detectedPublicDir := ""
 	if !ok {
 		detectedPublicDir = config.DetectPublicDir(projectDir)

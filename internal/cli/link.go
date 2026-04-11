@@ -387,32 +387,10 @@ func isInteractive() bool {
 // auto-detects via config.DetectFramework. Returns ("", false) if no
 // framework definition is found.
 func resolveFramework(dir string) (string, bool) {
-	if proj, err := config.LoadProjectConfig(dir); err == nil && proj.Framework != "" {
-		// Check user-defined first (local overrides always win).
-		if fw := config.LoadUserFramework(proj.Framework); fw != nil {
-			return proj.Framework, true
-		}
-		// Embedded definition in .lerd.yaml is the project's known-good config,
-		// committed to git. Restore it to the store dir so it takes effect.
-		if proj.FrameworkDef != nil {
-			proj.FrameworkDef.Name = proj.Framework
-			if saveErr := config.SaveStoreFramework(proj.FrameworkDef); saveErr == nil {
-				return proj.Framework, true
-			}
-		}
-		// Fall back to store-installed.
-		if _, ok := config.GetFrameworkForDir(proj.Framework, dir); ok {
-			return proj.Framework, true
-		}
-		// Not installed anywhere — try to fetch from store.
-		if fetchFrameworkFromStore(proj.Framework, dir) {
-			return proj.Framework, true
-		}
-		return "", false
-	}
-	if name, ok := config.DetectFramework(dir); ok {
+	if name, ok := config.DetectFrameworkForDir(dir); ok {
 		return name, true
 	}
+	// Interactive store fallback — only for terminal commands.
 	return store.DetectFrameworkWithStore(dir)
 }
 
