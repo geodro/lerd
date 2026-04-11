@@ -202,11 +202,21 @@ func Start(currentVersion string) error {
 	return http.ListenAndServe(listenAddr, withRemoteControlGate(mux))
 }
 
+var allowedCORSOrigins = map[string]bool{
+	"http://lerd.localhost":  true,
+	"https://lerd.localhost": true,
+	"http://localhost:7073":  true,
+	"http://127.0.0.1:7073":  true,
+}
+
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		if allowedCORSOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -241,7 +251,7 @@ func openTerminalAt(dir string) error {
 		termCmd{"xfce4-terminal", []string{"--working-directory", dir}},
 		termCmd{"tilix", []string{"--working-directory", dir}},
 		termCmd{"terminator", []string{"--working-directory", dir}},
-		termCmd{"xterm", []string{"-e", "cd " + dir + " && exec $SHELL"}},
+		termCmd{"xterm", []string{"-e", "sh", "-c", `cd "$0" && exec "$SHELL"`, dir}},
 	)
 
 	for _, t := range candidates {
@@ -252,7 +262,7 @@ func openTerminalAt(dir string) error {
 		args := t.args
 		// For $TERMINAL with no preset args, just pass the dir via cd wrapper
 		if t.bin == os.Getenv("TERMINAL") && len(args) == 0 {
-			args = []string{"-e", "sh", "-c", "cd " + dir + " && exec $SHELL"}
+			args = []string{"-e", "sh", "-c", `cd "$0" && exec "$SHELL"`, dir}
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
