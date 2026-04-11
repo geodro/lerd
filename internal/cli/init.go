@@ -60,7 +60,22 @@ func runInit(fresh bool) error {
 		fmt.Println("Saved .lerd.yaml")
 	}
 
-	return applyProjectConfig(cwd)
+	if err := applyProjectConfig(cwd); err != nil {
+		return err
+	}
+
+	if isInteractive() {
+		fmt.Print("\nRun lerd setup? [Y/n] ")
+		var answer string
+		fmt.Scanln(&answer) //nolint:errcheck
+		if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
+			if err := runSetup(false, false); err != nil {
+				fmt.Printf("[WARN] setup: %v\n", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfig, error) {

@@ -192,7 +192,7 @@ func runLink(args []string) error {
 	}
 	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 
-	if proj == nil {
+	if proj.IsEmpty() {
 		if isInteractive() {
 			fmt.Print("\nNo .lerd.yaml found. Run lerd init? [Y/n] ")
 			var answer string
