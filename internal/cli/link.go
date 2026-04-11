@@ -192,6 +192,10 @@ func runLink(args []string) error {
 	}
 	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 
+	if proj == nil {
+		fmt.Println("\nNo .lerd.yaml found. Run 'lerd init' to configure domains, services, and workers.")
+	}
+
 	// Apply remaining .lerd.yaml settings: HTTPS and services.
 	if proj != nil {
 		if proj.Secured && !secured {
