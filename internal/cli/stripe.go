@@ -58,8 +58,8 @@ func newStripeListenCmd() *cobra.Command {
 			if err := stripeStartExplicit(siteName, apiKey, base+webhookPath); err != nil {
 				return err
 			}
-			if site, err := config.FindSite(siteName); err == nil {
-				SyncLerdYAMLWorkers(site)
+			if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 			}
 			return nil
 		},
@@ -86,8 +86,8 @@ func newStripeListenStopCmd() *cobra.Command {
 			if err := StripeStopForSite(siteName); err != nil {
 				return err
 			}
-			if site, err := config.FindSite(siteName); err == nil {
-				SyncLerdYAMLWorkers(site)
+			if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 			}
 			return nil
 		},

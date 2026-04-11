@@ -9,9 +9,9 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -170,28 +170,6 @@ func freeSiteName(desired, path string) string {
 	}
 }
 
-// siteNameAndDomain converts a directory name into a clean site name and .test domain.
-// Strips well-known TLDs (e.g. .com, .ltd) and replaces remaining dots with dashes.
-// Examples:
-//   - "myapp"            → "myapp",         "myapp.test"
-//   - "admin.astrolov.com" → "admin-astrolov", "admin-astrolov.test"
-//   - "my.project.io"   → "my-project",     "my-project.test"
-func siteNameAndDomain(dirName, tld string) (string, string) {
-	knownTLDs := []string{
-		".com", ".net", ".org", ".io", ".co", ".ltd", ".dev", ".app", ".me",
-		".info", ".biz", ".uk", ".us", ".eu", ".de", ".fr", ".ca", ".au",
-	}
-	name := strings.ToLower(dirName)
-	for _, ext := range knownTLDs {
-		if strings.HasSuffix(name, ext) {
-			name = name[:len(name)-len(ext)]
-			break
-		}
-	}
-	name = strings.ReplaceAll(name, ".", "-")
-	return name, name + "." + tld
-}
-
 // RegisterProject registers a single project directory as a lerd site if it
 // looks like a PHP project. It detects the framework first; if none matches it
 // falls back to auto-detecting the public directory. Returns true if newly registered.
@@ -204,7 +182,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		return false, nil
 	}
 
-	framework, ok := config.DetectFramework(projectDir)
+	framework, ok := config.DetectFrameworkForDir(projectDir)
 	detectedPublicDir := ""
 	if !ok {
 		detectedPublicDir = config.DetectPublicDir(projectDir)
@@ -216,7 +194,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		}
 	}
 
-	baseName, domain := siteNameAndDomain(filepath.Base(projectDir), cfg.DNS.TLD)
+	baseName, domain := siteops.SiteNameAndDomain(filepath.Base(projectDir), cfg.DNS.TLD)
 	if isReservedDomain(domain) {
 		return false, nil
 	}
@@ -242,15 +220,8 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 	warnFilteredDomains(removed)
 	domains = kept
 
-	phpVersion, err := phpDet.DetectVersion(projectDir)
-	if err != nil {
-		phpVersion = cfg.PHP.DefaultVersion
-	}
-
-	nodeVersion, err := nodeDet.DetectVersion(projectDir)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
+	versions := siteops.DetectSiteVersions(projectDir, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
 
 	warnMissingExtensions(projectDir, name, phpVersion, cfg)
 
@@ -274,12 +245,8 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		return false, err
 	}
 
-	if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-		return false, fmt.Errorf("generating vhost: %w", err)
-	}
-
-	if err := ensureFPMQuadlet(phpVersion); err != nil {
-		fmt.Printf("  [WARN] could not ensure FPM for PHP %s: %v\n", phpVersion, err)
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return false, err
 	}
 
 	frameworkLabel := framework

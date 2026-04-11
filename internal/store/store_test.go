@@ -79,8 +79,7 @@ console: bin/console
 func testClient(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
 	return &Client{
-		BaseURL:  srv.URL,
-		CacheDir: filepath.Join(t.TempDir(), "store-cache"),
+		BaseURL: srv.URL,
 	}
 }
 
@@ -100,28 +99,6 @@ func TestFetchIndex(t *testing.T) {
 	}
 	if idx.Frameworks[0].Name != "laravel" {
 		t.Errorf("expected first framework to be laravel, got %q", idx.Frameworks[0].Name)
-	}
-}
-
-func TestFetchIndex_CacheHit(t *testing.T) {
-	srv := testServer(t)
-	defer srv.Close()
-	c := testClient(t, srv)
-
-	// First call populates cache
-	_, err := c.FetchIndex()
-	if err != nil {
-		t.Fatalf("first FetchIndex() error: %v", err)
-	}
-
-	// Stop server — second call should use cache
-	srv.Close()
-	idx, err := c.FetchIndex()
-	if err != nil {
-		t.Fatalf("cached FetchIndex() error: %v", err)
-	}
-	if len(idx.Frameworks) != 2 {
-		t.Errorf("expected 2 frameworks from cache, got %d", len(idx.Frameworks))
 	}
 }
 
@@ -273,29 +250,5 @@ func TestDetectFromStore_NoMatch(t *testing.T) {
 	_, _, ok := c.DetectFromStore(dir)
 	if ok {
 		t.Fatal("expected no detection in empty dir")
-	}
-}
-
-// ── InvalidateIndex ──────────────────────────────────────────────────────────
-
-func TestInvalidateIndex(t *testing.T) {
-	srv := testServer(t)
-	defer srv.Close()
-	c := testClient(t, srv)
-
-	// Populate cache
-	_, err := c.FetchIndex()
-	if err != nil {
-		t.Fatalf("FetchIndex() error: %v", err)
-	}
-
-	cacheFile := filepath.Join(c.CacheDir, "index.json")
-	if _, statErr := os.Stat(cacheFile); statErr != nil {
-		t.Fatal("expected cache file to exist")
-	}
-
-	c.InvalidateIndex()
-	if _, statErr := os.Stat(cacheFile); !os.IsNotExist(statErr) {
-		t.Fatal("expected cache file to be removed")
 	}
 }

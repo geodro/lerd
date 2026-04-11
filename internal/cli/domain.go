@@ -11,6 +11,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -103,10 +104,10 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 	}
 
 	// Sync to .lerd.yaml.
-	SyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
 	// Regenerate vhost (file stays named after primary domain).
-	if err := RegenerateSiteVhost(site, oldPrimary); err != nil {
+	if err := siteops.RegenerateSiteVhost(site, oldPrimary); err != nil {
 		return err
 	}
 
@@ -174,10 +175,10 @@ func runDomainRemove(_ *cobra.Command, args []string) error {
 	}
 
 	// Sync to .lerd.yaml.
-	SyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
 	// If the primary domain changed (we removed the old primary), rename the vhost file.
-	if err := RegenerateSiteVhost(site, oldPrimary); err != nil {
+	if err := siteops.RegenerateSiteVhost(site, oldPrimary); err != nil {
 		return err
 	}
 
@@ -221,76 +222,4 @@ func runDomainList(_ *cobra.Command, _ []string) error {
 		}
 	}
 	return nil
-}
-
-// RegenerateSiteVhost regenerates the nginx vhost for a site. If the primary
-// domain changed (oldPrimary != current primary), it removes the old vhost file first.
-func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
-	newPrimary := site.PrimaryDomain()
-
-	// If primary changed, remove the old conf file.
-	if oldPrimary != newPrimary {
-		_ = nginx.RemoveVhost(oldPrimary)
-	}
-
-	if site.Secured {
-		if err := nginx.GenerateSSLVhost(*site, site.PHPVersion); err != nil {
-			return fmt.Errorf("generating SSL vhost: %w", err)
-		}
-		sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
-		_ = os.Remove(mainConf)
-		if err := os.Rename(sslConf, mainConf); err != nil {
-			return fmt.Errorf("installing SSL vhost: %w", err)
-		}
-	} else {
-		if err := nginx.GenerateVhost(*site, site.PHPVersion); err != nil {
-			return fmt.Errorf("generating vhost: %w", err)
-		}
-	}
-	return nil
-}
-
-// SyncLerdYAMLDomains updates the domains field in .lerd.yaml, stripping the
-// TLD so the file stores portable name-only values.
-//
-// Domains that were originally declared in .lerd.yaml but didn't survive the
-// conflict filter (because another site on this machine already owns them)
-// are preserved at the end of the list. The user's declared intent stays on
-// disk, the UI's conflict-warning surface continues to work, and the entry
-// will be re-evaluated on the next link — self-healing the moment the
-// conflicting site is removed.
-func SyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	suffix := "." + tld
-	seen := make(map[string]bool)
-	var names []string
-	// First, the registered (post-filter) domains in their current order so
-	// the primary domain reflects the live registry state.
-	for _, d := range fullDomains {
-		name := strings.TrimSuffix(d, suffix)
-		low := strings.ToLower(name)
-		if !seen[low] {
-			names = append(names, name)
-			seen[low] = true
-		}
-	}
-	// Then, any pre-existing .lerd.yaml entries that aren't in the registered
-	// list — typically conflict-filtered domains. Appended at the end so they
-	// don't accidentally become the new primary.
-	for _, d := range proj.Domains {
-		low := strings.ToLower(d)
-		if !seen[low] {
-			names = append(names, d)
-			seen[low] = true
-		}
-	}
-	proj.Domains = names
-	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
-		fmt.Printf("  [WARN] updating .lerd.yaml: %v\n", err)
-	}
 }

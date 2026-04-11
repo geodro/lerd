@@ -6,12 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/nginx"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/store"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -76,8 +73,7 @@ func runLink(args []string) error {
 				_ = config.SaveStoreFramework(proj.FrameworkDef)
 			case replaceFromDisk:
 				// User chose the local/store version — update .lerd.yaml.
-				proj.FrameworkDef = existing
-				_ = config.SaveProjectConfig(cwd, proj)
+				_ = config.SetProjectFrameworkDef(cwd, existing)
 			}
 		}
 	}
@@ -95,7 +91,7 @@ func runLink(args []string) error {
 		rawName = args[0]
 	}
 
-	baseName, _ := siteNameAndDomain(rawName, cfg.DNS.TLD)
+	baseName, _ := siteops.SiteNameAndDomain(rawName, cfg.DNS.TLD)
 	name := freeSiteName(baseName, cwd)
 
 	// Build the domains list.
@@ -133,52 +129,41 @@ func runLink(args []string) error {
 	warnFilteredDomains(removed)
 	domains = kept
 
-	phpVersion, err := phpDet.DetectVersion(cwd)
-	if err != nil {
-		phpVersion = cfg.PHP.DefaultVersion
-	}
-	if proj != nil && proj.PHPVersion != "" {
-		phpVersion = proj.PHPVersion
-	}
-
-	nodeVersion, err := nodeDet.DetectVersion(cwd)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
-
 	framework, ok := resolveFramework(cwd)
 	detectedPublicDir := ""
 	if !ok {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 
-	// Clamp PHP version to the framework's supported range.
-	if framework != "" {
-		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
-			clamped := phpDet.ClampToRange(phpVersion, fw.PHP.Min, fw.PHP.Max)
-			if clamped != phpVersion {
-				fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
-					phpVersion, fw.Label, fw.PHP.Min, fw.PHP.Max, clamped)
-				phpVersion = clamped
+	versions := siteops.DetectSiteVersions(cwd, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
+	if proj != nil && proj.PHPVersion != "" {
+		phpVersion = phpDet.ClampToRange(proj.PHPVersion, versions.PHPMin, versions.PHPMax)
+	}
+	if versions.PHPMin != "" || versions.PHPMax != "" {
+		unclamped, _ := phpDet.DetectVersion(cwd)
+		if unclamped != phpVersion {
+			if versions.SuggestedPHP != "" {
+				fmt.Printf("Using PHP %s (best installed in range %s–%s). Install PHP %s? [Y/n] ",
+					phpVersion, versions.PHPMin, versions.PHPMax, versions.SuggestedPHP)
+				var answer string
+				fmt.Scanln(&answer) //nolint:errcheck
+				if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
+					fmt.Printf("Installing PHP %s...\n", versions.SuggestedPHP)
+					if err := ensureFPMQuadlet(versions.SuggestedPHP); err != nil {
+						fmt.Printf("[WARN] installing PHP %s: %v\n", versions.SuggestedPHP, err)
+					} else {
+						phpVersion = versions.SuggestedPHP
+					}
+				}
+			} else {
+				fmt.Printf("Using PHP %s (%s supports %s–%s).\n",
+					phpVersion, versions.FrameworkLabel, versions.PHPMin, versions.PHPMax)
 			}
 		}
 	}
 
-	// Check if this path already has registered sites (re-link scenario).
-	// Carry over secured state and clean up any old registrations at this path.
-	secured := false
-	if reg, err := config.LoadSites(); err == nil {
-		for _, existing := range reg.Sites {
-			if existing.Path != cwd {
-				continue
-			}
-			secured = secured || existing.Secured
-			if existing.Name != name {
-				_ = nginx.RemoveVhost(existing.PrimaryDomain())
-				_ = config.RemoveSite(existing.Name)
-			}
-		}
-	}
+	secured := siteops.CleanupRelink(cwd, name)
 
 	site := config.Site{
 		Name:        name,
@@ -195,64 +180,10 @@ func runLink(args []string) error {
 		return fmt.Errorf("registering site: %w", err)
 	}
 
-	// Write domains to .lerd.yaml (creates or updates). Preserve any domain
-	// that was originally declared but got filtered out by resolveSiteDomains
-	// (because another site already owns it) — the user's declared intent is
-	// the source of truth on disk, and surfacing the conflict in the UI
-	// requires the dropped entry to remain visible. The conflict will be
-	// re-evaluated on the next link, so the filtered domain self-heals when
-	// the conflicting site is removed.
-	{
-		proj, _ := config.LoadProjectConfig(cwd)
-		suffix := "." + cfg.DNS.TLD
-		seen := make(map[string]bool)
-		var names []string
-		// First, the registered (post-filter) domains in their current order —
-		// preserves the "explicit arg becomes primary" behavior of `lerd link`.
-		for _, d := range site.Domains {
-			name := strings.TrimSuffix(d, suffix)
-			low := strings.ToLower(name)
-			if !seen[low] {
-				names = append(names, name)
-				seen[low] = true
-			}
-		}
-		// Then, any pre-existing .lerd.yaml entries that didn't survive the
-		// conflict filter. They get appended at the end so they don't become
-		// primary, but they stay visible to the UI as conflict warnings.
-		for _, d := range proj.Domains {
-			low := strings.ToLower(d)
-			if !seen[low] {
-				names = append(names, d)
-				seen[low] = true
-			}
-		}
-		proj.Domains = names
-		if err := config.SaveProjectConfig(cwd, proj); err != nil {
-			fmt.Printf("[WARN] writing .lerd.yaml: %v\n", err)
-		}
-	}
+	_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
 
-	if secured {
-		// Reissue cert for the (possibly new) domain and regenerate SSL vhost.
-		if err := certs.SecureSite(site); err != nil {
-			return fmt.Errorf("securing site: %w", err)
-		}
-	} else {
-		if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-			return fmt.Errorf("generating vhost: %w", err)
-		}
-	}
-
-	if err := ensureFPMQuadlet(phpVersion); err != nil {
-		fmt.Printf("[WARN] FPM quadlet for PHP %s: %v\n", phpVersion, err)
-	}
-
-	// Rewrite FPM quadlets so volume mounts cover the linked site path.
-	_ = podman.RewriteFPMQuadlets()
-
-	if err := podman.WriteContainerHosts(); err != nil {
-		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return err
 	}
 
 	frameworkLabel := framework
@@ -261,8 +192,32 @@ func runLink(args []string) error {
 	}
 	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
+	if proj == nil {
+		if isInteractive() {
+			fmt.Print("\nNo .lerd.yaml found. Run lerd init? [Y/n] ")
+			var answer string
+			fmt.Scanln(&answer) //nolint:errcheck
+			if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
+				if err := runInit(false); err != nil {
+					fmt.Printf("[WARN] init: %v\n", err)
+				}
+			}
+		} else {
+			fmt.Println("\nNo .lerd.yaml found. Run 'lerd init' to configure domains, services, and workers.")
+		}
+	} else if !linkSkipSetupPrompt {
+		if isInteractive() {
+			fmt.Print("\nRun lerd setup? [Y/n] ")
+			var answer string
+			fmt.Scanln(&answer) //nolint:errcheck
+			if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
+				if err := runSetup(false, false); err != nil {
+					fmt.Printf("[WARN] setup: %v\n", err)
+				}
+			}
+		} else {
+			fmt.Println("\nRun 'lerd setup' to install dependencies, run migrations, and start workers.")
+		}
 	}
 
 	// Apply remaining .lerd.yaml settings: HTTPS and services.
@@ -330,26 +285,6 @@ func runLink(args []string) error {
 			}
 		}
 
-		// Workers are configured — prompt for setup so the user can choose to
-		// install dependencies, run migrations, and start workers in the right order.
-		// Skip if workers are already running (re-link of an active site) or if
-		// we're already inside a setup/init call (prevents infinite recursion).
-		if len(proj.Workers) > 0 && !linkSkipSetupPrompt && !hasRunningWorkers(&site) {
-			if isInteractive() {
-				fmt.Printf("\n  Workers configured: %s\n", strings.Join(proj.Workers, ", "))
-				fmt.Print("  Run lerd setup? [Y/n]: ")
-				var answer string
-				fmt.Scanln(&answer)
-				answer = strings.TrimSpace(strings.ToLower(answer))
-				if answer == "" || answer == "y" || answer == "yes" {
-					if err := runSetup(false, false); err != nil {
-						fmt.Printf("[WARN] setup: %v\n", err)
-					}
-				}
-			} else {
-				fmt.Printf("  Workers configured — run lerd setup to start them\n")
-			}
-		}
 	}
 
 	return nil
@@ -425,32 +360,10 @@ func isInteractive() bool {
 // auto-detects via config.DetectFramework. Returns ("", false) if no
 // framework definition is found.
 func resolveFramework(dir string) (string, bool) {
-	if proj, err := config.LoadProjectConfig(dir); err == nil && proj.Framework != "" {
-		// Check user-defined first (local overrides always win).
-		if fw := config.LoadUserFramework(proj.Framework); fw != nil {
-			return proj.Framework, true
-		}
-		// Embedded definition in .lerd.yaml is the project's known-good config,
-		// committed to git. Restore it to the store dir so it takes effect.
-		if proj.FrameworkDef != nil {
-			proj.FrameworkDef.Name = proj.Framework
-			if saveErr := config.SaveStoreFramework(proj.FrameworkDef); saveErr == nil {
-				return proj.Framework, true
-			}
-		}
-		// Fall back to store-installed.
-		if _, ok := config.GetFrameworkForDir(proj.Framework, dir); ok {
-			return proj.Framework, true
-		}
-		// Not installed anywhere — try to fetch from store.
-		if fetchFrameworkFromStore(proj.Framework, dir) {
-			return proj.Framework, true
-		}
-		return "", false
-	}
-	if name, ok := config.DetectFramework(dir); ok {
+	if name, ok := config.DetectFrameworkForDir(dir); ok {
 		return name, true
 	}
+	// Interactive store fallback — only for terminal commands.
 	return store.DetectFrameworkWithStore(dir)
 }
 
@@ -459,25 +372,10 @@ func resolveFramework(dir string) (string, bool) {
 func fetchFrameworkFromStore(name, dir string) bool {
 	client := store.NewClient()
 	version := ""
-	// Try to detect version from the store index + composer.lock.
 	if idx, err := client.FetchIndex(); err == nil {
 		for _, entry := range idx.Frameworks {
 			if entry.Name == name {
-				for _, rule := range entry.Detect {
-					if rule.Composer != "" {
-						if v := store.DetectFrameworkVersion(dir, rule.Composer); v != "" {
-							for _, ev := range entry.Versions {
-								if ev == v {
-									version = v
-									break
-								}
-							}
-						}
-					}
-					if version != "" {
-						break
-					}
-				}
+				version = store.ResolveVersion(dir, entry.Detect, entry.Versions, "")
 				break
 			}
 		}

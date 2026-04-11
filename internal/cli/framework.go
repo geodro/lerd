@@ -77,7 +77,7 @@ func runFrameworkList(check bool) error {
 	for _, info := range frameworks {
 		version := info.Version
 		if version == "" && cwd != "" {
-			version = config.ComposerLockMajorVersion(cwd, info.Name)
+			version = config.DetectMajorVersion(cwd, info.Name)
 		}
 		if version == "" {
 			version = "—"
@@ -445,25 +445,10 @@ Examples:
 			if version == "" {
 				cwd, _ := os.Getwd()
 				if cwd != "" {
-					idx, err := client.FetchIndex()
-					if err == nil {
+					if idx, err := client.FetchIndex(); err == nil {
 						for _, entry := range idx.Frameworks {
 							if entry.Name == name {
-								for _, rule := range entry.Detect {
-									if rule.Composer != "" {
-										if v := store.DetectFrameworkVersion(cwd, rule.Composer); v != "" {
-											for _, ev := range entry.Versions {
-												if ev == v {
-													version = v
-													break
-												}
-											}
-										}
-									}
-									if version != "" {
-										break
-									}
-								}
+								version = store.ResolveVersion(cwd, entry.Detect, entry.Versions, "")
 								break
 							}
 						}
@@ -521,7 +506,6 @@ Examples:
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			client := store.NewClient()
-			client.InvalidateIndex()
 
 			if len(args) == 1 {
 				name, version := parseNameVersion(args[0])
@@ -667,7 +651,6 @@ func showFrameworkDiff(name string, local, remote *config.Framework) (bool, erro
 	return true, nil
 }
 
-// autoDetectVersion tries to resolve a version from composer.lock in dir.
 func autoDetectVersion(client *store.Client, name, dir string) string {
 	if dir == "" {
 		return ""
@@ -677,19 +660,8 @@ func autoDetectVersion(client *store.Client, name, dir string) string {
 		return ""
 	}
 	for _, entry := range idx.Frameworks {
-		if entry.Name != name {
-			continue
-		}
-		for _, rule := range entry.Detect {
-			if rule.Composer != "" {
-				if v := store.DetectFrameworkVersion(dir, rule.Composer); v != "" {
-					for _, ev := range entry.Versions {
-						if ev == v {
-							return v
-						}
-					}
-				}
-			}
+		if entry.Name == name {
+			return store.ResolveVersion(dir, entry.Detect, entry.Versions, "")
 		}
 	}
 	return ""

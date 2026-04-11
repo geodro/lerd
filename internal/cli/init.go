@@ -91,16 +91,14 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
-	// Clamp PHP version to the framework's supported range.
 	framework, _ := resolveFramework(cwd)
+	phpMin, phpMax := "", ""
 	if framework != "" {
-		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
-			clamped := phpPkg.ClampToRange(phpDefault, fw.PHP.Min, fw.PHP.Max)
-			if clamped != phpDefault {
-				phpDefault = clamped
-			}
+		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
+			phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
 		}
 	}
+	phpDefault = phpPkg.ClampToRange(phpDefault, phpMin, phpMax)
 
 	// Database is picked as a single choice (sqlite | mysql family member |
 	// postgres family member), while other services are a multi-select. This

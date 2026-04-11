@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,14 +14,12 @@ import (
 
 const (
 	defaultBaseURL = "https://raw.githubusercontent.com/geodro/lerd-frameworks/main/frameworks"
-	indexTTL       = 24 * time.Hour
 	httpTimeout    = 10 * time.Second
 )
 
 // Client fetches framework definitions from the remote store.
 type Client struct {
-	BaseURL  string
-	CacheDir string
+	BaseURL string
 }
 
 // Index is the top-level store index listing all available frameworks.
@@ -62,26 +58,12 @@ func autoFetchFramework(name, version string) (*config.Framework, error) {
 // NewClient returns a store client with default settings.
 func NewClient() *Client {
 	return &Client{
-		BaseURL:  defaultBaseURL,
-		CacheDir: config.StoreCacheDir(),
+		BaseURL: defaultBaseURL,
 	}
 }
 
-// FetchIndex downloads the store index, using a 24-hour disk cache.
+// FetchIndex downloads the store index.
 func (c *Client) FetchIndex() (*Index, error) {
-	cacheFile := filepath.Join(c.CacheDir, "index.json")
-
-	// Check cache
-	if data, err := os.ReadFile(cacheFile); err == nil {
-		if info, statErr := os.Stat(cacheFile); statErr == nil && time.Since(info.ModTime()) < indexTTL {
-			var idx Index
-			if json.Unmarshal(data, &idx) == nil {
-				return &idx, nil
-			}
-		}
-	}
-
-	// Fetch from remote
 	data, err := c.fetch("index.json")
 	if err != nil {
 		return nil, fmt.Errorf("fetching store index: %w", err)
@@ -90,11 +72,6 @@ func (c *Client) FetchIndex() (*Index, error) {
 	var idx Index
 	if err := json.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("parsing store index: %w", err)
-	}
-
-	// Write to cache
-	if mkErr := os.MkdirAll(filepath.Dir(cacheFile), 0o755); mkErr == nil {
-		os.WriteFile(cacheFile, data, 0o644) //nolint:errcheck
 	}
 
 	return &idx, nil
@@ -171,20 +148,23 @@ func (c *Client) DetectFromStore(dir string) (*IndexEntry, string, bool) {
 	return nil, "", false
 }
 
-// InvalidateIndex removes the cached index so the next FetchIndex call hits the network.
-func (c *Client) InvalidateIndex() {
-	os.Remove(filepath.Join(c.CacheDir, "index.json")) //nolint:errcheck
-}
-
-// resolveVersion tries to detect the framework version from composer.lock,
-// falling back to the entry's Latest version.
-func (c *Client) resolveVersion(dir string, entry *IndexEntry) string {
-	// Find a composer package from the detect rules
-	for _, rule := range entry.Detect {
+// ResolveVersion detects the framework version from detect rules, checking
+// composer.json constraints and version_file regex matches. Returns the first
+// version that matches one of the available versions, or fallback if none match.
+func ResolveVersion(dir string, rules []config.FrameworkRule, available []string, fallback string) string {
+	for _, rule := range rules {
 		if rule.Composer != "" {
-			if ver := DetectFrameworkVersion(dir, rule.Composer); ver != "" {
-				// Check if this version exists in the store
-				for _, v := range entry.Versions {
+			if ver := DetectFrameworkVersionWithKey(dir, rule.Composer, rule.VersionKey, rule.ComposerSections...); ver != "" {
+				for _, v := range available {
+					if v == ver {
+						return ver
+					}
+				}
+			}
+		}
+		if rule.VersionFile != "" && rule.VersionPattern != "" {
+			if ver := DetectVersionFromFile(dir, rule.VersionFile, rule.VersionPattern); ver != "" {
+				for _, v := range available {
 					if v == ver {
 						return ver
 					}
@@ -192,7 +172,11 @@ func (c *Client) resolveVersion(dir string, entry *IndexEntry) string {
 			}
 		}
 	}
-	return entry.Latest
+	return fallback
+}
+
+func (c *Client) resolveVersion(dir string, entry *IndexEntry) string {
+	return ResolveVersion(dir, entry.Detect, entry.Versions, entry.Latest)
 }
 
 func (c *Client) findEntry(idx *Index, name string) (*IndexEntry, bool) {

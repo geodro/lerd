@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ func runOpen(_ *cobra.Command, args []string) error {
 		url = siteURL(cwd)
 		if url == "" {
 			// Fall back: maybe cwd is named like a site.
-			name, _ := siteNameAndDomain(filepath.Base(cwd), "test")
+			name, _ := siteops.SiteNameAndDomain(filepath.Base(cwd), "test")
 			if site, err := config.FindSite(name); err == nil {
 				url = siteURL(site.Path)
 			}

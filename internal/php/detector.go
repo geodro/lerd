@@ -91,6 +91,19 @@ func DetectVersion(dir string) (string, error) {
 	return cfg.PHP.DefaultVersion, nil
 }
 
+// DetectVersionClamped detects the PHP version and clamps it to the given range.
+// If phpMin/phpMax are empty, no clamping is applied.
+func DetectVersionClamped(dir, phpMin, phpMax, fallback string) string {
+	v, err := DetectVersion(dir)
+	if err != nil {
+		v = fallback
+	}
+	if phpMin != "" || phpMax != "" {
+		v = ClampToRange(v, phpMin, phpMax)
+	}
+	return v
+}
+
 // ClampToRange checks if version falls within [min, max] and returns the best
 // installed version within range if it doesn't. Returns the original version if
 // min/max are empty or the version is already in range. This is used to respect

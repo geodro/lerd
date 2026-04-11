@@ -10,6 +10,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +68,7 @@ func queueSiteName(cwd string) (string, error) {
 		}
 	}
 	// Fall back to directory name.
-	name, _ := siteNameAndDomain(filepath.Base(cwd), "test")
+	name, _ := siteops.SiteNameAndDomain(filepath.Base(cwd), "test")
 	return name, nil
 }
 
@@ -95,8 +96,8 @@ func runQueueStart(queue string, tries, timeout int) error {
 	if err := queueStartExplicit(siteName, cwd, phpVersion, queue, tries, timeout); err != nil {
 		return err
 	}
-	if site, err := config.FindSite(siteName); err == nil {
-		SyncLerdYAMLWorkers(site)
+	if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 	}
 	return nil
 }
@@ -119,8 +120,8 @@ func runQueueStop() error {
 	if err := QueueStopForSite(siteName); err != nil {
 		return err
 	}
-	if site, err := config.FindSite(siteName); err == nil {
-		SyncLerdYAMLWorkers(site)
+	if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 	}
 	return nil
 }

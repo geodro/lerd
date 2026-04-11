@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/geodro/lerd/internal/siteops"
 )
 
 // ── siteNameAndDomain ────────────────────────────────────────────────────────
@@ -25,7 +27,7 @@ func TestSiteNameAndDomain(t *testing.T) {
 		{"has.dots.net", "test", "has-dots", "has-dots.test"},
 	}
 	for _, c := range cases {
-		gotName, gotDomain := siteNameAndDomain(c.dirName, c.tld)
+		gotName, gotDomain := siteops.SiteNameAndDomain(c.dirName, c.tld)
 		if gotName != c.wantName {
 			t.Errorf("siteNameAndDomain(%q, %q) name = %q, want %q", c.dirName, c.tld, gotName, c.wantName)
 		}

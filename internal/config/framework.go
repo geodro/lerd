@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -50,6 +51,10 @@ type Framework struct {
 	Create string `yaml:"create,omitempty"`
 	// Logs defines where application log files live for this framework.
 	Logs []FrameworkLogSource `yaml:"logs,omitempty"`
+	// Favicon is the path to the favicon file relative to the public directory.
+	// When set, detectFavicon checks this path in addition to the standard candidates.
+	// Example: "core/misc/favicon.ico" for Drupal.
+	Favicon string `yaml:"favicon,omitempty"`
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.
@@ -95,8 +100,12 @@ type FrameworkPHP struct {
 // FrameworkRule is a single detection rule for a framework.
 // Any matching rule is sufficient to identify the framework.
 type FrameworkRule struct {
-	File     string `yaml:"file,omitempty"`     // file must exist in project root
-	Composer string `yaml:"composer,omitempty"` // package must be in composer.json require/require-dev
+	File             string   `yaml:"file,omitempty"`              // file must exist in project root
+	Composer         string   `yaml:"composer,omitempty"`          // package must be in composer.json require/require-dev
+	ComposerSections []string `yaml:"composer_sections,omitempty"` // extra composer.json keys to search (e.g. flex-require)
+	VersionKey       string   `yaml:"version_key,omitempty"`       // dot-path to version in composer.json (e.g. extra.symfony.require)
+	VersionFile      string   `yaml:"version_file,omitempty"`      // file to read version from (relative to project root)
+	VersionPattern   string   `yaml:"version_pattern,omitempty"`   // regex with capture group for version (e.g. "\\$wp_version = '([^']+)'")
 }
 
 // FrameworkEnvConf describes how the framework manages its env file.
@@ -408,13 +417,12 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 	}
 
 	// 1. Resolve version from composer.lock (source of truth) or .lerd.yaml (fallback).
-	version := ComposerLockMajorVersion(projectDir, name)
+	version := DetectMajorVersion(projectDir, name)
 	if proj, err := LoadProjectConfig(projectDir); err == nil {
 		if version == "" && proj.FrameworkVersion != "" {
 			version = proj.FrameworkVersion
 		} else if version != "" && proj.FrameworkVersion != "" && version != proj.FrameworkVersion {
-			proj.FrameworkVersion = version
-			_ = SaveProjectConfig(projectDir, proj)
+			_ = SetProjectFrameworkVersion(projectDir, version)
 		}
 	}
 
@@ -573,16 +581,45 @@ func DetectPublicDir(dir string) string {
 	return "."
 }
 
-// DetectFramework inspects dir and returns the detected framework name.
-// It checks laravel first (built-in), then user-defined frameworks in FrameworksDir().
-// Returns ("", false) if no framework matches.
-func DetectFramework(dir string) (string, bool) {
-	// Laravel built-in first
-	if matchesFramework(dir, laravelFramework) {
-		return "laravel", true
+// DetectFrameworkForDir is the primary entry point for framework detection.
+// It checks .lerd.yaml first (committed source of truth), restoring embedded
+// definitions if needed, then falls back to file/composer-based detection.
+// Does NOT prompt or fetch from the remote store — callers that need store
+// interaction should fall back to store.DetectFrameworkWithStore.
+func DetectFrameworkForDir(dir string) (string, bool) {
+	// 1. .lerd.yaml — committed source of truth.
+	if proj, err := LoadProjectConfig(dir); err == nil && proj.Framework != "" {
+		name := proj.Framework
+		// User-defined override always wins.
+		if LoadUserFramework(name) != nil {
+			return name, true
+		}
+		// Restore embedded definition from .lerd.yaml to the store dir.
+		if proj.FrameworkDef != nil {
+			proj.FrameworkDef.Name = name
+			_ = SaveStoreFramework(proj.FrameworkDef)
+		}
+		// Check store-installed (may have just been restored above).
+		if _, ok := GetFrameworkForDir(name, dir); ok {
+			return name, true
+		}
+		return "", false
 	}
 
-	// User-defined frameworks, then store-installed (including versioned files).
+	// 2. File/composer-based detection.
+	return DetectFramework(dir)
+}
+
+// DetectFramework inspects dir and returns the detected framework name.
+// It checks user-defined and store-installed frameworks first so that more
+// specific frameworks (e.g. Statamic, which also contains an artisan file)
+// are detected before the broad built-in Laravel detection.
+// Returns ("", false) if no framework matches.
+func DetectFramework(dir string) (string, bool) {
+	// Collect all matching frameworks, then pick the most specific one.
+	// Frameworks built on top of Laravel (e.g. Statamic) are more specific
+	// than the generic Laravel detection, so they should win.
+	var matches []string
 	seen := map[string]bool{}
 	for _, fwDir := range []string{FrameworksDir(), StoreFrameworksDir()} {
 		entries, _ := filepath.Glob(filepath.Join(fwDir, "*.yaml"))
@@ -593,12 +630,30 @@ func DetectFramework(dir string) (string, bool) {
 			}
 			seen[fw.Name] = true
 			if matchesFramework(dir, fw) {
-				return fw.Name, true
+				matches = append(matches, fw.Name)
 			}
 		}
 	}
 
-	return "", false
+	// Built-in Laravel as fallback.
+	if !seen["laravel"] && matchesFramework(dir, laravelFramework) {
+		matches = append(matches, "laravel")
+	}
+
+	if len(matches) == 0 {
+		return "", false
+	}
+	// If only one match, return it. If multiple, prefer the non-laravel one
+	// since anything built on Laravel (Statamic, etc.) is more specific.
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	for _, m := range matches {
+		if m != "laravel" {
+			return m, true
+		}
+	}
+	return matches[0], true
 }
 
 // ListFrameworks returns all available framework definitions:
@@ -864,7 +919,7 @@ func MatchesRule(dir string, rule FrameworkRule) bool {
 		}
 	}
 	if rule.Composer != "" {
-		if ComposerHasPackage(dir, rule.Composer) {
+		if ComposerHasPackage(dir, rule.Composer, rule.ComposerSections...) {
 			return true
 		}
 	}
@@ -876,101 +931,184 @@ func matchesFramework(dir string, fw *Framework) bool {
 		return false
 	}
 	for _, rule := range fw.Detect {
-		if rule.File != "" {
-			if _, err := os.Stat(filepath.Join(dir, rule.File)); err == nil {
-				return true
-			}
-		}
-		if rule.Composer != "" {
-			if ComposerHasPackage(dir, rule.Composer) {
-				return true
-			}
+		if MatchesRule(dir, rule) {
+			return true
 		}
 	}
 	return false
 }
 
-// ComposerLockMajorVersion detects the major version of a framework from composer.lock.
-// It scans store-installed definitions to find the composer package name for the framework,
-// then looks up the version in composer.lock. Returns "" if not determinable.
-func ComposerLockMajorVersion(projectDir, frameworkName string) string {
+// DetectMajorVersion detects the major version of a framework from the project directory.
+// It tries composer.json constraints first, then falls back to version_file regex matching.
+func DetectMajorVersion(projectDir, frameworkName string) string {
 	if projectDir == "" {
 		return ""
 	}
 
-	var packages []string
+	var rules []FrameworkRule
 	if frameworkName == "laravel" {
-		packages = []string{"laravel/framework"}
+		rules = []FrameworkRule{{Composer: "laravel/framework"}}
 	} else {
 		pattern := filepath.Join(StoreFrameworksDir(), frameworkName+"@*.yaml")
 		matches, _ := filepath.Glob(pattern)
 		matches = append(matches, filepath.Join(StoreFrameworksDir(), frameworkName+".yaml"))
 		for _, path := range matches {
 			if fw := loadFrameworkYAML(path); fw != nil {
-				for _, rule := range fw.Detect {
-					if rule.Composer != "" {
-						packages = append(packages, rule.Composer)
-					}
-				}
+				rules = fw.Detect
 				break
 			}
 		}
 	}
 
-	if len(packages) == 0 {
+	if len(rules) == 0 {
 		return ""
 	}
 
-	data, err := os.ReadFile(filepath.Join(projectDir, "composer.lock"))
+	// Try composer.json-based detection first.
+	if v := detectVersionFromComposer(projectDir, rules); v != "" {
+		return v
+	}
+
+	// Fall back to version_file regex detection.
+	for _, rule := range rules {
+		if rule.VersionFile != "" && rule.VersionPattern != "" {
+			if v := detectVersionFromFile(projectDir, rule.VersionFile, rule.VersionPattern); v != "" {
+				return v
+			}
+		}
+	}
+
+	return ""
+}
+
+func detectVersionFromComposer(projectDir string, rules []FrameworkRule) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, "composer.json"))
 	if err != nil {
 		return ""
 	}
-	var lock struct {
-		Packages    []struct{ Name, Version string } `json:"packages"`
-		PackagesDev []struct{ Name, Version string } `json:"packages-dev"`
-	}
-	if json.Unmarshal(data, &lock) != nil {
+
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
 		return ""
 	}
 
-	all := append(lock.Packages, lock.PackagesDev...)
-	for _, pkg := range packages {
-		for _, p := range all {
-			if p.Name == pkg {
-				return extractMajorVersion(p.Version)
+	for _, rule := range rules {
+		if rule.Composer == "" {
+			continue
+		}
+		sections := append([]string{"require", "require-dev"}, rule.ComposerSections...)
+		for _, section := range sections {
+			chunk, ok := raw[section]
+			if !ok {
+				continue
+			}
+			var m map[string]string
+			if json.Unmarshal(chunk, &m) != nil {
+				continue
+			}
+			constraint, found := m[rule.Composer]
+			if !found {
+				continue
+			}
+			if v := extractMajorFromConstraint(constraint); v != "" {
+				return v
+			}
+			if rule.VersionKey != "" {
+				if v := resolveJSONPath(raw, rule.VersionKey); v != "" {
+					return extractMajorFromConstraint(v)
+				}
 			}
 		}
 	}
 	return ""
 }
 
-func extractMajorVersion(version string) string {
-	v := strings.TrimPrefix(version, "v")
-	if i := strings.IndexByte(v, '-'); i != -1 {
-		v = v[:i]
-	}
-	parts := strings.SplitN(v, ".", 2)
-	if len(parts) == 0 || parts[0] == "" {
+func detectVersionFromFile(projectDir, relPath, pattern string) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, relPath))
+	if err != nil {
 		return ""
 	}
-	return parts[0]
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return ""
+	}
+	m := re.FindSubmatch(data)
+	if len(m) < 2 {
+		return ""
+	}
+	return extractMajorFromConstraint(string(m[1]))
+}
+
+// resolveJSONPath walks a dot-separated path through nested JSON objects.
+// e.g. "extra.symfony.require" returns the string value at that path.
+func resolveJSONPath(raw map[string]json.RawMessage, path string) string {
+	parts := strings.Split(path, ".")
+	current := raw
+	for i, part := range parts {
+		chunk, ok := current[part]
+		if !ok {
+			return ""
+		}
+		if i == len(parts)-1 {
+			var s string
+			if json.Unmarshal(chunk, &s) == nil {
+				return s
+			}
+			return ""
+		}
+		var next map[string]json.RawMessage
+		if json.Unmarshal(chunk, &next) != nil {
+			return ""
+		}
+		current = next
+	}
+	return ""
+}
+
+// extractMajorFromConstraint extracts the major version from a composer constraint.
+func extractMajorFromConstraint(constraint string) string {
+	for i := 0; i < len(constraint); i++ {
+		b := constraint[i]
+		if b >= '0' && b <= '9' {
+			j := i
+			for j < len(constraint) && constraint[j] >= '0' && constraint[j] <= '9' {
+				j++
+			}
+			return constraint[i:j]
+		}
+	}
+	return ""
 }
 
 // ComposerHasPackage reports whether the composer.json in dir lists pkg
 // in require or require-dev.
-func ComposerHasPackage(dir, pkg string) bool {
+// ComposerHasPackage reports whether the composer.json in dir lists pkg
+// in require, require-dev, or any of the extra sections specified.
+func ComposerHasPackage(dir, pkg string, extraSections ...string) bool {
 	data, err := os.ReadFile(filepath.Join(dir, "composer.json"))
 	if err != nil {
 		return false
 	}
-	var c struct {
-		Require    map[string]string `json:"require"`
-		RequireDev map[string]string `json:"require-dev"`
-	}
-	if json.Unmarshal(data, &c) != nil {
+
+	// Parse into a generic map so we can look up arbitrary top-level keys.
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
 		return false
 	}
-	_, inRequire := c.Require[pkg]
-	_, inDev := c.RequireDev[pkg]
-	return inRequire || inDev
+
+	sections := append([]string{"require", "require-dev"}, extraSections...)
+	for _, section := range sections {
+		chunk, ok := raw[section]
+		if !ok {
+			continue
+		}
+		var m map[string]string
+		if json.Unmarshal(chunk, &m) != nil {
+			continue
+		}
+		if _, found := m[pkg]; found {
+			return true
+		}
+	}
+	return false
 }

@@ -17,10 +17,10 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/store"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
@@ -2675,7 +2675,7 @@ func execCheck(args map[string]any) (any, *rpcError) {
 	if len(cfg.Workers) > 0 {
 		fwName := cfg.Framework
 		if fwName == "" {
-			fwName, _ = config.DetectFramework(projectPath)
+			fwName, _ = config.DetectFrameworkForDir(projectPath)
 		}
 		fw, hasFw := config.GetFramework(fwName)
 
@@ -3083,23 +3083,18 @@ func execDbSet(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("invalid database %q — must be one of: sqlite, mysql, postgres", choice)), nil
 	}
 
-	// Load .lerd.yaml (or start fresh) and replace any existing DB entry.
-	proj, _ := config.LoadProjectConfig(projectPath)
-	if proj == nil {
-		proj = &config.ProjectConfig{}
-	}
-	dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	// Check existing DB for the summary message.
 	previous := ""
-	filtered := proj.Services[:0]
-	for _, svc := range proj.Services {
-		if dbNames[svc.Name] {
-			previous = svc.Name
-			continue
+	if proj, _ := config.LoadProjectConfig(projectPath); proj != nil {
+		dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+		for _, svc := range proj.Services {
+			if dbNames[svc.Name] {
+				previous = svc.Name
+				break
+			}
 		}
-		filtered = append(filtered, svc)
 	}
-	proj.Services = append(filtered, config.ProjectService{Name: choice})
-	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
+	if err := config.ReplaceProjectDBService(projectPath, choice); err != nil {
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 
@@ -3248,7 +3243,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 	if rawName == "" {
 		rawName = filepath.Base(projectPath)
 	}
-	name, domain := siteLinkNameAndDomain(rawName, cfg.DNS.TLD)
+	name, domain := siteops.SiteNameAndDomain(rawName, cfg.DNS.TLD)
 	domains := []string{domain}
 
 	// Validate domains are not used by other sites.
@@ -3258,31 +3253,16 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	phpVersion, err := phpDet.DetectVersion(projectPath)
-	if err != nil {
-		phpVersion = cfg.PHP.DefaultVersion
+	// Detect framework so the correct public_dir and workers are used.
+	framework := ""
+	if name, ok := config.DetectFrameworkForDir(projectPath); ok {
+		framework = name
 	}
 
-	nodeVersion, err := nodeDet.DetectVersion(projectPath)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
+	versions := siteops.DetectSiteVersions(projectPath, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
 
-	// Check if this path already has registered sites (re-link scenario).
-	// Carry over secured state and clean up any old registrations at this path.
-	secured := false
-	if reg, err := config.LoadSites(); err == nil {
-		for _, existing := range reg.Sites {
-			if existing.Path != projectPath {
-				continue
-			}
-			secured = secured || existing.Secured
-			if existing.Name != name {
-				_ = nginx.RemoveVhost(existing.PrimaryDomain())
-				_ = config.RemoveSite(existing.Name)
-			}
-		}
-	}
+	secured := siteops.CleanupRelink(projectPath, name)
 
 	site := config.Site{
 		Name:        name,
@@ -3291,33 +3271,15 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		PHPVersion:  phpVersion,
 		NodeVersion: nodeVersion,
 		Secured:     secured,
+		Framework:   framework,
 	}
 
 	if err := config.AddSite(site); err != nil {
 		return toolErr("registering site: " + err.Error()), nil
 	}
 
-	if site.Secured {
-		if err := certs.SecureSite(site); err != nil {
-			return toolErr("securing site: " + err.Error()), nil
-		}
-	} else if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-		return toolErr("generating vhost: " + err.Error()), nil
-	}
-
-	// Write quadlet and xdebug ini for this PHP version (non-blocking — image must already exist).
-	short := strings.ReplaceAll(phpVersion, ".", "")
-	_ = podman.WriteXdebugIni(phpVersion, false)
-	if err := podman.WriteFPMQuadlet(phpVersion); err != nil {
-		// Non-fatal: container may already be running.
-		_ = err
-	} else {
-		_ = podman.DaemonReload()
-		_ = podman.StartUnit("lerd-php" + short + "-fpm")
-	}
-
-	if err := nginx.Reload(); err != nil {
-		return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)\n[WARN] nginx reload: %v", name, strings.Join(domains, ", "), phpVersion, nodeVersion, err)), nil
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return toolErr(err.Error()), nil
 	}
 
 	return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)", name, strings.Join(domains, ", "), phpVersion, nodeVersion)), nil
@@ -3334,34 +3296,16 @@ func execSiteUnlink(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("no site registered for %s", projectPath)), nil
 	}
 
-	if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
-		// Non-fatal — vhost may already be gone.
-		_ = err
-	}
-
 	cfg, _ := config.LoadGlobal()
-	isParked := false
+	var parkedDirs []string
 	if cfg != nil {
-		for _, dir := range cfg.ParkedDirectories {
-			if filepath.Dir(site.Path) == dir {
-				isParked = true
-				break
-			}
-		}
+		parkedDirs = cfg.ParkedDirectories
 	}
 
-	if isParked {
-		if err := config.IgnoreSite(site.Name); err != nil {
-			return toolErr("ignoring site: " + err.Error()), nil
-		}
-	} else {
-		if err := config.RemoveSite(site.Name); err != nil {
-			return toolErr("removing site: " + err.Error()), nil
-		}
+	if err := siteops.UnlinkSiteCore(site, parkedDirs); err != nil {
+		return toolErr("unlinking site: " + err.Error()), nil
 	}
 
-	_ = nginx.Reload()
-	_ = podman.WriteContainerHosts()
 	return toolOK(fmt.Sprintf("Unlinked %s (%s)", site.Name, strings.Join(site.Domains, ", "))), nil
 }
 
@@ -3401,9 +3345,9 @@ func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
 		return toolErr("updating site: " + err.Error()), nil
 	}
 
-	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
-	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
+	if err := siteops.RegenerateSiteVhost(site, oldPrimary); err != nil {
 		return toolErr("regenerating vhost: " + err.Error()), nil
 	}
 
@@ -3464,9 +3408,9 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 		return toolErr("updating site: " + err.Error()), nil
 	}
 
-	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
-	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
+	if err := siteops.RegenerateSiteVhost(site, oldPrimary); err != nil {
 		return toolErr("regenerating vhost: " + err.Error()), nil
 	}
 
@@ -3483,40 +3427,6 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 	}
 
 	return toolOK(fmt.Sprintf("Removed domain %s from site %s", fullDomain, site.Name)), nil
-}
-
-// mcpRegenerateSiteVhost regenerates the nginx vhost for a site after a domain change.
-func mcpRegenerateSiteVhost(site *config.Site, oldPrimary string) error {
-	newPrimary := site.PrimaryDomain()
-	if oldPrimary != newPrimary {
-		_ = nginx.RemoveVhost(oldPrimary)
-	}
-	if site.Secured {
-		if err := nginx.GenerateSSLVhost(*site, site.PHPVersion); err != nil {
-			return err
-		}
-		sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
-		_ = os.Remove(mainConf)
-		return os.Rename(sslConf, mainConf)
-	}
-	return nginx.GenerateVhost(*site, site.PHPVersion)
-}
-
-// mcpSyncLerdYAMLDomains updates domains in .lerd.yaml (name-only, no TLD).
-func mcpSyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	suffix := "." + tld
-	var names []string
-	for _, d := range fullDomains {
-		names = append(names, strings.TrimSuffix(d, suffix))
-	}
-	proj.Domains = names
-	_ = config.SaveProjectConfig(projectPath, proj)
 }
 
 func execSecure(args map[string]any) (any, *rpcError) {
@@ -3546,7 +3456,7 @@ func execSecure(args map[string]any) (any, *rpcError) {
 		_ = err
 	}
 
-	syncMCPLerdYAMLSecured(site.Path, true)
+	_ = config.SetProjectSecured(site.Path, true)
 
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
@@ -3581,7 +3491,7 @@ func execUnsecure(args map[string]any) (any, *rpcError) {
 		_ = err
 	}
 
-	syncMCPLerdYAMLSecured(site.Path, false)
+	_ = config.SetProjectSecured(site.Path, false)
 
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
@@ -3744,24 +3654,6 @@ func readDBEnv(projectPath string) (*mcpDBEnv, error) {
 		username:   vals["DB_USERNAME"],
 		password:   vals["DB_PASSWORD"],
 	}, nil
-}
-
-// siteLinkNameAndDomain derives a clean site name and domain from a directory name.
-// Mirrors the logic in internal/cli/park.go — kept in sync manually.
-func siteLinkNameAndDomain(dirName, tld string) (string, string) {
-	knownTLDs := []string{
-		".com", ".net", ".org", ".io", ".co", ".ltd", ".dev", ".app", ".me",
-		".info", ".biz", ".uk", ".us", ".eu", ".de", ".fr", ".ca", ".au",
-	}
-	name := strings.ToLower(dirName)
-	for _, ext := range knownTLDs {
-		if strings.HasSuffix(name, ext) {
-			name = name[:len(name)-len(ext)]
-			break
-		}
-	}
-	name = strings.ReplaceAll(name, ".", "-")
-	return name, name + "." + tld
 }
 
 // ---- Framework management tools ----
@@ -4043,6 +3935,10 @@ func execWorkerStart(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("worker %q not found in framework %q — use worker_list to see available workers", workerName, fwName)), nil
 	}
 
+	if worker.Check != nil && !config.MatchesRule(site.Path, *worker.Check) {
+		return toolErr(fmt.Sprintf("worker %q requires a dependency that is not installed (check the framework definition for required packages)", workerName)), nil
+	}
+
 	phpVersion := site.PHPVersion
 	if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
 		phpVersion = detected
@@ -4248,18 +4144,12 @@ func execWorkerAdd(args map[string]any) (any, *rpcError) {
 		return toolOK(fmt.Sprintf("Custom worker %q %s in global %s overlay. Start it with worker_start(site: %q, worker: %q).", name, action, fwName, siteName, name)), nil
 	}
 
-	proj, err := config.LoadProjectConfig(site.Path)
-	if err != nil {
-		return toolErr("loading .lerd.yaml: " + err.Error()), nil
+	if proj, _ := config.LoadProjectConfig(site.Path); proj.CustomWorkers != nil {
+		if _, exists := proj.CustomWorkers[name]; exists {
+			action = "updated"
+		}
 	}
-	if proj.CustomWorkers == nil {
-		proj.CustomWorkers = make(map[string]config.FrameworkWorker)
-	}
-	if _, exists := proj.CustomWorkers[name]; exists {
-		action = "updated"
-	}
-	proj.CustomWorkers[name] = w
-	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+	if err := config.SetProjectCustomWorker(site.Path, name, w); err != nil {
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Custom worker %q %s in .lerd.yaml. Start it with worker_start(site: %q, worker: %q).", name, action, siteName, name)), nil
@@ -4312,18 +4202,10 @@ func execWorkerRemove(args map[string]any) (any, *rpcError) {
 		return toolOK(fmt.Sprintf("Custom worker %q removed from global %s overlay", name, fwName)), nil
 	}
 
-	proj, err := config.LoadProjectConfig(site.Path)
-	if err != nil {
-		return toolErr("loading .lerd.yaml: " + err.Error()), nil
-	}
-	if _, exists := proj.CustomWorkers[name]; !exists {
-		return toolErr(fmt.Sprintf("custom worker %q not found in .lerd.yaml for site %q", name, siteName)), nil
-	}
-	delete(proj.CustomWorkers, name)
-	if len(proj.CustomWorkers) == 0 {
-		proj.CustomWorkers = nil
-	}
-	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+	if err := config.RemoveProjectCustomWorker(site.Path, name); err != nil {
+		if _, ok := err.(*config.WorkerNotFoundError); ok {
+			return toolErr(fmt.Sprintf("custom worker %q not found in .lerd.yaml for site %q", name, siteName)), nil
+		}
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Custom worker %q removed from %s", name, siteName)), nil
@@ -4412,25 +4294,10 @@ func execFrameworkInstall(args map[string]any) (any, *rpcError) {
 	if version == "" {
 		sitePath := defaultSitePath
 		if sitePath != "" {
-			idx, err := client.FetchIndex()
-			if err == nil {
+			if idx, err := client.FetchIndex(); err == nil {
 				for _, entry := range idx.Frameworks {
 					if entry.Name == name {
-						for _, rule := range entry.Detect {
-							if rule.Composer != "" {
-								if v := store.DetectFrameworkVersion(sitePath, rule.Composer); v != "" {
-									for _, ev := range entry.Versions {
-										if ev == v {
-											version = v
-											break
-										}
-									}
-								}
-							}
-							if version != "" {
-								break
-							}
-						}
+						version = store.ResolveVersion(sitePath, entry.Detect, entry.Versions, "")
 						break
 					}
 				}
@@ -4451,7 +4318,11 @@ func execFrameworkInstall(args map[string]any) (any, *rpcError) {
 	if versionStr == "" {
 		versionStr = "latest"
 	}
-	return toolOK(fmt.Sprintf("Installed %s@%s (%s). Saved to %s/%s.yaml", fw.Name, versionStr, fw.Label, config.StoreFrameworksDir(), fw.Name)), nil
+	filename := fw.Name + ".yaml"
+	if fw.Version != "" {
+		filename = fw.Name + "@" + fw.Version + ".yaml"
+	}
+	return toolOK(fmt.Sprintf("Installed %s@%s (%s). Saved to %s/%s", fw.Name, versionStr, fw.Label, config.StoreFrameworksDir(), filename)), nil
 }
 
 func execProjectNew(args map[string]any) (any, *rpcError) {
@@ -4508,13 +4379,7 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
 		return toolErr("writing .php-version: " + err.Error()), nil
 	}
-	// Also update .lerd.yaml when it already exists so lerd's priority-1
-	// override stays in sync with .php-version.
-	if _, statErr := os.Stat(filepath.Join(site.Path, ".lerd.yaml")); statErr == nil {
-		proj, _ := config.LoadProjectConfig(site.Path)
-		proj.PHPVersion = version
-		_ = config.SaveProjectConfig(site.Path, proj)
-	}
+	_ = config.SetProjectPHPVersion(site.Path, version)
 
 	// Ensure the FPM quadlet and xdebug ini exist for this version.
 	if err := podman.WriteFPMQuadlet(version); err != nil {
@@ -4941,16 +4806,4 @@ func execUnpark(args map[string]any) (any, *rpcError) {
 		return toolErr("path is required"), nil
 	}
 	return runLerdCmd("unpark", path)
-}
-
-// syncMCPLerdYAMLSecured updates the secured field in .lerd.yaml when the file
-// already exists, keeping the saved config in sync with MCP secure/unsecure calls.
-func syncMCPLerdYAMLSecured(projectPath string, secured bool) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	proj.Secured = secured
-	_ = config.SaveProjectConfig(projectPath, proj)
 }

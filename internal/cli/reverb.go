@@ -57,8 +57,8 @@ func newReverbStartCmd(use string) *cobra.Command {
 			if err := ReverbStartForSite(siteName, cwd, phpVersion); err != nil {
 				return err
 			}
-			if site, err := config.FindSite(siteName); err == nil {
-				SyncLerdYAMLWorkers(site)
+			if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 			}
 			return nil
 		},
@@ -87,8 +87,8 @@ func newReverbStopCmd(use string) *cobra.Command {
 			if err := ReverbStopForSite(siteName); err != nil {
 				return err
 			}
-			if site, err := config.FindSite(siteName); err == nil {
-				SyncLerdYAMLWorkers(site)
+			if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 			}
 			return nil
 		},

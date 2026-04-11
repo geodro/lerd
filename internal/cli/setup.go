@@ -14,7 +14,6 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	"github.com/geodro/lerd/internal/store"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -169,7 +168,7 @@ func runSetup(allSteps, skipOpen bool) error {
 	if site != nil {
 		fwName := site.Framework
 		if fwName == "" {
-			fwName, _ = store.DetectFrameworkWithStore(cwd)
+			fwName, _ = config.DetectFrameworkForDir(cwd)
 		}
 		if fw, ok := config.GetFramework(fwName); ok {
 			for _, sc := range fw.Setup {
@@ -229,7 +228,7 @@ func runSetup(allSteps, skipOpen bool) error {
 	if site != nil {
 		fwName := site.Framework
 		if fwName == "" {
-			fwName, _ = store.DetectFrameworkWithStore(cwd)
+			fwName, _ = config.DetectFrameworkForDir(cwd)
 		}
 		if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
 			suppressed := map[string]bool{}

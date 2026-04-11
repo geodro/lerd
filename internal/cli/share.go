@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -164,7 +165,7 @@ func resolveShareSite(args []string) (*config.Site, error) {
 	}
 
 	// Fall back: treat the directory name as a site name.
-	name, _ := siteNameAndDomain(filepath.Base(cwd), "test")
+	name, _ := siteops.SiteNameAndDomain(filepath.Base(cwd), "test")
 	site, err = config.FindSite(name)
 	if err != nil {
 		return nil, fmt.Errorf("no registered site found for this directory — run 'lerd link' first")
