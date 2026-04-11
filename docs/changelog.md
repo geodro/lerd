@@ -11,6 +11,31 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.11.0] — 2026-04-11
+
+### Added
+
+- **Ptyxis terminal support** — `lerd open` and the tray menu now detect and launch Ptyxis, the GNOME 47+ terminal emulator.
+- **Link → init → setup flow** — after `lerd link`, the CLI guides the user through `lerd init` and `lerd setup` when the project hasn't been initialised yet.
+- **PHP version suggestion during link** — when the project requires a PHP version that isn't installed, `lerd link` suggests installing it.
+- **Favicon field in framework definitions** — frameworks can now declare a custom favicon path (e.g. `core/misc/favicon.ico` for Drupal) so the dashboard shows the correct icon.
+
+### Fixed
+
+- **Framework detection for custom frameworks** — detection rules now read `composer.json` directly and support custom `detect` rules, fixing detection for frameworks like Drupal, CakePHP, and WordPress.
+- **Worker checks and env setup for custom frameworks** — worker `check` rules and env variable setup now work correctly for non-Laravel frameworks.
+- **Favicon detection uses framework public_dir** — custom frameworks with non-standard public directories (e.g. `web/` for Symfony/Drupal) now have their favicons detected correctly.
+- **0-byte favicon files skipped** — empty favicon placeholder files no longer show as having a favicon in the dashboard.
+- **Link only writes .lerd.yaml when it already exists** — avoids creating an unnecessary config file for projects that don't use one.
+
+### Changed
+
+- **Site enrichment consolidated into `internal/siteinfo`** — CLI, MCP, and UI no longer duplicate site enrichment logic. A single `LoadAll(flags)` function with flag-based enrichment replaces ~340 lines of duplicated code across three packages.
+- **Link/unlink core logic extracted into `internal/siteops`** — shared site operations (vhost generation, site naming, linking, unlinking) moved out of the CLI package for reuse by MCP and UI.
+- **Framework detection centralised** — `DetectFrameworkForDir` and `.lerd.yaml` operations moved into the config package, eliminating scattered detection logic.
+
+---
+
 ## [1.10.1] — 2026-04-10
 
 ### Fixed
