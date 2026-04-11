@@ -1172,12 +1172,7 @@ func sitesUsingService(name string) []string {
 	return domains
 }
 
-// serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
-func serviceRecentLogs(unit string) string {
-	cmd := exec.Command("journalctl", "--user", "-u", unit+".service", "-n", "20", "--no-pager", "--output=short")
-	out, _ := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out))
-}
+// serviceRecentLogs is implemented per-platform in logs_linux.go / logs_darwin.go.
 
 // VersionResponse is the response for GET /api/version.
 type VersionResponse struct {

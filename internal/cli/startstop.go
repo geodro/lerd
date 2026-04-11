@@ -278,7 +278,7 @@ func checkPortConflicts(units []string) {
 		return
 	}
 
-	ss := ssOutput()
+	ss := portListOutput()
 	if ss == "" {
 		return
 	}
@@ -304,6 +304,10 @@ func checkPortConflicts(units []string) {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
+	// On macOS, ensure Podman Machine is up and migrate any stale plists.
+	ensurePodmanMachineRunning()
+	migrateExecWorkerPlists()
+
 	// Restore quadlets and worker units that may be missing after an
 	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
 	restoreSiteInfrastructure()

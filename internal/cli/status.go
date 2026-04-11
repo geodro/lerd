@@ -5,7 +5,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/spf13/cobra"
@@ -59,7 +59,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	} else {
 		fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
 			"not resolving",
-			"run 'lerd install' to reconfigure, or: "+dns.ResolverHint())
+			dnsRestartHint())
 	}
 
 	// Nginx
@@ -70,7 +70,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	} else {
 		fail2("lerd-nginx container",
 			"not running",
-			"systemctl --user start lerd-nginx  |  check: systemctl --user status lerd-nginx")
+			serviceStatusHint("lerd-nginx"))
 	}
 
 	// PHP FPM
@@ -97,22 +97,19 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		running, _ := podman.ContainerRunning(containerName)
 		if running {
 			ok2("PHP " + v + " FPM")
-		} else if activePHPVersions()[v] {
+		} else {
 			fail2("PHP "+v+" FPM",
 				containerName+" not running",
-				"systemctl --user start "+containerName)
-		} else {
-			warn2("PHP "+v+" FPM", "stopped (no sites using this version)")
+				serviceStartHint(containerName))
 		}
 	}
 
 	// Watcher
 	fmt.Println("\n[Watcher]")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	if watcherCmd.Run() == nil {
+	if services.Mgr.IsActive("lerd-watcher") {
 		ok2("lerd-watcher")
 	} else {
-		fail2("lerd-watcher", "not running", "systemctl --user start lerd-watcher")
+		fail2("lerd-watcher", "not running", serviceStartHint("lerd-watcher"))
 	}
 
 	// Services — only show services that have a quadlet file installed
@@ -120,11 +117,11 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	installedCount := 0
 	for _, svc := range knownServices {
 		unit := "lerd-" + svc
-		if !podman.QuadletInstalled(unit) {
+		if !services.Mgr.ContainerUnitInstalled(unit) {
 			continue
 		}
 		installedCount++
-		status, _ := podman.UnitStatus(unit)
+		status, _ := services.Mgr.UnitStatus(unit)
 		switch status {
 		case "active":
 			ok2(svc)
@@ -135,17 +132,17 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				warn2(svc, "inactive — start with: lerd service start "+svc)
 			}
 		default:
-			fail2(svc, status, "systemctl --user status "+unit)
+			fail2(svc, status, serviceStatusHint(unit))
 		}
 	}
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
 		unit := "lerd-" + svc.Name
-		if !podman.QuadletInstalled(unit) {
+		if !services.Mgr.ContainerUnitInstalled(unit) {
 			continue
 		}
 		installedCount++
-		status, _ := podman.UnitStatus(unit)
+		status, _ := services.Mgr.UnitStatus(unit)
 		tag := "[custom]"
 		if svc.Preset != "" {
 			tag = "[preset]"
@@ -161,7 +158,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				warn2(label, "inactive — start with: lerd service start "+svc.Name)
 			}
 		default:
-			fail2(label, status, "systemctl --user status "+unit)
+			fail2(label, status, serviceStatusHint(unit))
 		}
 	}
 	if installedCount == 0 {

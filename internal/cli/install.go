@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +37,13 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
+
 	if err := ensureUnprivilegedPorts(); err != nil {
+		return err
+	}
+	if err := ensurePortForwarding(); err != nil {
 		return err
 	}
 
@@ -181,8 +187,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing DNS quadlet")
-	if err := rewriteQuadlet("lerd-dns"); err != nil {
+	step("Writing DNS service unit")
+	if err := writeDNSUnit(os.Stdout); err != nil {
 		return err
 	}
 	ok()
@@ -251,7 +257,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	// 7. Pull images in parallel, then build dnsmasq.
-	RunParallel([]BuildJob{ //nolint:errcheck
+	pullJobs := []BuildJob{
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
@@ -261,31 +267,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 				return cmd.Run()
 			},
 		},
-		{
-			Label: "Pulling alpine:latest",
-			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
-		{
-			Label: "Building dnsmasq",
-			Run: func(w io.Writer) error {
-				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-				cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
-				cmd.Stdin = strings.NewReader(containerfile)
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
-	})
+	}
+	pullJobs = append(pullJobs, pullDNSImages()...)
+	RunParallel(pullJobs) //nolint:errcheck
 
 	// 8. Systemd / services
-	step("Reloading systemd daemon")
-	if err := podman.DaemonReload(); err != nil {
+	step("Reloading service manager")
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return err
 	}
 	ok()
@@ -305,7 +293,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			continue
 		}
 		fmt.Printf("  --> Restarting %s (PublishPort changed) ", name)
-		if err := podman.RestartUnit(name); err != nil {
+		if err := services.Mgr.Restart(name); err != nil {
 			fmt.Printf("WARN: %v\n", err)
 		} else {
 			ok()
@@ -313,7 +301,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	step("Starting lerd-dns")
-	if err := podman.RestartUnit("lerd-dns"); err != nil {
+	if err := services.Mgr.Restart("lerd-dns"); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
@@ -339,7 +327,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Starting lerd-nginx")
-		if err := podman.RestartUnit("lerd-nginx"); err != nil {
+		if err := services.Mgr.Restart("lerd-nginx"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -360,7 +348,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Restarting watcher service")
-		if err := podman.RestartUnit("lerd-watcher"); err != nil {
+		if err := services.Mgr.Restart("lerd-watcher"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -381,7 +369,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Starting lerd-ui")
-		if err := podman.RestartUnit("lerd-ui"); err != nil {
+		if err := services.Mgr.Restart("lerd-ui"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -433,6 +421,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	installAutostart()
+	installCleanupScript()
+
 	step("Adding shell PATH configuration")
 	if err := addShellShims(); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
@@ -480,56 +471,7 @@ func ensureUnprivilegedPorts() error {
 	return nil
 }
 
-func downloadBinaries(w io.Writer) error {
-	arch := runtime.GOARCH
-	binDir := config.BinDir()
-
-	// composer
-	composerPharPath := filepath.Join(binDir, "composer.phar")
-	if _, err := os.Stat(composerPharPath); os.IsNotExist(err) {
-		if err := downloadFile("https://getcomposer.org/composer-stable.phar", composerPharPath, 0755, w); err != nil {
-			return fmt.Errorf("composer download: %w", err)
-		}
-	}
-
-	// fnm
-	fnmPath := filepath.Join(binDir, "fnm")
-	if _, err := os.Stat(fnmPath); os.IsNotExist(err) {
-		fnmZip := filepath.Join(binDir, "fnm-linux.zip")
-		if err := downloadFile(
-			"https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip",
-			fnmZip, 0644, w,
-		); err != nil {
-			return fmt.Errorf("fnm download: %w", err)
-		}
-		extractCmd := exec.Command("unzip", "-o", fnmZip, "fnm", "-d", binDir)
-		extractCmd.Stdout = w
-		extractCmd.Stderr = w
-		if err := extractCmd.Run(); err != nil {
-			return fmt.Errorf("fnm extract: %w", err)
-		}
-		os.Remove(fnmZip)
-		os.Chmod(fnmPath, 0755) //nolint:errcheck
-	}
-
-	// mkcert
-	mkcertPath := certs.MkcertPath()
-	if _, err := os.Stat(mkcertPath); os.IsNotExist(err) {
-		mkcertArch := "amd64"
-		if arch == "arm64" {
-			mkcertArch = "arm64"
-		}
-		mkcertURL := fmt.Sprintf(
-			"https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-%s",
-			mkcertArch,
-		)
-		if err := downloadFile(mkcertURL, mkcertPath, 0755, w); err != nil {
-			return fmt.Errorf("mkcert download: %w", err)
-		}
-	}
-
-	return nil
-}
+// downloadBinaries is implemented per-platform in install_linux.go / install_darwin.go.
 
 // installLaravelInstaller runs composer global require laravel/installer
 // directly inside an installed PHP-FPM container so the `laravel` CLI is
