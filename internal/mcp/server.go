@@ -20,6 +20,7 @@ import (
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/siteinfo"
 	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/store"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
@@ -1668,7 +1669,7 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 }
 
 func execSites() (any, *rpcError) {
-	reg, err := config.LoadSites()
+	enriched, err := siteinfo.LoadAll(siteinfo.EnrichMCP)
 	if err != nil {
 		return toolErr("failed to load sites: " + err.Error()), nil
 	}
@@ -1677,7 +1678,7 @@ func execSites() (any, *rpcError) {
 		Name    string `json:"name"`
 		Running bool   `json:"running"`
 	}
-	type siteInfo struct {
+	type siteInfoResp struct {
 		Name        string         `json:"name"`
 		Domain      string         `json:"domain"`
 		Domains     []string       `json:"domains"`
@@ -1689,39 +1690,58 @@ func execSites() (any, *rpcError) {
 		Workers     []workerStatus `json:"workers,omitempty"`
 	}
 
-	var out []siteInfo
-	for _, s := range reg.Sites {
-		if s.Ignored {
-			continue
-		}
-
-		fwName := s.Framework
+	var out []siteInfoResp
+	for _, e := range enriched {
 		var workers []workerStatus
-		if fwName != "" {
-			if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok {
-				for wname := range fw.Workers {
-					unitName := "lerd-" + wname + "-" + s.Name
-					status, _ := podman.UnitStatus(unitName)
-					workers = append(workers, workerStatus{Name: wname, Running: status == "active"})
+		// Collect all worker statuses from enriched data
+		for _, w := range []struct {
+			name    string
+			running bool
+		}{
+			{"queue", e.QueueRunning},
+			{"schedule", e.ScheduleRunning},
+			{"reverb", e.ReverbRunning},
+			{"horizon", e.HorizonRunning},
+		} {
+			// Only include if the site has this worker
+			switch w.name {
+			case "queue":
+				if !e.HasQueueWorker {
+					continue
 				}
-				sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
+			case "schedule":
+				if !e.HasScheduleWorker {
+					continue
+				}
+			case "reverb":
+				if !e.HasReverb {
+					continue
+				}
+			case "horizon":
+				if !e.HasHorizon {
+					continue
+				}
 			}
+			workers = append(workers, workerStatus{Name: w.name, Running: w.running})
+		}
+		for _, fw := range e.FrameworkWorkers {
+			workers = append(workers, workerStatus{Name: fw.Name, Running: fw.Running})
 		}
 
-		out = append(out, siteInfo{
-			Name:        s.Name,
-			Domain:      s.PrimaryDomain(),
-			Domains:     s.Domains,
-			Path:        s.Path,
-			PHPVersion:  s.PHPVersion,
-			NodeVersion: s.NodeVersion,
-			TLS:         s.Secured,
-			Framework:   fwName,
+		out = append(out, siteInfoResp{
+			Name:        e.Name,
+			Domain:      e.PrimaryDomain(),
+			Domains:     e.Domains,
+			Path:        e.Path,
+			PHPVersion:  e.PHPVersion,
+			NodeVersion: e.NodeVersion,
+			TLS:         e.Secured,
+			Framework:   e.FrameworkName,
 			Workers:     workers,
 		})
 	}
 	if out == nil {
-		out = []siteInfo{}
+		out = []siteInfoResp{}
 	}
 	data, _ := json.MarshalIndent(out, "", "  ")
 	return toolOK(string(data)), nil

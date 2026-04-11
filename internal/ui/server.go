@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,12 +21,11 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
-	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
-	nodePkg "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/siteinfo"
 	"github.com/geodro/lerd/internal/siteops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
@@ -70,7 +68,7 @@ var iconMaskable512PNG []byte
 // In short: the bind address is not the security boundary; the gate is.
 const listenAddr = "0.0.0.0:7073"
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
+var knownServices = siteinfo.KnownServices
 
 var serviceEnvVars = map[string][]string{
 	"mysql": {
@@ -401,257 +399,81 @@ type SiteResponse struct {
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
-	reg, err := config.LoadSites()
+	enriched, err := siteinfo.LoadAll(siteinfo.EnrichUI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	_ = siteinfo.PersistVersionChanges(enriched)
 
-	var sites []SiteResponse
-	for _, s := range reg.Sites {
-		if s.Ignored {
-			continue
-		}
-		// Always detect the live version from disk so .php-version / .node-version
-		// files are reflected without needing a re-link.
-		phpVersion := s.PHPVersion
-		{
-			phpMin, phpMax := "", ""
-			if s.Framework != "" {
-				if fw, fwOk := config.GetFrameworkForDir(s.Framework, s.Path); fwOk {
-					phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-				}
-			}
-			detected := phpPkg.DetectVersionClamped(s.Path, phpMin, phpMax, s.PHPVersion)
-			if detected != s.PHPVersion {
-				phpVersion = detected
-				s.PHPVersion = phpVersion
-				_ = config.AddSite(s)
-			}
-		}
-
-		nodeVersion := s.NodeVersion
-		if detected, err := nodePkg.DetectVersion(s.Path); err == nil && detected != "" {
-			nodeVersion = detected
-			if nodeVersion != s.NodeVersion {
-				s.NodeVersion = nodeVersion
-				_ = config.AddSite(s)
-			}
-		}
-		if strings.Trim(nodeVersion, "0123456789") != "" {
-			nodeVersion = "" // discard non-numeric values like "system"
-		}
-
-		fpmRunning := false
-		if phpVersion != "" {
-			short := strings.ReplaceAll(phpVersion, ".", "")
-			fpmRunning, _ = podman.ContainerRunning("lerd-php" + short + "-fpm")
-		}
-		fwName := s.Framework
-		fw, hasFw := config.GetFrameworkForDir(fwName, s.Path)
-
-		var queueStatus, stripeStatus, scheduleStatus, reverbStatus string
-		var stripeSecretSet, hasReverb, hasQueueWorker, hasScheduleWorker bool
-
-		// Stripe: check if the framework defines stripe support (currently Laravel only by convention)
-		if cli.StripeSecretSet(s.Path) {
-			stripeStatus, _ = podman.UnitStatus("lerd-stripe-" + s.Name)
-			stripeSecretSet = true
-		}
-
-		// Build a set of workers suppressed by a running worker's ConflictsWith.
-		suppressed := make(map[string]bool)
-		if hasFw && fw.Workers != nil {
-			for wn, wDef := range fw.Workers {
-				if len(wDef.ConflictsWith) == 0 {
-					continue
-				}
-				if st, _ := podman.UnitStatus("lerd-" + wn + "-" + s.Name); st == "active" {
-					for _, c := range wDef.ConflictsWith {
-						suppressed[c] = true
-					}
-				}
-			}
-		}
-
-		// queue/schedule/reverb/horizon: driven by framework worker definitions
-		var horizonStatus string
-		var hasHorizon bool
-		if hasFw && fw.Workers != nil {
-			if fw.HasWorker("queue", s.Path) && !suppressed["queue"] {
-				hasQueueWorker = true
-				queueStatus, _ = podman.UnitStatus("lerd-queue-" + s.Name)
-			}
-			if fw.HasWorker("schedule", s.Path) && !suppressed["schedule"] {
-				hasScheduleWorker = true
-				scheduleStatus, _ = podman.UnitStatus("lerd-schedule-" + s.Name)
-			}
-			if fw.HasWorker("reverb", s.Path) && !suppressed["reverb"] {
-				hasReverb = true
-				reverbStatus, _ = podman.UnitStatus("lerd-reverb-" + s.Name)
-			}
-			if fw.HasWorker("horizon", s.Path) && !suppressed["horizon"] {
-				hasHorizon = true
-				horizonStatus, _ = podman.UnitStatus("lerd-horizon-" + s.Name)
-				hasQueueWorker = false // Horizon manages queues; suppress the plain queue toggle
-			}
-		}
-
-		// Collect framework workers that aren't the well-known ones handled above.
-
+	sites := make([]SiteResponse, 0, len(enriched))
+	for _, e := range enriched {
 		var fwWorkers []WorkerStatus
-		if hasFw && fw.Workers != nil {
-			names := make([]string, 0, len(fw.Workers))
-			for n, wDef := range fw.Workers {
-				switch n {
-				case "queue", "schedule", "reverb", "horizon":
-					continue
-				}
-				if wDef.Check != nil && !config.MatchesRule(s.Path, *wDef.Check) {
-					continue
-				}
-				if suppressed[n] {
-					continue
-				}
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			for _, wname := range names {
-				w := fw.Workers[wname]
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
-				label := w.Label
-				if label == "" {
-					label = wname
-				}
-				fwWorkers = append(fwWorkers, WorkerStatus{
-					Name:    wname,
-					Label:   label,
-					Running: unitStatus == "active",
-					Failing: unitStatus == "activating" || unitStatus == "failed",
-				})
-			}
+		for _, fw := range e.FrameworkWorkers {
+			fwWorkers = append(fwWorkers, WorkerStatus{
+				Name:    fw.Name,
+				Label:   fw.Label,
+				Running: fw.Running,
+				Failing: fw.Failing,
+			})
 		}
 
-		// Load .lerd.yaml once for both conflicting-domain detection and
-		// the services list rendered as badges in the site detail panel.
-		proj, projErr := config.LoadProjectConfig(s.Path)
-		svcSet := make(map[string]bool)
-		var siteServices []string
-		if projErr == nil && proj != nil {
-			for _, ps := range proj.Services {
-				if ps.Name != "" && !svcSet[ps.Name] {
-					siteServices = append(siteServices, ps.Name)
-					svcSet[ps.Name] = true
-				}
-			}
-		}
-
-		// Auto-detect services from the site's .env file, matching
-		// the same logic the Services tab uses to show linked sites.
-		if envData, err := os.ReadFile(filepath.Join(s.Path, ".env")); err == nil {
-			envStr := string(envData)
-			for _, svcName := range knownServices {
-				if !svcSet[svcName] && strings.Contains(envStr, "lerd-"+svcName) {
-					siteServices = append(siteServices, svcName)
-					svcSet[svcName] = true
-				}
-			}
-			if customs, err := config.ListCustomServices(); err == nil {
-				for _, cs := range customs {
-					if !svcSet[cs.Name] && strings.Contains(envStr, "lerd-"+cs.Name) {
-						siteServices = append(siteServices, cs.Name)
-						svcSet[cs.Name] = true
-					}
-				}
-			}
-		}
-
-		// Compute conflicting domains: ones declared in .lerd.yaml that weren't
-		// registered because another site on this machine already owns them.
-		// The check happens at link/auto-register time but the original list
-		// in .lerd.yaml is preserved on disk, so we surface the discrepancy
-		// here for the UI to render with a warning icon.
 		var conflicting []ConflictingDomain
-		if projErr == nil && proj != nil && len(proj.Domains) > 0 {
-			gcfg, _ := config.LoadGlobal()
-			tld := ""
-			if gcfg != nil {
-				tld = gcfg.DNS.TLD
-			}
-			registered := make(map[string]bool, len(s.Domains))
-			for _, d := range s.Domains {
-				registered[d] = true
-			}
-			for _, declared := range proj.Domains {
-				full := strings.ToLower(declared)
-				if tld != "" {
-					full = full + "." + tld
-				}
-				if registered[full] {
-					continue
-				}
-				owner := ""
-				if owning, _ := config.IsDomainUsed(full); owning != nil && owning.Path != s.Path {
-					owner = owning.Name
-				}
-				conflicting = append(conflicting, ConflictingDomain{
-					Domain:  full,
-					OwnedBy: owner,
-				})
-			}
+		for _, cd := range e.ConflictingDomains {
+			conflicting = append(conflicting, ConflictingDomain{
+				Domain:  cd.Domain,
+				OwnedBy: cd.OwnedBy,
+			})
 		}
 
-		worktreeResponses := []WorktreeResponse{}
-		mainBranch := gitpkg.MainBranch(s.Path)
-		if wts, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain()); err == nil {
-			for _, wt := range wts {
-				worktreeResponses = append(worktreeResponses, WorktreeResponse{
-					Branch: wt.Branch,
-					Domain: wt.Domain,
-					Path:   wt.Path,
-				})
-			}
+		var worktreeResponses []WorktreeResponse
+		for _, wt := range e.Worktrees {
+			worktreeResponses = append(worktreeResponses, WorktreeResponse{
+				Branch: wt.Branch,
+				Domain: wt.Domain,
+				Path:   wt.Path,
+			})
+		}
+		if worktreeResponses == nil {
+			worktreeResponses = []WorktreeResponse{}
 		}
 
 		sites = append(sites, SiteResponse{
-			Name:               s.Name,
-			Domain:             s.PrimaryDomain(),
-			Domains:            s.Domains,
+			Name:               e.Name,
+			Domain:             e.PrimaryDomain(),
+			Domains:            e.Domains,
 			ConflictingDomains: conflicting,
-			Path:               s.Path,
-			PHPVersion:         phpVersion,
-			NodeVersion:        nodeVersion,
-			TLS:                s.Secured,
-			Framework:          s.Framework,
-			IsLaravel:          fwName == "laravel",
-			FrameworkLabel:     frameworkLabel(fwName, s.Path),
-			FPMRunning:         fpmRunning,
-			QueueRunning:       queueStatus == "active",
-			QueueFailing:       queueStatus == "activating" || queueStatus == "failed",
-			StripeRunning:      stripeStatus == "active",
-			StripeSecretSet:    stripeSecretSet,
-			ScheduleRunning:    scheduleStatus == "active",
-			ScheduleFailing:    scheduleStatus == "activating" || scheduleStatus == "failed",
-			ReverbRunning:      reverbStatus == "active",
-			ReverbFailing:      reverbStatus == "activating" || reverbStatus == "failed",
-			HasReverb:          hasReverb,
-			HasHorizon:         hasHorizon,
-			HorizonRunning:     horizonStatus == "active",
-			HorizonFailing:     horizonStatus == "activating" || horizonStatus == "failed",
-			HasQueueWorker:     hasQueueWorker,
-			HasScheduleWorker:  hasScheduleWorker,
+			Path:               e.Path,
+			PHPVersion:         e.PHPVersion,
+			NodeVersion:        e.NodeVersion,
+			TLS:                e.Secured,
+			Framework:          e.FrameworkName,
+			IsLaravel:          e.FrameworkName == "laravel",
+			FrameworkLabel:     e.FrameworkLabel,
+			FPMRunning:         e.FPMRunning,
+			QueueRunning:       e.QueueRunning,
+			QueueFailing:       e.QueueFailing,
+			StripeRunning:      e.StripeRunning,
+			StripeSecretSet:    e.StripeSecretSet,
+			ScheduleRunning:    e.ScheduleRunning,
+			ScheduleFailing:    e.ScheduleFailing,
+			ReverbRunning:      e.ReverbRunning,
+			ReverbFailing:      e.ReverbFailing,
+			HasReverb:          e.HasReverb,
+			HasHorizon:         e.HasHorizon,
+			HorizonRunning:     e.HorizonRunning,
+			HorizonFailing:     e.HorizonFailing,
+			HasQueueWorker:     e.HasQueueWorker,
+			HasScheduleWorker:  e.HasScheduleWorker,
 			FrameworkWorkers:   fwWorkers,
-			HasAppLogs:         hasLogFiles(hasFw, fw, s.Path),
-			LatestLogTime:      latestLogTime(hasFw, fw, s.Path),
-			HasFavicon:         detectFavicon(s.Path, s.PublicDir, s.Framework) != "",
-			Paused:             s.Paused,
-			Branch:             mainBranch,
+			HasAppLogs:         e.HasAppLogs,
+			LatestLogTime:      e.LatestLogTime,
+			HasFavicon:         e.HasFavicon,
+			Paused:             e.Paused,
+			Branch:             e.Branch,
 			Worktrees:          worktreeResponses,
-			Services:           siteServices,
+			Services:           e.Services,
 		})
-	}
-	if sites == nil {
-		sites = []SiteResponse{}
 	}
 	writeJSON(w, sites)
 }
@@ -722,21 +544,6 @@ func buildServiceResponse(name string) ServiceResponse {
 }
 
 // listActiveQueueWorkers returns the site names of active lerd-queue-* systemd units.
-// frameworkLabel returns the display label (with version) for a framework name.
-// Returns the Label field from the framework definition, or an empty string if not found.
-func frameworkLabel(name, path string) string {
-	if name == "" {
-		return ""
-	}
-	if fw, ok := config.GetFrameworkForDir(name, path); ok {
-		if fw.Version != "" {
-			return fw.Label + " " + fw.Version
-		}
-		return fw.Label
-	}
-	return name
-}
-
 func listActiveQueueWorkers() []string {
 	return listActiveUnitsBySuffix("lerd-queue-*.service", "lerd-queue-")
 }
@@ -1430,45 +1237,6 @@ func handleNodeVersions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, versions)
 }
 
-// faviconCandidates lists file names to probe when looking for a site's favicon.
-var faviconCandidates = []string{
-	"favicon.ico",
-	"favicon.svg",
-	"favicon.png",
-}
-
-// detectFavicon returns the absolute path of the first favicon file found in
-// the site's public directory (or project root when publicDir is "." or empty).
-// Returns "" when no favicon is found.
-func detectFavicon(sitePath, publicDir, framework string) string {
-	fw, hasFw := config.GetFrameworkForDir(framework, sitePath)
-	if publicDir == "" {
-		if hasFw && fw.PublicDir != "" {
-			publicDir = fw.PublicDir
-		} else {
-			publicDir = config.DetectPublicDir(sitePath)
-		}
-	}
-	base := sitePath
-	if publicDir != "." {
-		base = filepath.Join(sitePath, publicDir)
-	}
-	// Check framework-specific favicon path first.
-	if hasFw && fw.Favicon != "" {
-		p := filepath.Join(base, fw.Favicon)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	for _, name := range faviconCandidates {
-		p := filepath.Join(base, name)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	return ""
-}
-
 func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 	// path: /api/sites/{domain}/favicon
 	domain := strings.TrimPrefix(r.URL.Path, "/api/sites/")
@@ -1480,7 +1248,7 @@ func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := detectFavicon(site.Path, site.PublicDir, site.Framework)
+	path := siteinfo.DetectFavicon(site.Path, site.PublicDir, site.Framework, nil, false)
 	if path == "" {
 		http.NotFound(w, r)
 		return
@@ -2375,34 +2143,6 @@ func handleWatcherStart(w http.ResponseWriter, r *http.Request) {
 
 func handleWatcherLogs(w http.ResponseWriter, r *http.Request) {
 	streamUnitLogs(w, r, "lerd-watcher")
-}
-
-// latestLogTime returns the ISO 8601 timestamp of the most recently modified
-// log file for a site, or empty string if no log files exist.
-// hasLogFiles returns true if the framework defines log sources and at least one
-// matching log file exists on disk.
-func hasLogFiles(hasFw bool, fw *config.Framework, projectPath string) bool {
-	if !hasFw || len(fw.Logs) == 0 {
-		return false
-	}
-	for _, src := range fw.Logs {
-		matches, _ := filepath.Glob(filepath.Join(projectPath, src.Path))
-		if len(matches) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func latestLogTime(hasFw bool, fw *config.Framework, projectPath string) string {
-	if !hasFw || len(fw.Logs) == 0 {
-		return ""
-	}
-	t := applog.LatestModTime(projectPath, fw.Logs)
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
 }
 
 // handleAppLogs serves application-level log files (e.g. Laravel's storage/logs/*.log).

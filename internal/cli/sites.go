@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
-	gitpkg "github.com/geodro/lerd/internal/git"
+	"github.com/geodro/lerd/internal/siteinfo"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -29,60 +29,53 @@ func termWidth() int {
 }
 
 func runSites(_ *cobra.Command, _ []string) error {
-	reg, err := config.LoadSites()
+	sites, err := siteinfo.LoadAll(siteinfo.EnrichCLI)
 	if err != nil {
 		return err
 	}
 
-	if len(reg.Sites) == 0 {
+	if len(sites) == 0 {
 		fmt.Println("No sites registered. Use 'lerd park' or 'lerd link' to add sites.")
 		return nil
 	}
 
 	width := termWidth()
 
-	for _, s := range reg.Sites {
-		if s.Ignored {
-			continue
-		}
-		fwName := s.Framework
-		fwLabel := ""
-		if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok {
-			fwLabel = fw.Label
-			if fw.Version != "" {
-				fwLabel += " " + fw.Version
-			}
-		}
-
-		var worktrees []gitpkg.Worktree
-		if gitpkg.IsMainRepo(s.Path) {
-			worktrees, _ = gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+	for _, s := range sites {
+		site := config.Site{
+			Name:        s.Name,
+			Domains:     s.Domains,
+			Path:        s.Path,
+			PHPVersion:  s.PHPVersion,
+			NodeVersion: s.NodeVersion,
+			Secured:     s.Secured,
+			Paused:      s.Paused,
 		}
 
 		switch {
 		case width >= 120:
-			printSiteWide(s, fwLabel)
+			printSiteWide(site, s.FrameworkLabel)
 			for _, d := range s.Domains[1:] {
 				printAliasDomainWide(d)
 			}
-			for _, wt := range worktrees {
-				printWorktreeWide(wt, s)
+			for _, wt := range s.Worktrees {
+				printWorktreeWide(wt, site)
 			}
 		case width >= 80:
-			printSiteMedium(s, fwLabel)
+			printSiteMedium(site, s.FrameworkLabel)
 			for _, d := range s.Domains[1:] {
 				printAliasDomainMedium(d)
 			}
-			for _, wt := range worktrees {
-				printWorktreeMedium(wt, s)
+			for _, wt := range s.Worktrees {
+				printWorktreeMedium(wt, site)
 			}
 		default:
-			printSiteCompact(s, fwLabel)
+			printSiteCompact(site, s.FrameworkLabel)
 			for _, d := range s.Domains[1:] {
 				printAliasDomainCompact(d)
 			}
-			for _, wt := range worktrees {
-				printWorktreeCompact(wt, s)
+			for _, wt := range s.Worktrees {
+				printWorktreeCompact(wt, site)
 			}
 		}
 	}
@@ -122,7 +115,7 @@ func printAliasDomainWide(domain string) {
 		"↳ alias", truncate(domain, 32))
 }
 
-func printWorktreeWide(wt gitpkg.Worktree, s config.Site) {
+func printWorktreeWide(wt siteinfo.WorktreeInfo, s config.Site) {
 	fmt.Printf("  %-20s %-32s %-6s %-6s %-4s %-10s %-8s %s\n",
 		"↳ "+truncate(wt.Branch, 18), truncate(wt.Domain, 32),
 		s.PHPVersion, s.NodeVersion, "—", "", "", wt.Path)
@@ -156,7 +149,7 @@ func printAliasDomainMedium(domain string) {
 		"↳ "+truncate(domain, 24))
 }
 
-func printWorktreeMedium(wt gitpkg.Worktree, s config.Site) {
+func printWorktreeMedium(wt siteinfo.WorktreeInfo, s config.Site) {
 	fmt.Printf("  %-26s %-6s %-4s %-10s %-8s %s\n",
 		"↳ "+truncate(wt.Domain, 24), s.PHPVersion, "—", "", "", wt.Path)
 }
@@ -186,7 +179,7 @@ func printAliasDomainCompact(domain string) {
 	fmt.Printf("  ↳ %s\n", domain)
 }
 
-func printWorktreeCompact(wt gitpkg.Worktree, s config.Site) {
+func printWorktreeCompact(wt siteinfo.WorktreeInfo, _ config.Site) {
 	fmt.Printf("  ↳ %s\n", wt.Domain)
 	fmt.Printf("    %s\n", truncate(wt.Path, 74))
 }
