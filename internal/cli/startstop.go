@@ -432,7 +432,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// Prefer the systemd service when enabled; otherwise launch directly.
 	fmt.Print("  --> lerd-tray ... ")
 	if services.Mgr.IsEnabled("lerd-tray") {
-		if err := services.Mgr.Restart("lerd-tray"); err != nil {
+		// Use Start (bootout+bootstrap) instead of Restart (kickstart -k) to
+		// avoid launchctl hanging while waiting for the tray process to die.
+		killTray()
+		if err := services.Mgr.Start("lerd-tray"); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
 		} else {
 			fmt.Println("OK")

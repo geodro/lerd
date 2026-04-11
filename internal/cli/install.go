@@ -418,10 +418,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	killTray()
 	if services.Mgr.IsEnabled("lerd-tray") {
-		_ = services.Mgr.Restart("lerd-tray")
+		_ = services.Mgr.Start("lerd-tray")
 	} else {
-		killTray()
 		if exe, err := os.Executable(); err == nil {
 			_ = exec.Command(exe, "tray").Start()
 		}
