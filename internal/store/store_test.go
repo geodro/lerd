@@ -252,4 +252,3 @@ func TestDetectFromStore_NoMatch(t *testing.T) {
 		t.Fatal("expected no detection in empty dir")
 	}
 }
-

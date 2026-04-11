@@ -9,15 +9,15 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
-// ── SyncLerdYAMLDomains ─────────────────────────────────────────────────────
+// ── SyncProjectDomains (config package) ────────────────────────────────────
 
-func TestSyncLerdYAMLDomains_strips_tld(t *testing.T) {
+func TestSyncProjectDomains_strips_tld(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create an initial .lerd.yaml
 	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("php_version: \"8.4\"\n"), 0644)
 
-	SyncLerdYAMLDomains(dir, []string{"myapp.test", "api.test", "admin.test"}, "test")
+	_ = config.SyncProjectDomains(dir, []string{"myapp.test", "api.test", "admin.test"}, "test")
 
 	proj, err := config.LoadProjectConfig(dir)
 	if err != nil {
@@ -38,10 +38,10 @@ func TestSyncLerdYAMLDomains_strips_tld(t *testing.T) {
 	}
 }
 
-func TestSyncLerdYAMLDomains_noop_without_file(t *testing.T) {
+func TestSyncProjectDomains_noop_without_file(t *testing.T) {
 	dir := t.TempDir()
 	// No .lerd.yaml — should be a no-op
-	SyncLerdYAMLDomains(dir, []string{"myapp.test"}, "test")
+	_ = config.SyncProjectDomains(dir, []string{"myapp.test"}, "test")
 
 	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); !os.IsNotExist(err) {
 		t.Error("should not create .lerd.yaml when it doesn't exist")
@@ -107,26 +107,25 @@ func TestRegenerateSiteVhost_removes_old_on_primary_change(t *testing.T) {
 	}
 }
 
-// ── SyncLerdYAMLWorkers ─────────────────────────────────────────────────────
+// ── SetProjectWorkers (config package) ─────────────────────────────────────
 
-func TestSyncLerdYAMLWorkers_noop_without_file(t *testing.T) {
+func TestSetProjectWorkers_noop_without_file(t *testing.T) {
 	dir := t.TempDir()
-	site := &config.Site{Name: "myapp", Path: dir}
-	// No .lerd.yaml — should be a no-op, no panic
-	SyncLerdYAMLWorkers(site)
+	// No .lerd.yaml — should be a no-op
+	_ = config.SetProjectWorkers(dir, CollectRunningWorkerNames(&config.Site{Name: "myapp", Path: dir}))
 
 	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); !os.IsNotExist(err) {
 		t.Error("should not create .lerd.yaml when it doesn't exist")
 	}
 }
 
-func TestSyncLerdYAMLWorkers_writes_empty(t *testing.T) {
+func TestSetProjectWorkers_writes_empty(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("php_version: \"8.4\"\nworkers:\n  - queue\n"), 0644)
 
 	site := &config.Site{Name: "myapp", Path: dir}
 	// CollectRunningWorkerNames returns empty in test env (no systemd)
-	SyncLerdYAMLWorkers(site)
+	_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 
 	proj, err := config.LoadProjectConfig(dir)
 	if err != nil {
@@ -142,12 +141,15 @@ func TestSyncLerdYAMLWorkers_writes_empty(t *testing.T) {
 	}
 }
 
-func TestSyncLerdYAMLWorkers_skips_paused(t *testing.T) {
+func TestSetProjectWorkers_skips_paused(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("php_version: \"8.4\"\nworkers:\n  - queue\n  - schedule\n"), 0644)
 
 	site := &config.Site{Name: "myapp", Path: dir, Paused: true}
-	SyncLerdYAMLWorkers(site)
+	// Paused check happens at call site, not in SetProjectWorkers
+	if !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
+	}
 
 	proj, err := config.LoadProjectConfig(dir)
 	if err != nil {

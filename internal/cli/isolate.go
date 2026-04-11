@@ -52,14 +52,7 @@ func pinProjectPHP(dir, version string) error {
 		return fmt.Errorf("writing .php-version: %w", err)
 	}
 
-	lerdYAML := filepath.Join(dir, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err == nil {
-		proj, _ := config.LoadProjectConfig(dir)
-		proj.PHPVersion = version
-		if err := config.SaveProjectConfig(dir, proj); err != nil {
-			return fmt.Errorf("updating .lerd.yaml: %w", err)
-		}
-	}
+	_ = config.SetProjectPHPVersion(dir, version)
 
 	return nil
 }

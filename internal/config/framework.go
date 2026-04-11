@@ -422,8 +422,7 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 		if version == "" && proj.FrameworkVersion != "" {
 			version = proj.FrameworkVersion
 		} else if version != "" && proj.FrameworkVersion != "" && version != proj.FrameworkVersion {
-			proj.FrameworkVersion = version
-			_ = SaveProjectConfig(projectDir, proj)
+			_ = SetProjectFrameworkVersion(projectDir, version)
 		}
 	}
 

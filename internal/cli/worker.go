@@ -55,7 +55,9 @@ func newWorkerStartCmd() *cobra.Command {
 			if err := WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker); err != nil {
 				return err
 			}
-			SyncLerdYAMLWorkers(site)
+			if !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
+			}
 			return nil
 		},
 	}
@@ -87,7 +89,9 @@ func newWorkerStopCmd() *cobra.Command {
 			if err := WorkerStopForSite(site.Name, workerName); err != nil {
 				return err
 			}
-			SyncLerdYAMLWorkers(site)
+			if !site.Paused {
+				_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
+			}
 			return nil
 		},
 	}
@@ -338,18 +342,12 @@ func newWorkerAddCmd() *cobra.Command {
 				}
 				fmt.Printf("Custom worker %q %s in global %s overlay\n", name, action, fwName)
 			} else {
-				proj, err := config.LoadProjectConfig(cwd)
-				if err != nil {
-					return fmt.Errorf("loading .lerd.yaml: %w", err)
+				if proj, _ := config.LoadProjectConfig(cwd); proj.CustomWorkers != nil {
+					if _, exists := proj.CustomWorkers[name]; exists {
+						action = "updated"
+					}
 				}
-				if proj.CustomWorkers == nil {
-					proj.CustomWorkers = make(map[string]config.FrameworkWorker)
-				}
-				if _, exists := proj.CustomWorkers[name]; exists {
-					action = "updated"
-				}
-				proj.CustomWorkers[name] = w
-				if err := config.SaveProjectConfig(cwd, proj); err != nil {
+				if err := config.SetProjectCustomWorker(cwd, name, w); err != nil {
 					return fmt.Errorf("saving .lerd.yaml: %w", err)
 				}
 				fmt.Printf("Custom worker %q %s in .lerd.yaml\n", name, action)
@@ -420,19 +418,8 @@ func newWorkerRemoveCmd() *cobra.Command {
 				}
 				fmt.Printf("Custom worker %q removed from global %s overlay\n", name, fwName)
 			} else {
-				proj, err := config.LoadProjectConfig(cwd)
-				if err != nil {
-					return fmt.Errorf("loading .lerd.yaml: %w", err)
-				}
-				if _, exists := proj.CustomWorkers[name]; !exists {
-					return fmt.Errorf("custom worker %q not found in .lerd.yaml", name)
-				}
-				delete(proj.CustomWorkers, name)
-				if len(proj.CustomWorkers) == 0 {
-					proj.CustomWorkers = nil
-				}
-				if err := config.SaveProjectConfig(cwd, proj); err != nil {
-					return fmt.Errorf("saving .lerd.yaml: %w", err)
+				if err := config.RemoveProjectCustomWorker(cwd, name); err != nil {
+					return err
 				}
 				fmt.Printf("Custom worker %q removed from .lerd.yaml\n", name)
 			}

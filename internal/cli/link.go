@@ -76,8 +76,7 @@ func runLink(args []string) error {
 				_ = config.SaveStoreFramework(proj.FrameworkDef)
 			case replaceFromDisk:
 				// User chose the local/store version — update .lerd.yaml.
-				proj.FrameworkDef = existing
-				_ = config.SaveProjectConfig(cwd, proj)
+				_ = config.SetProjectFrameworkDef(cwd, existing)
 			}
 		}
 	}
@@ -194,31 +193,7 @@ func runLink(args []string) error {
 		return fmt.Errorf("registering site: %w", err)
 	}
 
-	// Sync domains back to .lerd.yaml if it already exists (never create it).
-	if proj != nil {
-		suffix := "." + cfg.DNS.TLD
-		seen := make(map[string]bool)
-		var names []string
-		for _, d := range site.Domains {
-			name := strings.TrimSuffix(d, suffix)
-			low := strings.ToLower(name)
-			if !seen[low] {
-				names = append(names, name)
-				seen[low] = true
-			}
-		}
-		for _, d := range proj.Domains {
-			low := strings.ToLower(d)
-			if !seen[low] {
-				names = append(names, d)
-				seen[low] = true
-			}
-		}
-		proj.Domains = names
-		if err := config.SaveProjectConfig(cwd, proj); err != nil {
-			fmt.Printf("[WARN] writing .lerd.yaml: %v\n", err)
-		}
-	}
+	_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
 
 	if secured {
 		// Reissue cert for the (possibly new) domain and regenerate SSL vhost.
@@ -468,4 +443,3 @@ func fetchFrameworkFromStore(name, dir string) bool {
 	fmt.Printf("  Installed %s@%s from store\n", name, v)
 	return true
 }
-

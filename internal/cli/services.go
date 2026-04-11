@@ -802,10 +802,13 @@ func activePHPVersions() map[string]bool {
 		if s.Ignored {
 			continue
 		}
-		v := s.PHPVersion
-		if detected, err := phpPkg.DetectVersion(s.Path); err == nil && detected != "" {
-			v = detected
+		phpMin, phpMax := "", ""
+		if s.Framework != "" {
+			if fw, fwOk := config.GetFrameworkForDir(s.Framework, s.Path); fwOk {
+				phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
+			}
 		}
+		v := phpPkg.DetectVersionClamped(s.Path, phpMin, phpMax, s.PHPVersion)
 		if v != "" {
 			active[v] = true
 		}

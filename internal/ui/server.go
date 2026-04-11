@@ -413,11 +413,18 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 		// Always detect the live version from disk so .php-version / .node-version
 		// files are reflected without needing a re-link.
 		phpVersion := s.PHPVersion
-		if detected, err := phpPkg.DetectVersion(s.Path); err == nil && detected != "" {
-			phpVersion = detected
-			if phpVersion != s.PHPVersion {
+		{
+			phpMin, phpMax := "", ""
+			if s.Framework != "" {
+				if fw, fwOk := config.GetFrameworkForDir(s.Framework, s.Path); fwOk {
+					phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
+				}
+			}
+			detected := phpPkg.DetectVersionClamped(s.Path, phpMin, phpMax, s.PHPVersion)
+			if detected != s.PHPVersion {
+				phpVersion = detected
 				s.PHPVersion = phpVersion
-				_ = config.AddSite(s) // keep sites.yaml in sync
+				_ = config.AddSite(s)
 			}
 		}
 
@@ -1521,7 +1528,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		site.Secured = true
 		envfile.UpdateAppURL(site.Path, "https", site.PrimaryDomain()) //nolint:errcheck
-		syncLerdYAMLSecured(site.Path, true)
+		_ = config.SetProjectSecured(site.Path, true)
 		needsReload = true
 	case "unsecure":
 		if err := certs.UnsecureSite(*site); err != nil {
@@ -1530,7 +1537,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		site.Secured = false
 		envfile.UpdateAppURL(site.Path, "http", site.PrimaryDomain()) //nolint:errcheck
-		syncLerdYAMLSecured(site.Path, false)
+		_ = config.SetProjectSecured(site.Path, false)
 		needsReload = true
 	case "php":
 		version := r.URL.Query().Get("version")
@@ -1543,13 +1550,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "writing .php-version: " + err.Error()})
 			return
 		}
-		// Also update .lerd.yaml when it already exists so lerd's priority-1
-		// override stays in sync with .php-version.
-		if _, statErr := os.Stat(filepath.Join(site.Path, ".lerd.yaml")); statErr == nil {
-			proj, _ := config.LoadProjectConfig(site.Path)
-			proj.PHPVersion = version
-			_ = config.SaveProjectConfig(site.Path, proj)
-		}
+		_ = config.SetProjectPHPVersion(site.Path, version)
 		site.PHPVersion = version
 		// Regenerate vhost with new PHP version
 		if site.Secured {
@@ -1610,7 +1611,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
-		syncLerdYAMLWorkers(site)
+		if !site.Paused {
+			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "queue:start":
@@ -1627,7 +1630,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
-		syncLerdYAMLWorkers(site)
+		if !site.Paused {
+			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "stripe:start":
@@ -1644,7 +1649,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
-		syncLerdYAMLWorkers(site)
+		if !site.Paused {
+			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "schedule:start":
@@ -1661,7 +1668,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
-		syncLerdYAMLWorkers(site)
+		if !site.Paused {
+			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "reverb:start":
@@ -1678,7 +1687,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
-		syncLerdYAMLWorkers(site)
+		if !site.Paused {
+			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "terminal":
@@ -1714,7 +1725,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
 			return
 		}
-		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
@@ -1762,7 +1773,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
 			return
 		}
-		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
@@ -1792,28 +1803,26 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		// project's .lerd.yaml as a conflict-filtered entry. Remove it from
 		// .lerd.yaml only — no registry, vhost, or cert work needed.
 		if !site.HasDomain(fullDomain) {
+			suffix := "." + cfg.DNS.TLD
+			declared := strings.TrimSuffix(fullDomain, suffix)
+			// Check if domain exists in .lerd.yaml before removing.
 			proj, projErr := config.LoadProjectConfig(site.Path)
 			if projErr != nil || proj == nil {
 				writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
 				return
 			}
-			suffix := "." + cfg.DNS.TLD
-			declared := strings.TrimSuffix(fullDomain, suffix)
 			found := false
-			var kept []string
 			for _, d := range proj.Domains {
 				if strings.EqualFold(d, declared) {
 					found = true
-					continue
+					break
 				}
-				kept = append(kept, d)
 			}
 			if !found {
 				writeJSON(w, SiteActionResponse{Error: "site does not have domain " + fullDomain})
 				return
 			}
-			proj.Domains = kept
-			if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+			if err := config.RemoveProjectDomain(site.Path, declared); err != nil {
 				writeJSON(w, SiteActionResponse{Error: "updating .lerd.yaml: " + err.Error()})
 				return
 			}
@@ -1837,7 +1846,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "updating registry: " + err.Error()})
 			return
 		}
-		syncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+		_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 		if err := uiRegenerateSiteVhost(site, oldPrimary); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
@@ -1862,7 +1871,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 						writeJSON(w, SiteActionResponse{Error: err.Error()})
 						return
 					}
-					syncLerdYAMLWorkers(site)
+					if !site.Paused {
+						_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+					}
 				} else {
 					fwN := site.Framework
 					fw, ok := config.GetFrameworkForDir(fwN, site.Path)
@@ -2531,18 +2542,6 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 	}
 }
 
-// syncLerdYAMLSecured updates the secured field in .lerd.yaml when the file
-// already exists, keeping the saved config in sync with UI toggles.
-func syncLerdYAMLSecured(projectPath string, secured bool) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	proj.Secured = secured
-	_ = config.SaveProjectConfig(projectPath, proj)
-}
-
 // uiRegenerateSiteVhost regenerates the nginx vhost for a site after a domain change.
 func uiRegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 	newPrimary := site.PrimaryDomain()
@@ -2697,34 +2696,7 @@ func handleSiteLink(w http.ResponseWriter, r *http.Request) {
 // syncLerdYAMLWorkersDelayed waits briefly for the worker unit to start, then syncs.
 func syncLerdYAMLWorkersDelayed(site *config.Site) {
 	time.Sleep(2 * time.Second)
-	syncLerdYAMLWorkers(site)
-}
-
-// syncLerdYAMLWorkers updates the workers list in .lerd.yaml based on which
-// workers are currently running for the site.
-func syncLerdYAMLWorkers(site *config.Site) {
-	lerdYAML := filepath.Join(site.Path, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
+	if !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
 	}
-	running := cli.CollectRunningWorkerNames(site)
-	proj, _ := config.LoadProjectConfig(site.Path)
-	proj.Workers = running
-	_ = config.SaveProjectConfig(site.Path, proj)
-}
-
-// syncLerdYAMLDomains updates domains in .lerd.yaml (name-only, no TLD).
-func syncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	suffix := "." + tld
-	var names []string
-	for _, d := range fullDomains {
-		names = append(names, strings.TrimSuffix(d, suffix))
-	}
-	proj.Domains = names
-	_ = config.SaveProjectConfig(projectPath, proj)
 }

@@ -3083,23 +3083,18 @@ func execDbSet(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("invalid database %q — must be one of: sqlite, mysql, postgres", choice)), nil
 	}
 
-	// Load .lerd.yaml (or start fresh) and replace any existing DB entry.
-	proj, _ := config.LoadProjectConfig(projectPath)
-	if proj == nil {
-		proj = &config.ProjectConfig{}
-	}
-	dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+	// Check existing DB for the summary message.
 	previous := ""
-	filtered := proj.Services[:0]
-	for _, svc := range proj.Services {
-		if dbNames[svc.Name] {
-			previous = svc.Name
-			continue
+	if proj, _ := config.LoadProjectConfig(projectPath); proj != nil {
+		dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
+		for _, svc := range proj.Services {
+			if dbNames[svc.Name] {
+				previous = svc.Name
+				break
+			}
 		}
-		filtered = append(filtered, svc)
 	}
-	proj.Services = append(filtered, config.ProjectService{Name: choice})
-	if err := config.SaveProjectConfig(projectPath, proj); err != nil {
+	if err := config.ReplaceProjectDBService(projectPath, choice); err != nil {
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 
@@ -3413,7 +3408,7 @@ func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
 		return toolErr("updating site: " + err.Error()), nil
 	}
 
-	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
 	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
 		return toolErr("regenerating vhost: " + err.Error()), nil
@@ -3476,7 +3471,7 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 		return toolErr("updating site: " + err.Error()), nil
 	}
 
-	mcpSyncLerdYAMLDomains(site.Path, site.Domains, cfg.DNS.TLD)
+	_ = config.SyncProjectDomains(site.Path, site.Domains, cfg.DNS.TLD)
 
 	if err := mcpRegenerateSiteVhost(site, oldPrimary); err != nil {
 		return toolErr("regenerating vhost: " + err.Error()), nil
@@ -3515,22 +3510,6 @@ func mcpRegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 	return nginx.GenerateVhost(*site, site.PHPVersion)
 }
 
-// mcpSyncLerdYAMLDomains updates domains in .lerd.yaml (name-only, no TLD).
-func mcpSyncLerdYAMLDomains(projectPath string, fullDomains []string, tld string) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	suffix := "." + tld
-	var names []string
-	for _, d := range fullDomains {
-		names = append(names, strings.TrimSuffix(d, suffix))
-	}
-	proj.Domains = names
-	_ = config.SaveProjectConfig(projectPath, proj)
-}
-
 func execSecure(args map[string]any) (any, *rpcError) {
 	siteName := strArg(args, "site")
 	if siteName == "" {
@@ -3558,7 +3537,7 @@ func execSecure(args map[string]any) (any, *rpcError) {
 		_ = err
 	}
 
-	syncMCPLerdYAMLSecured(site.Path, true)
+	_ = config.SetProjectSecured(site.Path, true)
 
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
@@ -3593,7 +3572,7 @@ func execUnsecure(args map[string]any) (any, *rpcError) {
 		_ = err
 	}
 
-	syncMCPLerdYAMLSecured(site.Path, false)
+	_ = config.SetProjectSecured(site.Path, false)
 
 	if err := nginx.Reload(); err != nil {
 		return toolErr("reloading nginx: " + err.Error()), nil
@@ -4264,18 +4243,12 @@ func execWorkerAdd(args map[string]any) (any, *rpcError) {
 		return toolOK(fmt.Sprintf("Custom worker %q %s in global %s overlay. Start it with worker_start(site: %q, worker: %q).", name, action, fwName, siteName, name)), nil
 	}
 
-	proj, err := config.LoadProjectConfig(site.Path)
-	if err != nil {
-		return toolErr("loading .lerd.yaml: " + err.Error()), nil
+	if proj, _ := config.LoadProjectConfig(site.Path); proj.CustomWorkers != nil {
+		if _, exists := proj.CustomWorkers[name]; exists {
+			action = "updated"
+		}
 	}
-	if proj.CustomWorkers == nil {
-		proj.CustomWorkers = make(map[string]config.FrameworkWorker)
-	}
-	if _, exists := proj.CustomWorkers[name]; exists {
-		action = "updated"
-	}
-	proj.CustomWorkers[name] = w
-	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+	if err := config.SetProjectCustomWorker(site.Path, name, w); err != nil {
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Custom worker %q %s in .lerd.yaml. Start it with worker_start(site: %q, worker: %q).", name, action, siteName, name)), nil
@@ -4328,18 +4301,10 @@ func execWorkerRemove(args map[string]any) (any, *rpcError) {
 		return toolOK(fmt.Sprintf("Custom worker %q removed from global %s overlay", name, fwName)), nil
 	}
 
-	proj, err := config.LoadProjectConfig(site.Path)
-	if err != nil {
-		return toolErr("loading .lerd.yaml: " + err.Error()), nil
-	}
-	if _, exists := proj.CustomWorkers[name]; !exists {
-		return toolErr(fmt.Sprintf("custom worker %q not found in .lerd.yaml for site %q", name, siteName)), nil
-	}
-	delete(proj.CustomWorkers, name)
-	if len(proj.CustomWorkers) == 0 {
-		proj.CustomWorkers = nil
-	}
-	if err := config.SaveProjectConfig(site.Path, proj); err != nil {
+	if err := config.RemoveProjectCustomWorker(site.Path, name); err != nil {
+		if _, ok := err.(*config.WorkerNotFoundError); ok {
+			return toolErr(fmt.Sprintf("custom worker %q not found in .lerd.yaml for site %q", name, siteName)), nil
+		}
 		return toolErr("saving .lerd.yaml: " + err.Error()), nil
 	}
 	return toolOK(fmt.Sprintf("Custom worker %q removed from %s", name, siteName)), nil
@@ -4513,13 +4478,7 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
 		return toolErr("writing .php-version: " + err.Error()), nil
 	}
-	// Also update .lerd.yaml when it already exists so lerd's priority-1
-	// override stays in sync with .php-version.
-	if _, statErr := os.Stat(filepath.Join(site.Path, ".lerd.yaml")); statErr == nil {
-		proj, _ := config.LoadProjectConfig(site.Path)
-		proj.PHPVersion = version
-		_ = config.SaveProjectConfig(site.Path, proj)
-	}
+	_ = config.SetProjectPHPVersion(site.Path, version)
 
 	// Ensure the FPM quadlet and xdebug ini exist for this version.
 	if err := podman.WriteFPMQuadlet(version); err != nil {
@@ -4946,16 +4905,4 @@ func execUnpark(args map[string]any) (any, *rpcError) {
 		return toolErr("path is required"), nil
 	}
 	return runLerdCmd("unpark", path)
-}
-
-// syncMCPLerdYAMLSecured updates the secured field in .lerd.yaml when the file
-// already exists, keeping the saved config in sync with MCP secure/unsecure calls.
-func syncMCPLerdYAMLSecured(projectPath string, secured bool) {
-	lerdYAML := filepath.Join(projectPath, ".lerd.yaml")
-	if _, err := os.Stat(lerdYAML); err != nil {
-		return
-	}
-	proj, _ := config.LoadProjectConfig(projectPath)
-	proj.Secured = secured
-	_ = config.SaveProjectConfig(projectPath, proj)
 }

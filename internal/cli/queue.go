@@ -95,8 +95,8 @@ func runQueueStart(queue string, tries, timeout int) error {
 	if err := queueStartExplicit(siteName, cwd, phpVersion, queue, tries, timeout); err != nil {
 		return err
 	}
-	if site, err := config.FindSite(siteName); err == nil {
-		SyncLerdYAMLWorkers(site)
+	if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 	}
 	return nil
 }
@@ -119,8 +119,8 @@ func runQueueStop() error {
 	if err := QueueStopForSite(siteName); err != nil {
 		return err
 	}
-	if site, err := config.FindSite(siteName); err == nil {
-		SyncLerdYAMLWorkers(site)
+	if site, err := config.FindSite(siteName); err == nil && !site.Paused {
+		_ = config.SetProjectWorkers(site.Path, CollectRunningWorkerNames(site))
 	}
 	return nil
 }

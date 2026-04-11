@@ -19,7 +19,7 @@ const (
 
 // Client fetches framework definitions from the remote store.
 type Client struct {
-	BaseURL  string
+	BaseURL string
 }
 
 // Index is the top-level store index listing all available frameworks.
@@ -58,7 +58,7 @@ func autoFetchFramework(name, version string) (*config.Framework, error) {
 // NewClient returns a store client with default settings.
 func NewClient() *Client {
 	return &Client{
-		BaseURL:  defaultBaseURL,
+		BaseURL: defaultBaseURL,
 	}
 }
 
@@ -147,7 +147,6 @@ func (c *Client) DetectFromStore(dir string) (*IndexEntry, string, bool) {
 	}
 	return nil, "", false
 }
-
 
 // ResolveVersion detects the framework version from detect rules, checking
 // composer.json constraints and version_file regex matches. Returns the first
