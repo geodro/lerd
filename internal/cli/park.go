@@ -220,7 +220,8 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 	warnFilteredDomains(removed)
 	domains = kept
 
-	phpVersion, nodeVersion := siteops.DetectSiteVersions(projectDir, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	versions := siteops.DetectSiteVersions(projectDir, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
 
 	warnMissingExtensions(projectDir, name, phpVersion, cfg)
 

@@ -3259,7 +3259,8 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		framework = name
 	}
 
-	phpVersion, nodeVersion := siteops.DetectSiteVersions(projectPath, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	versions := siteops.DetectSiteVersions(projectPath, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
 
 	secured := siteops.CleanupRelink(projectPath, name)
 

@@ -135,30 +135,27 @@ func runLink(args []string) error {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 
-	phpVersion, nodeVersion := siteops.DetectSiteVersions(cwd, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	versions := siteops.DetectSiteVersions(cwd, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
+	phpVersion, nodeVersion := versions.PHP, versions.Node
 	if proj != nil && proj.PHPVersion != "" {
-		phpMin, phpMax := "", ""
-		if framework != "" {
-			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
-				phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-			}
-		}
-		phpVersion = phpDet.ClampToRange(proj.PHPVersion, phpMin, phpMax)
+		phpVersion = phpDet.ClampToRange(proj.PHPVersion, versions.PHPMin, versions.PHPMax)
 	}
-	if unclamped, _ := phpDet.DetectVersion(cwd); unclamped != phpVersion {
-		phpMin, phpMax := "", ""
-		if framework != "" {
-			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
-				phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
+	if unclamped, _ := phpDet.DetectVersion(cwd); unclamped != phpVersion && (versions.PHPMin != "" || versions.PHPMax != "") {
+		fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
+			unclamped, versions.FrameworkLabel, versions.PHPMin, versions.PHPMax, phpVersion)
+	}
+	if versions.SuggestedPHP != "" {
+		fmt.Printf("PHP %s is recommended for %s. Install it? [Y/n] ", versions.SuggestedPHP, versions.FrameworkLabel)
+		var answer string
+		fmt.Scanln(&answer) //nolint:errcheck
+		if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
+			fmt.Printf("Installing PHP %s...\n", versions.SuggestedPHP)
+			if err := ensureFPMQuadlet(versions.SuggestedPHP); err != nil {
+				fmt.Printf("[WARN] installing PHP %s: %v\n", versions.SuggestedPHP, err)
+			} else {
+				phpVersion = versions.SuggestedPHP
+				fmt.Printf("PHP %s installed, using it for this site.\n", versions.SuggestedPHP)
 			}
-		}
-		if phpMin != "" || phpMax != "" {
-			label := framework
-			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
-				label = fw.Label
-			}
-			fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
-				unclamped, label, phpMin, phpMax, phpVersion)
 		}
 	}
 
