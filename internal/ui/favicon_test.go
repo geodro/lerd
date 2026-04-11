@@ -65,6 +65,18 @@ func TestDetectFavicon(t *testing.T) {
 		}
 	})
 
+	t.Run("skips empty favicon file", func(t *testing.T) {
+		dir := t.TempDir()
+		pub := filepath.Join(dir, "public")
+		os.MkdirAll(pub, 0755)
+		os.WriteFile(filepath.Join(pub, "favicon.ico"), []byte{}, 0644)
+
+		got := detectFavicon(dir, "public", "")
+		if got != "" {
+			t.Errorf("got %q, want empty for 0-byte favicon", got)
+		}
+	})
+
 	t.Run("auto-detects public dir when empty", func(t *testing.T) {
 		dir := t.TempDir()
 		pub := filepath.Join(dir, "public")

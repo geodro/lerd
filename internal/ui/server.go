@@ -1456,13 +1456,13 @@ func detectFavicon(sitePath, publicDir, framework string) string {
 	// Check framework-specific favicon path first.
 	if hasFw && fw.Favicon != "" {
 		p := filepath.Join(base, fw.Favicon)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Size() > 0 {
 			return p
 		}
 	}
 	for _, name := range faviconCandidates {
 		p := filepath.Join(base, name)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Size() > 0 {
 			return p
 		}
 	}
