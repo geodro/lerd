@@ -15,6 +15,7 @@ import (
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
+	dockerDet "github.com/geodro/lerd/internal/docker"
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -39,6 +40,21 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
+	}
+
+	if dockerPath, isReal := dockerDet.IsDockerInstalled(); dockerPath != "" && isReal {
+		if dockerDet.IsDaemonRunning() {
+			fmt.Println()
+			fmt.Printf("  \033[33m! Docker daemon is running\033[0m\n")
+			fmt.Println("    The Docker daemon can cause port conflicts (80, 443) and iptables")
+			fmt.Println("    rules that interfere with rootless Podman networking.")
+			fmt.Println()
+			fmt.Println("    Recommended: sudo systemctl stop docker && sudo systemctl disable docker")
+			fmt.Println()
+			if !confirmInstallPrompt("Continue anyway?") {
+				return fmt.Errorf("installation cancelled — stop Docker and try again")
+			}
+		}
 	}
 
 	// 1. Directories
