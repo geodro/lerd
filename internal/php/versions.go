@@ -2,7 +2,6 @@ package php
 
 import (
 	"bytes"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 )
 
 var fpmQuadletRe = regexp.MustCompile(`^lerd-php(\d)(\d+)-fpm\.container$`)
@@ -33,6 +33,11 @@ func ListInstalled() ([]string, error) {
 		if len(sub) == 3 {
 			seen[sub[1]+"."+sub[2]] = true
 		}
+	}
+
+	// Source 1b: launchd plists (macOS — QuadletDir is always empty there)
+	for _, v := range listInstalledFromServiceDir() {
+		seen[v] = true
 	}
 
 	// Source 2: podman containers (catches installs where the quadlet is missing)
@@ -63,9 +68,7 @@ func ListInstalled() ([]string, error) {
 
 func quadletExists(version string) bool {
 	short := version[0:1] + version[2:]
-	path := filepath.Join(config.QuadletDir(), "lerd-php"+short+"-fpm.container")
-	_, err := os.Stat(path)
-	return err == nil
+	return services.Mgr.ContainerUnitInstalled("lerd-php" + short + "-fpm")
 }
 
 func restoreQuadlet(version string) error {
