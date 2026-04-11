@@ -236,6 +236,7 @@ func openTerminalAt(dir string) error {
 		termCmd{"alacritty", []string{"--working-directory", dir}},
 		termCmd{"wezterm", []string{"start", "--cwd", dir}},
 		termCmd{"ghostty", []string{"--working-directory=" + dir}},
+		termCmd{"ptyxis", []string{"--working-directory", dir}},
 		termCmd{"konsole", []string{"--workdir", dir}},
 		termCmd{"gnome-terminal", []string{"--working-directory", dir}},
 		termCmd{"xfce4-terminal", []string{"--working-directory", dir}},
@@ -258,7 +259,7 @@ func openTerminalAt(dir string) error {
 		cmd.Dir = dir
 		return cmd.Start()
 	}
-	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
+	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -2221,6 +2222,7 @@ func openTerminalCommand(script string) error {
 		{"alacritty", []string{"-e", "sh", "-c", script}},
 		{"wezterm", []string{"start", "--", "sh", "-c", script}},
 		{"ghostty", []string{"-e", combined}},
+		{"ptyxis", []string{"--", "sh", "-c", script}},
 		{"konsole", []string{"-e", "sh", "-c", script}},
 		{"gnome-terminal", []string{"--", "sh", "-c", script}},
 		{"xfce4-terminal", []string{"-e", combined}},
@@ -2235,7 +2237,7 @@ func openTerminalCommand(script string) error {
 		}
 		return exec.Command(bin, t.args...).Start()
 	}
-	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, konsole, or gnome-terminal")
+	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
 
 // shQuote wraps s in single quotes, escaping any embedded single quotes

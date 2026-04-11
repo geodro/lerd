@@ -389,6 +389,7 @@ func openUpdateTerminal(latestVer string) {
 	)
 	terminals := [][]string{
 		{"konsole", "-e", "bash", "-c", script},
+		{"ptyxis", "--", "bash", "-c", script},
 		{"gnome-terminal", "--", "bash", "-c", script},
 		{"xfce4-terminal", "-e", "bash -c '" + script + "'"},
 		{"xterm", "-e", "bash", "-c", script},
