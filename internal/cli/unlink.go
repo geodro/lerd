@@ -3,11 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/nginx"
-	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -46,55 +44,20 @@ func UnlinkSite(name string) error {
 		stopWorkerByName(site, w)
 	}
 
-	// Remove vhost — the conf file is named after the primary domain and
-	// contains all domains in server_name, so one removal covers everything.
-	if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
-		fmt.Printf("[WARN] removing vhost: %v\n", err)
-	}
-
-	// Remove certificates if the site was secured.
-	if site.Secured {
-		certsDir := filepath.Join(config.CertsDir(), "sites")
-		os.Remove(filepath.Join(certsDir, site.PrimaryDomain()+".crt")) //nolint:errcheck
-		os.Remove(filepath.Join(certsDir, site.PrimaryDomain()+".key")) //nolint:errcheck
-	}
-
 	cfg, _ := config.LoadGlobal()
-	isParked := false
+	var parkedDirs []string
 	if cfg != nil {
-		for _, dir := range cfg.ParkedDirectories {
-			if filepath.Dir(site.Path) == dir {
-				isParked = true
-				break
-			}
-		}
+		parkedDirs = cfg.ParkedDirectories
 	}
 
-	if isParked {
-		if err := config.IgnoreSite(name); err != nil {
-			return fmt.Errorf("ignoring site: %w", err)
-		}
-	} else {
-		if err := config.RemoveSite(name); err != nil {
-			return fmt.Errorf("removing site from registry: %w", err)
-		}
+	if err := siteops.UnlinkSiteCore(site, parkedDirs); err != nil {
+		return err
 	}
 
 	fmt.Printf("Unlinked: %s (%s)\n", name, site.PrimaryDomain())
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
-
-	if err := podman.WriteContainerHosts(); err != nil {
-		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
-	}
-
 	autoStopUnusedServices()
 	autoStopUnusedFPMs()
-
-	// Rewrite FPM quadlets to remove volume mounts that are no longer needed.
-	_ = podman.RewriteFPMQuadlets()
 
 	return nil
 }

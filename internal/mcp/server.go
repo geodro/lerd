@@ -17,7 +17,6 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
@@ -3260,34 +3259,9 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		framework = name
 	}
 
-	phpMin, phpMax := "", ""
-	if framework != "" {
-		if fw, fwOk := config.GetFrameworkForDir(framework, projectPath); fwOk {
-			phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-		}
-	}
-	phpVersion := phpDet.DetectVersionClamped(projectPath, phpMin, phpMax, cfg.PHP.DefaultVersion)
+	phpVersion, nodeVersion := siteops.DetectSiteVersions(projectPath, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
 
-	nodeVersion, err := nodeDet.DetectVersion(projectPath)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
-
-	// Check if this path already has registered sites (re-link scenario).
-	// Carry over secured state and clean up any old registrations at this path.
-	secured := false
-	if reg, err := config.LoadSites(); err == nil {
-		for _, existing := range reg.Sites {
-			if existing.Path != projectPath {
-				continue
-			}
-			secured = secured || existing.Secured
-			if existing.Name != name {
-				_ = nginx.RemoveVhost(existing.PrimaryDomain())
-				_ = config.RemoveSite(existing.Name)
-			}
-		}
-	}
+	secured := siteops.CleanupRelink(projectPath, name)
 
 	site := config.Site{
 		Name:        name,
@@ -3303,27 +3277,8 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		return toolErr("registering site: " + err.Error()), nil
 	}
 
-	if site.Secured {
-		if err := certs.SecureSite(site); err != nil {
-			return toolErr("securing site: " + err.Error()), nil
-		}
-	} else if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-		return toolErr("generating vhost: " + err.Error()), nil
-	}
-
-	// Write quadlet and xdebug ini for this PHP version (non-blocking — image must already exist).
-	short := strings.ReplaceAll(phpVersion, ".", "")
-	_ = podman.WriteXdebugIni(phpVersion, false)
-	if err := podman.WriteFPMQuadlet(phpVersion); err != nil {
-		// Non-fatal: container may already be running.
-		_ = err
-	} else {
-		_ = podman.DaemonReload()
-		_ = podman.StartUnit("lerd-php" + short + "-fpm")
-	}
-
-	if err := nginx.Reload(); err != nil {
-		return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)\n[WARN] nginx reload: %v", name, strings.Join(domains, ", "), phpVersion, nodeVersion, err)), nil
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return toolErr(err.Error()), nil
 	}
 
 	return toolOK(fmt.Sprintf("Linked %s -> %s (PHP %s, Node %s)", name, strings.Join(domains, ", "), phpVersion, nodeVersion)), nil
@@ -3340,34 +3295,16 @@ func execSiteUnlink(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("no site registered for %s", projectPath)), nil
 	}
 
-	if err := nginx.RemoveVhost(site.PrimaryDomain()); err != nil {
-		// Non-fatal — vhost may already be gone.
-		_ = err
-	}
-
 	cfg, _ := config.LoadGlobal()
-	isParked := false
+	var parkedDirs []string
 	if cfg != nil {
-		for _, dir := range cfg.ParkedDirectories {
-			if filepath.Dir(site.Path) == dir {
-				isParked = true
-				break
-			}
-		}
+		parkedDirs = cfg.ParkedDirectories
 	}
 
-	if isParked {
-		if err := config.IgnoreSite(site.Name); err != nil {
-			return toolErr("ignoring site: " + err.Error()), nil
-		}
-	} else {
-		if err := config.RemoveSite(site.Name); err != nil {
-			return toolErr("removing site: " + err.Error()), nil
-		}
+	if err := siteops.UnlinkSiteCore(site, parkedDirs); err != nil {
+		return toolErr("unlinking site: " + err.Error()), nil
 	}
 
-	_ = nginx.Reload()
-	_ = podman.WriteContainerHosts()
 	return toolOK(fmt.Sprintf("Unlinked %s (%s)", site.Name, strings.Join(site.Domains, ", "))), nil
 }
 

@@ -6,13 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/siteops"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
-	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/store"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -139,45 +135,34 @@ func runLink(args []string) error {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 
-	phpMin, phpMax := "", ""
-	if framework != "" {
-		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
-			phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-		}
-	}
-	phpVersion := phpDet.DetectVersionClamped(cwd, phpMin, phpMax, cfg.PHP.DefaultVersion)
+	phpVersion, nodeVersion := siteops.DetectSiteVersions(cwd, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
 	if proj != nil && proj.PHPVersion != "" {
+		phpMin, phpMax := "", ""
+		if framework != "" {
+			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
+				phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
+			}
+		}
 		phpVersion = phpDet.ClampToRange(proj.PHPVersion, phpMin, phpMax)
 	}
-	if unclamped, _ := phpDet.DetectVersion(cwd); unclamped != phpVersion && (phpMin != "" || phpMax != "") {
-		label := framework
-		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
-			label = fw.Label
-		}
-		fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
-			unclamped, label, phpMin, phpMax, phpVersion)
-	}
-
-	nodeVersion, err := nodeDet.DetectVersion(cwd)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
-
-	// Check if this path already has registered sites (re-link scenario).
-	// Carry over secured state and clean up any old registrations at this path.
-	secured := false
-	if reg, err := config.LoadSites(); err == nil {
-		for _, existing := range reg.Sites {
-			if existing.Path != cwd {
-				continue
-			}
-			secured = secured || existing.Secured
-			if existing.Name != name {
-				_ = nginx.RemoveVhost(existing.PrimaryDomain())
-				_ = config.RemoveSite(existing.Name)
+	if unclamped, _ := phpDet.DetectVersion(cwd); unclamped != phpVersion {
+		phpMin, phpMax := "", ""
+		if framework != "" {
+			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
+				phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
 			}
 		}
+		if phpMin != "" || phpMax != "" {
+			label := framework
+			if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
+				label = fw.Label
+			}
+			fmt.Printf("PHP %s is outside %s's supported range (%s–%s), using PHP %s.\n",
+				unclamped, label, phpMin, phpMax, phpVersion)
+		}
 	}
+
+	secured := siteops.CleanupRelink(cwd, name)
 
 	site := config.Site{
 		Name:        name,
@@ -196,26 +181,8 @@ func runLink(args []string) error {
 
 	_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
 
-	if secured {
-		// Reissue cert for the (possibly new) domain and regenerate SSL vhost.
-		if err := certs.SecureSite(site); err != nil {
-			return fmt.Errorf("securing site: %w", err)
-		}
-	} else {
-		if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-			return fmt.Errorf("generating vhost: %w", err)
-		}
-	}
-
-	if err := ensureFPMQuadlet(phpVersion); err != nil {
-		fmt.Printf("[WARN] FPM quadlet for PHP %s: %v\n", phpVersion, err)
-	}
-
-	// Rewrite FPM quadlets so volume mounts cover the linked site path.
-	_ = podman.RewriteFPMQuadlets()
-
-	if err := podman.WriteContainerHosts(); err != nil {
-		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return err
 	}
 
 	frameworkLabel := framework
@@ -223,10 +190,6 @@ func runLink(args []string) error {
 		frameworkLabel = "unknown (public: " + detectedPublicDir + ")"
 	}
 	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
-
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
 
 	// Apply remaining .lerd.yaml settings: HTTPS and services.
 	if proj != nil {

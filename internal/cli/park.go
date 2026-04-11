@@ -9,10 +9,9 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
-	"github.com/geodro/lerd/internal/siteops"
-	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
 
@@ -221,18 +220,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 	warnFilteredDomains(removed)
 	domains = kept
 
-	phpMin, phpMax := "", ""
-	if framework != "" {
-		if fw, fwOk := config.GetFrameworkForDir(framework, projectDir); fwOk {
-			phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-		}
-	}
-	phpVersion := phpDet.DetectVersionClamped(projectDir, phpMin, phpMax, cfg.PHP.DefaultVersion)
-
-	nodeVersion, err := nodeDet.DetectVersion(projectDir)
-	if err != nil {
-		nodeVersion = cfg.Node.DefaultVersion
-	}
+	phpVersion, nodeVersion := siteops.DetectSiteVersions(projectDir, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
 
 	warnMissingExtensions(projectDir, name, phpVersion, cfg)
 
@@ -256,12 +244,8 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 		return false, err
 	}
 
-	if err := nginx.GenerateVhost(site, phpVersion); err != nil {
-		return false, fmt.Errorf("generating vhost: %w", err)
-	}
-
-	if err := ensureFPMQuadlet(phpVersion); err != nil {
-		fmt.Printf("  [WARN] could not ensure FPM for PHP %s: %v\n", phpVersion, err)
+	if err := siteops.FinishLink(site, phpVersion); err != nil {
+		return false, err
 	}
 
 	frameworkLabel := framework

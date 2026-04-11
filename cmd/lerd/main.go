@@ -15,6 +15,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
 	"github.com/geodro/lerd/internal/watcher"
@@ -431,14 +432,7 @@ func newWatchCmd() *cobra.Command {
 					return // not a registered site
 				}
 				fmt.Printf("Project deleted: %s (%s)\n", site.Name, removedPath)
-				_ = nginx.RemoveVhost(site.PrimaryDomain())
-				if err := config.RemoveSite(site.Name); err != nil {
-					fmt.Printf("[WARN] removing site %s: %v\n", site.Name, err)
-					return
-				}
-				if err := nginx.Reload(); err != nil {
-					fmt.Printf("[WARN] nginx reload: %v\n", err)
-				}
+				_ = siteops.UnlinkSiteCore(site, nil)
 			})
 		},
 	}
