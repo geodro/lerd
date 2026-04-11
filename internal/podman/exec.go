@@ -8,6 +8,23 @@ import (
 	"strings"
 )
 
+// PodmanBin returns the full path to the podman binary. On macOS it searches
+// well-known Homebrew locations when PATH is restricted (e.g. launchd services).
+func PodmanBin() string {
+	if p, err := exec.LookPath("podman"); err == nil {
+		return p
+	}
+	for _, candidate := range []string{
+		"/opt/homebrew/bin/podman",
+		"/usr/local/bin/podman",
+	} {
+		if _, err := exec.Command(candidate, "--version").Output(); err == nil {
+			return candidate
+		}
+	}
+	return "podman"
+}
+
 // Run executes podman with the given arguments and returns stdout.
 func Run(args ...string) (string, error) {
 	cmd := exec.Command("podman", args...)

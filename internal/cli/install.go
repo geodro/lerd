@@ -37,6 +37,9 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
+
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
 	}
