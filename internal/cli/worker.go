@@ -49,6 +49,9 @@ func newWorkerStartCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("framework %q has no worker named %q\nRun 'lerd worker list' to see available workers", fw.Label, workerName)
 			}
+			if worker.Check != nil && !config.MatchesRule(cwd, *worker.Check) {
+				return fmt.Errorf("worker %q requires a dependency that is not installed\nCheck the framework definition for required packages", workerName)
+			}
 			if err := WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker); err != nil {
 				return err
 			}

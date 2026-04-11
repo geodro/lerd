@@ -122,12 +122,23 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 	// 1. Create env file from example if it doesn't exist
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if _, err := os.Stat(examplePath); os.IsNotExist(err) {
+		if _, err := os.Stat(examplePath); err == nil {
+			fmt.Printf("Creating %s from %s...\n", envRelPath, exampleRelPath)
+			if err := copyEnvFile(examplePath, envPath); err != nil {
+				return fmt.Errorf("copying %s: %w", exampleRelPath, err)
+			}
+		} else if len(fw.Env.Services) > 0 {
+			// No env or example file, but framework defines services — create
+			// an empty env file so service detection can populate it.
+			if dir := filepath.Dir(envPath); dir != "." {
+				_ = os.MkdirAll(dir, 0755)
+			}
+			fmt.Printf("Creating empty %s (no example file found)...\n", envRelPath)
+			if err := os.WriteFile(envPath, []byte(""), 0644); err != nil {
+				return fmt.Errorf("creating %s: %w", envRelPath, err)
+			}
+		} else {
 			return fmt.Errorf("no %s or %s found in %s", envRelPath, exampleRelPath, cwd)
-		}
-		fmt.Printf("Creating %s from %s...\n", envRelPath, exampleRelPath)
-		if err := copyEnvFile(examplePath, envPath); err != nil {
-			return fmt.Errorf("copying %s: %w", exampleRelPath, err)
 		}
 	} else {
 		fmt.Printf("Updating existing %s...\n", envRelPath)

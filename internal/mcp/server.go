@@ -3268,6 +3268,24 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		nodeVersion = cfg.Node.DefaultVersion
 	}
 
+	// Detect framework so the correct public_dir and workers are used.
+	framework := ""
+	if name, ok := config.DetectFramework(projectPath); ok {
+		framework = name
+	} else if name, ok := store.DetectFrameworkWithStore(projectPath); ok {
+		framework = name
+	}
+
+	// Clamp PHP version to the framework's supported range.
+	if framework != "" {
+		if fw, fwOk := config.GetFrameworkForDir(framework, projectPath); fwOk && (fw.PHP.Min != "" || fw.PHP.Max != "") {
+			clamped := phpDet.ClampToRange(phpVersion, fw.PHP.Min, fw.PHP.Max)
+			if clamped != phpVersion {
+				phpVersion = clamped
+			}
+		}
+	}
+
 	// Check if this path already has registered sites (re-link scenario).
 	// Carry over secured state and clean up any old registrations at this path.
 	secured := false
@@ -3291,6 +3309,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		PHPVersion:  phpVersion,
 		NodeVersion: nodeVersion,
 		Secured:     secured,
+		Framework:   framework,
 	}
 
 	if err := config.AddSite(site); err != nil {
@@ -4041,6 +4060,10 @@ func execWorkerStart(args map[string]any) (any, *rpcError) {
 	worker, ok := fw.Workers[workerName]
 	if !ok {
 		return toolErr(fmt.Sprintf("worker %q not found in framework %q — use worker_list to see available workers", workerName, fwName)), nil
+	}
+
+	if worker.Check != nil && !config.MatchesRule(site.Path, *worker.Check) {
+		return toolErr(fmt.Sprintf("worker %q requires a dependency that is not installed (check the framework definition for required packages)", workerName)), nil
 	}
 
 	phpVersion := site.PHPVersion

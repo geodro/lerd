@@ -574,15 +574,14 @@ func DetectPublicDir(dir string) string {
 }
 
 // DetectFramework inspects dir and returns the detected framework name.
-// It checks laravel first (built-in), then user-defined frameworks in FrameworksDir().
+// It checks user-defined and store-installed frameworks first so that more
+// specific frameworks (e.g. Statamic, which also contains an artisan file)
+// are detected before the broad built-in Laravel detection.
 // Returns ("", false) if no framework matches.
 func DetectFramework(dir string) (string, bool) {
-	// Laravel built-in first
-	if matchesFramework(dir, laravelFramework) {
-		return "laravel", true
-	}
-
 	// User-defined frameworks, then store-installed (including versioned files).
+	// These are checked first so that frameworks that are built on top of
+	// Laravel (e.g. Statamic) win over the generic Laravel detection.
 	seen := map[string]bool{}
 	for _, fwDir := range []string{FrameworksDir(), StoreFrameworksDir()} {
 		entries, _ := filepath.Glob(filepath.Join(fwDir, "*.yaml"))
@@ -596,6 +595,11 @@ func DetectFramework(dir string) (string, bool) {
 				return fw.Name, true
 			}
 		}
+	}
+
+	// Laravel built-in last — catches projects that no user-defined framework matched.
+	if matchesFramework(dir, laravelFramework) {
+		return "laravel", true
 	}
 
 	return "", false
