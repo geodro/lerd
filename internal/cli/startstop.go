@@ -278,7 +278,7 @@ func checkPortConflicts(units []string) {
 		return
 	}
 
-	ss := ssOutput()
+	ss := portListOutput()
 	if ss == "" {
 		return
 	}
