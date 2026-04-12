@@ -35,6 +35,12 @@ type ServiceManager interface {
 	// May be a no-op on platforms without timer support.
 	RemoveTimerUnit(name string) error
 
+	// ListTimerUnits returns timer unit names whose files match nameGlob,
+	// each suffixed with `.timer` (so callers can pass them straight to
+	// systemctl without ambiguity against the sibling .service unit).
+	// Platforms without native timer support return an empty slice.
+	ListTimerUnits(nameGlob string) []string
+
 	// ListServiceUnits returns unit names whose files match nameGlob.
 	// e.g. nameGlob="lerd-queue-*" → ["lerd-queue-myapp", …]
 	ListServiceUnits(nameGlob string) []string

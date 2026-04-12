@@ -377,6 +377,12 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// declared in the site registry, so restored unit files get started here
 	// rather than waiting for the next session.
 	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
+	// Scheduled workers ship a sibling .timer that drives the oneshot
+	// .service. The .service alone is harmless to start (it runs once and
+	// exits 0), but the timer is what kicks the cron-like cadence — without
+	// adding it explicitly, `lerd start` would leave the timer dead until
+	// the next login.
+	workerUnits = append(workerUnits, registeredTimerUnits()...)
 	workerUnits = dedupeStrings(workerUnits)
 
 	fmt.Println("Starting Lerd...")
@@ -523,6 +529,7 @@ func startRestoredServices() {
 	workerUnits = append(workerUnits, registeredScheduleUnits()...)
 	workerUnits = append(workerUnits, registeredReverbUnits()...)
 	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
+	workerUnits = append(workerUnits, registeredTimerUnits()...)
 	workerUnits = dedupeStrings(workerUnits)
 	if len(workerUnits) == 0 {
 		return
@@ -682,6 +689,14 @@ func registeredReverbUnits() []string {
 	return services.Mgr.ListServiceUnits("lerd-reverb-*")
 }
 
+// registeredTimerUnits returns names for every lerd-* timer unit on disk,
+// each with the explicit `.timer` suffix so callers pass them straight to
+// systemctl. These drive scheduled (cron-style) framework workers like
+// Laravel <=10's `php artisan schedule:run`.
+func registeredTimerUnits() []string {
+	return services.Mgr.ListTimerUnits("lerd-*")
+}
+
 // registeredFrameworkWorkerUnits returns lerd-{worker}-{site} unit names for
 // every site/worker pair declared in the site registry. Used to make sure
 // non-standard workers (horizon, vite-dev, etc.) get started in phase 2 of
@@ -735,6 +750,10 @@ func runStop(_ *cobra.Command, _ []string) error {
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+	// Stop scheduled-worker timers explicitly. Stopping the sibling
+	// oneshot .service is a no-op (it isn't running between firings),
+	// so without this the timer keeps dispatching after `lerd stop`.
+	units = append(units, registeredTimerUnits()...)
 
 	fmt.Println("Stopping Lerd...")
 

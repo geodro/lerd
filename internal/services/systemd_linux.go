@@ -36,6 +36,18 @@ func (m *linuxServiceManager) RemoveTimerUnit(name string) error {
 	return lerdSystemd.RemoveTimer(name)
 }
 
+func (m *linuxServiceManager) ListTimerUnits(nameGlob string) []string {
+	pattern := filepath.Join(config.SystemdUserDir(), nameGlob+".timer")
+	entries, _ := filepath.Glob(pattern)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		// Keep the .timer suffix so callers can distinguish from
+		// the sibling .service unit when starting/stopping.
+		names = append(names, strings.TrimSuffix(filepath.Base(e), ".timer")+".timer")
+	}
+	return names
+}
+
 func (m *linuxServiceManager) RemoveServiceUnit(name string) error {
 	path := filepath.Join(config.SystemdUserDir(), name+".service")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
