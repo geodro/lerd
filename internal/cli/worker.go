@@ -12,7 +12,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
-	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +82,7 @@ func newWorkerStopCmd() *cobra.Command {
 			// but are no longer in the framework definition.
 			if _, ok := fw.Workers[workerName]; !ok {
 				unitName := "lerd-" + workerName + "-" + site.Name
-				if !lerdSystemd.IsServiceActiveOrRestarting(unitName) {
+				if !isServiceActiveOrRestarting(unitName) {
 					return fmt.Errorf("framework %q has no worker named %q\nRun 'lerd worker list' to see available workers", fw.Label, workerName)
 				}
 			}
@@ -135,8 +135,8 @@ func newWorkerListCmd() *cobra.Command {
 				}
 			}
 
-			// Detect orphaned workers — running systemd units with no definition.
-			orphans := lerdSystemd.FindOrphanedWorkers(site.Name, known)
+			// Detect orphaned workers — running units with no definition.
+			orphans := findOrphanedWorkers(site.Name, known)
 			if len(orphans) > 0 {
 				fmt.Println("\nOrphaned workers (running but not defined):")
 				for _, name := range orphans {
@@ -218,7 +218,6 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
 	unitName := "lerd-" + workerName + "-" + siteName
 
 	restart := w.Restart
@@ -230,40 +229,22 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		label = workerName
 	}
 
-	unit := fmt.Sprintf(`[Unit]
-Description=Lerd %s (%s)
-After=network.target %s.service
-BindsTo=%s.service
-
-[Service]
-Type=simple
-Restart=%s
-RestartSec=5
-ExecStart=podman exec -w %s %s %s
-
-[Install]
-WantedBy=default.target
-`, label, siteName, fpmUnit, fpmUnit, restart, sitePath, container, command)
-
-	changed, err := lerdSystemd.WriteServiceIfChanged(unitName, unit)
+	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, fpmUnit)
 	if err != nil {
-		return fmt.Errorf("writing service unit: %w", err)
+		return fmt.Errorf("writing worker unit: %w", err)
 	}
 	if changed {
-		if err := podman.DaemonReload(); err != nil {
-			return fmt.Errorf("daemon-reload: %w", err)
-		}
-		if err := lerdSystemd.EnableService(unitName); err != nil {
+		if err := services.Mgr.Enable(unitName); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
 
-	if err := lerdSystemd.StartService(unitName); err != nil {
+	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting %s worker: %w", workerName, err)
 	}
 
 	fmt.Printf("%s started for %s\n", label, siteName)
-	fmt.Printf("  Logs: journalctl --user -u %s -f\n", unitName)
+	fmt.Printf("  Logs: %s\n", workerLogHint(unitName))
 
 	// Regenerate nginx vhost if the worker has proxy config.
 	if w.Proxy != nil {
@@ -393,7 +374,7 @@ func newWorkerRemoveCmd() *cobra.Command {
 
 			// Stop the worker if running.
 			unitName := "lerd-" + name + "-" + site.Name
-			if lerdSystemd.IsServiceActiveOrRestarting(unitName) {
+			if isServiceActiveOrRestarting(unitName) {
 				_ = WorkerStopForSite(site.Name, name)
 			}
 
@@ -444,19 +425,48 @@ func siteFrameworkName(siteName string) string {
 // WorkerStopForSite stops and removes the named worker unit for the given site.
 func WorkerStopForSite(siteName, workerName string) error {
 	unitName := "lerd-" + workerName + "-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 
-	_ = lerdSystemd.DisableService(unitName)
+	_ = services.Mgr.Disable(unitName)
 	podman.StopUnit(unitName) //nolint:errcheck
 
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
+	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 
 	label := workerName
 	fmt.Printf("%s stopped for %s\n", label, siteName)
 	return nil
+}
+
+// isServiceActiveOrRestarting returns true if the unit is active or activating.
+func isServiceActiveOrRestarting(name string) bool {
+	status, _ := podman.UnitStatus(name)
+	return status == "active" || status == "activating"
+}
+
+// findOrphanedWorkers returns worker names that are running but not in the known set.
+func findOrphanedWorkers(siteName string, known map[string]bool) []string {
+	suffix := "-" + siteName
+	prefix := "lerd-"
+	units := services.Mgr.ListServiceUnits("lerd-*-" + siteName)
+	var orphans []string
+	for _, unit := range units {
+		workerName := strings.TrimPrefix(unit, prefix)
+		workerName = strings.TrimSuffix(workerName, suffix)
+		if workerName == "" || known[workerName] {
+			continue
+		}
+		switch workerName {
+		case "php84-fpm", "php83-fpm", "php82-fpm", "php81-fpm", "php80-fpm",
+			"nginx", "dns", "dns-forwarder", "watcher", "ui", "stripe":
+			continue
+		}
+		if isServiceActiveOrRestarting(unit) {
+			orphans = append(orphans, workerName)
+		}
+	}
+	return orphans
 }

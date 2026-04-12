@@ -12,6 +12,21 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// WriteContainerUnitFn writes a container unit file for the given name and content.
+// Defaults to writing a systemd quadlet (.container) file.
+// Override this on macOS to write a launchd plist instead.
+var WriteContainerUnitFn func(name, content string) error = WriteQuadlet
+
+// DaemonReloadFn reloads the service manager after a unit file change.
+// Defaults to systemctl --user daemon-reload.
+// Override this on macOS with a no-op.
+var DaemonReloadFn func() error = DaemonReload
+
+// SkipQuadletUpToDateCheck disables the early-return optimisation in
+// WriteFPMQuadlet that skips writing when the .container file is unchanged.
+// Set to true on macOS where the unit file is a launchd plist, not a quadlet.
+var SkipQuadletUpToDateCheck bool
+
 // ExtraVolumePaths returns absolute paths that need to be bind-mounted into the
 // PHP-FPM container because they are outside the user's home directory. It
 // collects parked directories and linked site paths, deduplicates them, and
@@ -232,7 +247,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	}
 	args = append(args, ref)
 
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command(PodmanBin(), args...)
 	cmd.Stdout = w
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
@@ -248,7 +263,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, w io.
 
 	if !force {
 		// Skip if image already exists
-		if exec.Command("podman", "image", "exists", imageName).Run() == nil {
+		if exec.Command(PodmanBin(), "image", "exists", imageName).Run() == nil {
 			return nil
 		}
 	}
@@ -300,7 +315,7 @@ build:
 	}
 
 	buildArgs = append(buildArgs, "-f", cfPath, tmp)
-	cmd := exec.Command("podman", buildArgs...)
+	cmd := exec.Command(PodmanBin(), buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {
@@ -382,21 +397,18 @@ func WriteFPMQuadlet(version string) error {
 	// Unnecessary daemon-reloads cause Podman's quadlet generator to regenerate
 	// all service files, which can briefly disrupt lerd-dns and cause
 	// systemd-resolved to mark 127.0.0.1:5300 as failed (breaking .test resolution).
-	existingPath := filepath.Join(config.QuadletDir(), unitName+".container")
-	if existing, err := os.ReadFile(existingPath); err == nil && string(existing) == content {
-		return nil
+	// On macOS the unit file is a launchd plist (not a quadlet), so the check is skipped.
+	if !SkipQuadletUpToDateCheck {
+		existingPath := filepath.Join(config.QuadletDir(), unitName+".container")
+		if existing, err := os.ReadFile(existingPath); err == nil && string(existing) == content {
+			return nil
+		}
 	}
 
-	if err := WriteQuadlet(unitName, content); err != nil {
+	if err := WriteContainerUnitFn(unitName, content); err != nil {
 		return err
 	}
-	if err := DaemonReload(); err != nil {
-		return err
-	}
-	// Restart the container so new volume mounts take effect.
-	// Ignore errors — the container may not be running yet (first install).
-	_ = RestartUnit(unitName)
-	return nil
+	return DaemonReloadFn()
 }
 
 // RewriteFPMQuadlets regenerates the quadlet files for all installed PHP-FPM

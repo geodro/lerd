@@ -64,7 +64,7 @@ func writeBrowserHosts(reg *config.SiteRegistry) error {
 // nginxContainerIP returns the IP address of lerd-nginx on the lerd Podman
 // network. Falls back to 127.0.0.1 if the container isn't running.
 func nginxContainerIP() string {
-	out, err := exec.Command("podman", "inspect", "lerd-nginx",
+	out, err := exec.Command(PodmanBin(), "inspect", "lerd-nginx",
 		"--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}").Output()
 	if err != nil {
 		return "127.0.0.1"

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/geodro/lerd/internal/siteinfo"
 	"github.com/geodro/lerd/internal/siteops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
@@ -236,13 +238,23 @@ func openTerminalAt(dir string) error {
 		termCmd{"wezterm", []string{"start", "--cwd", dir}},
 		termCmd{"ghostty", []string{"--working-directory=" + dir}},
 		termCmd{"ptyxis", []string{"--working-directory", dir}},
-		termCmd{"konsole", []string{"--workdir", dir}},
+		termCmd{"konsole", []string{"--separate", "--workdir", dir}},
 		termCmd{"gnome-terminal", []string{"--working-directory", dir}},
 		termCmd{"xfce4-terminal", []string{"--working-directory", dir}},
 		termCmd{"tilix", []string{"--working-directory", dir}},
 		termCmd{"terminator", []string{"--working-directory", dir}},
 		termCmd{"xterm", []string{"-e", "cd " + dir + " && exec $SHELL"}},
 	)
+
+	if runtime.GOOS == "darwin" {
+		// `open -a Terminal dir` opens a new window at dir without echoing any
+		// command — cleaner than `do script "cd ... && exec $SHELL"` which types
+		// the command visibly into the shell. iTerm2 supports the same via open.
+		if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
+			candidates = append(candidates, termCmd{"open", []string{"-a", "iTerm", dir}})
+		}
+		candidates = append(candidates, termCmd{"open", []string{"-a", "Terminal", dir}})
+	}
 
 	for _, t := range candidates {
 		bin, err := exec.LookPath(t.bin)
@@ -256,7 +268,12 @@ func openTerminalAt(dir string) error {
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
-		return cmd.Start()
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		// Reap the child so we don't leave a zombie behind for every click.
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
@@ -305,8 +322,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 	dnsOK, _ := dns.Check(tld)
 	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	watcherRunning := watcherCmd.Run() == nil
+	watcherRunning := services.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpPkg.ListInstalled()
 	var phpStatuses []PHPStatus
@@ -561,42 +577,6 @@ func listActiveReverbServers() []string {
 // listActiveHorizonWorkers returns site names of active lerd-horizon-* units.
 func listActiveHorizonWorkers() []string {
 	return listActiveUnitsBySuffix("lerd-horizon-*.service", "lerd-horizon-")
-}
-
-// listActiveStripeListeners returns the site names of active lerd-stripe-* units
-// that were started by `lerd stripe:listen` (i.e. have a .service file in the
-// systemd user dir, as opposed to quadlet-based services like stripe-mock).
-func listActiveStripeListeners() []string {
-	all := listActiveUnitsBySuffix("lerd-stripe-*.service", "lerd-stripe-")
-	var result []string
-	for _, name := range all {
-		unitFile := filepath.Join(config.SystemdUserDir(), "lerd-stripe-"+name+".service")
-		if _, err := os.Stat(unitFile); err == nil {
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
-func listActiveUnitsBySuffix(pattern, prefix string) []string {
-	out, err := exec.Command("systemctl", "--user", "list-units", "--state=active",
-		"--no-legend", "--plain", pattern).Output()
-	if err != nil {
-		return nil
-	}
-	var sites []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		unit := strings.TrimSuffix(fields[0], ".service")
-		siteName := strings.TrimPrefix(unit, prefix)
-		if siteName != unit && siteName != "" {
-			sites = append(sites, siteName)
-		}
-	}
-	return sites
 }
 
 func handleServices(w http.ResponseWriter, _ *http.Request) {
@@ -1075,7 +1055,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = podman.DaemonReloadFn()
 		if err := config.RemoveCustomService(name); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
@@ -1126,17 +1106,17 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ensureServiceQuadlet writes the quadlet for a built-in service and reloads systemd.
+// ensureServiceQuadlet writes the unit file for a built-in service and reloads the service manager.
 func ensureServiceQuadlet(name string) error {
 	quadletName := "lerd-" + name
 	content, err := podman.GetQuadletTemplate(quadletName + ".container")
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", name, err)
+	if err := podman.WriteContainerUnitFn(quadletName, content); err != nil {
+		return fmt.Errorf("writing unit for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return podman.DaemonReloadFn()
 }
 
 // ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
@@ -1172,12 +1152,7 @@ func sitesUsingService(name string) []string {
 	return domains
 }
 
-// serviceRecentLogs returns the last 20 lines of journalctl output for a unit.
-func serviceRecentLogs(unit string) string {
-	cmd := exec.Command("journalctl", "--user", "-u", unit+".service", "-n", "20", "--no-pager", "--output=short")
-	out, _ := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out))
-}
+// serviceRecentLogs is implemented per-platform in logs_linux.go / logs_darwin.go.
 
 // VersionResponse is the response for GET /api/version.
 type VersionResponse struct {
@@ -1733,7 +1708,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = podman.DaemonReloadFn()
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)
@@ -1847,9 +1822,16 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 
+	// If no container exists for this unit, route to the platform log stream
+	// (file tail for native services) or report not-running for container units.
 	if exists, _ := podman.ContainerExists(container); !exists {
-		fmt.Fprintf(w, "data: container %s is not running\n\n", container)
-		flusher.Flush()
+		if isContainerUnit(container) {
+			fmt.Fprintf(w, "data: container %s is not running\n\n", container)
+			flusher.Flush()
+			return
+		}
+		// Native service (dns, watcher, ui) — stream from log file.
+		streamUnitLogs(w, r, container)
 		return
 	}
 
@@ -1859,7 +1841,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", tail, container)
+	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), "logs", "-f", "--tail", tail, container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -2015,27 +1997,52 @@ func openTerminalCommand(script string) error {
 		{"wezterm", []string{"start", "--", "sh", "-c", script}},
 		{"ghostty", []string{"-e", combined}},
 		{"ptyxis", []string{"--", "sh", "-c", script}},
-		{"konsole", []string{"-e", "sh", "-c", script}},
+		{"konsole", []string{"--separate", "-e", "sh", "-c", script}},
 		{"gnome-terminal", []string{"--", "sh", "-c", script}},
 		{"xfce4-terminal", []string{"-e", combined}},
 		{"tilix", []string{"-e", combined}},
 		{"terminator", []string{"-e", combined}},
 		{"xterm", []string{"-e", "sh", "-c", script}},
 	}
+
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
+			as := "tell application \"iTerm2\"\n\tcreate window with default profile\n\ttell current session of current window\n\t\twrite text " + appleScriptStr(script) + "\n\tend tell\nend tell"
+			candidates = append(candidates, termCmd{"osascript", []string{"-e", as}})
+		}
+		as := "tell application \"Terminal\"\n\tdo script " + appleScriptStr(script) + "\n\tactivate\nend tell"
+		candidates = append(candidates, termCmd{"osascript", []string{"-e", as}})
+	}
 	for _, t := range candidates {
 		bin, err := exec.LookPath(t.bin)
 		if err != nil {
 			continue
 		}
-		return exec.Command(bin, t.args...).Start()
+		cmd := exec.Command(bin, t.args...)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
 
 // shQuote wraps s in single quotes, escaping any embedded single quotes
-// using the standard '\” dance so the result is safe for /bin/sh -c.
+// using the standard '\" dance so the result is safe for /bin/sh -c.
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// appleScriptStr returns an AppleScript string expression for s.
+// AppleScript has no escape sequences; double quotes are spliced in via & quote &.
+func appleScriptStr(s string) string {
+	parts := strings.Split(s, `"`)
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		quoted[i] = `"` + p + `"`
+	}
+	return strings.Join(quoted, " & quote & ")
 }
 
 func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
@@ -2219,70 +2226,6 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 		entries = []applog.LogEntry{}
 	}
 	writeJSON(w, map[string]any{"entries": entries})
-}
-
-func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	cursor := r.Header.Get("Last-Event-ID")
-	args := []string{"--user", "-u", unit, "-f", "--no-pager", "--output=json"}
-	if cursor != "" {
-		args = append(args, "--after-cursor="+cursor)
-	} else {
-		args = append(args, "-n", "100")
-	}
-
-	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", args...)
-	cmd.Stdout = pw
-	cmd.Stderr = io.Discard
-
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	go func() {
-		cmd.Wait() //nolint:errcheck
-		pw.Close()
-	}()
-
-	type journalEntry struct {
-		Cursor  string          `json:"__CURSOR"`
-		Message json.RawMessage `json:"MESSAGE"`
-	}
-
-	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		var entry journalEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		var msg string
-		if len(entry.Message) > 0 && entry.Message[0] == '"' {
-			json.Unmarshal(entry.Message, &msg) //nolint:errcheck
-		} else {
-			// journalctl encodes binary messages as a JSON array of bytes
-			var b []byte
-			if json.Unmarshal(entry.Message, &b) == nil {
-				msg = string(b)
-			}
-		}
-		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", entry.Cursor, msg)
-		flusher.Flush()
-	}
 }
 
 // handleBrowse returns a listing of directories for the file browser.

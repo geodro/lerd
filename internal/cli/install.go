@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +37,13 @@ func ok()               { fmt.Println("OK") }
 func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
 
+	// On macOS, Podman Machine must be running before any podman commands.
+	ensurePodmanMachineRunning()
+
 	if err := ensureUnprivilegedPorts(); err != nil {
+		return err
+	}
+	if err := ensurePortForwarding(); err != nil {
 		return err
 	}
 
@@ -58,6 +64,16 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 	ok()
+
+	// 1b. Enable systemd linger so user services (lerd-dns, lerd-nginx, the
+	// PHP-FPM containers) survive screen blank, lock, and logout. Without
+	// linger, Ubuntu/GNOME tears down the rootless Podman containers when
+	// the session goes inactive and lerd appears to "stop working" until
+	// the next manual `lerd install`. This is the single biggest source of
+	// "DNS just stopped" issues reported in the wild — see #153.
+	if err := ensureSystemdLinger(); err != nil {
+		fmt.Printf("    WARN: %v\n", err)
+	}
 
 	// 2. Podman network
 	step("Creating lerd podman network")
@@ -165,6 +181,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
+		if override := platformImageOverride(strings.TrimPrefix(name, "lerd-")); override != "" {
+			content = podman.ApplyImage(content, override)
+		}
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
 			return err
@@ -181,8 +200,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing DNS quadlet")
-	if err := rewriteQuadlet("lerd-dns"); err != nil {
+	step("Writing DNS service unit")
+	if err := writeDNSUnit(os.Stdout); err != nil {
 		return err
 	}
 	ok()
@@ -250,42 +269,55 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 7. Pull images in parallel, then build dnsmasq.
-	RunParallel([]BuildJob{ //nolint:errcheck
+	// On macOS, DNS runs natively (no container image needed) and DaemonReload
+	// is a no-op, so we can start lerd-dns and configure the resolver here —
+	// before RunParallel — keeping all sudo prompts before the image-pull spinner.
+	if !isDNSContainerUnit() {
+		step("Starting lerd-dns")
+		if err := services.Mgr.Restart("lerd-dns"); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
+
+		step("Waiting for lerd-dns to be ready")
+		if err := dns.WaitReady(15 * time.Second); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
+
+		fmt.Println("  --> Configuring DNS resolver")
+		if err := dns.ConfigureResolver(); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+	}
+
+	// 7. Pull images sequentially, then build dnsmasq. Sequential output
+	// keeps any sudo password prompt from later steps visible instead of
+	// being clobbered by a live-updating spinner.
+	pullJobs := []BuildJob{
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/nginx:alpine")
+				cmd := podman.Cmd("pull", "docker.io/library/nginx:alpine")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
 			},
 		},
-		{
-			Label: "Pulling alpine:latest",
-			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
-		{
-			Label: "Building dnsmasq",
-			Run: func(w io.Writer) error {
-				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-				cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
-				cmd.Stdin = strings.NewReader(containerfile)
-				cmd.Stdout = w
-				cmd.Stderr = w
-				return cmd.Run()
-			},
-		},
-	})
+	}
+	pullJobs = append(pullJobs, pullDNSImages()...)
+	for _, job := range pullJobs {
+		step(job.Label)
+		if err := job.Run(io.Discard); err != nil {
+			fmt.Printf("WARN: %v\n", err)
+			continue
+		}
+		ok()
+	}
 
 	// 8. Systemd / services
-	step("Reloading systemd daemon")
-	if err := podman.DaemonReload(); err != nil {
+	step("Reloading service manager")
+	if err := services.Mgr.DaemonReload(); err != nil {
 		return err
 	}
 	ok()
@@ -305,28 +337,32 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			continue
 		}
 		fmt.Printf("  --> Restarting %s (PublishPort changed) ", name)
-		if err := podman.RestartUnit(name); err != nil {
+		if err := services.Mgr.Restart(name); err != nil {
 			fmt.Printf("WARN: %v\n", err)
 		} else {
 			ok()
 		}
 	}
 
-	step("Starting lerd-dns")
-	if err := podman.RestartUnit("lerd-dns"); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
-	}
-	ok()
+	// On Linux, DNS is a container — start it after images are pulled.
+	// On macOS it was already started before RunParallel above.
+	if isDNSContainerUnit() {
+		step("Starting lerd-dns")
+		if err := services.Mgr.Restart("lerd-dns"); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
 
-	step("Waiting for lerd-dns to be ready")
-	if err := dns.WaitReady(15 * time.Second); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
-	}
-	ok()
+		step("Waiting for lerd-dns to be ready")
+		if err := dns.WaitReady(15 * time.Second); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
+		ok()
 
-	fmt.Println("  --> Configuring DNS resolver")
-	if err := dns.ConfigureResolver(); err != nil {
-		fmt.Printf("    WARN: %v\n", err)
+		fmt.Println("  --> Configuring DNS resolver")
+		if err := dns.ConfigureResolver(); err != nil {
+			fmt.Printf("    WARN: %v\n", err)
+		}
 	}
 
 	// Read the autostart flag once. When disabled (set explicitly via
@@ -339,7 +375,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Starting lerd-nginx")
-		if err := podman.RestartUnit("lerd-nginx"); err != nil {
+		if err := services.Mgr.Restart("lerd-nginx"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -347,11 +383,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-watcher", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-watcher"); err != nil {
+			if err := services.Mgr.Enable("lerd-watcher"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -360,7 +396,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Restarting watcher service")
-		if err := podman.RestartUnit("lerd-watcher"); err != nil {
+		if err := services.Mgr.Restart("lerd-watcher"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -368,11 +404,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-ui", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-ui"); err != nil {
+			if err := services.Mgr.Enable("lerd-ui"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -381,7 +417,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	if autostartOn {
 		step("Starting lerd-ui")
-		if err := podman.RestartUnit("lerd-ui"); err != nil {
+		if err := services.Mgr.Restart("lerd-ui"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
 		}
 		ok()
@@ -389,11 +425,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing tray service")
 	if content, err := lerdSystemd.GetUnit("lerd-tray"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-tray", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-tray"); err != nil {
+			if err := services.Mgr.Enable("lerd-tray"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -406,6 +442,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// on later. restoreSiteInfrastructure only writes files for units
 	// that don't already exist, so this is a no-op for ordinary updates.
 	restoreSiteInfrastructure()
+
+	// Ensure all globally configured services have unit files on disk.
+	// On macOS this writes launchd plists for any service that has a config
+	// entry but no plist (e.g. services installed before the macOS port, or
+	// after a clean install from config backup).
+	migrateServiceUnits()
 
 	// Start service containers and workers only when autostart is on.
 	// When the user has explicitly disabled autostart we leave them
@@ -424,14 +466,17 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		_ = lerdSystemd.RestartService("lerd-tray")
+	killTray()
+	if services.Mgr.IsEnabled("lerd-tray") {
+		_ = services.Mgr.Start("lerd-tray")
 	} else {
-		killTray()
 		if exe, err := os.Executable(); err == nil {
 			_ = exec.Command(exe, "tray").Start()
 		}
 	}
+
+	installAutostart()
+	installCleanupScript()
 
 	step("Adding shell PATH configuration")
 	if err := addShellShims(); err != nil {
@@ -441,6 +486,53 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	fmt.Println("\nLerd installation complete!")
 	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
+	return nil
+}
+
+// ensureSystemdLinger checks whether systemd user linger is enabled for the
+// current user and runs `sudo loginctl enable-linger` if not. Without linger
+// the rootless Podman containers (lerd-dns, lerd-nginx, PHP-FPM, …) get torn
+// down by systemd-logind when the session goes inactive — screen blank,
+// lock, switch user, logout — and lerd appears to silently stop working
+// until the user manually re-runs `lerd install` or restarts the units.
+//
+// We only act on a clear "Linger=no" reading. If loginctl is missing or its
+// output is unparseable (non-systemd init, container without logind, …) we
+// silently skip rather than fail the install.
+func ensureSystemdLinger() error {
+	user := os.Getenv("USER")
+	if user == "" {
+		user = os.Getenv("LOGNAME")
+	}
+	if user == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("loginctl"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("loginctl", "show-user", user).Output()
+	if err != nil {
+		return nil
+	}
+	if !strings.Contains(string(out), "Linger=no") {
+		return nil
+	}
+
+	fmt.Println("\n  ! systemd user linger is disabled for this account.")
+	fmt.Println("    Without it, lerd's containers (DNS, nginx, PHP-FPM) are torn down")
+	fmt.Println("    by systemd-logind on screen blank, lock, or logout, and lerd will")
+	fmt.Println("    appear to stop working until you manually restart it.")
+	fmt.Print("  --> Enabling linger via `sudo loginctl enable-linger ", user, "` ...\n\n")
+
+	cmd := exec.Command("sudo", "loginctl", "enable-linger", user)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Println()
+		return fmt.Errorf("enabling linger: %w", err)
+	}
+	fmt.Println("OK")
 	return nil
 }
 
@@ -480,56 +572,7 @@ func ensureUnprivilegedPorts() error {
 	return nil
 }
 
-func downloadBinaries(w io.Writer) error {
-	arch := runtime.GOARCH
-	binDir := config.BinDir()
-
-	// composer
-	composerPharPath := filepath.Join(binDir, "composer.phar")
-	if _, err := os.Stat(composerPharPath); os.IsNotExist(err) {
-		if err := downloadFile("https://getcomposer.org/composer-stable.phar", composerPharPath, 0755, w); err != nil {
-			return fmt.Errorf("composer download: %w", err)
-		}
-	}
-
-	// fnm
-	fnmPath := filepath.Join(binDir, "fnm")
-	if _, err := os.Stat(fnmPath); os.IsNotExist(err) {
-		fnmZip := filepath.Join(binDir, "fnm-linux.zip")
-		if err := downloadFile(
-			"https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip",
-			fnmZip, 0644, w,
-		); err != nil {
-			return fmt.Errorf("fnm download: %w", err)
-		}
-		extractCmd := exec.Command("unzip", "-o", fnmZip, "fnm", "-d", binDir)
-		extractCmd.Stdout = w
-		extractCmd.Stderr = w
-		if err := extractCmd.Run(); err != nil {
-			return fmt.Errorf("fnm extract: %w", err)
-		}
-		os.Remove(fnmZip)
-		os.Chmod(fnmPath, 0755) //nolint:errcheck
-	}
-
-	// mkcert
-	mkcertPath := certs.MkcertPath()
-	if _, err := os.Stat(mkcertPath); os.IsNotExist(err) {
-		mkcertArch := "amd64"
-		if arch == "arm64" {
-			mkcertArch = "arm64"
-		}
-		mkcertURL := fmt.Sprintf(
-			"https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-%s",
-			mkcertArch,
-		)
-		if err := downloadFile(mkcertURL, mkcertPath, 0755, w); err != nil {
-			return fmt.Errorf("mkcert download: %w", err)
-		}
-	}
-
-	return nil
-}
+// downloadBinaries is implemented per-platform in install_linux.go / install_darwin.go.
 
 // installLaravelInstaller runs composer global require laravel/installer
 // directly inside an installed PHP-FPM container so the `laravel` CLI is
@@ -560,6 +603,18 @@ func installLaravelInstaller() error {
 		if err := podman.StartUnit(container); err != nil {
 			return fmt.Errorf("starting %s: %w", container, err)
 		}
+		// Wait for the container to be ready for exec (launchd starts the
+		// podman run -d asynchronously, so the container may not exist yet).
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if r, _ := podman.ContainerRunning(container); r {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if r, _ := podman.ContainerRunning(container); !r {
+			return fmt.Errorf("%s did not become ready within 30s", container)
+		}
 	}
 
 	home := os.Getenv("HOME")
@@ -576,7 +631,7 @@ func installLaravelInstaller() error {
 	// --no-interaction prevents composer from blocking on plugin trust prompts
 	// (e.g. "Do you trust 'symfony/flex' to execute code?") which would hang
 	// the installer with no visible output.
-	cmd := exec.Command("podman", "exec", "-i",
+	cmd := podman.Cmd("exec", "-i",
 		"--env", "HOME="+home,
 		"--env", "COMPOSER_HOME="+composerHome,
 		container, "php", composerPhar, "global", "require", "--no-interaction", "laravel/installer",

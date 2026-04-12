@@ -1,6 +1,8 @@
 # Requirements
 
-- **Linux** — Arch, Debian/Ubuntu, Fedora-based, or omarchy
+## Linux
+
+- **Distribution** — Arch, Debian/Ubuntu, Fedora-based, or omarchy
 - **[Podman](https://podman.io/)** — rootless, with systemd user session active
 - **[crun](https://github.com/containers/crun)** — recommended OCI runtime for rootless Podman
 - **DNS resolver** — [NetworkManager](https://networkmanager.dev/) or [systemd-resolved](https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html) (at least one is required for `.test` DNS)
@@ -38,3 +40,13 @@ sudo dnf install crun
 ::: tip Go is only needed to build from source
 The released binary is fully static with no runtime dependencies. You do not need Go installed to use Lerd.
 :::
+
+## macOS
+
+- **macOS 13 Ventura or later** — Apple Silicon (arm64) or Intel (amd64)
+- **[Homebrew](https://brew.sh/)** — used to install lerd and its Podman dependency
+- **[Podman](https://podman.io/)** — installed automatically as a Homebrew dependency of `lerd`
+- **Podman Machine** — `lerd install` boots and configures it on first run
+- **Xcode Command Line Tools** — required by Homebrew (`xcode-select --install` if missing)
+
+DNS, the local CA (mkcert), and nginx are all set up by `lerd install`. No system-level resolver configuration is needed — macOS picks up `.test` lookups from `/etc/resolver/test` which lerd writes for you.
