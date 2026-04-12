@@ -15,11 +15,11 @@
 | Requires changes to project files | No | Yes — needs `docker-compose.yml` committed |
 | Works on legacy / client repos | Yes — just `lerd link` | Only if you can add Sail |
 | Defined in code (infra-as-code) | No | Yes |
-| Team parity (all OS) | Linux only | macOS, Windows, Linux |
+| Team parity (all OS) | Linux, macOS | macOS, Windows, Linux |
 
 **Choose Sail when:** your team uses it, you need per-project service versions, or you want infrastructure defined in the repo.
 
-**Choose Lerd when:** you work across many projects at once and don't want a separate stack per repo, you can't modify project files, you want instant `.test` routing, or you're on Linux and want the Herd experience.
+**Choose Lerd when:** you work across many projects at once and don't want a separate stack per repo, you can't modify project files, you want instant `.test` routing, or you want the Herd experience on Linux as well as macOS.
 
 ---
 
@@ -39,8 +39,8 @@
 | Works on legacy / client repos | Yes — just `lerd link` | Only if you can add ddev config |
 | Framework support | Laravel built-in; any PHP framework via YAML definitions | Laravel, WordPress, Drupal, and many more |
 | Defined in code (infra-as-code) | No | Yes |
-| Team parity (all OS) | Linux only | macOS, Windows, Linux |
+| Team parity (all OS) | Linux, macOS | macOS, Windows, Linux |
 
 **Choose ddev when:** your team is cross-platform, you work with multiple frameworks (not just Laravel), you want per-project service isolation, or your workflow already depends on Docker.
 
-**Choose Lerd when:** you're on Linux, want a zero-config shared stack you can drop any project into without touching its files, prefer rootless Podman, or want the lightweight Herd-like experience.
+**Choose Lerd when:** you want a zero-config shared stack you can drop any project into without touching its files, prefer rootless Podman, or want the lightweight Herd-like experience on Linux or macOS.

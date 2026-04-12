@@ -1,6 +1,8 @@
 # Installation
 
-## One-line installer (recommended)
+## Linux
+
+### One-line installer (recommended)
 
 ::: code-group
 
@@ -48,7 +50,7 @@ After install, reload your shell or open a new terminal so `PATH` takes effect.
 
 ---
 
-## Install from a local build
+### Install from a local build
 
 If you built from source and want to skip the GitHub download:
 
@@ -59,7 +61,7 @@ bash install.sh --local ./build/lerd
 
 ---
 
-## Update
+### Update
 
 ```bash
 lerd update
@@ -83,7 +85,7 @@ wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -
 
 ---
 
-## Uninstall
+### Uninstall
 
 ```bash
 lerd uninstall
@@ -99,7 +101,7 @@ lerd uninstall --force
 
 ---
 
-## Check prerequisites only
+### Check prerequisites only
 
 ```bash
 bash install.sh --check
@@ -107,12 +109,9 @@ bash install.sh --check
 
 ---
 
-## Beta (macOS preview)
+## macOS
 
-macOS support is currently in beta on the [`macos-compat`](https://github.com/geodro/lerd/tree/macos-compat) branch.
-Binaries are published to the Homebrew tap as pre-releases.
-
-### macOS
+Install via the Homebrew tap:
 
 ```bash
 brew install geodro/lerd/lerd
@@ -135,18 +134,3 @@ lerd install
 lerd uninstall
 brew uninstall lerd
 ```
-
-### Linux (beta)
-
-Build from source off the beta branch:
-
-```bash
-git clone -b macos-compat https://github.com/geodro/lerd
-cd lerd
-make build
-bash install.sh --local ./build/lerd
-```
-
-::: warning Beta software
-These builds may have rough edges. Please [open an issue](https://github.com/geodro/lerd/issues) if you encounter problems.
-:::
