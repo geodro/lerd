@@ -121,11 +121,22 @@ func runParallelTUI(jobs []BuildJob) error {
 		os.Exit(1)
 	}()
 
-	// Read single keypresses.
+	// Read keypresses from a duplicated stdin fd so we can stop the goroutine
+	// on return by closing the dup. Otherwise the lingering Read races sudo's
+	// /dev/tty read for the same TTY buffer and eats password bytes.
+	stdinDupFd, dupErr := syscall.Dup(int(os.Stdin.Fd()))
+	var stdinDup *os.File
+	if dupErr == nil {
+		stdinDup = os.NewFile(uintptr(stdinDupFd), "lerd-runparallel-stdin")
+		defer stdinDup.Close() //nolint:errcheck
+	}
 	go func() {
+		if stdinDup == nil {
+			return
+		}
 		b := make([]byte, 1)
 		for {
-			if _, err := os.Stdin.Read(b); err != nil {
+			if _, err := stdinDup.Read(b); err != nil {
 				return
 			}
 			switch b[0] {
@@ -258,6 +269,7 @@ type StepRunner struct {
 	stopRender chan struct{}
 	renderDone chan struct{}
 	restore    func()
+	stdinDup   *os.File
 	termWidth  int
 	isTTY      bool
 }
@@ -294,10 +306,16 @@ func NewStepRunner() *StepRunner {
 		os.Exit(1)
 	}()
 
+	if stdinDupFd, err := syscall.Dup(int(os.Stdin.Fd())); err == nil {
+		r.stdinDup = os.NewFile(uintptr(stdinDupFd), "lerd-steprunner-stdin")
+	}
 	go func() {
+		if r.stdinDup == nil {
+			return
+		}
 		b := make([]byte, 1)
 		for {
-			if _, err := os.Stdin.Read(b); err != nil {
+			if _, err := r.stdinDup.Read(b); err != nil {
 				return
 			}
 			switch b[0] {
@@ -369,10 +387,15 @@ func (r *StepRunner) RunInteractive(label string, fn func() error) error {
 		return err
 	}
 
-	// Pause the render loop and give it time to finish its current tick.
+	// Pause render, restore terminal, and kill the keypress goroutine so sudo
+	// inside fn() owns /dev/tty cleanly.
 	r.paused.Store(true)
 	time.Sleep(90 * time.Millisecond)
 	r.restore()
+	if r.stdinDup != nil {
+		r.stdinDup.Close() //nolint:errcheck
+		r.stdinDup = nil
+	}
 
 	fmt.Printf("  --> %s\n", label)
 	err := fn()
@@ -380,7 +403,6 @@ func (r *StepRunner) RunInteractive(label string, fn func() error) error {
 		fmt.Printf("  [WARN: %v]\n", err)
 	}
 
-	// Re-enter raw mode and resume rendering.
 	if oldState, rawErr := term.MakeRaw(int(os.Stdin.Fd())); rawErr == nil {
 		r.restore = func() { term.Restore(int(os.Stdin.Fd()), oldState) } //nolint:errcheck
 	}
@@ -397,6 +419,10 @@ func (r *StepRunner) Close() {
 	close(r.stopRender)
 	<-r.renderDone
 	r.restore()
+	if r.stdinDup != nil {
+		r.stdinDup.Close() //nolint:errcheck
+		r.stdinDup = nil
+	}
 	fmt.Println()
 }
 
