@@ -68,7 +68,7 @@ func ApplyUpdates(path string, updates map[string]string) error {
 	if len(lines) > 0 {
 		out += "\n"
 	}
-	return os.WriteFile(path, []byte(out), 0644)
+	return os.WriteFile(path, []byte(out), 0600)
 }
 
 // ReadKey returns the value of a single key from the .env file at path,

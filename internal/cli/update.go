@@ -221,7 +221,7 @@ func downloadReleaseBinary(version string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("download failed (%s): %w", url, err)
 	}
 
-	cmd := exec.Command("tar", "-xzf", archive, "-C", tmp)
+	cmd := exec.Command("tar", "--no-same-owner", "-xzf", archive, "-C", tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("extract failed: %w\n%s", err, out)
