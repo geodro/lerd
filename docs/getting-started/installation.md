@@ -107,12 +107,9 @@ bash install.sh --check
 
 ---
 
-## Beta (macOS preview)
+## macOS
 
-macOS support is currently in beta on the [`macos-compat`](https://github.com/geodro/lerd/tree/macos-compat) branch.
-Binaries are published to the Homebrew tap as pre-releases.
-
-### macOS
+Install via the Homebrew tap:
 
 ```bash
 brew install geodro/lerd/lerd
@@ -135,18 +132,3 @@ lerd install
 lerd uninstall
 brew uninstall lerd
 ```
-
-### Linux (beta)
-
-Build from source off the beta branch:
-
-```bash
-git clone -b macos-compat https://github.com/geodro/lerd
-cd lerd
-make build
-bash install.sh --local ./build/lerd
-```
-
-::: warning Beta software
-These builds may have rough edges. Please [open an issue](https://github.com/geodro/lerd/issues) if you encounter problems.
-:::

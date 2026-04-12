@@ -74,9 +74,9 @@ AI:  → site_link()
 curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
 ```
 
-### macOS beta
+### macOS
 
-macOS support is in beta. Install via Homebrew:
+Install via Homebrew:
 
 ```bash
 brew install geodro/lerd/lerd
@@ -91,7 +91,7 @@ lerd install
 ```
 
 > [!NOTE]
-> See the [beta installation docs](https://geodro.github.io/lerd/getting-started/installation/#beta-macos-preview) for details.
+> See the [macOS installation docs](https://geodro.github.io/lerd/getting-started/installation/#macos) for details.
 
 ## Quick Start
 
