@@ -41,6 +41,40 @@ builds:
       - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
       - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
 
+  - id: lerd-darwin-amd64
+    main: ./cmd/lerd
+    binary: lerd
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=nogui
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X github.com/geodro/lerd/internal/version.Version={{.Version}}
+      - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
+      - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
+
+  - id: lerd-darwin-arm64
+    main: ./cmd/lerd
+    binary: lerd
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=nogui
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/geodro/lerd/internal/version.Version={{.Version}}
+      - -X github.com/geodro/lerd/internal/version.Commit={{.Commit}}
+      - -X github.com/geodro/lerd/internal/version.Date={{.Date}}
+
   # lerd-tray is a separate CGO binary that links libayatana-appindicator.
   # lerd (nogui) execs it at runtime; if the library is missing the tray
   # is silently skipped and everything else continues to work.
@@ -76,6 +110,56 @@ archives:
       - README.md
       - install.sh
 
+  - id: lerd-darwin-amd64
+    ids: [lerd-darwin-amd64]
+    name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - install.sh
+
+  - id: lerd-darwin-arm64
+    ids: [lerd-darwin-arm64]
+    name_template: "lerd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - install.sh
+      - src: dist-tray/lerd-tray-darwin-arm64/lerd-tray
+        dst: lerd-tray
+        info:
+          mode: 0755
+
+brews:
+  - name: lerd
+    ids:
+      - lerd-darwin-amd64
+      - lerd-darwin-arm64
+    repository:
+      owner: geodro
+      name: homebrew-lerd
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/geodro/lerd"
+    description: "Local Laravel development environment for Linux and macOS"
+    license: "MIT"
+    skip_upload: false
+    dependencies:
+      - name: podman
+    install: |
+      bin.install "lerd"
+      bin.install "lerd-tray" if File.exist?("lerd-tray")
+    caveats: |
+      To finish setting up Lerd, run:
+        lerd install
+
+      To uninstall cleanly, run in order:
+        lerd uninstall
+        brew uninstall lerd
+
+      If you already removed the binary before running `lerd uninstall`, run:
+        ~/.local/bin/lerd-cleanup
+        brew uninstall lerd
+
 checksum:
   name_template: "checksums.txt"
 
@@ -109,9 +193,9 @@ release:
   header: |
     ## Lerd {{ .Version }}
 
-    Lerd — Podman-powered local PHP dev environment for Linux.
+    Lerd — Podman-powered local PHP dev environment for Linux & macOS.
 
-    ### Install / Upgrade
+    ### Install on Linux
 
     ```bash
     curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
@@ -121,6 +205,21 @@ release:
 
     ```bash
     lerd update
+    ```
+
+    ### Install on macOS
+
+    ```bash
+    brew tap geodro/lerd
+    brew install lerd
+    lerd install
+    ```
+
+    Or if already installed:
+
+    ```bash
+    brew upgrade lerd
+    lerd install
     ```
   footer: |
     **Full Changelog**: https://github.com/geodro/lerd/compare/{{ .PreviousTag }}...{{ .Tag }}
