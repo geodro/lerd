@@ -86,9 +86,12 @@ func newScheduleStopCmd(use string) *cobra.Command {
 }
 
 // ScheduleStartForSite starts the task scheduler for the named site using
-// the "schedule" worker from the framework definition.
+// the "schedule" worker from the framework definition. The version-aware
+// loader (GetFrameworkForDir) is used so per-version overrides — like
+// Laravel 10's `schedule: minutely` cron entry — actually take effect
+// instead of falling back to the version-less built-in defaults.
 func ScheduleStartForSite(siteName, sitePath, phpVersion string) error {
-	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	fw, ok := config.GetFrameworkForDir(siteFrameworkName(siteName), sitePath)
 	if !ok {
 		return fmt.Errorf("no framework found for site %q", siteName)
 	}
