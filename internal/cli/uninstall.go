@@ -70,6 +70,10 @@ func runUninstall(force bool) error {
 			}
 			_ = services.Mgr.Disable(unit)
 		}
+		for _, unit := range services.Mgr.ListTimerUnits("lerd-*") {
+			_ = podman.StopUnit(unit)
+			_ = services.Mgr.Disable(unit)
+		}
 		// Kill any running tray process. The tray may be running standalone
 		// (launched from the desktop file or `lerd tray`) without a unit,
 		// in which case the unit teardown above misses it.
@@ -89,6 +93,9 @@ func runUninstall(force bool) error {
 				continue
 			}
 			_ = services.Mgr.RemoveServiceUnit(unit)
+		}
+		for _, unit := range services.Mgr.ListTimerUnits("lerd-*") {
+			_ = services.Mgr.RemoveTimerUnit(strings.TrimSuffix(unit, ".timer"))
 		}
 	}
 	ok()

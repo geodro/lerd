@@ -36,6 +36,30 @@ func WriteServiceIfChanged(name, content string) (bool, error) {
 	return true, os.WriteFile(path, []byte(content), 0644)
 }
 
+// WriteTimerIfChanged writes a systemd user timer unit file when its
+// content differs from what is already on disk. Returns true when the
+// file was written so the caller knows to run daemon-reload.
+func WriteTimerIfChanged(name, content string) (bool, error) {
+	dir := config.SystemdUserDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false, err
+	}
+	path := filepath.Join(dir, name+".timer")
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
+		return false, nil
+	}
+	return true, os.WriteFile(path, []byte(content), 0644)
+}
+
+// RemoveTimer removes a systemd user timer unit file.
+func RemoveTimer(name string) error {
+	path := filepath.Join(config.SystemdUserDir(), name+".timer")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // EnableService enables a systemd user service.
 func EnableService(name string) error {
 	cmd := exec.Command("systemctl", "--user", "enable", name)
@@ -97,6 +121,13 @@ func IsServiceActiveOrRestarting(name string) bool {
 	out, _ := cmd.Output()
 	state := strings.TrimSpace(string(out))
 	return state == "active" || state == "activating"
+}
+
+// IsTimerActive returns true if the worker's sibling .timer is active.
+func IsTimerActive(name string) bool {
+	cmd := exec.Command("systemctl", "--user", "is-active", name+".timer")
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out)) == "active"
 }
 
 // FindOrphanedWorkers scans systemd unit files for worker units belonging to

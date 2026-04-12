@@ -28,6 +28,30 @@ func (m *linuxServiceManager) WriteServiceUnitIfChanged(name, content string) (b
 	return lerdSystemd.WriteServiceIfChanged(name, content)
 }
 
+func (m *linuxServiceManager) WriteTimerUnitIfChanged(name, content string) (bool, error) {
+	return lerdSystemd.WriteTimerIfChanged(name, content)
+}
+
+func (m *linuxServiceManager) RemoveTimerUnit(name string) error {
+	return lerdSystemd.RemoveTimer(name)
+}
+
+func (m *linuxServiceManager) ListTimerUnits(nameGlob string) []string {
+	pattern := filepath.Join(config.SystemdUserDir(), nameGlob+".timer")
+	entries, _ := filepath.Glob(pattern)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		// Skip orphan timers — without a sibling .service systemctl
+		// can't fire them and start jobs fail with exit 1.
+		base := strings.TrimSuffix(filepath.Base(e), ".timer")
+		if _, err := os.Stat(filepath.Join(config.SystemdUserDir(), base+".service")); err != nil {
+			continue
+		}
+		names = append(names, base+".timer")
+	}
+	return names
+}
+
 func (m *linuxServiceManager) RemoveServiceUnit(name string) error {
 	path := filepath.Join(config.SystemdUserDir(), name+".service")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

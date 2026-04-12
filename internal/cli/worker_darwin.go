@@ -15,7 +15,15 @@ import (
 // writeWorkerUnitFile writes a container unit for the worker on macOS.
 // Workers run as independent detached containers using the same PHP-FPM image,
 // so each worker has its own lifecycle and logs stream via `podman logs`.
-func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, fpmUnit string) (bool, error) {
+//
+// Scheduled workers (Schedule != "") are not yet supported on macOS — the
+// launchd StartCalendarInterval path needs its own plist generator. We log
+// a warning and skip rather than restart-loop a one-shot command.
+func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string) (bool, error) {
+	if schedule != "" {
+		fmt.Printf("[WARN] worker %s has schedule=%q which is not yet supported on macOS — skipping\n", unitName, schedule)
+		return false, nil
+	}
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	image := "lerd-php" + versionShort + "-fpm:local"
 
@@ -78,5 +86,5 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 	if label == "" {
 		label = workerName
 	}
-	writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, w.Command, restart, fpmUnit) //nolint:errcheck
+	writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, w.Command, restart, w.Schedule, fpmUnit) //nolint:errcheck
 }

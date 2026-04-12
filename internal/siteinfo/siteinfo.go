@@ -348,6 +348,12 @@ func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
 	if fw.HasWorker("schedule", e.Path) && !suppressed["schedule"] {
 		e.HasScheduleWorker = true
 		status, _ := unitStatusFn("lerd-schedule-" + e.Name)
+		// Timer-driven scheduler: .service is static between firings.
+		if status != "active" {
+			if t, _ := unitStatusFn("lerd-schedule-" + e.Name + ".timer"); t == "active" {
+				status = "active"
+			}
+		}
 		e.ScheduleRunning = status == "active"
 		e.ScheduleFailing = status == "activating" || status == "failed"
 	}

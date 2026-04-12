@@ -22,6 +22,25 @@ type ServiceManager interface {
 	// RemoveServiceUnit removes the unit file for the named service.
 	RemoveServiceUnit(name string) error
 
+	// WriteTimerUnitIfChanged writes a timer unit file (paired with a
+	// matching oneshot service) only when the content has changed. Used
+	// for scheduled framework workers like Laravel 10's `schedule:run`,
+	// which is a one-shot cron-style command rather than a daemon and
+	// would otherwise restart-loop under the always-on worker model.
+	// On platforms that lack a native timer concept the implementation
+	// may be a no-op that returns (false, nil).
+	WriteTimerUnitIfChanged(name, content string) (bool, error)
+
+	// RemoveTimerUnit removes the timer unit file for the named worker.
+	// May be a no-op on platforms without timer support.
+	RemoveTimerUnit(name string) error
+
+	// ListTimerUnits returns timer unit names whose files match nameGlob,
+	// each suffixed with `.timer` (so callers can pass them straight to
+	// systemctl without ambiguity against the sibling .service unit).
+	// Platforms without native timer support return an empty slice.
+	ListTimerUnits(nameGlob string) []string
+
 	// ListServiceUnits returns unit names whose files match nameGlob.
 	// e.g. nameGlob="lerd-queue-*" → ["lerd-queue-myapp", …]
 	ListServiceUnits(nameGlob string) []string

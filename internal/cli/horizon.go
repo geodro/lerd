@@ -91,7 +91,7 @@ func newHorizonStopCmd(use string) *cobra.Command {
 // HorizonStartForSite starts Horizon for the named site. Conflicting workers
 // (defined via ConflictsWith in the framework definition) are stopped first.
 func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
-	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	fw, ok := config.GetFrameworkForDir(siteFrameworkName(siteName), sitePath)
 	if !ok {
 		return fmt.Errorf("no framework found for site %q", siteName)
 	}

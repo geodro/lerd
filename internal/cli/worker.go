@@ -229,17 +229,28 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
 	if err != nil {
 		return fmt.Errorf("writing worker unit: %w", err)
 	}
+
+	// Scheduled workers run via a sibling .timer that systemd starts on
+	// the configured cadence; the .service is a Type=oneshot triggered by
+	// the timer, so we enable and start the .timer rather than the
+	// .service. The non-scheduled (daemon) path keeps the original
+	// .service-based lifecycle.
+	lifecycleTarget := unitName
+	if w.Schedule != "" {
+		lifecycleTarget = unitName + ".timer"
+	}
+
 	if changed {
-		if err := services.Mgr.Enable(unitName); err != nil {
+		if err := services.Mgr.Enable(lifecycleTarget); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
 
-	if err := services.Mgr.Start(unitName); err != nil {
+	if err := services.Mgr.Start(lifecycleTarget); err != nil {
 		return fmt.Errorf("starting %s worker: %w", workerName, err)
 	}
 
@@ -426,9 +437,20 @@ func siteFrameworkName(siteName string) string {
 func WorkerStopForSite(siteName, workerName string) error {
 	unitName := "lerd-" + workerName + "-" + siteName
 
+	// Stop and disable both possible shapes (daemon .service and
+	// scheduled .timer + oneshot .service). We don't know up-front
+	// whether the worker was scheduled, and the framework yaml may
+	// have flipped between the two shapes since the unit was written,
+	// so we tear down both unconditionally — missing units are no-ops
+	// at this layer.
+	_ = services.Mgr.Disable(unitName + ".timer")
+	podman.StopUnit(unitName + ".timer") //nolint:errcheck
 	_ = services.Mgr.Disable(unitName)
 	podman.StopUnit(unitName) //nolint:errcheck
 
+	if err := services.Mgr.RemoveTimerUnit(unitName); err != nil {
+		return fmt.Errorf("removing timer unit file: %w", err)
+	}
 	if err := services.Mgr.RemoveServiceUnit(unitName); err != nil {
 		return fmt.Errorf("removing unit file: %w", err)
 	}

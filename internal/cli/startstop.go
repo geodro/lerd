@@ -377,7 +377,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// declared in the site registry, so restored unit files get started here
 	// rather than waiting for the next session.
 	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
-	workerUnits = dedupeStrings(workerUnits)
+	workerUnits = append(workerUnits, registeredTimerUnits()...)
+	workerUnits = collapseTimerSiblings(dedupeStrings(workerUnits))
 
 	fmt.Println("Starting Lerd...")
 
@@ -385,7 +386,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 		jobs := make([]BuildJob, len(us))
 		for i, u := range us {
 			unit := u
-			label := strings.TrimPrefix(unit, "lerd-")
+			label := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-"), ".timer")
 			jobs[i] = BuildJob{
 				Label: label,
 				Run: func(w io.Writer) error {
@@ -506,7 +507,7 @@ func startRestoredServices() {
 	var startJobs []BuildJob
 	for _, u := range units {
 		unit := u
-		label := strings.TrimPrefix(unit, "lerd-")
+		label := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-"), ".timer")
 		startJobs = append(startJobs, BuildJob{
 			Label: label,
 			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
@@ -523,14 +524,15 @@ func startRestoredServices() {
 	workerUnits = append(workerUnits, registeredScheduleUnits()...)
 	workerUnits = append(workerUnits, registeredReverbUnits()...)
 	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
-	workerUnits = dedupeStrings(workerUnits)
+	workerUnits = append(workerUnits, registeredTimerUnits()...)
+	workerUnits = collapseTimerSiblings(dedupeStrings(workerUnits))
 	if len(workerUnits) == 0 {
 		return
 	}
 	var workerJobs []BuildJob
 	for _, u := range workerUnits {
 		unit := u
-		label := strings.TrimPrefix(unit, "lerd-")
+		label := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-"), ".timer")
 		workerJobs = append(workerJobs, BuildJob{
 			Label: label,
 			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
@@ -659,7 +661,23 @@ func restoreSiteInfrastructure() {
 		}
 	}
 
+	cleanOrphanTimerUnits()
+
 	podman.DaemonReloadFn() //nolint:errcheck
+}
+
+// cleanOrphanTimerUnits removes lerd-*.timer files whose sibling .service
+// is missing — they can't fire and break parallel start with exit 1.
+func cleanOrphanTimerUnits() {
+	dir := config.SystemdUserDir()
+	entries, _ := filepath.Glob(filepath.Join(dir, "lerd-*.timer"))
+	for _, e := range entries {
+		base := strings.TrimSuffix(filepath.Base(e), ".timer")
+		if _, err := os.Stat(filepath.Join(dir, base+".service")); err == nil {
+			continue
+		}
+		_ = services.Mgr.RemoveTimerUnit(base)
+	}
 }
 
 func registeredStripeUnits() []string {
@@ -680,6 +698,14 @@ func registeredScheduleUnits() []string {
 // registeredReverbUnits returns unit names for all lerd-reverb-* service units.
 func registeredReverbUnits() []string {
 	return services.Mgr.ListServiceUnits("lerd-reverb-*")
+}
+
+// registeredTimerUnits returns names for every lerd-* timer unit on disk,
+// each with the explicit `.timer` suffix so callers pass them straight to
+// systemctl. These drive scheduled (cron-style) framework workers like
+// Laravel <=10's `php artisan schedule:run`.
+func registeredTimerUnits() []string {
+	return services.Mgr.ListTimerUnits("lerd-*")
 }
 
 // registeredFrameworkWorkerUnits returns lerd-{worker}-{site} unit names for
@@ -703,6 +729,26 @@ func registeredFrameworkWorkerUnits() []string {
 			}
 			out = append(out, "lerd-"+w+"-"+s.Name)
 		}
+	}
+	return out
+}
+
+// collapseTimerSiblings drops a worker's bare .service entry when its
+// .timer sibling is also in the list — the timer is what drives the
+// oneshot, the bare .service would just fire schedule:run a second time.
+func collapseTimerSiblings(in []string) []string {
+	hasTimer := map[string]bool{}
+	for _, u := range in {
+		if strings.HasSuffix(u, ".timer") {
+			hasTimer[strings.TrimSuffix(u, ".timer")] = true
+		}
+	}
+	out := make([]string, 0, len(in))
+	for _, u := range in {
+		if !strings.HasSuffix(u, ".timer") && hasTimer[u] {
+			continue
+		}
+		out = append(out, u)
 	}
 	return out
 }
@@ -735,6 +781,10 @@ func runStop(_ *cobra.Command, _ []string) error {
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+	// Stop scheduled-worker timers explicitly. Stopping the sibling
+	// oneshot .service is a no-op (it isn't running between firings),
+	// so without this the timer keeps dispatching after `lerd stop`.
+	units = append(units, registeredTimerUnits()...)
 
 	fmt.Println("Stopping Lerd...")
 
@@ -746,7 +796,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 	jobs := make([]BuildJob, len(units))
 	for i, u := range units {
 		unit := u
-		label := strings.TrimPrefix(unit, "lerd-")
+		label := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-"), ".timer")
 		jobs[i] = BuildJob{
 			Label: label,
 			Run:   func(w io.Writer) error { return podman.StopUnit(unit) },

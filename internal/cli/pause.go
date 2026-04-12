@@ -233,7 +233,10 @@ func collectRunningWorkers(site *config.Site) []string {
 		}
 		sort.Strings(names)
 		for _, wName := range names {
-			if lerdSystemd.IsServiceActiveOrRestarting("lerd-" + wName + "-" + site.Name) {
+			unit := "lerd-" + wName + "-" + site.Name
+			// Scheduled workers' .service sits at inactive between timer firings.
+			if lerdSystemd.IsServiceActiveOrRestarting(unit) ||
+				lerdSystemd.IsTimerActive(unit) {
 				active = append(active, wName)
 			}
 		}

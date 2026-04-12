@@ -137,7 +137,7 @@ func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, tim
 		}
 	}
 
-	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	fw, ok := config.GetFrameworkForDir(siteFrameworkName(siteName), sitePath)
 	if !ok {
 		return fmt.Errorf("no framework found for site %q", siteName)
 	}
@@ -156,7 +156,7 @@ func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, tim
 // QueueStartForSite starts a queue worker for the given site using the command
 // from the framework definition.
 func QueueStartForSite(siteName, sitePath, phpVersion string) error {
-	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	fw, ok := config.GetFrameworkForDir(siteFrameworkName(siteName), sitePath)
 	if !ok {
 		return fmt.Errorf("no framework found for site %q", siteName)
 	}

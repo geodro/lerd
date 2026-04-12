@@ -100,7 +100,7 @@ func newReverbStopCmd(use string) *cobra.Command {
 // definition and delegates to the generic WorkerStartForSite, which handles
 // proxy port assignment and nginx regeneration automatically.
 func ReverbStartForSite(siteName, sitePath, phpVersion string) error {
-	fw, ok := config.GetFramework(siteFrameworkName(siteName))
+	fw, ok := config.GetFrameworkForDir(siteFrameworkName(siteName), sitePath)
 	if !ok {
 		return fmt.Errorf("no framework found for site %q", siteName)
 	}

@@ -16,8 +16,49 @@ import (
 
 // writeWorkerUnitFile writes a systemd service unit for the worker on Linux.
 // Workers exec into the running FPM container.
-func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, fpmUnit string) (bool, error) {
+//
+// When schedule is non-empty the worker is modelled as a Type=oneshot
+// service triggered by a sibling .timer with the given OnCalendar
+// expression — the right shape for one-shot commands like Laravel 10's
+// `php artisan schedule:run`, which exit immediately and would otherwise
+// restart-loop every 5s under Restart=always.
+func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string) (bool, error) {
 	container := fpmUnit
+
+	if schedule != "" {
+		serviceUnit := fmt.Sprintf(`[Unit]
+Description=Lerd %s (%s)
+After=network.target %s.service
+BindsTo=%s.service
+
+[Service]
+Type=oneshot
+ExecStart=%s exec -w %s %s %s
+`, label, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container, command)
+
+		timerUnit := fmt.Sprintf(`[Unit]
+Description=Lerd %s timer (%s)
+
+[Timer]
+OnCalendar=%s
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+`, label, siteName, schedule)
+
+		serviceChanged, err := services.Mgr.WriteServiceUnitIfChanged(unitName, serviceUnit)
+		if err != nil {
+			return false, err
+		}
+		timerChanged, err := services.Mgr.WriteTimerUnitIfChanged(unitName, timerUnit)
+		if err != nil {
+			return serviceChanged, err
+		}
+		return serviceChanged || timerChanged, nil
+	}
+
 	unit := fmt.Sprintf(`[Unit]
 Description=Lerd %s (%s)
 After=network.target %s.service
@@ -32,6 +73,11 @@ ExecStart=%s exec -w %s %s %s
 [Install]
 WantedBy=default.target
 `, label, siteName, fpmUnit, fpmUnit, restart, podman.PodmanBin(), sitePath, container, command)
+
+	// A previous run may have written a sibling .timer for this unit
+	// (e.g. before the framework yaml dropped its `schedule:` field).
+	// Clean it up so the daemon model takes over cleanly.
+	_ = services.Mgr.RemoveTimerUnit(unitName)
 
 	return services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 }
@@ -71,14 +117,18 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
 	if err != nil {
 		fmt.Printf("[WARN] writing worker unit %s: %v\n", unitName, err)
 		return
 	}
 	if changed {
-		if err := services.Mgr.Enable(unitName); err != nil {
-			fmt.Printf("[WARN] enable %s: %v\n", unitName, err)
+		enableTarget := unitName
+		if w.Schedule != "" {
+			enableTarget = unitName + ".timer"
+		}
+		if err := services.Mgr.Enable(enableTarget); err != nil {
+			fmt.Printf("[WARN] enable %s: %v\n", enableTarget, err)
 		}
 	}
 }

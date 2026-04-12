@@ -475,6 +475,15 @@ workers:
     label: Messenger
     command: php bin/console messenger:consume async --time-limit=3600
     restart: always               # always | on-failure (default: always)
+    schedule: ""                  # systemd OnCalendar expression (optional). When set, the
+                                  # worker is run as a Type=oneshot service triggered by a
+                                  # sibling .timer instead of a long-running daemon. Use this
+                                  # for cron-style commands like Laravel <=10's
+                                  # `php artisan schedule:run`, which exits immediately and
+                                  # would otherwise restart-loop under restart=always. Any
+                                  # systemd OnCalendar value is accepted (e.g. `minutely`,
+                                  # `*:0/5`, `Mon..Fri *-*-* 02:00:00`). Linux only — on
+                                  # macOS scheduled workers currently log a warning and skip.
     check:                        # only shown when check passes (optional)
       composer: symfony/messenger
     conflicts_with:               # workers to stop before starting (optional)
