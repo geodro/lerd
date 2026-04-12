@@ -173,7 +173,7 @@ func TestMigrateStaleServiceImages_Postgres(t *testing.T) {
 		Port:    5432,
 	}
 	migrateStaleServiceImages(cfg)
-	if got := cfg.Services["postgres"].Image; got != "postgis/postgis:16-3.5-alpine" {
+	if got := cfg.Services["postgres"].Image; got != "docker.io/postgis/postgis:16-3.5-alpine" {
 		t.Errorf("postgres image not migrated: got %q", got)
 	}
 }
