@@ -95,32 +95,32 @@ func defaultConfig() *GlobalConfig {
 	cfg.Services = map[string]ServiceConfig{
 		"mysql": {
 			Enabled: true,
-			Image:   "mysql:8.0",
+			Image:   "docker.io/library/mysql:8.0",
 			Port:    3306,
 		},
 		"redis": {
 			Enabled: true,
-			Image:   "redis:7-alpine",
+			Image:   "docker.io/library/redis:7-alpine",
 			Port:    6379,
 		},
 		"postgres": {
 			Enabled: false,
-			Image:   "postgis/postgis:16-3.5-alpine",
+			Image:   "docker.io/postgis/postgis:16-3.5-alpine",
 			Port:    5432,
 		},
 		"meilisearch": {
 			Enabled: false,
-			Image:   "getmeili/meilisearch:v1.7",
+			Image:   "docker.io/getmeili/meilisearch:v1.7",
 			Port:    7700,
 		},
 		"rustfs": {
 			Enabled: false,
-			Image:   "rustfs/rustfs:latest",
+			Image:   "docker.io/rustfs/rustfs:latest",
 			Port:    9000,
 		},
 		"mailpit": {
 			Enabled: false,
-			Image:   "axllent/mailpit:latest",
+			Image:   "docker.io/axllent/mailpit:latest",
 			Port:    1025,
 		},
 	}
@@ -157,10 +157,26 @@ func LoadGlobal() (*GlobalConfig, error) {
 // move onto the new image (e.g. postgres → postgis/postgis for PostGIS
 // support) without having to hand-edit ~/.config/lerd/config.yaml.
 var staleServiceImages = map[string][]string{
+	"mysql": {
+		"mysql:8.0",
+	},
+	"redis": {
+		"redis:7-alpine",
+	},
 	"postgres": {
 		"postgres:16-alpine",
 		"docker.io/library/postgres:16-alpine",
 		"docker.io/postgres:16-alpine",
+		"postgis/postgis:16-3.5-alpine",
+	},
+	"meilisearch": {
+		"getmeili/meilisearch:v1.7",
+	},
+	"rustfs": {
+		"rustfs/rustfs:latest",
+	},
+	"mailpit": {
+		"axllent/mailpit:latest",
 	},
 }
 
