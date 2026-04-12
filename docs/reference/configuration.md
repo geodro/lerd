@@ -17,12 +17,12 @@ dns:
 parked_directories:
   - ~/Lerd
 services:
-  mysql:       { enabled: true,  image: "mysql:8.0",                    port: 3306 }
-  redis:       { enabled: true,  image: "redis:7-alpine",               port: 6379 }
-  postgres:    { enabled: false, image: "postgres:16-alpine",           port: 5432 }
-  meilisearch: { enabled: false, image: "getmeili/meilisearch:v1.7",    port: 7700 }
-  rustfs:      { enabled: false, image: "rustfs/rustfs:latest",         port: 9000 }
-  mailpit:     { enabled: false, image: "axllent/mailpit:latest",       port: 1025 }
+  mysql:       { enabled: true,  image: "docker.io/library/mysql:8.0",             port: 3306 }
+  redis:       { enabled: true,  image: "docker.io/library/redis:7-alpine",        port: 6379 }
+  postgres:    { enabled: false, image: "docker.io/postgis/postgis:16-3.5-alpine", port: 5432 }
+  meilisearch: { enabled: false, image: "docker.io/getmeili/meilisearch:v1.7",     port: 7700 }
+  rustfs:      { enabled: false, image: "docker.io/rustfs/rustfs:latest",          port: 9000 }
+  mailpit:     { enabled: false, image: "docker.io/axllent/mailpit:latest",        port: 1025 }
 ```
 
 ---

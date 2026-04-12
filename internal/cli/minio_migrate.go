@@ -83,7 +83,7 @@ func runMinioMigrate(_ *cobra.Command, _ []string) error {
 	if _, hasRustfs := cfg.Services["rustfs"]; !hasRustfs {
 		cfg.Services["rustfs"] = config.ServiceConfig{
 			Enabled: minioWasEnabled,
-			Image:   "rustfs/rustfs:latest",
+			Image:   "docker.io/rustfs/rustfs:latest",
 			Port:    9000,
 		}
 	}
