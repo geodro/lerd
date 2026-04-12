@@ -247,13 +247,13 @@ func openTerminalAt(dir string) error {
 	)
 
 	if runtime.GOOS == "darwin" {
-		cdScript := "cd " + shQuote(dir) + " && exec $SHELL"
+		// `open -a Terminal dir` opens a new window at dir without echoing any
+		// command — cleaner than `do script "cd ... && exec $SHELL"` which types
+		// the command visibly into the shell. iTerm2 supports the same via open.
 		if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
-			as := "tell application \"iTerm2\"\n\tcreate window with default profile\n\ttell current session of current window\n\t\twrite text " + appleScriptStr(cdScript) + "\n\tend tell\nend tell"
-			candidates = append(candidates, termCmd{"osascript", []string{"-e", as}})
+			candidates = append(candidates, termCmd{"open", []string{"-a", "iTerm", dir}})
 		}
-		as := "tell application \"Terminal\"\n\tdo script " + appleScriptStr(cdScript) + "\n\tactivate\nend tell"
-		candidates = append(candidates, termCmd{"osascript", []string{"-e", as}})
+		candidates = append(candidates, termCmd{"open", []string{"-a", "Terminal", dir}})
 	}
 
 	for _, t := range candidates {
