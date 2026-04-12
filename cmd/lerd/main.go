@@ -8,13 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"bytes"
+	"net/http"
+
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
+	"github.com/geodro/lerd/internal/eventbus"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/ui"
 	"github.com/geodro/lerd/internal/version"
@@ -22,7 +27,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// notifyLerdUI posts to the lerd-ui loopback notifier so any unit lifecycle
+// change from a CLI process propagates to the dashboard in real time. It
+// runs synchronously with a tight timeout: the CLI process is about to
+// exit, so a background goroutine would be killed before the POST hits the
+// socket. 500ms is more than enough for a loopback round-trip and is barely
+// perceptible. If lerd-ui isn't running the POST fails fast and the CLI
+// command still succeeds.
+func notifyLerdUI(_ string) {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:7073/api/internal/notify", bytes.NewReader(nil))
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
 func main() {
+	// Cross-process bridge from CLI unit mutations to the running lerd-ui.
+	// ui.Start reassigns this in its own process for a direct in-process
+	// publish; in the CLI/MCP processes we HTTP-POST to the dashboard.
+	podman.AfterUnitChange = notifyLerdUI
+
 	root := &cobra.Command{
 		Use:     "lerd",
 		Short:   "Lerd — Podman-powered local PHP dev environment for Linux and macOS",
@@ -409,6 +439,7 @@ func newWatchCmd() *cobra.Command {
 						if err := cli.QueueRestartForSite(site.Name, sitePath, site.PHPVersion); err != nil {
 							fmt.Printf("[WARN] queue restart for %s: %v\n", site.Name, err)
 						}
+						eventbus.Default.Publish(eventbus.KindSites)
 					},
 				)
 				if err != nil {
@@ -425,6 +456,7 @@ func newWatchCmd() *cobra.Command {
 					if err := nginx.Reload(); err != nil {
 						fmt.Printf("[WARN] nginx reload: %v\n", err)
 					}
+					eventbus.Default.Publish(eventbus.KindSites)
 				}
 			}, func(removedPath string) {
 				site, err := config.FindSiteByPath(removedPath)
@@ -433,6 +465,7 @@ func newWatchCmd() *cobra.Command {
 				}
 				fmt.Printf("Project deleted: %s (%s)\n", site.Name, removedPath)
 				_ = siteops.UnlinkSiteCore(site, nil)
+				eventbus.Default.Publish(eventbus.KindSites)
 			})
 		},
 	}

@@ -49,5 +49,14 @@ func UnlinkSiteCore(site *config.Site, parkedDirs []string) error {
 	_ = podman.WriteContainerHosts()
 	_ = podman.RewriteFPMQuadlets()
 
-	return nginx.Reload()
+	if err := nginx.Reload(); err != nil {
+		return err
+	}
+
+	// See FinishLink: unlinking doesn't start/stop a systemd unit, so
+	// the shared hook wouldn't otherwise fire. Notify explicitly.
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
+	}
+	return nil
 }

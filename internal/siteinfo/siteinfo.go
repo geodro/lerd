@@ -143,8 +143,10 @@ var faviconCandidates = []string{
 }
 
 // Swappable function variables for testing without podman/systemd.
+// unitStatusFn routes through a batched systemctl cache so loading 25 sites
+// no longer fans out into 125+ subprocesses per /api/sites request.
 var (
-	unitStatusFn       = podman.UnitStatus
+	unitStatusFn       = unitStatusCached
 	containerRunningFn = podman.ContainerRunning
 )
 

@@ -22,6 +22,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
+	"github.com/geodro/lerd/internal/eventbus"
 	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -123,27 +124,64 @@ var serviceEnvVars = map[string][]string{
 
 // Start starts the HTTP server on listenAddr.
 func Start(currentVersion string) error {
+	// Every unit lifecycle change (from CLI, MCP, HTTP handlers, or the
+	// file watcher) funnels through podman.StartUnit/StopUnit/RestartUnit.
+	// Hook into that choke point so any mutation — regardless of which
+	// surface triggered it — invalidates the systemctl unit cache and
+	// pushes a fresh snapshot to every connected browser. The bus debounces,
+	// so bursty mutations (e.g. restarting a set of workers) still collapse
+	// into one broadcast.
+	podman.AfterUnitChange = func(name string) {
+		siteinfo.InvalidateUnitCache()
+		eventbus.Default.Publish(eventbus.KindSites)
+		eventbus.Default.Publish(eventbus.KindServices)
+		eventbus.Default.Publish(eventbus.KindStatus)
+	}
+
+	// A single goroutine subscribes to the eventbus and invalidates the
+	// relevant snapshot on every mutation. The /api/ws handler broadcasts
+	// the freshly rebuilt bytes to every connected browser.
+	go runSnapshotInvalidator()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/status", withCORS(handleStatus))
 	mux.HandleFunc("/api/sites", withCORS(handleSites))
 	mux.HandleFunc("/api/services", withCORS(handleServices))
+	mux.HandleFunc("/api/ws", handleWS)
+
+	// Cross-process notifier: the CLI and MCP processes run outside
+	// lerd-ui and can't publish to the in-process eventbus. They POST
+	// here after any unit lifecycle change so lerd-ui invalidates its
+	// snapshot cache and pushes a fresh broadcast to every browser.
+	// Loopback-only because anything that wouldn't go through the gate
+	// has no business triggering an invalidation.
+	mux.HandleFunc("/api/internal/notify", func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackRequest(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		siteinfo.InvalidateUnitCache()
+		eventbus.Default.Publish(eventbus.KindSites)
+		eventbus.Default.Publish(eventbus.KindServices)
+		eventbus.Default.Publish(eventbus.KindStatus)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("/api/services/presets", withCORS(handleServicePresets))
 	mux.HandleFunc("/api/services/presets/", withCORS(handleServicePresetInstall))
-	mux.HandleFunc("/api/services/", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		handleServiceAction(w, r)
-	}))
+	mux.HandleFunc("/api/services/", withCORS(publishAfter(handleServiceAction, eventbus.KindServices, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/version", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, currentVersion)
 	}))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
-	mux.HandleFunc("/api/php-versions/", withCORS(handlePHPVersionAction))
+	mux.HandleFunc("/api/php-versions/", withCORS(publishAfter(handlePHPVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(handleInstallNodeVersion))
 	mux.HandleFunc("/api/node-versions/", withCORS(handleNodeVersionAction))
-	mux.HandleFunc("/api/sites/link", withCORS(handleSiteLink))
+	mux.HandleFunc("/api/sites/link", withCORS(publishAfter(handleSiteLink, eventbus.KindSites)))
 	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
-	mux.HandleFunc("/api/sites/", withCORS(handleSiteAction))
+	mux.HandleFunc("/api/sites/", withCORS(publishAfter(handleSiteAction, eventbus.KindSites, eventbus.KindServices)))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
 	mux.HandleFunc("/api/horizon/", withCORS(handleHorizonLogs))
@@ -156,7 +194,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/watcher/start", withCORS(handleWatcherStart))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
-	mux.HandleFunc("/api/xdebug/", withCORS(handleXdebugAction))
+	mux.HandleFunc("/api/xdebug/", withCORS(publishAfter(handleXdebugAction, eventbus.KindStatus)))
 	mux.HandleFunc("/api/lerd/start", withCORS(handleLerdStart))
 	mux.HandleFunc("/api/lerd/stop", withCORS(handleLerdStop))
 	mux.HandleFunc("/api/lerd/quit", withCORS(handleLerdQuit))
@@ -197,6 +235,11 @@ func Start(currentVersion string) error {
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// The shell embeds the entire JS/CSS inline and changes on
+		// every binary update. Without this, browsers cache the HTML
+		// indefinitely and keep running stale client code — which hid
+		// the WebSocket URL-rewrite fix during local testing.
+		w.Header().Set("Cache-Control", "no-store")
 		w.Write(indexHTML) //nolint:errcheck
 	})
 
@@ -324,6 +367,11 @@ type PHPStatus struct {
 }
 
 func handleStatus(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(snapshots.Status())
+}
+
+func buildStatus() StatusResponse {
 	cfg, _ := config.LoadGlobal()
 	tld := "test"
 	if cfg != nil {
@@ -349,15 +397,17 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 		phpDefault = cfg.PHP.DefaultVersion
 		nodeDefault = cfg.Node.DefaultVersion
 	}
-	writeJSON(w, StatusResponse{
+	return StatusResponse{
 		DNS:            DNSStatus{OK: dnsOK, TLD: tld},
 		Nginx:          ServiceCheck{Running: nginxRunning},
 		PHPFPMs:        phpStatuses,
 		PHPDefault:     phpDefault,
 		NodeDefault:    nodeDefault,
 		WatcherRunning: watcherRunning,
-	})
+	}
 }
+
+func buildStatusJSON() []byte { return []byte(mustJSON(buildStatus())) }
 
 // WorktreeResponse is embedded in SiteResponse for each git worktree.
 type WorktreeResponse struct {
@@ -425,10 +475,16 @@ type SiteResponse struct {
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(snapshots.Sites())
+}
+
+func buildSitesJSON() []byte { return []byte(mustJSON(buildSites())) }
+
+func buildSites() []SiteResponse {
 	enriched, err := siteinfo.LoadAll(siteinfo.EnrichUI)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return []SiteResponse{}
 	}
 	_ = siteinfo.PersistVersionChanges(enriched)
 
@@ -501,7 +557,7 @@ func handleSites(w http.ResponseWriter, _ *http.Request) {
 			Services:           e.Services,
 		})
 	}
-	writeJSON(w, sites)
+	return sites
 }
 
 // ServiceResponse is the response for GET /api/services.
@@ -601,6 +657,13 @@ func listActiveHorizonWorkers() []string {
 }
 
 func handleServices(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(snapshots.Services())
+}
+
+func buildServicesJSON() []byte { return []byte(mustJSON(buildServicesList())) }
+
+func buildServicesList() []ServiceResponse {
 	services := make([]ServiceResponse, 0, len(knownServices))
 	for _, name := range knownServices {
 		services = append(services, buildServiceResponse(name))
@@ -709,7 +772,7 @@ func handleServices(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, services)
+	return services
 }
 
 // PresetResponse describes a bundled service preset for the web UI.

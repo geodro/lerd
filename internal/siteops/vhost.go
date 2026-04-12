@@ -7,6 +7,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // RegenerateSiteVhost regenerates the nginx vhost for a site after domain changes.
@@ -33,6 +34,9 @@ func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 		if err := nginx.GenerateVhost(*site, site.PHPVersion); err != nil {
 			return fmt.Errorf("generating vhost: %w", err)
 		}
+	}
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
 	}
 	return nil
 }

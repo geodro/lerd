@@ -139,5 +139,14 @@ func FinishLink(site config.Site, phpVersion string) error {
 		return fmt.Errorf("nginx reload: %w", err)
 	}
 
+	// Linking a site doesn't start a systemd unit, so the shared
+	// AfterUnitChange hook wouldn't otherwise fire. Notify the hook
+	// explicitly so the CLI/MCP processes ping lerd-ui (and lerd-ui's
+	// own in-process handler invalidates the snapshot cache) and the
+	// new site appears in every open dashboard tab.
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
+	}
+
 	return nil
 }

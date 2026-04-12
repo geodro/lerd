@@ -116,9 +116,28 @@ func DaemonReload() error {
 // rate-limit (e.g. workers that raced container readiness in a buggy
 // upgrade) recover automatically on the next `lerd start` instead of
 // staying stuck in `failed`.
+// AfterUnitChange is fired after every successful StartUnit / StopUnit /
+// RestartUnit call. lerd-ui wires this at startup to invalidate the
+// systemctl unit cache and publish "sites"/"services" events to the
+// eventbus so every browser tab updates in real time — regardless of
+// whether the mutation came from an HTTP handler, the CLI, the MCP
+// server, or the file watcher. Nil by default so unit tests and binaries
+// that don't run the UI don't pay the cost.
+var AfterUnitChange func(name string)
+
+func notifyUnitChange(name string) {
+	if AfterUnitChange != nil {
+		AfterUnitChange(name)
+	}
+}
+
 func StartUnit(name string) error {
 	if UnitLifecycle != nil {
-		return UnitLifecycle.Start(name)
+		err := UnitLifecycle.Start(name)
+		if err == nil {
+			notifyUnitChange(name)
+		}
+		return err
 	}
 	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
 	cmd := exec.Command("systemctl", "--user", "start", name)
@@ -126,13 +145,18 @@ func StartUnit(name string) error {
 	if err != nil {
 		return fmt.Errorf("start %s failed: %w\n%s", name, err, out)
 	}
+	notifyUnitChange(name)
 	return nil
 }
 
 // StopUnit stops a service unit.
 func StopUnit(name string) error {
 	if UnitLifecycle != nil {
-		return UnitLifecycle.Stop(name)
+		err := UnitLifecycle.Stop(name)
+		if err == nil {
+			notifyUnitChange(name)
+		}
+		return err
 	}
 	cmd := exec.Command("systemctl", "--user", "stop", name)
 	out, err := cmd.CombinedOutput()
@@ -141,19 +165,25 @@ func StopUnit(name string) error {
 	}
 	// Clear any failed state so the unit shows as inactive rather than failed.
 	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
+	notifyUnitChange(name)
 	return nil
 }
 
 // RestartUnit restarts a service unit.
 func RestartUnit(name string) error {
 	if UnitLifecycle != nil {
-		return UnitLifecycle.Restart(name)
+		err := UnitLifecycle.Restart(name)
+		if err == nil {
+			notifyUnitChange(name)
+		}
+		return err
 	}
 	cmd := exec.Command("systemctl", "--user", "restart", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("restart %s failed: %w\n%s", name, err, out)
 	}
+	notifyUnitChange(name)
 	return nil
 }
 

@@ -281,7 +281,7 @@
           <button @click="selectSystem('node-'+v)"
             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50"
             :class="selectedSystem==='node-'+v ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
-            <span class="w-2 h-2 rounded-full shrink-0 bg-gray-300 dark:bg-gray-600"></span>
+            <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500"></span>
             <span class="font-medium flex-1" x-text="'Node '+v"></span>
             <template x-if="systemStatus.node_default === v">
               <span class="text-[10px] font-medium shrink-0" :class="selectedSystem==='node-'+v ? 'text-lerd-red/60' : 'text-gray-400 dark:text-gray-600'">default</span>
@@ -464,7 +464,7 @@
           </div>
           <template x-for="v in nodeVersions" :key="'mnode-'+v">
             <button @click="selectSystem('node-'+v)" class="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border" :class="selectedSystem==='node-'+v ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
-              <span class="w-2 h-2 rounded-full shrink-0 bg-gray-300 dark:bg-gray-600"></span>
+              <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500"></span>
               <span class="font-medium flex-1" x-text="'Node '+v"></span>
               <template x-if="systemStatus.node_default === v"><span class="text-[10px] text-gray-400 mr-1">default</span></template>
               <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
@@ -1941,6 +1941,26 @@
     window.EventSource.OPEN = OrigES.OPEN;
     window.EventSource.CLOSED = OrigES.CLOSED;
   }
+  // WebSocket: the dashboard's /api/ws stream uses the same rewrite so
+  // browsers on lerd.localhost connect straight to ws://localhost:7073
+  // instead of going through the nginx vhost (which only proxies the HTML
+  // shell and returns 444 on everything else).
+  if (typeof window.WebSocket === 'function') {
+    const WS_BASE = API_BASE.replace(/^http/, 'ws');
+    const OrigWS = window.WebSocket;
+    const PatchedWS = function(url, protocols) {
+      if (typeof url === 'string' && url.startsWith('/')) {
+        url = WS_BASE + url;
+      }
+      return protocols === undefined ? new OrigWS(url) : new OrigWS(url, protocols);
+    };
+    PatchedWS.prototype = OrigWS.prototype;
+    PatchedWS.CONNECTING = OrigWS.CONNECTING;
+    PatchedWS.OPEN = OrigWS.OPEN;
+    PatchedWS.CLOSING = OrigWS.CLOSING;
+    PatchedWS.CLOSED = OrigWS.CLOSED;
+    window.WebSocket = PatchedWS;
+  }
 })();
 
 function lerdApp() {
@@ -2094,21 +2114,68 @@ function lerdApp() {
       this.loadServices();
       this.loadPresets();
       this.loadStatus();
-      this._statusInterval = setInterval(() => {
-        this.loadSites();
-        if (this.tab === 'services') {
-          this.loadServices();
+      this._startPollFallback = () => {
+        if (this._statusInterval) return;
+        this._statusInterval = setInterval(() => {
+          this.loadSites();
+          if (this.tab === 'services') { this.loadServices(); }
+          if (this.tab === 'system') {
+            this.loadStatus();
+            this.loadNodeVersions();
+            this.loadLANStatus();
+            this.loadRemoteControl();
+          }
+        }, 5000);
+      };
+      this._stopPollFallback = () => {
+        if (this._statusInterval) {
+          clearInterval(this._statusInterval);
+          this._statusInterval = null;
         }
-        if (this.tab === 'system') {
-          this.loadStatus();
-          this.loadNodeVersions();
-          // Refresh LAN/remote-control state on the system tab so the
-          // dashboard reflects toggles made via CLI (`lerd lan:expose`,
-          // `lerd remote-control on`) without a page reload.
-          this.loadLANStatus();
-          this.loadRemoteControl();
-        }
-      }, 5000);
+      };
+      this._connectWS();
+    },
+
+    // _connectWS opens a websocket to /api/ws so the dashboard receives
+    // state-change events instead of polling every 5 seconds. Each message
+    // lists which kinds changed; we trigger the matching loader, which now
+    // reads from the server-side snapshot cache and returns in a few ms.
+    // If the socket drops, we fall back to the legacy polling interval and
+    // retry with exponential backoff up to 30s so a restart of lerd-ui
+    // transparently reconnects.
+    _connectWS() {
+      try {
+        // Relative URL so the WebSocket wrapper at the top of this file
+        // rewrites it to ws://localhost:7073 when served from lerd.localhost.
+        const ws = new WebSocket('/api/ws');
+        this._ws = ws;
+        ws.onopen = () => {
+          this._wsBackoff = 1000;
+          this._stopPollFallback();
+        };
+        ws.onmessage = (e) => {
+          let msg;
+          try { msg = JSON.parse(e.data); } catch (_) { return; }
+          // The frame carries the actual data — apply it directly instead
+          // of re-fetching over REST. First frame after connect has all
+          // three kinds; subsequent frames have only the kind that changed.
+          if (msg.sites)    this.applySites(msg.sites);
+          if (msg.services) this.applyServices(msg.services);
+          if (msg.status)   this.applyStatus(msg.status);
+        };
+        ws.onclose = () => {
+          this._ws = null;
+          this._startPollFallback();
+          const delay = Math.min(30000, this._wsBackoff || 1000);
+          this._wsBackoff = delay * 2;
+          setTimeout(() => this._connectWS(), delay);
+        };
+        ws.onerror = () => {
+          // onclose will fire right after, which handles the fallback.
+        };
+      } catch (_) {
+        this._startPollFallback();
+      }
     },
 
     capitalize(s) { return s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); },
@@ -2419,10 +2486,6 @@ function lerdApp() {
     },
 
     async loadSites() {
-      // Skip if a previous loadSites is still in flight. The 5s polling
-      // timer would otherwise stack requests on a slow backend and saturate
-      // the browser's per-host HTTP/1.1 connection limit alongside open
-      // SSE log streams, leaving requests pending or failing CONN_RESET.
       if (this._sitesInFlight) return;
       this._sitesInFlight = true;
       const firstLoad = !this._sitesLoaded;
@@ -2430,68 +2493,87 @@ function lerdApp() {
       try {
         const res = await fetch('/api/sites');
         const raw = await res.json();
-        this._sitesLoaded = true;
-        if (firstLoad) {
-          this.sites = raw.map(s => ({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', horizonLoading: false, horizonError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) }));
-        } else {
-          raw.forEach(s => {
-            const e = this.sites.find(x => x.name === s.name);
-            if (e) {
-              e.domain = s.domain;
-              e.domains = s.domains;
-              e.conflicting_domains = s.conflicting_domains;
-              e.php_version = s.php_version;
-              e.node_version = s.node_version;
-              e.tls = s.tls;
-              e.fpm_running = s.fpm_running;
-              e.queue_running = s.queue_running;
-              e.stripe_running = s.stripe_running;
-              e.stripe_secret_set = s.stripe_secret_set;
-              e.schedule_running = s.schedule_running;
-              e.reverb_running = s.reverb_running;
-              e.has_reverb = s.has_reverb;
-              e.horizon_running = s.horizon_running;
-              e.has_horizon = s.has_horizon;
-              e.has_queue_worker = s.has_queue_worker;
-              e.has_schedule_worker = s.has_schedule_worker;
-              e.has_app_logs = s.has_app_logs;
-              e.latest_log_time = s.latest_log_time;
-              e.branch = s.branch;
-              e.paused = s.paused;
-              if (s.framework_workers) {
-                if (e.framework_workers) {
-                  s.framework_workers.forEach(sw => {
-                    const ew = e.framework_workers.find(w => w.name === sw.name);
-                    if (ew) { ew.running = sw.running; }
-                    else { e.framework_workers.push({ ...sw, loading: false, error: '' }); }
-                  });
-                  e.framework_workers = e.framework_workers.filter(ew => s.framework_workers.some(sw => sw.name === ew.name));
-                } else {
-                  e.framework_workers = s.framework_workers.map(w => ({ ...w, loading: false, error: '' }));
-                }
-              }
-            } else {
-              this.sites.push({ ...s, tlsLoading: false, tlsError: '', versionLoading: false, queueLoading: false, queueError: '', stripeLoading: false, stripeError: '', scheduleLoading: false, scheduleError: '', reverbLoading: false, reverbError: '', horizonLoading: false, horizonError: '', unlinkLoading: false, pauseLoading: false, framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })) });
-            }
-          });
-          this.sites = this.sites.filter(e => raw.some(s => s.name === e.name));
-        }
+        this.applySites(raw);
       } catch (_) {
         if (firstLoad) this.sites = [];
       } finally {
         this._sitesInFlight = false;
-        if (firstLoad) {
-          this.sitesLoading = false;
-          // Auto-select site with the most recent app log activity
-          if (!this.selectedSiteDomain) {
-            const withLogs = this.sites.filter(s => s.has_app_logs && s.latest_log_time);
-            if (withLogs.length > 0) {
-              withLogs.sort((a, b) => b.latest_log_time.localeCompare(a.latest_log_time));
-              this.selectSite(withLogs[0]);
-            }
+        if (firstLoad) this.sitesLoading = false;
+      }
+    },
+
+    // applySites merges server-pushed sites data into Alpine state. Shared
+    // between the initial REST loadSites() and the websocket onmessage
+    // handler, so WS-delivered updates go through the same field-diff code
+    // that polling used. Preserves per-row UI state (loading flags, errors).
+    applySites(raw) {
+      if (!Array.isArray(raw)) return;
+      const firstLoad = !this._sitesLoaded;
+      this._sitesLoaded = true;
+      const decorate = s => ({
+        ...s,
+        tlsLoading: false, tlsError: '',
+        versionLoading: false,
+        queueLoading: false, queueError: '',
+        stripeLoading: false, stripeError: '',
+        scheduleLoading: false, scheduleError: '',
+        reverbLoading: false, reverbError: '',
+        horizonLoading: false, horizonError: '',
+        unlinkLoading: false, pauseLoading: false,
+        framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })),
+      });
+      if (firstLoad) {
+        this.sites = raw.map(decorate);
+        if (!this.selectedSiteDomain) {
+          const withLogs = this.sites.filter(s => s.has_app_logs && s.latest_log_time);
+          if (withLogs.length > 0) {
+            withLogs.sort((a, b) => b.latest_log_time.localeCompare(a.latest_log_time));
+            this.selectSite(withLogs[0]);
           }
         }
+        return;
       }
+      raw.forEach(s => {
+        const e = this.sites.find(x => x.name === s.name);
+        if (e) {
+          e.domain = s.domain;
+          e.domains = s.domains;
+          e.conflicting_domains = s.conflicting_domains;
+          e.php_version = s.php_version;
+          e.node_version = s.node_version;
+          e.tls = s.tls;
+          e.fpm_running = s.fpm_running;
+          e.queue_running = s.queue_running;
+          e.stripe_running = s.stripe_running;
+          e.stripe_secret_set = s.stripe_secret_set;
+          e.schedule_running = s.schedule_running;
+          e.reverb_running = s.reverb_running;
+          e.has_reverb = s.has_reverb;
+          e.horizon_running = s.horizon_running;
+          e.has_horizon = s.has_horizon;
+          e.has_queue_worker = s.has_queue_worker;
+          e.has_schedule_worker = s.has_schedule_worker;
+          e.has_app_logs = s.has_app_logs;
+          e.latest_log_time = s.latest_log_time;
+          e.branch = s.branch;
+          e.paused = s.paused;
+          if (s.framework_workers) {
+            if (e.framework_workers) {
+              s.framework_workers.forEach(sw => {
+                const ew = e.framework_workers.find(w => w.name === sw.name);
+                if (ew) { ew.running = sw.running; }
+                else { e.framework_workers.push({ ...sw, loading: false, error: '' }); }
+              });
+              e.framework_workers = e.framework_workers.filter(ew => s.framework_workers.some(sw => sw.name === ew.name));
+            } else {
+              e.framework_workers = s.framework_workers.map(w => ({ ...w, loading: false, error: '' }));
+            }
+          }
+        } else {
+          this.sites.push(decorate(s));
+        }
+      });
+      this.sites = this.sites.filter(e => raw.some(s => s.name === e.name));
     },
 
     selectSite(site) {
@@ -2777,26 +2859,32 @@ function lerdApp() {
       try {
         const res = await fetch('/api/services');
         const raw = await res.json();
-        if (firstLoad) {
-          this.services = raw.map(s => ({ ...s, loading: false, error: '', flash: '', copied: false }));
-        } else {
-          raw.forEach(s => {
-            const e = this.services.find(x => x.name === s.name);
-            if (e) {
-              e.status = s.status;
-              e.pinned = s.pinned;
-              e.site_count = s.site_count;
-            } else {
-              this.services.push({ ...s, loading: false, error: '', flash: '', copied: false });
-            }
-          });
-          this.services = this.services.filter(e => raw.some(s => s.name === e.name));
-        }
+        this.applyServices(raw);
       } catch (_) {
         if (firstLoad) this.services = [];
       } finally {
         if (firstLoad) this.servicesLoading = false;
       }
+    },
+
+    // applyServices: see applySites.
+    applyServices(raw) {
+      if (!Array.isArray(raw)) return;
+      if (this.services.length === 0) {
+        this.services = raw.map(s => ({ ...s, loading: false, error: '', flash: '', copied: false }));
+        return;
+      }
+      raw.forEach(s => {
+        const e = this.services.find(x => x.name === s.name);
+        if (e) {
+          e.status = s.status;
+          e.pinned = s.pinned;
+          e.site_count = s.site_count;
+        } else {
+          this.services.push({ ...s, loading: false, error: '', flash: '', copied: false });
+        }
+      });
+      this.services = this.services.filter(e => raw.some(s => s.name === e.name));
     },
 
     selectService(svc) {
@@ -3846,17 +3934,23 @@ function lerdApp() {
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
-        this.systemStatus = data;
-        const next = { ...this.xdebugEnabled };
-        (data.php_fpms || []).forEach(fpm => {
-          if (!this.xdebugLoading[fpm.version]) {
-            next[fpm.version] = fpm.xdebug_enabled;
-          }
-        });
-        this.xdebugEnabled = next;
+        this.applyStatus(data);
       } catch (_) {} finally {
         this.statusLoading = false;
       }
+    },
+
+    // applyStatus: see applySites.
+    applyStatus(data) {
+      if (!data || typeof data !== 'object') return;
+      this.systemStatus = data;
+      const next = { ...this.xdebugEnabled };
+      (data.php_fpms || []).forEach(fpm => {
+        if (!this.xdebugLoading[fpm.version]) {
+          next[fpm.version] = fpm.xdebug_enabled;
+        }
+      });
+      this.xdebugEnabled = next;
     },
 
     async loadSettings() {
