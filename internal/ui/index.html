@@ -1626,6 +1626,11 @@
                       <span>Lerd is bound to 127.0.0.1 only — invisible to other devices on the network. Safe for untrusted wifi (cafés, conference networks). Expose to share your sites with another machine on a trusted LAN.</span>
                     </template>
                   </p>
+                  <template x-if="lanExposure.macos">
+                    <p class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 mb-3">
+                      <strong>macOS:</strong> This toggle only controls DNS resolution (<code class="font-mono">*.test</code> → 127.0.0.1 or LAN IP). Ports 80 and 443 are always reachable from the LAN due to a gvproxy limitation — the Podman Machine network layer does not support IP-specific bindings for privileged ports. Service ports (MySQL, Redis, etc.) are properly restricted to 127.0.0.1.
+                    </p>
+                  </template>
                   <div x-show="accessMode.loopback" class="flex items-center gap-2">
                     <button x-show="!lanExposure.exposed" @click="toggleLANExposure('expose')" :disabled="lanExposure.loading"
                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors">
@@ -1971,7 +1976,7 @@ function lerdApp() {
     },
     updateTerminal: { loading: false, error: '' },
     remoteControl: { enabled: false, username: '', loading: false, error: '' },
-    lanExposure: { exposed: false, lanIP: '', loading: false, error: '', justExposed: false, setupCode: '', setupCurl: '', setupExpiresIn: '', setupLoading: false, setupError: '', setupCopied: false, progressSteps: [] },
+    lanExposure: { exposed: false, lanIP: '', macos: false, loading: false, error: '', justExposed: false, setupCode: '', setupCurl: '', setupExpiresIn: '', setupLoading: false, setupError: '', setupCopied: false, progressSteps: [] },
     remoteControlModal: { open: false, username: '', password: '', loading: false, error: '' },
     // apiBase is prepended to image/asset URLs that the browser fetches
     // directly (not via window.fetch — those are intercepted by the
@@ -2189,6 +2194,7 @@ function lerdApp() {
         const data = await res.json();
         this.lanExposure.exposed = !!data.exposed;
         this.lanExposure.lanIP = data.lan_ip || '';
+        this.lanExposure.macos = !!data.macos;
       } catch (e) { /* non-fatal */ }
     },
 
@@ -2413,6 +2419,12 @@ function lerdApp() {
     },
 
     async loadSites() {
+      // Skip if a previous loadSites is still in flight. The 5s polling
+      // timer would otherwise stack requests on a slow backend and saturate
+      // the browser's per-host HTTP/1.1 connection limit alongside open
+      // SSE log streams, leaving requests pending or failing CONN_RESET.
+      if (this._sitesInFlight) return;
+      this._sitesInFlight = true;
       const firstLoad = !this._sitesLoaded;
       if (firstLoad) this.sitesLoading = true;
       try {
@@ -2467,6 +2479,7 @@ function lerdApp() {
       } catch (_) {
         if (firstLoad) this.sites = [];
       } finally {
+        this._sitesInFlight = false;
         if (firstLoad) {
           this.sitesLoading = false;
           // Auto-select site with the most recent app log activity

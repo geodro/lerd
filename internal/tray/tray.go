@@ -62,10 +62,12 @@ type serviceInfo struct {
 const daemonEnv = "LERD_TRAY_DAEMON"
 
 // Run starts the system tray applet.
-// Unless already running as a daemon, it re-execs itself detached from the
-// terminal and returns immediately so the shell prompt is restored.
+// Unless already running as a daemon (or under launchd), it re-execs itself
+// detached from the terminal and returns immediately so the shell prompt is
+// restored. When launched by launchd, XPC_SERVICE_NAME is set and we run
+// foreground directly — launchd owns the process lifecycle.
 func Run(mono bool) error {
-	if os.Getenv(daemonEnv) == "" {
+	if os.Getenv(daemonEnv) == "" && os.Getenv("XPC_SERVICE_NAME") == "" {
 		return detach(mono)
 	}
 	if !acquireLock() {
@@ -141,7 +143,7 @@ func onReady(mono bool) {
 	} else {
 		systray.SetIcon(iconPNG)
 	}
-	systray.SetTitle("Lerd")
+	// SetTitle would show text next to the icon in the macOS menu bar — skip it.
 	systray.SetTooltip("Lerd — local dev environment")
 
 	menu := buildMenu()
@@ -157,7 +159,9 @@ func onReady(mono bool) {
 	go handleServices(menu)
 	go handlePHP(menu)
 	go handleAutostart(menu.mAutostart)
-	go handleLAN(menu.mLAN)
+	if menu.mLAN != nil {
+		go handleLAN(menu.mLAN)
+	}
 	go handleUpdate(menu.mUpdate)
 	go handleQuit(menu.mQuit, cancel)
 }

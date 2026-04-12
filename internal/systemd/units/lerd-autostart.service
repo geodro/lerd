@@ -1,0 +1,10 @@
+[Unit]
+Description=Lerd Autostart
+After=default.target
+
+[Service]
+ExecStart=%h/.local/bin/lerd start
+Restart=no
+
+[Install]
+WantedBy=default.target

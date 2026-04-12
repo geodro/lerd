@@ -589,7 +589,7 @@ func newServiceRemoveCmd() *cobra.Command {
 			if err := podman.RemoveQuadlet(unit); err != nil {
 				fmt.Printf("  WARN: could not remove quadlet: %v\n", err)
 			}
-			if err := podman.DaemonReload(); err != nil {
+			if err := podman.DaemonReloadFn(); err != nil {
 				fmt.Printf("  WARN: daemon-reload failed: %v\n", err)
 			}
 
@@ -609,22 +609,41 @@ func newServiceRemoveCmd() *cobra.Command {
 	}
 }
 
-// ensureServiceQuadlet writes the quadlet for a known service and reloads systemd if needed.
+// migrateServiceUnits rewrites unit files for all globally configured services.
+// This ensures BindForLAN and other install-time settings are applied even for
+// services that already have a unit file on disk.
+func migrateServiceUnits() {
+	for _, svc := range knownServices {
+		ensureServiceQuadlet(svc) //nolint:errcheck
+	}
+	customs, _ := config.ListCustomServices()
+	for _, svc := range customs {
+		ensureCustomServiceQuadlet(svc) //nolint:errcheck
+	}
+}
+
+// ensureServiceQuadlet writes the unit file for a known service and reloads the service manager.
 func ensureServiceQuadlet(name string) error {
 	quadletName := "lerd-" + name
 	content, err := podman.GetQuadletTemplate(quadletName + ".container")
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
+	if override := platformImageOverride(name); override != "" {
+		content = podman.ApplyImage(content, override)
+	}
 	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
-		if svcCfg, ok := cfg.Services[name]; ok && len(svcCfg.ExtraPorts) > 0 {
-			content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+		if svcCfg, ok := cfg.Services[name]; ok {
+			content = podman.ApplyImage(content, svcCfg.Image)
+			if len(svcCfg.ExtraPorts) > 0 {
+				content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+			}
 		}
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", name, err)
+	if err := podman.WriteContainerUnitFn(quadletName, content); err != nil {
+		return fmt.Errorf("writing unit for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return podman.DaemonReloadFn()
 }
 
 // ensureCustomServiceQuadlet defers to serviceops so the CLI and the MCP

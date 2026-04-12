@@ -38,6 +38,32 @@ jobs:
       - name: Format
         run: test -z "$(gofmt -l .)"
 
+  build-macos:
+    name: Build & Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build (nogui)
+        run: CGO_ENABLED=0 go build -tags nogui -o /dev/null ./cmd/lerd
+
+      - name: Test
+        run: CGO_ENABLED=0 go test -tags nogui ./...
+
+      - name: Vet
+        run: CGO_ENABLED=0 go vet -tags nogui ./...
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
   installer:
     name: Installer Tests
     runs-on: ubuntu-latest

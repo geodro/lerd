@@ -19,6 +19,22 @@ func GetQuadletTemplate(name string) (string, error) {
 	return string(data), nil
 }
 
+// ApplyImage replaces the Image= line in quadlet content with the given image.
+// If content contains no Image= line it is returned unchanged.
+func ApplyImage(content, image string) string {
+	if image == "" {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "Image=") {
+			lines[i] = "Image=" + image
+			return strings.Join(lines, "\n")
+		}
+	}
+	return content
+}
+
 // ApplyExtraPorts appends extra PublishPort lines to quadlet content.
 func ApplyExtraPorts(content string, extraPorts []string) string {
 	var sb strings.Builder
@@ -107,7 +123,7 @@ func InjectExtraVolumes(content string, paths []string) string {
 
 // OCIRuntime returns the name of the OCI runtime podman is currently configured to use.
 func OCIRuntime() string {
-	out, err := exec.Command("podman", "info", "--format", "{{.Host.OCIRuntime.Name}}").Output()
+	out, err := exec.Command(PodmanBin(), "info", "--format", "{{.Host.OCIRuntime.Name}}").Output()
 	if err != nil {
 		return ""
 	}

@@ -149,6 +149,7 @@ func TestDetectVersion_ComposerJson(t *testing.T) {
 
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	got, err := DetectVersion(dir)
 	if err != nil {

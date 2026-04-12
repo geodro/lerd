@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -47,53 +47,54 @@ func runUninstall(force bool) error {
 	fmt.Println("  --> Removing DNS configuration")
 	dns.Teardown()
 
-	quadletDir := config.QuadletDir()
-
 	step("Stopping containers and services")
 	{
-		var units []string
-		// Quadlet containers (nginx, dns, mysql, redis, etc.)
-		if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-			for _, f := range entries {
-				units = append(units, strings.TrimSuffix(filepath.Base(f), ".container"))
-			}
-		}
-		// Systemd user services (workers, watcher, ui, autostart, stripe, etc.)
-		if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
-			for _, f := range entries {
-				units = append(units, strings.TrimSuffix(filepath.Base(f), ".service"))
-			}
-		}
-		for _, unit := range units {
+		// Use the service manager so this works on both Linux (systemd/quadlet)
+		// and macOS (launchd plists).
+		seen := map[string]bool{}
+		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
+			seen[unit] = true
 			status, _ := podman.UnitStatus(unit)
-			if status == "active" {
+			if status == "active" || status == "activating" {
 				_ = podman.StopUnit(unit)
 			}
-			_ = disableUnit(unit)
+			_ = services.Mgr.Disable(unit)
+		}
+		for _, unit := range services.Mgr.ListServiceUnits("lerd-*") {
+			if seen[unit] {
+				continue
+			}
+			status, _ := podman.UnitStatus(unit)
+			if status == "active" || status == "activating" {
+				_ = podman.StopUnit(unit)
+			}
+			_ = services.Mgr.Disable(unit)
 		}
 		// Kill any running tray process. The tray may be running standalone
-		// (launched from the desktop file or `lerd tray`) without a systemd
-		// unit, in which case the unit teardown above misses it and the tray
-		// keeps running after the binary is gone.
+		// (launched from the desktop file or `lerd tray`) without a unit,
+		// in which case the unit teardown above misses it.
 		killTray()
 	}
 	ok()
 
-	step("Removing quadlet units and services")
-	if entries, err := filepath.Glob(filepath.Join(quadletDir, "lerd-*.container")); err == nil {
-		for _, f := range entries {
-			os.Remove(f) //nolint:errcheck
+	step("Removing service units")
+	{
+		seen := map[string]bool{}
+		for _, unit := range services.Mgr.ListContainerUnits("lerd-*") {
+			seen[unit] = true
+			_ = services.Mgr.RemoveContainerUnit(unit)
 		}
-	}
-	if entries, err := filepath.Glob(filepath.Join(config.SystemdUserDir(), "lerd-*.service")); err == nil {
-		for _, f := range entries {
-			os.Remove(f) //nolint:errcheck
+		for _, unit := range services.Mgr.ListServiceUnits("lerd-*") {
+			if seen[unit] {
+				continue
+			}
+			_ = services.Mgr.RemoveServiceUnit(unit)
 		}
 	}
 	ok()
 
-	step("Reloading systemd daemon")
-	_ = podman.DaemonReload()
+	step("Reloading service manager")
+	_ = podman.DaemonReloadFn()
 	ok()
 
 	step("Removing lerd Podman network")
@@ -137,10 +138,6 @@ func readYes() bool {
 	return strings.EqualFold(ans, "y") || strings.EqualFold(ans, "yes")
 }
 
-func disableUnit(name string) error {
-	return runSystemctlUser("disable", name)
-}
-
 func removeShellEntry() {
 	const marker = "# Added by Lerd installer"
 	home, _ := os.UserHomeDir()
@@ -154,11 +151,6 @@ func removeShellEntry() {
 	for _, rc := range candidates {
 		removeMarkedBlock(rc, marker)
 	}
-}
-
-func runSystemctlUser(args ...string) error {
-	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
-	return cmd.Run()
 }
 
 // removeMarkedBlock removes the marker line and the line immediately after it.

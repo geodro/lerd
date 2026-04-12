@@ -8,6 +8,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -118,11 +119,11 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan horizon
+ExecStart=%s exec -w %s %s php artisan horizon
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, fpmUnit, sitePath, container)
+`, siteName, fpmUnit, fpmUnit, fpmUnit, podman.PodmanBin(), sitePath, container)
 }
 
 // HorizonStopForSite stops and removes the Horizon unit for the named site.

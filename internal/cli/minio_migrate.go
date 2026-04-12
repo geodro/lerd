@@ -55,7 +55,7 @@ func runMinioMigrate(_ *cobra.Command, _ []string) error {
 	} else {
 		fmt.Println("done")
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		fmt.Printf("  warn: daemon-reload failed: %v\n", err)
 	}
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // writeTempEnv creates a temp dir with a .env file containing the given
@@ -94,7 +96,7 @@ func TestBuildQueueUnit_RedisBackendRendersDependencies(t *testing.T) {
 	mustContain(t, unit, "Wants=lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "BindsTo=lerd-php84-fpm.service")
 	mustContain(t, unit, "Restart=always")
-	mustContain(t, unit, "ExecStart=podman exec -w "+sitePath+" lerd-php84-fpm php artisan queue:work --queue=default --tries=3 --timeout=60")
+	mustContain(t, unit, "ExecStart="+podman.PodmanBin()+" exec -w "+sitePath+" lerd-php84-fpm php artisan queue:work --queue=default --tries=3 --timeout=60")
 	mustContain(t, unit, "WantedBy=default.target")
 }
 
@@ -127,7 +129,7 @@ func TestBuildHorizonUnit_AlwaysDependsOnRedis(t *testing.T) {
 	mustContain(t, unit, "After=network.target lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "Wants=lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "BindsTo=lerd-php84-fpm.service")
-	mustContain(t, unit, "ExecStart=podman exec -w /home/u/score-diviner lerd-php84-fpm php artisan horizon")
+	mustContain(t, unit, "ExecStart="+podman.PodmanBin()+" exec -w /home/u/score-diviner lerd-php84-fpm php artisan horizon")
 }
 
 func mustContain(t *testing.T, body, needle string) {
