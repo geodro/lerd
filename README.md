@@ -70,8 +70,16 @@ AI:  → site_link()
 
 ## Install
 
+### Linux
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+```
+
+Update later with:
+
+```bash
+lerd update
 ```
 
 ### macOS
@@ -83,7 +91,7 @@ brew install geodro/lerd/lerd
 lerd install
 ```
 
-Or if already installed:
+Update later with:
 
 ```bash
 brew upgrade lerd
@@ -91,7 +99,7 @@ lerd install
 ```
 
 > [!NOTE]
-> See the [macOS installation docs](https://geodro.github.io/lerd/getting-started/installation/#macos) for details.
+> See the [installation docs](https://geodro.github.io/lerd/getting-started/installation/) for details.
 
 ## Quick Start
 

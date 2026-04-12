@@ -1,6 +1,8 @@
 # Installation
 
-## One-line installer (recommended)
+## Linux
+
+### One-line installer (recommended)
 
 ::: code-group
 
@@ -48,7 +50,7 @@ After install, reload your shell or open a new terminal so `PATH` takes effect.
 
 ---
 
-## Install from a local build
+### Install from a local build
 
 If you built from source and want to skip the GitHub download:
 
@@ -59,7 +61,7 @@ bash install.sh --local ./build/lerd
 
 ---
 
-## Update
+### Update
 
 ```bash
 lerd update
@@ -83,7 +85,7 @@ wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -
 
 ---
 
-## Uninstall
+### Uninstall
 
 ```bash
 lerd uninstall
@@ -99,7 +101,7 @@ lerd uninstall --force
 
 ---
 
-## Check prerequisites only
+### Check prerequisites only
 
 ```bash
 bash install.sh --check
