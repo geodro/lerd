@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/geodro/lerd/internal/applog"
@@ -154,16 +155,37 @@ func LoadAll(flags EnrichFlag) ([]EnrichedSite, error) {
 		return nil, err
 	}
 
-	var result []EnrichedSite
+	// Filter ignored sites first so we know the final length up front and
+	// can write straight into the result slice from goroutines.
+	visible := reg.Sites[:0:0]
 	for _, s := range reg.Sites {
 		if s.Ignored {
 			continue
 		}
-		result = append(result, Enrich(s, flags))
+		visible = append(visible, s)
 	}
-	if result == nil {
-		result = []EnrichedSite{}
+
+	result := make([]EnrichedSite, len(visible))
+	if len(visible) == 0 {
+		return []EnrichedSite{}, nil
 	}
+
+	// Per-site enrichment fans out to many independent subprocesses
+	// (systemctl is-active, podman ps, git status, …). Sequential calls
+	// dominated /api/sites latency at ~750ms for 25 sites; parallelising
+	// across sites cuts that proportionally and prevents the UI's 5s
+	// polling loop from piling up against the browser's per-host
+	// HTTP/1.1 connection limit.
+	var wg sync.WaitGroup
+	wg.Add(len(visible))
+	for i := range visible {
+		i := i
+		go func() {
+			defer wg.Done()
+			result[i] = Enrich(visible[i], flags)
+		}()
+	}
+	wg.Wait()
 	return result, nil
 }
 

@@ -146,7 +146,51 @@ func LoadGlobal() (*GlobalConfig, error) {
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, err
 	}
+	migrateStaleServiceImages(cfg)
 	return cfg, nil
+}
+
+// staleServiceImages maps service name → list of historical default images
+// that earlier lerd releases persisted into user configs. When LoadGlobal
+// finds one of these on disk it transparently replaces it with the current
+// default from defaultConfig() so users picking up the upgrade automatically
+// move onto the new image (e.g. postgres → postgis/postgis for PostGIS
+// support) without having to hand-edit ~/.config/lerd/config.yaml.
+var staleServiceImages = map[string][]string{
+	"postgres": {
+		"postgres:16-alpine",
+		"docker.io/library/postgres:16-alpine",
+		"docker.io/postgres:16-alpine",
+	},
+}
+
+func migrateStaleServiceImages(cfg *GlobalConfig) {
+	if cfg == nil || cfg.Services == nil {
+		return
+	}
+	defaults := defaultConfig().Services
+	changed := false
+	for name, stale := range staleServiceImages {
+		svc, ok := cfg.Services[name]
+		if !ok {
+			continue
+		}
+		def, hasDefault := defaults[name]
+		if !hasDefault {
+			continue
+		}
+		for _, s := range stale {
+			if svc.Image == s {
+				svc.Image = def.Image
+				cfg.Services[name] = svc
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		_ = SaveGlobal(cfg)
+	}
 }
 
 // IsXdebugEnabled returns true if Xdebug is enabled for the given PHP version.

@@ -32,6 +32,9 @@ func NewUpdateCmd(currentVersion string) *cobra.Command {
 		Short: "Update Lerd to the latest release",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if rollback {
+				if runtime.GOOS == "darwin" {
+					return fmt.Errorf("rollback is not supported on macOS — use 'brew switch lerd <version>' instead")
+				}
 				return runRollback()
 			}
 			return runUpdate(currentVersion, beta)
@@ -83,6 +86,13 @@ func runUpdate(currentVersion string, beta bool) error {
 		}
 	} else {
 		fmt.Printf("  https://github.com/%s/releases/tag/v%s\n", githubRepo, lat)
+	}
+
+	// On macOS, Homebrew manages the binary — instruct the user rather than
+	// attempting a self-replace which would overwrite Homebrew's managed files.
+	if runtime.GOOS == "darwin" {
+		fmt.Printf("\nTo update, run:\n\n  brew upgrade lerd\n\n")
+		return nil
 	}
 
 	// Ask for confirmation.

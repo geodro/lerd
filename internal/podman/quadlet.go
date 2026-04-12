@@ -42,10 +42,24 @@ func WriteQuadletDiff(name, content string) (changed bool, err error) {
 	content = BindForLAN(content, lanExposed)
 	content = StripInstallSection(content, autostartDisabled)
 	path := filepath.Join(dir, name+".container")
+	fileChanged := true
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
-		return false, nil
+		fileChanged = false
 	}
-	return true, os.WriteFile(path, []byte(content), 0644)
+	if fileChanged {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return false, err
+		}
+	}
+	// Always sync the platform unit (e.g. macOS launchd plist) so it stays
+	// consistent with the .container file — even if the file didn't change,
+	// the plist may be stale (e.g. after a config change like LAN exposure).
+	if AfterQuadletWriteFn != nil {
+		if err := AfterQuadletWriteFn(name, content); err != nil {
+			return fileChanged, err
+		}
+	}
+	return fileChanged, nil
 }
 
 // QuadletInstalled returns true if a quadlet .container file exists for the given unit name.
@@ -67,7 +81,24 @@ func RemoveQuadlet(name string) error {
 // RemoveContainer removes a stopped Podman container by name, ignoring errors
 // if the container does not exist.
 func RemoveContainer(name string) {
-	_ = exec.Command("podman", "rm", "-f", name).Run()
+	_ = exec.Command(PodmanBin(), "rm", "-f", name).Run()
+}
+
+// AfterQuadletWriteFn, if non-nil, is called by WriteQuadletDiff after
+// writing the .container file. On macOS it is set to the launchd plist
+// writer so both formats stay in sync (the .container file is the
+// canonical source of truth; the plist is the live runtime unit).
+var AfterQuadletWriteFn func(name, content string) error
+
+// UnitLifecycle is the interface for starting, stopping, restarting, and
+// querying service units. Set by the platform service manager on macOS so that
+// StartUnit/StopUnit/RestartUnit/UnitStatus route through launchd instead of
+// systemctl. Nil on Linux (the systemctl fallback is used).
+var UnitLifecycle interface {
+	Start(name string) error
+	Stop(name string) error
+	Restart(name string) error
+	UnitStatus(name string) (string, error)
 }
 
 // DaemonReload runs systemctl --user daemon-reload.
@@ -80,8 +111,16 @@ func DaemonReload() error {
 	return nil
 }
 
-// StartUnit starts a systemd user unit.
+// StartUnit starts a service unit. On Linux it first clears any lingering
+// failed state from a previous run so that units which hit Restart=
+// rate-limit (e.g. workers that raced container readiness in a buggy
+// upgrade) recover automatically on the next `lerd start` instead of
+// staying stuck in `failed`.
 func StartUnit(name string) error {
+	if UnitLifecycle != nil {
+		return UnitLifecycle.Start(name)
+	}
+	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
 	cmd := exec.Command("systemctl", "--user", "start", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -90,8 +129,11 @@ func StartUnit(name string) error {
 	return nil
 }
 
-// StopUnit stops a systemd user unit.
+// StopUnit stops a service unit.
 func StopUnit(name string) error {
+	if UnitLifecycle != nil {
+		return UnitLifecycle.Stop(name)
+	}
 	cmd := exec.Command("systemctl", "--user", "stop", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -102,8 +144,11 @@ func StopUnit(name string) error {
 	return nil
 }
 
-// RestartUnit restarts a systemd user unit.
+// RestartUnit restarts a service unit.
 func RestartUnit(name string) error {
+	if UnitLifecycle != nil {
+		return UnitLifecycle.Restart(name)
+	}
 	cmd := exec.Command("systemctl", "--user", "restart", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -124,13 +169,13 @@ func WaitReady(service string, timeout time.Duration) error {
 	switch service {
 	case "mysql":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-mysql",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-mysql",
 				"mysqladmin", "ping", "-uroot", "-plerd", "--silent")
 			return cmd.Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {
-			cmd := exec.Command("podman", "exec", "lerd-postgres",
+			cmd := exec.Command(PodmanBin(), "exec", "lerd-postgres",
 				"pg_isready", "-U", "postgres")
 			return cmd.Run() == nil
 		}
@@ -159,8 +204,11 @@ func WaitReady(service string, timeout time.Duration) error {
 	return fmt.Errorf("%s did not become ready within %s", service, timeout)
 }
 
-// UnitStatus returns the active state of a systemd user unit.
+// UnitStatus returns the active state of a service unit.
 func UnitStatus(name string) (string, error) {
+	if UnitLifecycle != nil {
+		return UnitLifecycle.UnitStatus(name)
+	}
 	cmd := exec.Command("systemctl", "--user", "is-active", name)
 	out, err := cmd.Output()
 	status := strings.TrimSpace(string(out))
