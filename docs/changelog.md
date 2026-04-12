@@ -11,6 +11,45 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.0] — 2026-04-13
+
+### Added
+
+- **macOS platform support** — first-class macOS alongside Linux. Installation, DNS, autostart, start/stop (with Podman Machine), PHP version detection, UI log streaming, and service management are all platform-split. Dedicated macOS CI build and test job.
+- **macOS service management** — workers UI, tray fix, parallel service start, and LAN support on macOS.
+- **WebSocket live dashboard updates** — the dashboard now receives push updates over WebSocket instead of polling, cutting idle request traffic and reflecting site/worker state changes immediately. (#161)
+- **Scheduled (timer-driven) framework workers** — frameworks can declare workers that run on a systemd timer instead of as long-lived processes. Timers are included in `lerd start`/`lerd stop`, surfaced in the UI, and detected via sibling `.timer` units in worker status. (#160)
+- **Platform-split UI log streaming** — log tailing routes through platform-specific backends (journald on Linux, log(1) on macOS).
+- **Cross-platform service management, DNS split, and CLI utilities** — foundation for multi-OS support: abstracted service layer, platform-specific DNS handling, and shared CLI helpers.
+
+### Fixed
+
+- **Input validation and credential handling hardened** — security audit sweep across CLI entry points and credential handling paths.
+- **Scheduled-worker lifecycle** — orphan `.timer` files are now skipped and cleaned up, timer-driven workers report as active in the UI, and stopping/tearing down timer-backed workers collapses and cleans up cleanly.
+- **Per-version framework resolution** — `schedule`, `queue`, `horizon`, and `reverb` shortcuts now resolve the framework definition per-version instead of falling back to a single global definition.
+- **Perpetual service quadlet rewrite on install** — `lerd install` no longer rewrites service quadlets on every run, which previously dropped local edits and triggered needless restarts.
+- **Skip Laravel installer prompt when already installed** — `lerd setup` no longer asks to install Laravel when the project is already initialised.
+- **macOS terminal integration** — `lerd open` and the UI terminal button open Terminal.app silently at the project directory; `lerd update` defers to `brew upgrade lerd` on macOS.
+- **macOS DNS sleep/wake repair, tray startup, and install ordering** — DNS survives sleep/wake cycles, the tray starts reliably on login, and install ordering avoids race conditions. Sequential install image pulls keep the sudo prompt visible.
+- **Launchctl kickstart hang on tray restart** — `lerd-tray` restart no longer hangs inside `launchctl kickstart` on macOS.
+- **RunParallel keypress goroutine swallowed sudo input** — the parallel-run keypress watcher no longer competes with sudo for stdin, so password prompts work again.
+- **Install linger and sudo prompt UX** — `lerd install` enables systemd user linger automatically, and the linger sudo prompt renders on its own line for readability.
+- **Default PHP-FPM always starts in `lerd start`** — the default PHP-FPM unit is always brought up, preventing "no PHP handler" errors on fresh boots.
+- **Linux worker restore, PostGIS migration, and UI request pile-up** — hardened worker restoration on Linux, fixed PostGIS database migration, and stopped the UI from piling up in-flight requests.
+- **Remote CA installed into isolated CAROOT** — `lerd setup --remote` installs its CA into a dedicated CAROOT so it no longer overwrites the local mkcert root.
+
+### Changed
+
+- **Platform-split installation** — binaries, DNS, autostart, and cleanup routines are now dispatched through a platform interface rather than hardcoded to Linux.
+- **Platform-split start/stop** — `lerd start`/`lerd stop` run through per-platform implementations, including Podman Machine orchestration on macOS.
+- **Platform-split PHP version detection** — PHP version discovery runs through platform-specific probes.
+
+### Docs
+
+- **macOS in the tagline and install docs** — the tagline, install instructions, and per-platform update steps now include macOS. Beta wording and "coming soon" / "Linux-only" phrasing removed throughout.
+
+---
+
 ## [1.11.0] — 2026-04-11
 
 ### Added
