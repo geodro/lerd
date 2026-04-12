@@ -169,7 +169,7 @@ func Start(currentVersion string) error {
 	})
 
 	mux.HandleFunc("/api/services/presets", withCORS(handleServicePresets))
-	mux.HandleFunc("/api/services/presets/", withCORS(handleServicePresetInstall))
+	mux.HandleFunc("/api/services/presets/", withCORS(publishAfter(handleServicePresetInstall, eventbus.KindServices, eventbus.KindStatus)))
 	mux.HandleFunc("/api/services/", withCORS(publishAfter(handleServiceAction, eventbus.KindServices, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/version", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, currentVersion)
