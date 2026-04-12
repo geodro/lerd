@@ -52,7 +52,7 @@ func runPhpShell(_ *cobra.Command, _ []string) error {
 	podman.EnsurePathMounted(workDir, version)
 	ensureServicesForCwd(workDir)
 
-	cmd := podman.Cmd( "exec", "-it", "-w", workDir, container, "sh")
+	cmd := podman.Cmd("exec", "-it", "-w", workDir, container, "sh")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

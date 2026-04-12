@@ -42,7 +42,7 @@ Target can be:
 			}
 			cmdArgs = append(cmdArgs, container)
 
-			cmd := podman.Cmd( cmdArgs...)
+			cmd := podman.Cmd(cmdArgs...)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			return cmd.Run()

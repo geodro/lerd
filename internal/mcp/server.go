@@ -1659,7 +1659,7 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, artisanArgs...)
 
 	var out bytes.Buffer
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2161,7 +2161,7 @@ func execLogs(args map[string]any) (any, *rpcError) {
 	}
 
 	var out bytes.Buffer
-	cmd := podman.Cmd( "logs", "--tail", fmt.Sprintf("%d", lines), container)
+	cmd := podman.Cmd("logs", "--tail", fmt.Sprintf("%d", lines), container)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	_ = cmd.Run() // non-zero exit if container not running is fine — we return what we have
@@ -2219,7 +2219,7 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, composerArgs...)
 
 	var out bytes.Buffer
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2291,7 +2291,7 @@ func execVendorRun(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, binArgs...)
 
 	var out bytes.Buffer
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -3625,10 +3625,10 @@ func execDBExport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = podman.Cmd( "exec", "-i", "lerd-mysql",
+		cmd = podman.Cmd("exec", "-i", "lerd-mysql",
 			"mysqldump", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = podman.Cmd("exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "pg_dump", "-U", env.username, env.database)
 	default:
 		_ = os.Remove(output)
@@ -4554,10 +4554,10 @@ func execDBImport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = podman.Cmd( "exec", "-i", "lerd-mysql",
+		cmd = podman.Cmd("exec", "-i", "lerd-mysql",
 			"mysql", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = podman.Cmd("exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "psql", "-U", env.username, env.database)
 	default:
 		return toolErr("unsupported DB_CONNECTION: " + env.connection), nil
@@ -4619,13 +4619,13 @@ func execDBCreate(args map[string]any) (any, *rpcError) {
 func mcpCreateDatabase(svc, name string) (bool, error) {
 	switch svc {
 	case "mysql":
-		check := podman.Cmd( "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		check := podman.Cmd("exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 		out, err := check.Output()
 		if err == nil && strings.TrimSpace(string(out)) != "0" {
 			return false, nil
 		}
-		cmd := podman.Cmd( "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		cmd := podman.Cmd("exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -4634,7 +4634,7 @@ func mcpCreateDatabase(svc, name string) (bool, error) {
 		}
 		return true, nil
 	case "postgres":
-		cmd := podman.Cmd( "exec", "lerd-postgres", "psql", "-U", "postgres",
+		cmd := podman.Cmd("exec", "lerd-postgres", "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {

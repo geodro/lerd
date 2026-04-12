@@ -629,6 +629,9 @@ func ensureServiceQuadlet(name string) error {
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
+	if override := platformImageOverride(name); override != "" {
+		content = podman.ApplyImage(content, override)
+	}
 	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
 		if svcCfg, ok := cfg.Services[name]; ok {
 			content = podman.ApplyImage(content, svcCfg.Image)

@@ -13,4 +13,3 @@ func migrateExecWorkerPlists() {}
 // batchStopContainers is a no-op on Linux — systemd stops containers via unit
 // deactivation so individual StopUnit calls are efficient and non-blocking.
 func batchStopContainers(_ []string) {}
-

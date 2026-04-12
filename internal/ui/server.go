@@ -19,13 +19,13 @@ import (
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/services"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/geodro/lerd/internal/siteinfo"
 	"github.com/geodro/lerd/internal/siteops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
@@ -237,7 +237,7 @@ func openTerminalAt(dir string) error {
 		termCmd{"wezterm", []string{"start", "--cwd", dir}},
 		termCmd{"ghostty", []string{"--working-directory=" + dir}},
 		termCmd{"ptyxis", []string{"--working-directory", dir}},
-		termCmd{"konsole", []string{"--workdir", dir}},
+		termCmd{"konsole", []string{"--separate", "--workdir", dir}},
 		termCmd{"gnome-terminal", []string{"--working-directory", dir}},
 		termCmd{"xfce4-terminal", []string{"--working-directory", dir}},
 		termCmd{"tilix", []string{"--working-directory", dir}},
@@ -257,7 +257,12 @@ func openTerminalAt(dir string) error {
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
-		return cmd.Start()
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		// Reap the child so we don't leave a zombie behind for every click.
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
@@ -562,7 +567,6 @@ func listActiveReverbServers() []string {
 func listActiveHorizonWorkers() []string {
 	return listActiveUnitsBySuffix("lerd-horizon-*.service", "lerd-horizon-")
 }
-
 
 func handleServices(w http.ResponseWriter, _ *http.Request) {
 	services := make([]ServiceResponse, 0, len(knownServices))
@@ -1982,7 +1986,7 @@ func openTerminalCommand(script string) error {
 		{"wezterm", []string{"start", "--", "sh", "-c", script}},
 		{"ghostty", []string{"-e", combined}},
 		{"ptyxis", []string{"--", "sh", "-c", script}},
-		{"konsole", []string{"-e", "sh", "-c", script}},
+		{"konsole", []string{"--separate", "-e", "sh", "-c", script}},
 		{"gnome-terminal", []string{"--", "sh", "-c", script}},
 		{"xfce4-terminal", []string{"-e", combined}},
 		{"tilix", []string{"-e", combined}},
@@ -1994,7 +1998,12 @@ func openTerminalCommand(script string) error {
 		if err != nil {
 			continue
 		}
-		return exec.Command(bin, t.args...).Start()
+		cmd := exec.Command(bin, t.args...)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
 }
@@ -2187,7 +2196,6 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{"entries": entries})
 }
-
 
 // handleBrowse returns a listing of directories for the file browser.
 func handleBrowse(w http.ResponseWriter, r *http.Request) {

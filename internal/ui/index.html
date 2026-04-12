@@ -2419,6 +2419,12 @@ function lerdApp() {
     },
 
     async loadSites() {
+      // Skip if a previous loadSites is still in flight. The 5s polling
+      // timer would otherwise stack requests on a slow backend and saturate
+      // the browser's per-host HTTP/1.1 connection limit alongside open
+      // SSE log streams, leaving requests pending or failing CONN_RESET.
+      if (this._sitesInFlight) return;
+      this._sitesInFlight = true;
       const firstLoad = !this._sitesLoaded;
       if (firstLoad) this.sitesLoading = true;
       try {
@@ -2473,6 +2479,7 @@ function lerdApp() {
       } catch (_) {
         if (firstLoad) this.sites = [];
       } finally {
+        this._sitesInFlight = false;
         if (firstLoad) {
           this.sitesLoading = false;
           // Auto-select site with the most recent app log activity

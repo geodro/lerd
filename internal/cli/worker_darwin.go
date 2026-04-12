@@ -62,3 +62,21 @@ func workerLogHint(unitName string) string {
 	return "podman logs -f " + unitName
 }
 
+// restoreWorker is called from restoreSiteInfrastructure during `lerd start`.
+// On macOS we only write the unit file; the actual start is deferred to
+// phase 2 of runStart so we don't saturate the Podman Machine SSH connection
+// before containers are ready.
+func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) {
+	versionShort := strings.ReplaceAll(phpVersion, ".", "")
+	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	unitName := "lerd-" + workerName + "-" + siteName
+	restart := w.Restart
+	if restart == "" {
+		restart = "always"
+	}
+	label := w.Label
+	if label == "" {
+		label = workerName
+	}
+	writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, w.Command, restart, fpmUnit) //nolint:errcheck
+}

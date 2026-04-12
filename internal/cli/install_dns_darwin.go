@@ -48,8 +48,8 @@ func installDNSService(w io.Writer) error {
 	// Stop and remove any running lerd-dns container. Container units use
 	// --restart=always which keeps the container alive independently of launchd;
 	// it must be removed before native dnsmasq can bind to port 5300.
-	podman.Cmd( "stop", "lerd-dns").Run()     //nolint:errcheck
-	podman.Cmd( "rm", "-f", "lerd-dns").Run() //nolint:errcheck
+	podman.Cmd("stop", "lerd-dns").Run()     //nolint:errcheck
+	podman.Cmd("rm", "-f", "lerd-dns").Run() //nolint:errcheck
 
 	// Write the launchd plist for lerd-dns using the native dnsmasq binary.
 	// KeepAlive=true keeps dnsmasq running; the service unit mechanism uses
@@ -157,8 +157,8 @@ func ensureDNSServiceUpdated(w io.Writer) error {
 // removeDNSContainerIfRunning stops and removes the legacy lerd-dns container
 // if it's still running (migration from container-based to native DNS).
 func removeDNSContainerIfRunning() {
-	podman.Cmd( "stop", "lerd-dns").Run()     //nolint:errcheck
-	podman.Cmd( "rm", "-f", "lerd-dns").Run() //nolint:errcheck
+	podman.Cmd("stop", "lerd-dns").Run()     //nolint:errcheck
+	podman.Cmd("rm", "-f", "lerd-dns").Run() //nolint:errcheck
 }
 
 // nativeDNSRestart restarts the native dnsmasq launchd service.

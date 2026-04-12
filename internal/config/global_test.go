@@ -164,3 +164,29 @@ func TestExtensions_IndependentVersions(t *testing.T) {
 		t.Errorf("8.4 extensions wrong: %v", exts)
 	}
 }
+
+func TestMigrateStaleServiceImages_Postgres(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Services["postgres"] = ServiceConfig{
+		Enabled: false,
+		Image:   "postgres:16-alpine",
+		Port:    5432,
+	}
+	migrateStaleServiceImages(cfg)
+	if got := cfg.Services["postgres"].Image; got != "postgis/postgis:16-3.5-alpine" {
+		t.Errorf("postgres image not migrated: got %q", got)
+	}
+}
+
+func TestMigrateStaleServiceImages_KeepsCustom(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Services["postgres"] = ServiceConfig{
+		Enabled: true,
+		Image:   "myorg/custom-postgres:latest",
+		Port:    5432,
+	}
+	migrateStaleServiceImages(cfg)
+	if got := cfg.Services["postgres"].Image; got != "myorg/custom-postgres:latest" {
+		t.Errorf("custom postgres image was overwritten: got %q", got)
+	}
+}

@@ -150,10 +150,10 @@ func runDbImport(file, database string) error {
 func dbImportCmd(env *dbEnv) (*exec.Cmd, error) {
 	switch env.connection {
 	case "mysql", "mariadb":
-		return podman.Cmd( "exec", "-i", "lerd-mysql",
+		return podman.Cmd("exec", "-i", "lerd-mysql",
 			"mysql", "-u"+env.username, "-p"+env.password, env.database), nil
 	case "pgsql", "postgres":
-		return podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		return podman.Cmd("exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "psql", "-U", env.username, env.database), nil
 	default:
 		return nil, fmt.Errorf("unsupported DB_CONNECTION: %q (supported: mysql, pgsql)", env.connection)
@@ -205,10 +205,10 @@ func runDbExport(output, database string) error {
 func dbExportCmd(env *dbEnv) (*exec.Cmd, error) {
 	switch env.connection {
 	case "mysql", "mariadb":
-		return podman.Cmd( "exec", "-i", "lerd-mysql",
+		return podman.Cmd("exec", "-i", "lerd-mysql",
 			"mysqldump", "-u"+env.username, "-p"+env.password, env.database), nil
 	case "pgsql", "postgres":
-		return podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		return podman.Cmd("exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "pg_dump", "-U", env.username, env.database), nil
 	default:
 		return nil, fmt.Errorf("unsupported DB_CONNECTION: %q (supported: mysql, pgsql)", env.connection)
@@ -300,13 +300,13 @@ func runDbShell() error {
 		if dbName != "" {
 			cmdArgs = append(cmdArgs, dbName)
 		}
-		cmd = podman.Cmd( cmdArgs...)
+		cmd = podman.Cmd(cmdArgs...)
 	default:
 		cmdArgs := []string{"exec", "--tty", "-i", "lerd-mysql", "mysql", "-uroot", "-plerd"}
 		if dbName != "" {
 			cmdArgs = append(cmdArgs, dbName)
 		}
-		cmd = podman.Cmd( cmdArgs...)
+		cmd = podman.Cmd(cmdArgs...)
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

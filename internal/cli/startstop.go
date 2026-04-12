@@ -60,7 +60,7 @@ func ensureImages() {
 				Label: "Building dnsmasq",
 				Run: func(w io.Writer) error {
 					containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-					cmd := podman.Cmd( "build", "-t", "lerd-dnsmasq:local", "-")
+					cmd := podman.Cmd("build", "-t", "lerd-dnsmasq:local", "-")
 					cmd.Stdin = strings.NewReader(containerfile)
 					cmd.Stdout = w
 					cmd.Stderr = w
@@ -83,7 +83,7 @@ func ensureImages() {
 			jobs = append(jobs, BuildJob{
 				Label: "Pulling " + label,
 				Run: func(w io.Writer) error {
-					cmd := podman.Cmd( "pull", label)
+					cmd := podman.Cmd("pull", label)
 					cmd.Stdout = w
 					cmd.Stderr = w
 					return cmd.Run()
@@ -368,6 +368,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 	workerUnits := append(registeredQueueUnits(), registeredStripeUnits()...)
 	workerUnits = append(workerUnits, registeredScheduleUnits()...)
 	workerUnits = append(workerUnits, registeredReverbUnits()...)
+	// Also include non-standard framework workers (horizon, vite-dev, etc.)
+	// declared in the site registry, so restored unit files get started here
+	// rather than waiting for the next session.
+	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
+	workerUnits = dedupeStrings(workerUnits)
 
 	fmt.Println("Starting Lerd...")
 
@@ -481,7 +486,7 @@ func startRestoredServices() {
 		pullJobs = append(pullJobs, BuildJob{
 			Label: "Pulling " + img,
 			Run: func(w io.Writer) error {
-				cmd := podman.Cmd( "pull", img)
+				cmd := podman.Cmd("pull", img)
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -503,6 +508,30 @@ func startRestoredServices() {
 		})
 	}
 	RunParallel(startJobs) //nolint:errcheck
+
+	// Workers exec into the FPM containers and depend on lerd-redis et al.
+	// Start them after the service containers are up — same ordering as
+	// runStart's phase 1 → phase 2 split. Without this, `lerd install` would
+	// leave workers enabled-but-stopped after restoreSiteInfrastructure, since
+	// restoreWorker only writes the unit file and defers Start to here.
+	workerUnits := append(registeredQueueUnits(), registeredStripeUnits()...)
+	workerUnits = append(workerUnits, registeredScheduleUnits()...)
+	workerUnits = append(workerUnits, registeredReverbUnits()...)
+	workerUnits = append(workerUnits, registeredFrameworkWorkerUnits()...)
+	workerUnits = dedupeStrings(workerUnits)
+	if len(workerUnits) == 0 {
+		return
+	}
+	var workerJobs []BuildJob
+	for _, u := range workerUnits {
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		workerJobs = append(workerJobs, BuildJob{
+			Label: label,
+			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+		})
+	}
+	RunParallel(workerJobs) //nolint:errcheck
 }
 
 // killTray kills any running lerd tray process (launched directly or as lerd-tray binary).
@@ -581,21 +610,19 @@ func restoreSiteInfrastructure() {
 			}
 		}
 
-		// Restore worker unit files from saved worker names.
-		// Only write the unit file here — the actual start happens in phase 2
-		// of runStart after all services (and their networks) are up.
+		// Restore worker units from saved worker names. The platform helper
+		// decides whether to start immediately (Linux) or just write the unit
+		// file and let phase 2 of runStart launch it (macOS).
 		for _, w := range proj.Workers {
 			unitName := "lerd-" + w + "-" + s.Name
 			if services.Mgr.IsEnabled(unitName) {
-				continue // unit file already exists
+				continue
 			}
 			phpVersion := s.PHPVersion
 			if phpVersion == "" {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
-			// Stripe is not a framework worker — start it immediately since it
-			// doesn't depend on the lerd container network.
 			if w == "stripe" {
 				base := siteURL(s.Path)
 				if base != "" {
@@ -603,21 +630,10 @@ func restoreSiteInfrastructure() {
 				}
 				continue
 			}
-			// Write the worker unit file; RunParallel phase 2 will start it.
 			fwName := s.Framework
 			if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok && fw.Workers != nil {
 				if wDef, ok := fw.Workers[w]; ok {
-					versionShort := strings.ReplaceAll(phpVersion, ".", "")
-					fpmUnit := "lerd-php" + versionShort + "-fpm"
-					restart := wDef.Restart
-					if restart == "" {
-						restart = "always"
-					}
-					label := wDef.Label
-					if label == "" {
-						label = w
-					}
-					writeWorkerUnitFile(unitName, label, s.Name, s.Path, phpVersion, wDef.Command, restart, fpmUnit) //nolint:errcheck
+					restoreWorker(s.Name, s.Path, phpVersion, w, wDef)
 				}
 			}
 		}
@@ -659,6 +675,44 @@ func registeredScheduleUnits() []string {
 // registeredReverbUnits returns unit names for all lerd-reverb-* service units.
 func registeredReverbUnits() []string {
 	return services.Mgr.ListServiceUnits("lerd-reverb-*")
+}
+
+// registeredFrameworkWorkerUnits returns lerd-{worker}-{site} unit names for
+// every site/worker pair declared in the site registry. Used to make sure
+// non-standard workers (horizon, vite-dev, etc.) get started in phase 2 of
+// runStart, not just the queue/stripe/schedule/reverb glob.
+func registeredFrameworkWorkerUnits() []string {
+	reg, err := config.LoadSites()
+	if err != nil || reg == nil {
+		return nil
+	}
+	out := make([]string, 0)
+	for _, s := range reg.Sites {
+		proj, err := config.LoadProjectConfig(s.Path)
+		if err != nil || proj == nil {
+			continue
+		}
+		for _, w := range proj.Workers {
+			if w == "stripe" {
+				continue
+			}
+			out = append(out, "lerd-"+w+"-"+s.Name)
+		}
+	}
+	return out
+}
+
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
 }
 
 // RunStart starts all lerd services (exported for use by the UI server).

@@ -445,7 +445,7 @@ func composerInContainer(dir string, args ...string) error {
 	}
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -466,7 +466,7 @@ func execInContainer(dir, command string) error {
 		return fmt.Errorf("empty setup command")
 	}
 	cmdArgs := append([]string{"exec", "-i", "-w", dir, container}, parts...)
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

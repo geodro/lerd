@@ -111,11 +111,16 @@ func DaemonReload() error {
 	return nil
 }
 
-// StartUnit starts a service unit.
+// StartUnit starts a service unit. On Linux it first clears any lingering
+// failed state from a previous run so that units which hit Restart=
+// rate-limit (e.g. workers that raced container readiness in a buggy
+// upgrade) recover automatically on the next `lerd start` instead of
+// staying stuck in `failed`.
 func StartUnit(name string) error {
 	if UnitLifecycle != nil {
 		return UnitLifecycle.Start(name)
 	}
+	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
 	cmd := exec.Command("systemctl", "--user", "start", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -101,7 +101,7 @@ func RunPHP(cwd string, args []string) error {
 	)
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := podman.Cmd( cmdArgs...)
+	cmd := podman.Cmd(cmdArgs...)
 	cmd.Stdin = stdinReader
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

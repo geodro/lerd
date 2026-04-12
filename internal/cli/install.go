@@ -171,6 +171,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
+		if override := platformImageOverride(strings.TrimPrefix(name, "lerd-")); override != "" {
+			content = podman.ApplyImage(content, override)
+		}
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
 			return err
@@ -261,7 +264,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
-				cmd := podman.Cmd( "pull", "docker.io/library/nginx:alpine")
+				cmd := podman.Cmd("pull", "docker.io/library/nginx:alpine")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -536,7 +539,7 @@ func installLaravelInstaller() error {
 	// --no-interaction prevents composer from blocking on plugin trust prompts
 	// (e.g. "Do you trust 'symfony/flex' to execute code?") which would hang
 	// the installer with no visible output.
-	cmd := podman.Cmd( "exec", "-i",
+	cmd := podman.Cmd("exec", "-i",
 		"--env", "HOME="+home,
 		"--env", "COMPOSER_HOME="+composerHome,
 		container, "php", composerPhar, "global", "require", "--no-interaction", "laravel/installer",
