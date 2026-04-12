@@ -261,7 +261,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		{
 			Label: "Pulling nginx:alpine",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/nginx:alpine")
+				cmd := podman.Cmd( "pull", "docker.io/library/nginx:alpine")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -335,11 +335,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-watcher", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-watcher"); err != nil {
+			if err := services.Mgr.Enable("lerd-watcher"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -356,11 +356,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-ui", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-ui"); err != nil {
+			if err := services.Mgr.Enable("lerd-ui"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -377,11 +377,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	step("Writing tray service")
 	if content, err := lerdSystemd.GetUnit("lerd-tray"); err == nil {
-		if err := lerdSystemd.WriteService("lerd-tray", content); err != nil {
+		if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
 			return err
 		}
 		if autostartOn {
-			if err := lerdSystemd.EnableService("lerd-tray"); err != nil {
+			if err := services.Mgr.Enable("lerd-tray"); err != nil {
 				fmt.Printf("    WARN: %v\n", err)
 			}
 		}
@@ -394,6 +394,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// on later. restoreSiteInfrastructure only writes files for units
 	// that don't already exist, so this is a no-op for ordinary updates.
 	restoreSiteInfrastructure()
+
+	// Ensure all globally configured services have unit files on disk.
+	// On macOS this writes launchd plists for any service that has a config
+	// entry but no plist (e.g. services installed before the macOS port, or
+	// after a clean install from config backup).
+	migrateServiceUnits()
 
 	// Start service containers and workers only when autostart is on.
 	// When the user has explicitly disabled autostart we leave them
@@ -412,10 +418,10 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if lerdSystemd.IsServiceEnabled("lerd-tray") {
-		_ = lerdSystemd.RestartService("lerd-tray")
+	killTray()
+	if services.Mgr.IsEnabled("lerd-tray") {
+		_ = services.Mgr.Start("lerd-tray")
 	} else {
-		killTray()
 		if exe, err := os.Executable(); err == nil {
 			_ = exec.Command(exe, "tray").Start()
 		}
@@ -502,6 +508,18 @@ func installLaravelInstaller() error {
 		if err := podman.StartUnit(container); err != nil {
 			return fmt.Errorf("starting %s: %w", container, err)
 		}
+		// Wait for the container to be ready for exec (launchd starts the
+		// podman run -d asynchronously, so the container may not exist yet).
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if r, _ := podman.ContainerRunning(container); r {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if r, _ := podman.ContainerRunning(container); !r {
+			return fmt.Errorf("%s did not become ready within 30s", container)
+		}
 	}
 
 	home := os.Getenv("HOME")
@@ -518,7 +536,7 @@ func installLaravelInstaller() error {
 	// --no-interaction prevents composer from blocking on plugin trust prompts
 	// (e.g. "Do you trust 'symfony/flex' to execute code?") which would hang
 	// the installer with no visible output.
-	cmd := exec.Command("podman", "exec", "-i",
+	cmd := podman.Cmd( "exec", "-i",
 		"--env", "HOME="+home,
 		"--env", "COMPOSER_HOME="+composerHome,
 		container, "php", composerPhar, "global", "require", "--no-interaction", "laravel/installer",

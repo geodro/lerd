@@ -19,6 +19,7 @@ import (
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
@@ -305,8 +306,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 	dnsOK, _ := dns.Check(tld)
 	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
-	watcherCmd := exec.Command("systemctl", "--user", "is-active", "--quiet", "lerd-watcher")
-	watcherRunning := watcherCmd.Run() == nil
+	watcherRunning := services.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpPkg.ListInstalled()
 	var phpStatuses []PHPStatus
@@ -563,41 +563,6 @@ func listActiveHorizonWorkers() []string {
 	return listActiveUnitsBySuffix("lerd-horizon-*.service", "lerd-horizon-")
 }
 
-// listActiveStripeListeners returns the site names of active lerd-stripe-* units
-// that were started by `lerd stripe:listen` (i.e. have a .service file in the
-// systemd user dir, as opposed to quadlet-based services like stripe-mock).
-func listActiveStripeListeners() []string {
-	all := listActiveUnitsBySuffix("lerd-stripe-*.service", "lerd-stripe-")
-	var result []string
-	for _, name := range all {
-		unitFile := filepath.Join(config.SystemdUserDir(), "lerd-stripe-"+name+".service")
-		if _, err := os.Stat(unitFile); err == nil {
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
-func listActiveUnitsBySuffix(pattern, prefix string) []string {
-	out, err := exec.Command("systemctl", "--user", "list-units", "--state=active",
-		"--no-legend", "--plain", pattern).Output()
-	if err != nil {
-		return nil
-	}
-	var sites []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		unit := strings.TrimSuffix(fields[0], ".service")
-		siteName := strings.TrimPrefix(unit, prefix)
-		if siteName != unit && siteName != "" {
-			sites = append(sites, siteName)
-		}
-	}
-	return sites
-}
 
 func handleServices(w http.ResponseWriter, _ *http.Request) {
 	services := make([]ServiceResponse, 0, len(knownServices))
@@ -1075,7 +1040,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = podman.DaemonReloadFn()
 		if err := config.RemoveCustomService(name); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
@@ -1126,17 +1091,17 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ensureServiceQuadlet writes the quadlet for a built-in service and reloads systemd.
+// ensureServiceQuadlet writes the unit file for a built-in service and reloads the service manager.
 func ensureServiceQuadlet(name string) error {
 	quadletName := "lerd-" + name
 	content, err := podman.GetQuadletTemplate(quadletName + ".container")
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", name, err)
+	if err := podman.WriteContainerUnitFn(quadletName, content); err != nil {
+		return fmt.Errorf("writing unit for %s: %w", name, err)
 	}
-	return podman.DaemonReload()
+	return podman.DaemonReloadFn()
 }
 
 // ensureCustomServiceQuadlet writes the quadlet for a custom service and reloads systemd.
@@ -1728,7 +1693,7 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReload()
+		_ = podman.DaemonReloadFn()
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)
@@ -1842,9 +1807,16 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 
+	// If no container exists for this unit, route to the platform log stream
+	// (file tail for native services) or report not-running for container units.
 	if exists, _ := podman.ContainerExists(container); !exists {
-		fmt.Fprintf(w, "data: container %s is not running\n\n", container)
-		flusher.Flush()
+		if isContainerUnit(container) {
+			fmt.Fprintf(w, "data: container %s is not running\n\n", container)
+			flusher.Flush()
+			return
+		}
+		// Native service (dns, watcher, ui) — stream from log file.
+		streamUnitLogs(w, r, container)
 		return
 	}
 
@@ -1854,7 +1826,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "podman", "logs", "-f", "--tail", tail, container)
+	cmd := exec.CommandContext(r.Context(), podman.PodmanBin(), "logs", "-f", "--tail", tail, container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -2216,69 +2188,6 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"entries": entries})
 }
 
-func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	cursor := r.Header.Get("Last-Event-ID")
-	args := []string{"--user", "-u", unit, "-f", "--no-pager", "--output=json"}
-	if cursor != "" {
-		args = append(args, "--after-cursor="+cursor)
-	} else {
-		args = append(args, "-n", "100")
-	}
-
-	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(r.Context(), "journalctl", args...)
-	cmd.Stdout = pw
-	cmd.Stderr = io.Discard
-
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(w, "data: error starting logs: %s\n\n", err.Error())
-		flusher.Flush()
-		return
-	}
-
-	go func() {
-		cmd.Wait() //nolint:errcheck
-		pw.Close()
-	}()
-
-	type journalEntry struct {
-		Cursor  string          `json:"__CURSOR"`
-		Message json.RawMessage `json:"MESSAGE"`
-	}
-
-	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		var entry journalEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		var msg string
-		if len(entry.Message) > 0 && entry.Message[0] == '"' {
-			json.Unmarshal(entry.Message, &msg) //nolint:errcheck
-		} else {
-			// journalctl encodes binary messages as a JSON array of bytes
-			var b []byte
-			if json.Unmarshal(entry.Message, &b) == nil {
-				msg = string(b)
-			}
-		}
-		fmt.Fprintf(w, "id: %s\ndata: %s\n\n", entry.Cursor, msg)
-		flusher.Flush()
-	}
-}
 
 // handleBrowse returns a listing of directories for the file browser.
 func handleBrowse(w http.ResponseWriter, r *http.Request) {

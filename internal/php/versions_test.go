@@ -10,7 +10,9 @@ import (
 // --- listInstalledFromServiceDir ---
 
 func TestListInstalledFromServiceDir_linux(t *testing.T) {
-	// On linux this is a no-op
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux-only: listInstalledFromServiceDir reads quadlet files")
+	}
 	result := listInstalledFromServiceDir()
 	if result != nil {
 		t.Errorf("expected nil on linux, got %v", result)
@@ -77,6 +79,7 @@ func TestQuadletExists_found(t *testing.T) {
 func TestQuadletExists_missing(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("HOME", tmp)
 
 	if quadletExists("8.4") {
 		t.Error("expected quadletExists to return false for missing quadlet")

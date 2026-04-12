@@ -191,11 +191,11 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan %s
+ExecStart=%s exec -w %s %s php artisan %s
 
 [Install]
 WantedBy=default.target
-`, siteName, afterLine, wantsLine, fpmUnit, sitePath, container, artisanArgs)
+`, siteName, afterLine, wantsLine, fpmUnit, podman.PodmanBin(), sitePath, container, artisanArgs)
 }
 
 // queueDependencyUnits returns the lerd service unit(s) the queue worker
@@ -238,7 +238,7 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 	if data, err := os.ReadFile(unitFile); err == nil {
 		if updated := strings.ReplaceAll(string(data), "Restart=on-failure", "Restart=always"); updated != string(data) {
 			if writeErr := os.WriteFile(unitFile, []byte(updated), 0644); writeErr == nil {
-				_ = podman.DaemonReload()
+				_ = podman.DaemonReloadFn()
 			}
 		}
 	}

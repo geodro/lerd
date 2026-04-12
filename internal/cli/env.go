@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -537,7 +536,7 @@ func createDatabase(svc, name string) (bool, error) {
 		}
 		var lastErr error
 		for _, bin := range binaries {
-			check := exec.Command("podman", "exec", container, bin, "-uroot", "-plerd",
+			check := podman.Cmd( "exec", container, bin, "-uroot", "-plerd",
 				"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 			out, err := check.Output()
 			if err != nil {
@@ -547,14 +546,14 @@ func createDatabase(svc, name string) (bool, error) {
 			if strings.TrimSpace(string(out)) != "0" {
 				return false, nil
 			}
-			cmd := exec.Command("podman", "exec", container, bin, "-uroot", "-plerd",
+			cmd := podman.Cmd( "exec", container, bin, "-uroot", "-plerd",
 				"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 			cmd.Stderr = os.Stderr
 			return true, cmd.Run()
 		}
 		return false, lastErr
 	case "postgres":
-		cmd := exec.Command("podman", "exec", container, "psql", "-U", "postgres",
+		cmd := podman.Cmd( "exec", container, "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -602,19 +601,19 @@ func createS3Bucket(name string) (bool, error) {
 		mcEnv   = "MC_HOST_lerd=http://lerd:lerdpassword@lerd-rustfs:9000"
 	)
 
-	lsCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	lsCmd := podman.Cmd( "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "ls", alias+"/"+name)
 	if err := lsCmd.Run(); err == nil {
 		return false, nil
 	}
 
-	mbCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	mbCmd := podman.Cmd( "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "mb", alias+"/"+name)
 	if out, err := mbCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
 	}
 
-	pubCmd := exec.Command("podman", "run", "--rm", "--network", "lerd",
+	pubCmd := podman.Cmd( "run", "--rm", "--network", "lerd",
 		"-e", mcEnv, mcImage, "anonymous", "set", "public", alias+"/"+name)
 	if out, err := pubCmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("mc anonymous set public: %s", strings.TrimSpace(string(out)))
@@ -790,7 +789,7 @@ func artisanIn(dir string, args ...string) error {
 	cmdArgs := []string{"exec", "-i", "-w", dir, container, "php", "artisan"}
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := podman.Cmd( cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -832,7 +831,7 @@ func runSiteInit(svc *config.CustomService, ctx siteTemplateCtx) {
 		container = "lerd-" + svc.Name
 	}
 	script := applySiteHandle(svc.SiteInit.Exec, ctx)
-	cmd := exec.Command("podman", "exec", container, "sh", "-c", script)
+	cmd := podman.Cmd( "exec", container, "sh", "-c", script)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

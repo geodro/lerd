@@ -161,7 +161,7 @@ func TestContainerToPodmanArgs(t *testing.T) {
 		"run", "-d", "--restart=always",
 		"--name", "lerd-nginx", "--replace",
 		"--network", "lerd",
-		"-p", "127.0.0.1:80:80",
+		"-p", "80:80",
 		"-e", "FOO=bar",
 		"docker.io/library/nginx:latest",
 	} {

@@ -25,9 +25,15 @@ func PodmanBin() string {
 	return "podman"
 }
 
+// Cmd returns an exec.Cmd for podman with the given arguments, using PodmanBin()
+// so the binary is found even under launchd's restricted PATH.
+func Cmd(args ...string) *exec.Cmd {
+	return exec.Command(PodmanBin(), args...)
+}
+
 // Run executes podman with the given arguments and returns stdout.
 func Run(args ...string) (string, error) {
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command(PodmanBin(), args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -51,7 +57,7 @@ func ImageExists(image string) bool {
 
 // PullImageTo pulls the named image, writing progress output to w.
 func PullImageTo(image string, w io.Writer) error {
-	cmd := exec.Command("podman", "pull", image)
+	cmd := exec.Command(PodmanBin(), "pull", image)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

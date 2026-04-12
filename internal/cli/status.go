@@ -184,10 +184,10 @@ func runStatus(_ *cobra.Command, _ []string) error {
 						ok2(fmt.Sprintf("%s/%s", s.Name, w))
 						hasWorkers = true
 					case "activating":
-						warn2(s.Name+"/"+w, "restarting — check logs: journalctl --user -u "+unit+" -n 20")
+						warn2(s.Name+"/"+w, "restarting — check logs: "+unitLogHint(unit))
 						hasWorkers = true
 					case "failed":
-						fail2(s.Name+"/"+w, "failed", "journalctl --user -u "+unit+" -n 20")
+						fail2(s.Name+"/"+w, "failed", unitLogHint(unit))
 						hasWorkers = true
 					}
 				}
@@ -209,10 +209,10 @@ func runStatus(_ *cobra.Command, _ []string) error {
 							ok2(fmt.Sprintf("%s/%s", s.Name, wName))
 							hasWorkers = true
 						case "activating":
-							warn2(s.Name+"/"+wName, "restarting — check logs: journalctl --user -u "+unit+" -n 20")
+							warn2(s.Name+"/"+wName, "restarting — check logs: "+unitLogHint(unit))
 							hasWorkers = true
 						case "failed":
-							fail2(s.Name+"/"+wName, "failed", "journalctl --user -u "+unit+" -n 20")
+							fail2(s.Name+"/"+wName, "failed", unitLogHint(unit))
 							hasWorkers = true
 						}
 					}
@@ -226,7 +226,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 					if stripeStatus == "activating" {
 						warn2(label, "restarting")
 					} else {
-						fail2(label, "failed", "journalctl --user -u lerd-stripe-"+s.Name+" -n 20")
+						fail2(label, "failed", unitLogHint("lerd-stripe-"+s.Name))
 					}
 					hasWorkers = true
 				}

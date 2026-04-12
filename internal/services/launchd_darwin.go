@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
 )
 
@@ -29,12 +31,56 @@ func uidDomain() string {
 	return fmt.Sprintf("gui/%d", os.Getuid())
 }
 
+// podmanStartSem limits concurrent `podman run` executions to avoid
+// overwhelming the Podman Machine SSH connection with parallel requests.
+var podmanStartSem = make(chan struct{}, 4)
+
 func init() {
 	Mgr = &darwinServiceManager{}
-	// Override WriteFPMQuadlet to use launchd plists instead of systemd quadlets.
+	// Override service-manager hooks to use launchd instead of systemd.
 	podman.WriteContainerUnitFn = Mgr.WriteContainerUnit
 	podman.DaemonReloadFn = Mgr.DaemonReload
 	podman.SkipQuadletUpToDateCheck = true
+	podman.UnitLifecycle = Mgr
+	// Keep launchd plists in sync when WriteQuadletDiff updates a .container file.
+	podman.AfterQuadletWriteFn = func(name, content string) error {
+		return Mgr.WriteContainerUnit(name, content)
+	}
+}
+
+// plistArgs parses the ProgramArguments array from a plist file and returns
+// the argument strings. Used to run container units directly from Go code
+// rather than via launchctl kickstart, so we control launch concurrency.
+func plistArgs(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// Find the ProgramArguments array using simple string search.
+	s := string(data)
+	const key = "<key>ProgramArguments</key>"
+	idx := strings.Index(s, key)
+	if idx < 0 {
+		return nil, fmt.Errorf("ProgramArguments not found in %s", path)
+	}
+	s = s[idx+len(key):]
+	start := strings.Index(s, "<array>")
+	end := strings.Index(s, "</array>")
+	if start < 0 || end < 0 {
+		return nil, fmt.Errorf("ProgramArguments array not found in %s", path)
+	}
+	block := s[start+len("<array>") : end]
+	var args []string
+	for {
+		open := strings.Index(block, "<string>")
+		close := strings.Index(block, "</string>")
+		if open < 0 || close < 0 {
+			break
+		}
+		args = append(args, block[open+len("<string>"):close])
+		block = block[close+len("</string>"):]
+	}
+	return args, nil
 }
 
 type darwinServiceManager struct{}
@@ -180,6 +226,31 @@ func stripSELinuxVolOpts(vol string) string {
 	return parts[0] + ":" + parts[1] + ":" + strings.Join(filtered, ",")
 }
 
+// stripPrivilegedIPBind removes the host-IP prefix from a PublishPort value
+// (e.g. "127.0.0.1:80:80" → "80:80") when the host port is privileged (< 1024).
+// On macOS, gvproxy handles port forwarding via podman-mac-helper and does not
+// support explicit IP binds for privileged ports — trying them causes
+// "bind: permission denied". Non-privileged ports (3306, 6379, etc.) do support
+// IP binding and are left untouched so LAN restriction still works for them.
+func stripPrivilegedIPBind(port string) string {
+	parts := strings.SplitN(port, ":", 3)
+	if len(parts) != 3 {
+		return port // bare "containerPort" or "hostPort:containerPort" — no IP prefix
+	}
+	hostPortStr := strings.SplitN(parts[1], "/", 2)[0] // strip "/tcp" etc.
+	n := 0
+	for _, c := range hostPortStr {
+		if c < '0' || c > '9' {
+			return port // non-numeric, leave as-is
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n > 0 && n < 1024 {
+		return parts[1] + ":" + parts[2] // drop the IP prefix
+	}
+	return port
+}
+
 // containerToPodmanArgs builds a podman run argument list from a parsed [Container] section.
 // On macOS we run detached (-d) so that launchctl bootstrap sees an immediate
 // exit 0 (success); podman's own --restart=always policy handles crash recovery.
@@ -195,7 +266,7 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 		args = append(args, "--network", net)
 	}
 	for _, port := range c["PublishPort"] {
-		args = append(args, "-p", port)
+		args = append(args, "-p", stripPrivilegedIPBind(port))
 	}
 	for _, vol := range c["Volume"] {
 		args = append(args, "-v", stripSELinuxVolOpts(expandSpecifiers(vol)))
@@ -225,54 +296,86 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 
 // --- Service unit files ---
 
-func (m *darwinServiceManager) WriteServiceUnit(name, content string) error {
+// parseServiceUnit parses a systemd-format service unit and returns the argv
+// and keepAlive flag for the launchd plist.
+//
+// Binary resolution rules for args[0]:
+//   - Absolute path that exists → use as-is.
+//   - Absolute path that doesn't exist → substitute the running lerd binary
+//     (handles Homebrew → ~/.local/bin migration).
+//   - Bare command name (no '/') → resolve via PATH; if not found, substitute
+//     the running lerd binary (should not normally happen).
+func parseServiceUnit(name, content string) (args []string, keepAlive bool, err error) {
 	svc := parseSection(content, "Service")
 	execStarts := svc["ExecStart"]
 	if len(execStarts) == 0 {
-		return fmt.Errorf("no ExecStart= found in service unit %s", name)
+		return nil, false, fmt.Errorf("no ExecStart= found in service unit %s", name)
 	}
-	// Expand %h and split into argv
-	args := strings.Fields(expandSpecifiers(execStarts[0]))
+	args = strings.Fields(expandSpecifiers(execStarts[0]))
 	if len(args) == 0 {
-		return fmt.Errorf("empty ExecStart in service unit %s", name)
+		return nil, false, fmt.Errorf("empty ExecStart in service unit %s", name)
 	}
 
-	// On macOS the lerd binary is managed by Homebrew and lives at
-	// /opt/homebrew/bin/lerd, not at ~/.local/bin/lerd as on Linux.
-	// If the binary referenced in ExecStart doesn't exist, substitute
-	// the path of the currently running lerd executable.
-	if _, err := os.Stat(args[0]); err != nil {
-		if self, err := os.Executable(); err == nil {
-			args[0] = self
+	// Resolve args[0] to an absolute path suitable for a launchd plist.
+	if filepath.IsAbs(args[0]) {
+		// Absolute path: substitute if missing (e.g. old Homebrew install).
+		if _, statErr := os.Stat(args[0]); statErr != nil {
+			if self, selfErr := os.Executable(); selfErr == nil {
+				args[0] = self
+			}
 		}
+	} else {
+		// Bare command (e.g. "podman"): resolve via PATH first, then well-known
+		// Homebrew locations. Never fall back to the lerd binary — if the command
+		// cannot be found, return an error so the caller can surface a clear message.
+		resolved := ""
+		if p, lookErr := exec.LookPath(args[0]); lookErr == nil {
+			resolved = p
+		} else {
+			for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"} {
+				candidate := filepath.Join(dir, args[0])
+				if _, statErr := os.Stat(candidate); statErr == nil {
+					resolved = candidate
+					break
+				}
+			}
+		}
+		if resolved == "" {
+			return nil, false, fmt.Errorf("command %q in ExecStart of %s not found; use an absolute path", args[0], name)
+		}
+		args[0] = resolved
 	}
 
+	// Map Restart= to KeepAlive so launchd restarts the job like systemd would.
+	restart := ""
+	if restarts := svc["Restart"]; len(restarts) > 0 {
+		restart = restarts[0]
+	}
+	keepAlive = restart == "always" || restart == "on-failure"
+	return args, keepAlive, nil
+}
+
+func (m *darwinServiceManager) WriteServiceUnit(name, content string) error {
+	args, keepAlive, err := parseServiceUnit(name, content)
+	if err != nil {
+		return err
+	}
 	if err := ensurePlistDirs(name); err != nil {
 		return err
 	}
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	plist := buildPlist(plistLabel(name), args, true, false, logPath, logPath)
+	plist := buildPlist(plistLabel(name), args, true, keepAlive, logPath, logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 
 func (m *darwinServiceManager) WriteServiceUnitIfChanged(name, content string) (bool, error) {
-	svc := parseSection(content, "Service")
-	execStarts := svc["ExecStart"]
-	if len(execStarts) == 0 {
-		return false, fmt.Errorf("no ExecStart= found in service unit %s", name)
-	}
-	args := strings.Fields(expandSpecifiers(execStarts[0]))
-	if len(args) == 0 {
-		return false, fmt.Errorf("empty ExecStart in service unit %s", name)
-	}
-	if _, err := os.Stat(args[0]); err != nil {
-		if self, err := os.Executable(); err == nil {
-			args[0] = self
-		}
+	args, keepAlive, err := parseServiceUnit(name, content)
+	if err != nil {
+		return false, err
 	}
 
 	logPath := filepath.Join(lerdLogsDir(), name+".log")
-	newPlist := buildPlist(plistLabel(name), args, true, false, logPath, logPath)
+	newPlist := buildPlist(plistLabel(name), args, true, keepAlive, logPath, logPath)
 
 	if existing, err := os.ReadFile(plistPath(name)); err == nil && string(existing) == newPlist {
 		return false, nil
@@ -303,6 +406,13 @@ func (m *darwinServiceManager) ListServiceUnits(nameGlob string) []string {
 // --- Container unit files ---
 
 func (m *darwinServiceManager) WriteContainerUnit(name, content string) error {
+	// Apply LAN binding restriction before parsing — mirrors WriteQuadletDiff on Linux.
+	lanExposed := false
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+		lanExposed = cfg.LAN.Exposed
+	}
+	content = podman.BindForLAN(content, lanExposed)
+
 	c := parseSection(content, "Container")
 	args, err := containerToPodmanArgs(c)
 	if err != nil {
@@ -368,8 +478,13 @@ func (m *darwinServiceManager) Start(name string) error {
 	// bootstrap always picks up the current plist on disk. kickstart -k would
 	// restart the job but launchd would use its cached plist, missing any
 	// changes written by WriteServiceUnit / WriteContainerUnit.
+	alreadyInDomain := false
 	if _, err := launchctl("print", domain+"/"+label); err == nil {
+		alreadyInDomain = true
 		launchctl("bootout", domain+"/"+label) //nolint:errcheck
+		// Brief pause so macOS Sequoia+ doesn't reject the immediately-following
+		// bootstrap with a spurious "already bootstrapped" (36) or EBUSY (5) error.
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Enable AFTER bootout — on macOS Ventura+, bootout marks the service as
@@ -386,6 +501,16 @@ func (m *darwinServiceManager) Start(name string) error {
 		if strings.Contains(s, "36") || strings.Contains(s, "Bootstrap failed: 5") ||
 			strings.Contains(s, "already bootstrapped") ||
 			strings.Contains(s, "service already loaded") {
+			// Already in domain — run container directly if it's a container unit.
+			content2, _ := os.ReadFile(p)
+			if !strings.Contains(string(content2), "<key>RunAtLoad</key>") {
+				if args, aerr := plistArgs(p); aerr == nil && len(args) > 0 {
+					podmanStartSem <- struct{}{}
+					exec.Command(args[0], args[1:]...).Run() //nolint:errcheck
+					<-podmanStartSem
+					return nil
+				}
+			}
 			if kout, kerr := launchctl("kickstart", "-k", domain+"/"+label); kerr != nil {
 				ks := string(kout)
 				// 37 = EALREADY — job is already running, treat as success.
@@ -396,14 +521,38 @@ func (m *darwinServiceManager) Start(name string) error {
 			}
 			return nil
 		}
+		// If bootstrap failed and we just did a bootout, retry once — launchd on
+		// Sequoia can transiently reject a re-bootstrap immediately after bootout.
+		if alreadyInDomain {
+			time.Sleep(300 * time.Millisecond)
+			launchctl("enable", domain+"/"+label) //nolint:errcheck
+			if out2, err2 := launchctl("bootstrap", domain, p); err2 != nil {
+				return fmt.Errorf("launchctl bootstrap %s: %w\n%s", name, err2, out2)
+			}
+			return nil
+		}
 		return fmt.Errorf("launchctl bootstrap %s: %w\n%s", name, err, out)
 	}
 	// Container units use RunAtLoad=false so bootstrap alone doesn't start them.
 	// Service units use RunAtLoad=true so bootstrap already started them — no kick needed.
 	content, _ := os.ReadFile(p)
-	if !strings.Contains(string(content), "<key>RunAtLoad</key>") {
-		launchctl("kickstart", domain+"/"+label) //nolint:errcheck
+	if strings.Contains(string(content), "<key>RunAtLoad</key>") {
+		return nil // service unit already started by bootstrap
 	}
+	// Container unit: run podman directly (with concurrency limit) instead of
+	// launchctl kickstart. kickstart lets launchd fire all podman run processes
+	// simultaneously, which overwhelms the Podman Machine SSH connection when
+	// N services start in parallel. Running directly lets us gate on podmanStartSem.
+	args, err := plistArgs(p)
+	if err != nil || len(args) == 0 {
+		// Fallback to kickstart if plist parsing fails.
+		launchctl("kickstart", domain+"/"+label) //nolint:errcheck
+		return nil
+	}
+	podmanStartSem <- struct{}{}
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Run() //nolint:errcheck
+	<-podmanStartSem
 	return nil
 }
 
@@ -412,9 +561,13 @@ func (m *darwinServiceManager) Start(name string) error {
 // needed because container units use -d (detached) + --restart=always, so the
 // container keeps running independently of launchd after the plist is booted out.
 func (m *darwinServiceManager) Stop(name string) error {
-	// Derive the container name: plist name IS the container name (e.g. lerd-dns).
-	exec.Command(podmanBinPath(), "stop", "-t", "5", name).Run() //nolint:errcheck
-	exec.Command(podmanBinPath(), "rm", "-f", name).Run()        //nolint:errcheck
+	// Stop and remove the container only if it is actually running.
+	// Skipping the podman calls when the container is absent avoids flooding the
+	// Podman Machine SSH socket with N parallel no-op requests during lerd stop.
+	if running, _ := podman.ContainerRunning(name); running {
+		exec.Command(podmanBinPath(), "stop", "-t", "5", name).Run() //nolint:errcheck
+		exec.Command(podmanBinPath(), "rm", "-f", name).Run()        //nolint:errcheck
+	}
 
 	domain := uidDomain()
 	label := plistLabel(name)
@@ -446,6 +599,10 @@ func (m *darwinServiceManager) Restart(name string) error {
 			return m.Start(name)
 		}
 		// 37 = EALREADY — job is already running, treat as success.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 37 {
+			return nil
+		}
 		if strings.Contains(s, "37") || strings.Contains(s, "already running") {
 			return nil
 		}

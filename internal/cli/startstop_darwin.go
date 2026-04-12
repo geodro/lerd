@@ -8,24 +8,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/geodro/lerd/internal/podman"
 )
 
-// migrateExecWorkerPlists removes legacy worker plists that used `podman exec`
-// (written by alpha.2/alpha.3). These cause "no such container" errors on every
-// podman invocation because the container they exec into no longer exists.
-// Workers must be re-registered after removal (e.g. `lerd schedule:start`).
+// migrateExecWorkerPlists removes exec-based worker plists. On macOS, workers
+// now run as independent detached containers (podman run -d) rather than
+// exec'ing into the PHP-FPM container. Removing the old exec-based plists
+// lets restoreSiteInfrastructure recreate them in the container format.
 func migrateExecWorkerPlists() {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, "Library", "LaunchAgents")
-	for _, glob := range []string{"lerd-queue-*.plist", "lerd-schedule-*.plist", "lerd-reverb-*.plist"} {
+	for _, glob := range []string{"lerd-queue-*.plist", "lerd-schedule-*.plist", "lerd-reverb-*.plist", "lerd-horizon-*.plist"} {
 		matches, _ := filepath.Glob(filepath.Join(dir, glob))
 		for _, p := range matches {
 			data, err := os.ReadFile(p)
 			if err != nil {
 				continue
 			}
+			// Only remove exec-based plists; container-based plists use "run" not "exec".
 			if !strings.Contains(string(data), "<string>exec</string>") {
 				continue
 			}
@@ -33,7 +35,6 @@ func migrateExecWorkerPlists() {
 			domain := fmt.Sprintf("gui/%d", os.Getuid())
 			exec.Command("launchctl", "bootout", domain+"/com.lerd."+name).Run() //nolint:errcheck
 			os.Remove(p)                                                         //nolint:errcheck
-			fmt.Printf("  --> Removed stale exec-based plist %s — re-register with `lerd schedule:start` / `lerd queue:start`\n", name)
 		}
 	}
 }
@@ -131,10 +132,47 @@ func ensurePodmanMachineRunning() {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("  WARN: podman machine start: %v\n", err)
+		return
 	}
 
-	// Prune stopped containers and unused resources after a machine (re)start to
-	// clear any stale exec sessions left in Podman's database from processes
-	// that were killed abruptly.
-	podman.RunSilent("system", "prune", "-f") //nolint:errcheck
+	// `podman machine start` exits before the API socket is ready to handle
+	// container operations. Poll `podman ps` (which exercises the full
+	// container stack, not just the info endpoint) until it succeeds, then
+	// wait an extra second for the socket to fully settle.
+	fmt.Print("  --> Waiting for Podman Machine to be ready ...")
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := exec.Command(podman.PodmanBin(), "ps", "-q").Run(); err == nil {
+			time.Sleep(1 * time.Second) // brief grace period before container ops
+			fmt.Println(" ready")
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+		fmt.Print(".")
+	}
+	fmt.Println(" timed out (proceeding anyway)")
+}
+
+// batchStopContainers stops all running lerd-* containers in two podman calls
+// (stop then rm) so the Podman Machine socket isn't flooded by N individual
+// stop requests from RunParallel. After this returns the individual Stop()
+// calls find no containers and go straight to launchctl bootout.
+func batchStopContainers(_ []string) {
+	// Query only running containers with name prefix "lerd-" to avoid passing
+	// non-existent names (native services like lerd-dns have no container).
+	out, err := podman.Run("ps", "--format", "{{.Names}}", "--filter", "name=^lerd-")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if n := strings.TrimSpace(line); n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	podman.RunSilent(append([]string{"stop", "-t", "5"}, names...)...) //nolint:errcheck
+	podman.RunSilent(append([]string{"rm", "-f"}, names...)...)        //nolint:errcheck
 }

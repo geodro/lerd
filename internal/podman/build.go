@@ -247,7 +247,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	}
 	args = append(args, ref)
 
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command(PodmanBin(), args...)
 	cmd.Stdout = w
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
@@ -263,7 +263,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, w io.
 
 	if !force {
 		// Skip if image already exists
-		if exec.Command("podman", "image", "exists", imageName).Run() == nil {
+		if exec.Command(PodmanBin(), "image", "exists", imageName).Run() == nil {
 			return nil
 		}
 	}
@@ -315,7 +315,7 @@ build:
 	}
 
 	buildArgs = append(buildArgs, "-f", cfPath, tmp)
-	cmd := exec.Command("podman", buildArgs...)
+	cmd := exec.Command(PodmanBin(), buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

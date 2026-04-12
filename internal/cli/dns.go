@@ -183,7 +183,7 @@ func regenerateLANContainerQuadlets(progress LANProgressFunc) error {
 		if err != nil {
 			return fmt.Errorf("reading %s quadlet template: %w", name, err)
 		}
-		if err := podman.WriteQuadlet(name, content); err != nil {
+		if err := podman.WriteContainerUnitFn(name, content); err != nil {
 			return fmt.Errorf("rewriting %s quadlet: %w", name, err)
 		}
 		restarted = append(restarted, name)

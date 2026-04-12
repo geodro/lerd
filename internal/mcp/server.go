@@ -1659,7 +1659,7 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, artisanArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := podman.Cmd( cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -1761,11 +1761,14 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 			return toolErr("no quadlet template for " + name + ": " + err.Error()), nil
 		}
 		if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
-			if svcCfg, ok := cfg.Services[name]; ok && len(svcCfg.ExtraPorts) > 0 {
-				content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+			if svcCfg, ok := cfg.Services[name]; ok {
+				content = podman.ApplyImage(content, svcCfg.Image)
+				if len(svcCfg.ExtraPorts) > 0 {
+					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+				}
 			}
 		}
-		if err := podman.WriteQuadlet(unitName, content); err != nil {
+		if err := podman.WriteContainerUnitFn(unitName, content); err != nil {
 			return toolErr("writing quadlet: " + err.Error()), nil
 		}
 	} else {
@@ -1778,7 +1781,7 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	if err := podman.StartUnit(unitName); err != nil {
@@ -1836,16 +1839,16 @@ BindsTo=%s.service
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan %s
+ExecStart=%s exec -w %s %s php artisan %s
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, site.Path, container, artisanArgs)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), site.Path, container, artisanArgs)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -1869,7 +1872,7 @@ func execQueueStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK("Queue worker stopped for " + siteName), nil
 }
 
@@ -1900,16 +1903,16 @@ BindsTo=%s.service
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan reverb:start
+ExecStart=%s exec -w %s %s php artisan reverb:start
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, site.Path, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), site.Path, container)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -1931,7 +1934,7 @@ func execReverbStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK("Reverb stopped for " + siteName), nil
 }
 
@@ -1967,16 +1970,16 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan horizon
+ExecStart=%s exec -w %s %s php artisan horizon
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, site.Path, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), site.Path, container)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -1998,7 +2001,7 @@ func execHorizonStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK("Horizon stopped for " + siteName), nil
 }
 
@@ -2029,16 +2032,16 @@ BindsTo=%s.service
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=podman exec -w %s %s php artisan schedule:work
+ExecStart=%s exec -w %s %s php artisan schedule:work
 
 [Install]
 WantedBy=default.target
-`, siteName, fpmUnit, fpmUnit, site.Path, container)
+`, siteName, fpmUnit, fpmUnit, podman.PodmanBin(), site.Path, container)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -2060,7 +2063,7 @@ func execScheduleStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK("Scheduler stopped for " + siteName), nil
 }
 
@@ -2100,16 +2103,16 @@ After=network.target
 Type=simple
 Restart=on-failure
 RestartSec=5
-ExecStart=podman run --rm --replace --name %s --network host docker.io/stripe/stripe-cli:latest listen --api-key %s --forward-to %s --skip-verify
+ExecStart=%s run --rm --replace --name %s --network host docker.io/stripe/stripe-cli:latest listen --api-key %s --forward-to %s --skip-verify
 
 [Install]
 WantedBy=default.target
-`, siteName, containerName, apiKey, forwardTo)
+`, siteName, podman.PodmanBin(), containerName, apiKey, forwardTo)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -2131,7 +2134,7 @@ func execStripeListenStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK("Stripe listener stopped for " + siteName), nil
 }
 
@@ -2158,7 +2161,7 @@ func execLogs(args map[string]any) (any, *rpcError) {
 	}
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", "logs", "--tail", fmt.Sprintf("%d", lines), container)
+	cmd := podman.Cmd( "logs", "--tail", fmt.Sprintf("%d", lines), container)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	_ = cmd.Run() // non-zero exit if container not running is fine — we return what we have
@@ -2216,7 +2219,7 @@ func execComposer(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, composerArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := podman.Cmd( cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2288,7 +2291,7 @@ func execVendorRun(args map[string]any) (any, *rpcError) {
 	cmdArgs = append(cmdArgs, binArgs...)
 
 	var out bytes.Buffer
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := podman.Cmd( cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
@@ -2873,7 +2876,7 @@ func execServiceRemove(args map[string]any) (any, *rpcError) {
 	if err := podman.RemoveQuadlet(unit); err != nil {
 		return toolErr("removing quadlet: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	if err := config.RemoveCustomService(name); err != nil {
 		return toolErr("removing service config: " + err.Error()), nil
 	}
@@ -3012,13 +3015,14 @@ func execServiceExpose(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return toolErr("quadlet template not found: " + err.Error()), nil
 	}
+	content = podman.ApplyImage(content, svcCfg.Image)
 	if len(svcCfg.ExtraPorts) > 0 {
 		content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 	}
-	if err := podman.WriteQuadlet(unitName, content); err != nil {
+	if err := podman.WriteContainerUnitFn(unitName, content); err != nil {
 		return toolErr("writing quadlet: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 
@@ -3621,10 +3625,10 @@ func execDBExport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+		cmd = podman.Cmd( "exec", "-i", "lerd-mysql",
 			"mysqldump", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "pg_dump", "-U", env.username, env.database)
 	default:
 		_ = os.Remove(output)
@@ -3986,16 +3990,16 @@ BindsTo=%s.service
 Type=simple
 Restart=%s
 RestartSec=5
-ExecStart=podman exec -w %s %s %s
+ExecStart=%s exec -w %s %s %s
 
 [Install]
 WantedBy=default.target
-`, label, siteName, fpmUnit, fpmUnit, restart, site.Path, container, worker.Command)
+`, label, siteName, fpmUnit, fpmUnit, restart, podman.PodmanBin(), site.Path, container, worker.Command)
 
 	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
 		return toolErr("writing service unit: " + err.Error()), nil
 	}
-	if err := podman.DaemonReload(); err != nil {
+	if err := podman.DaemonReloadFn(); err != nil {
 		return toolErr("daemon-reload: " + err.Error()), nil
 	}
 	_ = lerdSystemd.EnableService(unitName)
@@ -4021,7 +4025,7 @@ func execWorkerStop(args map[string]any) (any, *rpcError) {
 	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
 		return toolErr("removing unit file: " + err.Error()), nil
 	}
-	_ = podman.DaemonReload()
+	_ = podman.DaemonReloadFn()
 	return toolOK(fmt.Sprintf("%s worker stopped for %s", workerName, siteName)), nil
 }
 
@@ -4197,7 +4201,7 @@ func execWorkerRemove(args map[string]any) (any, *rpcError) {
 		podman.StopUnit(unitName) //nolint:errcheck
 		unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
 		_ = os.Remove(unitFile)
-		_ = podman.DaemonReload()
+		_ = podman.DaemonReloadFn()
 	}
 
 	if boolArg(args, "global") {
@@ -4550,10 +4554,10 @@ func execDBImport(args map[string]any) (any, *rpcError) {
 	var cmd *exec.Cmd
 	switch env.connection {
 	case "mysql", "mariadb":
-		cmd = exec.Command("podman", "exec", "-i", "lerd-mysql",
+		cmd = podman.Cmd( "exec", "-i", "lerd-mysql",
 			"mysql", "-u"+env.username, "-p"+env.password, env.database)
 	case "pgsql", "postgres":
-		cmd = exec.Command("podman", "exec", "-i", "-e", "PGPASSWORD="+env.password,
+		cmd = podman.Cmd( "exec", "-i", "-e", "PGPASSWORD="+env.password,
 			"lerd-postgres", "psql", "-U", env.username, env.database)
 	default:
 		return toolErr("unsupported DB_CONNECTION: " + env.connection), nil
@@ -4615,13 +4619,13 @@ func execDBCreate(args map[string]any) (any, *rpcError) {
 func mcpCreateDatabase(svc, name string) (bool, error) {
 	switch svc {
 	case "mysql":
-		check := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		check := podman.Cmd( "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
 		out, err := check.Output()
 		if err == nil && strings.TrimSpace(string(out)) != "0" {
 			return false, nil
 		}
-		cmd := exec.Command("podman", "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
+		cmd := podman.Cmd( "exec", "lerd-mysql", "mysql", "-uroot", "-plerd",
 			"-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", name))
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -4630,7 +4634,7 @@ func mcpCreateDatabase(svc, name string) (bool, error) {
 		}
 		return true, nil
 	case "postgres":
-		cmd := exec.Command("podman", "exec", "lerd-postgres", "psql", "-U", "postgres",
+		cmd := podman.Cmd( "exec", "lerd-postgres", "psql", "-U", "postgres",
 			"-c", fmt.Sprintf(`CREATE DATABASE "%s";`, name))
 		out, err := cmd.CombinedOutput()
 		if err != nil {

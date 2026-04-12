@@ -98,10 +98,10 @@ func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 	}
 	content := podman.GenerateCustomQuadlet(svc)
 	quadletName := "lerd-" + svc.Name
-	if err := podman.WriteQuadlet(quadletName, content); err != nil {
-		return fmt.Errorf("writing quadlet for %s: %w", svc.Name, err)
+	if err := podman.WriteContainerUnitFn(quadletName, content); err != nil {
+		return fmt.Errorf("writing unit for %s: %w", svc.Name, err)
 	}
-	return podman.DaemonReload()
+	return podman.DaemonReloadFn()
 }
 
 // EnsureServiceRunning starts the service if it is not already active and

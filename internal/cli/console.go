@@ -64,7 +64,7 @@ func runConsole(_ *cobra.Command, args []string) error {
 	cmdArgs := append(execFlags, "-w", cwd, container, "php", consoleCmd)
 	cmdArgs = append(cmdArgs, args...)
 
-	cmd := exec.Command("podman", cmdArgs...)
+	cmd := podman.Cmd( cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
