@@ -281,7 +281,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 7. Pull images in parallel, then build dnsmasq.
+	// 7. Pull images sequentially, then build dnsmasq. Sequential output
+	// keeps any sudo password prompt from later steps visible instead of
+	// being clobbered by a live-updating spinner.
 	pullJobs := []BuildJob{
 		{
 			Label: "Pulling nginx:alpine",
@@ -294,7 +296,14 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		},
 	}
 	pullJobs = append(pullJobs, pullDNSImages()...)
-	RunParallel(pullJobs) //nolint:errcheck
+	for _, job := range pullJobs {
+		step(job.Label)
+		if err := job.Run(io.Discard); err != nil {
+			fmt.Printf("WARN: %v\n", err)
+			continue
+		}
+		ok()
+	}
 
 	// 8. Systemd / services
 	step("Reloading service manager")
