@@ -11,6 +11,19 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.1] — 2026-04-13
+
+### Added
+
+- **macOS release pipeline and Homebrew tap** — tagged releases now build darwin amd64/arm64 binaries and publish to the `geodro/homebrew-lerd` tap. Install on macOS with `brew tap geodro/lerd && brew install lerd && lerd install`.
+
+### Fixed
+
+- **Short-name pulls failed on Ubuntu** — built-in service images (`mysql`, `redis`, `postgis`, `meilisearch`, `rustfs`, `mailpit`) were stored as short names and failed on distros whose `/etc/containers/registries.conf` has no unqualified-search registries. All defaults are now fully qualified with `docker.io/`, and existing configs are auto-migrated on next load.
+- **Installing a preset from the UI did nothing visible** — the `/api/services/presets/` endpoint did not publish an eventbus event after a successful install, so the 2-second snapshot cache kept returning the stale services list. The frontend's immediate `loadServices()` then failed to find the new service, leaving the modal open and the dashboard unchanged. The endpoint now invalidates the cache and broadcasts over WebSocket, so the phpMyAdmin (and any other preset) install flow closes the modal, switches to the Services tab, selects the new service, and starts it.
+
+---
+
 ## [1.12.0] — 2026-04-13
 
 ### Added
