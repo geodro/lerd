@@ -575,8 +575,19 @@ func listActiveQueueWorkers() []string {
 }
 
 // listActiveScheduleWorkers returns site names of active lerd-schedule-* units.
+// Includes timer-driven schedulers whose .service is static between firings.
 func listActiveScheduleWorkers() []string {
-	return listActiveUnitsBySuffix("lerd-schedule-*.service", "lerd-schedule-")
+	svc := listActiveUnitsBySuffix("lerd-schedule-*.service", "lerd-schedule-")
+	timer := listActiveUnitsBySuffix("lerd-schedule-*.timer", "lerd-schedule-")
+	seen := map[string]bool{}
+	out := make([]string, 0, len(svc)+len(timer))
+	for _, n := range append(svc, timer...) {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // listActiveReverbServers returns site names of active lerd-reverb-* units.

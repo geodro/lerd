@@ -23,7 +23,7 @@ func listActiveUnitsBySuffix(pattern, prefix string) []string {
 		if len(fields) == 0 {
 			continue
 		}
-		unit := strings.TrimSuffix(fields[0], ".service")
+		unit := strings.TrimSuffix(strings.TrimSuffix(fields[0], ".service"), ".timer")
 		siteName := strings.TrimPrefix(unit, prefix)
 		if siteName != unit && siteName != "" {
 			sites = append(sites, siteName)
