@@ -1,18 +1,18 @@
 # Lerd
 
-> Open-source Herd-like local PHP development environment for Linux.
+> Open-source Herd-like local PHP development environment for Linux and macOS.
 > Podman-native, rootless, with a built-in Web UI.
 
 [![CI](https://github.com/geodro/lerd/actions/workflows/ci.yml/badge.svg)](https://github.com/geodro/lerd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/geodro/lerd)](https://github.com/geodro/lerd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)]()
 [![Docs](https://img.shields.io/badge/docs-geodro.github.io%2Flerd-blue)](https://geodro.github.io/lerd/)
 
 ![Lerd Web UI](screenshots/app-1.png)
 
 Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers,
-designed for PHP developers on Linux (Ubuntu, Fedora, Arch, Debian).
+designed for PHP developers on Linux and macOS.
 No Docker. No sudo. No system pollution. Just `lerd link` and your project
 is live at `project.test` with HTTPS.
 
@@ -64,26 +64,34 @@ AI:  → site_link()
 | Rootless           | ✅   | ❌   | ❌    | ✅           |
 | Web UI             | ✅   | ❌   | ❌    | ✅           |
 | Linux              | ✅   | ✅   | ✅    | ❌           |
-| macOS              | 🔜   | ✅   | ✅    | ✅           |
+| macOS              | ✅   | ✅   | ✅    | ✅           |
 | MCP server         | ✅   | ❌   | ❌    | ❌           |
 | Free & open source | ✅   | ✅   | ✅    | ❌           |
 
 ## Install
 
+### Linux
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
 ```
 
-### macOS beta
+Update later with:
 
-macOS support is in beta. Install via Homebrew:
+```bash
+lerd update
+```
+
+### macOS
+
+Install via Homebrew:
 
 ```bash
 brew install geodro/lerd/lerd
 lerd install
 ```
 
-Or if already installed:
+Update later with:
 
 ```bash
 brew upgrade lerd
@@ -91,7 +99,7 @@ lerd install
 ```
 
 > [!NOTE]
-> See the [beta installation docs](https://geodro.github.io/lerd/getting-started/installation/#beta-macos-preview) for details.
+> See the [installation docs](https://geodro.github.io/lerd/getting-started/installation/) for details.
 
 ## Quick Start
 
