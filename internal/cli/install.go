@@ -178,14 +178,29 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// quadlet on disk now says 127.0.0.1.
 	changedQuadlets := []string{}
 	extraVolumes := podman.ExtraVolumePaths()
+	globalCfg, _ := config.LoadGlobal()
 	rewriteQuadlet := func(name string) error {
 		content, err := podman.GetQuadletTemplate(name + ".container")
 		if err != nil {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
-		if override := platformImageOverride(strings.TrimPrefix(name, "lerd-")); override != "" {
+		svcName := strings.TrimPrefix(name, "lerd-")
+		if override := platformImageOverride(svcName); override != "" {
 			content = podman.ApplyImage(content, override)
+		}
+		// Match ensureServiceQuadlet so install and the runtime service
+		// path produce byte-identical files. Without this, a user who has
+		// pinned an image (e.g. `mysql:8.0` instead of the embed's
+		// `docker.io/library/mysql:8.0`) sees a perpetual diff and the
+		// "PublishPort changed" restart fires on every install.
+		if globalCfg != nil {
+			if svcCfg, ok := globalCfg.Services[svcName]; ok {
+				content = podman.ApplyImage(content, svcCfg.Image)
+				if len(svcCfg.ExtraPorts) > 0 {
+					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+				}
+			}
 		}
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
