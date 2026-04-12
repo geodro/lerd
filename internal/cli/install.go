@@ -59,6 +59,16 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
+	// 1b. Enable systemd linger so user services (lerd-dns, lerd-nginx, the
+	// PHP-FPM containers) survive screen blank, lock, and logout. Without
+	// linger, Ubuntu/GNOME tears down the rootless Podman containers when
+	// the session goes inactive and lerd appears to "stop working" until
+	// the next manual `lerd install`. This is the single biggest source of
+	// "DNS just stopped" issues reported in the wild — see #153.
+	if err := ensureSystemdLinger(); err != nil {
+		fmt.Printf("    WARN: %v\n", err)
+	}
+
 	// 2. Podman network
 	step("Creating lerd podman network")
 	if err := podman.EnsureNetwork("lerd"); err != nil {
@@ -441,6 +451,53 @@ func runInstall(_ *cobra.Command, _ []string) error {
 
 	fmt.Println("\nLerd installation complete!")
 	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
+	return nil
+}
+
+// ensureSystemdLinger checks whether systemd user linger is enabled for the
+// current user and runs `sudo loginctl enable-linger` if not. Without linger
+// the rootless Podman containers (lerd-dns, lerd-nginx, PHP-FPM, …) get torn
+// down by systemd-logind when the session goes inactive — screen blank,
+// lock, switch user, logout — and lerd appears to silently stop working
+// until the user manually re-runs `lerd install` or restarts the units.
+//
+// We only act on a clear "Linger=no" reading. If loginctl is missing or its
+// output is unparseable (non-systemd init, container without logind, …) we
+// silently skip rather than fail the install.
+func ensureSystemdLinger() error {
+	user := os.Getenv("USER")
+	if user == "" {
+		user = os.Getenv("LOGNAME")
+	}
+	if user == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("loginctl"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("loginctl", "show-user", user).Output()
+	if err != nil {
+		return nil
+	}
+	if !strings.Contains(string(out), "Linger=no") {
+		return nil
+	}
+
+	fmt.Println("\n  ! systemd user linger is disabled for this account.")
+	fmt.Println("    Without it, lerd's containers (DNS, nginx, PHP-FPM) are torn down")
+	fmt.Println("    by systemd-logind on screen blank, lock, or logout, and lerd will")
+	fmt.Println("    appear to stop working until you manually restart it.")
+	fmt.Print("  --> Enabling linger via `sudo loginctl enable-linger ", user, "` ... ")
+
+	cmd := exec.Command("sudo", "loginctl", "enable-linger", user)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Println()
+		return fmt.Errorf("enabling linger: %w", err)
+	}
+	fmt.Println("OK")
 	return nil
 }
 
