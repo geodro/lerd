@@ -666,7 +666,23 @@ func restoreSiteInfrastructure() {
 		}
 	}
 
+	cleanOrphanTimerUnits()
+
 	podman.DaemonReloadFn() //nolint:errcheck
+}
+
+// cleanOrphanTimerUnits removes lerd-*.timer files whose sibling .service
+// is missing — they can't fire and break parallel start with exit 1.
+func cleanOrphanTimerUnits() {
+	dir := config.SystemdUserDir()
+	entries, _ := filepath.Glob(filepath.Join(dir, "lerd-*.timer"))
+	for _, e := range entries {
+		base := strings.TrimSuffix(filepath.Base(e), ".timer")
+		if _, err := os.Stat(filepath.Join(dir, base+".service")); err == nil {
+			continue
+		}
+		_ = services.Mgr.RemoveTimerUnit(base)
+	}
 }
 
 func registeredStripeUnits() []string {

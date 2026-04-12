@@ -41,9 +41,13 @@ func (m *linuxServiceManager) ListTimerUnits(nameGlob string) []string {
 	entries, _ := filepath.Glob(pattern)
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		// Keep the .timer suffix so callers can distinguish from
-		// the sibling .service unit when starting/stopping.
-		names = append(names, strings.TrimSuffix(filepath.Base(e), ".timer")+".timer")
+		// Skip orphan timers — without a sibling .service systemctl
+		// can't fire them and start jobs fail with exit 1.
+		base := strings.TrimSuffix(filepath.Base(e), ".timer")
+		if _, err := os.Stat(filepath.Join(config.SystemdUserDir(), base+".service")); err != nil {
+			continue
+		}
+		names = append(names, base+".timer")
 	}
 	return names
 }
