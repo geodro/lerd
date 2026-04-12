@@ -96,8 +96,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// when at least one PHP version is already installed — composer needs a
 	// PHP runtime, and asking the question on a fresh install (where no
 	// lerd-php*-fpm container exists) would just lead to a confusing failure.
+	// Skip the prompt entirely when laravel/installer is already present in
+	// the user's composer global vendor dir, since re-running install should
+	// not pester the user about something that is already set up.
 	var wantLaravelInstaller bool
-	if installedPHP, _ := phpDet.ListInstalled(); len(installedPHP) > 0 {
+	if installedPHP, _ := phpDet.ListInstalled(); len(installedPHP) > 0 && !laravelInstallerPresent() {
 		wantLaravelInstaller = confirmInstallPrompt("Install Laravel installer (laravel new)?")
 	}
 
@@ -175,14 +178,29 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// quadlet on disk now says 127.0.0.1.
 	changedQuadlets := []string{}
 	extraVolumes := podman.ExtraVolumePaths()
+	globalCfg, _ := config.LoadGlobal()
 	rewriteQuadlet := func(name string) error {
 		content, err := podman.GetQuadletTemplate(name + ".container")
 		if err != nil {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
-		if override := platformImageOverride(strings.TrimPrefix(name, "lerd-")); override != "" {
+		svcName := strings.TrimPrefix(name, "lerd-")
+		if override := platformImageOverride(svcName); override != "" {
 			content = podman.ApplyImage(content, override)
+		}
+		// Match ensureServiceQuadlet so install and the runtime service
+		// path produce byte-identical files. Without this, a user who has
+		// pinned an image (e.g. `mysql:8.0` instead of the embed's
+		// `docker.io/library/mysql:8.0`) sees a perpetual diff and the
+		// "PublishPort changed" restart fires on every install.
+		if globalCfg != nil {
+			if svcCfg, ok := globalCfg.Services[svcName]; ok {
+				content = podman.ApplyImage(content, svcCfg.Image)
+				if len(svcCfg.ExtraPorts) > 0 {
+					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
+				}
+			}
 		}
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
@@ -573,6 +591,23 @@ func ensureUnprivilegedPorts() error {
 }
 
 // downloadBinaries is implemented per-platform in install_linux.go / install_darwin.go.
+
+// laravelInstallerPresent returns true if laravel/installer is already
+// installed in the user's composer global vendor directory. The composer
+// home is bind-mounted into the FPM container, so the package files live
+// on the host and can be detected with a plain stat.
+func laravelInstallerPresent() bool {
+	composerHome := os.Getenv("COMPOSER_HOME")
+	if composerHome == "" {
+		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfig == "" {
+			xdgConfig = filepath.Join(os.Getenv("HOME"), ".config")
+		}
+		composerHome = filepath.Join(xdgConfig, "composer")
+	}
+	_, err := os.Stat(filepath.Join(composerHome, "vendor", "laravel", "installer"))
+	return err == nil
+}
 
 // installLaravelInstaller runs composer global require laravel/installer
 // directly inside an installed PHP-FPM container so the `laravel` CLI is
