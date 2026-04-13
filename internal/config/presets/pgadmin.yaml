@@ -8,6 +8,7 @@ environment:
   PGADMIN_DEFAULT_PASSWORD: lerd
   PGADMIN_CONFIG_SERVER_MODE: "False"
   PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+  PGADMIN_CONFIG_X_FRAME_OPTIONS: "''"
 depends_on:
   - postgres
 dashboard: http://localhost:8081
