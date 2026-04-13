@@ -16,7 +16,12 @@ func TestXmlEscStr(t *testing.T) {
 		{"hello", "hello"},
 		{"a<b>c", "a&lt;b&gt;c"},
 		{"a&b", "a&amp;b"},
-		{`a"b`, "a&#34;b"},
+		// Single and double quotes are valid in XML PCDATA — must NOT be
+		// escaped as &#39;/&#34; because Apple's plist parser passes those
+		// numeric character references through literally instead of decoding them.
+		{`a"b`, `a"b`},
+		{"a'b", "a'b"},
+		{"X_FRAME_OPTIONS=''", "X_FRAME_OPTIONS=''"},
 		{"", ""},
 	}
 	for _, tt := range tests {

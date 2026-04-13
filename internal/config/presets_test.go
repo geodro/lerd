@@ -74,8 +74,15 @@ func TestLoadPreset_PgAdmin(t *testing.T) {
 	if len(p.DependsOn) != 1 || p.DependsOn[0] != "postgres" {
 		t.Errorf("pgadmin should depend on postgres, got %v", p.DependsOn)
 	}
-	if v := p.Environment["PGADMIN_CONFIG_X_FRAME_OPTIONS"]; v != "''" {
-		t.Errorf("pgadmin preset must set PGADMIN_CONFIG_X_FRAME_OPTIONS to \"''\" for iframe embedding, got %q", v)
+	foundFramingCfg := false
+	for _, f := range p.Files {
+		if f.Target == "/pgadmin4/config_local.py" && strings.Contains(f.Content, "X_FRAME_OPTIONS") {
+			foundFramingCfg = true
+			break
+		}
+	}
+	if !foundFramingCfg {
+		t.Errorf("pgadmin preset must ship config_local.py clearing X_FRAME_OPTIONS for iframe embedding")
 	}
 }
 

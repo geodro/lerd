@@ -3,9 +3,7 @@
 package services
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -108,8 +106,25 @@ func plistLabel(name string) string {
 // --- Plist generation ---
 
 func xmlEscStr(s string) string {
-	var buf bytes.Buffer
-	xml.EscapeText(&buf, []byte(s)) //nolint:errcheck
+	// Only escape characters that are truly unsafe in XML text nodes.
+	// xml.EscapeText also escapes ' → &#39; and " → &#34;, but Apple's plist
+	// parser passes those numeric character references through literally
+	// rather than decoding them, corrupting env var values like X_FRAME_OPTIONS = ''
+	// into invalid Python. Single and double quotes are valid in XML PCDATA
+	// without escaping.
+	var buf strings.Builder
+	for _, c := range s {
+		switch c {
+		case '&':
+			buf.WriteString("&amp;")
+		case '<':
+			buf.WriteString("&lt;")
+		case '>':
+			buf.WriteString("&gt;")
+		default:
+			buf.WriteRune(c)
+		}
+	}
 	return buf.String()
 }
 

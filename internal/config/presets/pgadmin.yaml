@@ -8,7 +8,6 @@ environment:
   PGADMIN_DEFAULT_PASSWORD: lerd
   PGADMIN_CONFIG_SERVER_MODE: "False"
   PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-  PGADMIN_CONFIG_X_FRAME_OPTIONS: "''"
 depends_on:
   - postgres
 dashboard: http://localhost:8081
@@ -34,3 +33,8 @@ files:
     chown: true
     content: |
       lerd-postgres:5432:*:postgres:lerd
+  - target: /pgadmin4/config_local.py
+    content: |
+      X_FRAME_OPTIONS = ''
+      ENHANCED_COOKIE_PROTECTION = False
+      WTF_CSRF_CHECK_DEFAULT = False
