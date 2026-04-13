@@ -69,13 +69,20 @@ func (c *ContainerCache) Running(name string) bool {
 	return v
 }
 
-// Refresh schedules an immediate re-poll. Safe to call from any goroutine.
+// Refresh schedules an immediate re-poll on the background goroutine.
 // Returns without blocking; at most one pending refresh is queued.
 func (c *ContainerCache) Refresh() {
 	select {
 	case c.refresh <- struct{}{}:
 	default:
 	}
+}
+
+// PollNow runs a synchronous poll and updates the in-memory state before
+// returning. Use this when the caller needs current data immediately (e.g.
+// the initial WebSocket snapshot). Unlike Refresh, it blocks until done.
+func (c *ContainerCache) PollNow() {
+	c.poll()
 }
 
 // SetInterval changes the background polling interval. Safe to call from any goroutine.

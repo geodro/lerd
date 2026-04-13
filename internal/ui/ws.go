@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/geodro/lerd/internal/eventbus"
 	"github.com/geodro/lerd/internal/podman"
 )
 
@@ -46,6 +47,16 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 	ch := broker.add()
 	defer broker.remove(ch)
+
+	// Force-refresh the container cache and invalidate all snapshot kinds so
+	// the first frame always reflects current container state, not a cached
+	// value from before lerd start ran. PollNow blocks until the podman ps
+	// completes, so the snapshot below is guaranteed to use fresh data even
+	// when multiple connections arrive simultaneously.
+	podman.Cache.PollNow()
+	snapshots.Invalidate(eventbus.KindSites)
+	snapshots.Invalidate(eventbus.KindServices)
+	snapshots.Invalidate(eventbus.KindStatus)
 
 	// Initial snapshot: assemble one JSON object containing all three kinds.
 	initial := assembleSnapshot(snapshots.Sites(), snapshots.Services(), snapshots.Status(), []string{"snapshot"})
