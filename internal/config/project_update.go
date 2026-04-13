@@ -42,6 +42,19 @@ func SetProjectWorkers(dir string, workers []string) error {
 	})
 }
 
+// AddProjectWorker appends name to the workers list if not already present.
+// No-op if .lerd.yaml does not exist.
+func AddProjectWorker(dir, name string) error {
+	return updateProjectConfig(dir, func(cfg *ProjectConfig) {
+		for _, w := range cfg.Workers {
+			if w == name {
+				return
+			}
+		}
+		cfg.Workers = append(cfg.Workers, name)
+	})
+}
+
 // SetProjectDomains replaces the domains list. No-op if .lerd.yaml does not exist.
 func SetProjectDomains(dir string, domains []string) error {
 	return updateProjectConfig(dir, func(cfg *ProjectConfig) {

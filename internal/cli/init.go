@@ -286,6 +286,12 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		sort.Strings(workerOptions)
 	}
 
+	// Stripe is not a framework worker but can be auto-started when
+	// STRIPE_SECRET is present in the project's .env.
+	if StripeSecretSet(cwd) {
+		workerOptions = append(workerOptions, "stripe")
+	}
+
 	// Remove any selected workers that are no longer available.
 	filtered := selectedWorkers[:0]
 	availableSet := make(map[string]bool, len(workerOptions))

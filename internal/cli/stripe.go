@@ -141,7 +141,11 @@ func StripeStartForSite(siteName, sitePath, siteBaseURL string) error {
 	if apiKey == "" {
 		return fmt.Errorf("STRIPE_SECRET not set in %s/.env", sitePath)
 	}
-	return stripeStartExplicit(siteName, apiKey, siteBaseURL+"/stripe/webhook")
+	if err := stripeStartExplicit(siteName, apiKey, siteBaseURL+"/stripe/webhook"); err != nil {
+		return err
+	}
+	_ = config.AddProjectWorker(sitePath, "stripe")
+	return nil
 }
 
 // StripeStopForSite stops and removes the Stripe listener for the named site.

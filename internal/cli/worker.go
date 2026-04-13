@@ -262,6 +262,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		regenNginxVhost(siteName, sitePath)
 	}
 
+	// Persist this worker to .lerd.yaml so lerd install can restore it.
+	// Additive: other workers already in the list are not removed. This covers
+	// callers like setup and pause that start workers sequentially and must not
+	// clobber each other's entries.
+	_ = config.AddProjectWorker(sitePath, workerName)
+
 	return nil
 }
 
