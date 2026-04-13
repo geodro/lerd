@@ -252,6 +252,12 @@ func MaterializeServiceFiles(svc *CustomService) error {
 			mode = os.FileMode(parsed)
 		}
 		path := ServiceFilePath(svc.Name, f.Target)
+		// Unlink first: with chown:true podman's :U flag re-owns the file to a
+		// userns-mapped uid, so a plain rewrite would EACCES. Removing the dir
+		// entry succeeds because the parent dir is owned by us.
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing stale %s for service %s: %w", path, svc.Name, err)
+		}
 		if err := os.WriteFile(path, []byte(f.Content), mode); err != nil {
 			return fmt.Errorf("writing %s for service %s: %w", path, svc.Name, err)
 		}

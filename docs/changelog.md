@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.4] — 2026-04-13
+
+### Fixed
+
+- **`pgpass` rewrite failed with permission denied** — file mounts declared with `chown: true` (e.g. pgAdmin's `/pgpass`) get re-owned to a userns-mapped uid by podman's `:U` flag. On the next materialize the host process could no longer open the file for writing and surfaced `open …/pgpass: permission denied`. `MaterializeServiceFiles` now unlinks the existing entry before writing, so a stale userns-owned file is replaced cleanly.
+
+---
+
 ## [1.12.3] — 2026-04-13
 
 ### Fixed
