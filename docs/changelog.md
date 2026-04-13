@@ -11,6 +11,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.2] — 2026-04-13
+
+### Added
+
+- **Inline dashboard iframes** — service dashboards (phpMyAdmin, pgAdmin, Mailpit, RustFS, Meilisearch, Mongo Express, Selenium…) now open as a full-width overlay inside the lerd UI instead of a new browser tab. The left icon rail grows a separator followed by one stroke icon per running dashboard-exposing service, and the service detail Dashboard / Open phpMyAdmin / Open pgAdmin buttons route through the same overlay. Clicking any of the main nav icons closes it. An Open-in-new-tab escape hatch remains for dashboards that refuse framing or lose session cookies under third-party partitioning. (#168)
+- **phpMyAdmin ships `AllowThirdPartyFraming`** — the phpmyadmin preset now materialises `/etc/phpmyadmin/config.user.inc.php` with `$cfg['AllowThirdPartyFraming'] = true;` so it renders inside the inline overlay. Existing installs must `lerd service remove phpmyadmin && lerd service preset phpmyadmin` after upgrading to pick up the new file mount.
+
+---
+
 ## [1.12.1] — 2026-04-13
 
 ### Added
