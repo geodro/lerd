@@ -139,11 +139,19 @@ func Start(currentVersion string) error {
 	podman.Cache.Start(context.Background())
 
 	podman.AfterUnitChange = func(name string) {
-		podman.Cache.Refresh() // bring the cache up-to-date after any mutation
-		siteinfo.InvalidateUnitCache()
-		eventbus.Default.Publish(eventbus.KindSites)
-		eventbus.Default.Publish(eventbus.KindServices)
-		eventbus.Default.Publish(eventbus.KindStatus)
+		// Run the poll and snapshot publish in a goroutine so the HTTP
+		// handler (and the unit start/stop call that triggered this) returns
+		// immediately. PollNow blocks until podman ps completes, ensuring
+		// the snapshot broadcast carries current container states rather than
+		// a stale pre-mutation value — which would cause the UI toggle to
+		// appear to revert.
+		go func() {
+			podman.Cache.PollNow()
+			siteinfo.InvalidateUnitCache()
+			eventbus.Default.Publish(eventbus.KindSites)
+			eventbus.Default.Publish(eventbus.KindServices)
+			eventbus.Default.Publish(eventbus.KindStatus)
+		}()
 	}
 
 	// A single goroutine subscribes to the eventbus and invalidates the

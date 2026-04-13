@@ -346,32 +346,32 @@ func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
 	if fw.HasWorker("queue", e.Path) && !suppressed["queue"] {
 		e.HasQueueWorker = true
 		status, _ := unitStatusFn("lerd-queue-" + e.Name)
-		e.QueueRunning = status == "active"
-		e.QueueFailing = status == "activating" || status == "failed"
+		e.QueueRunning = status == "active" || status == "activating"
+		e.QueueFailing = status == "failed"
 	}
 	if fw.HasWorker("schedule", e.Path) && !suppressed["schedule"] {
 		e.HasScheduleWorker = true
 		status, _ := unitStatusFn("lerd-schedule-" + e.Name)
 		// Timer-driven scheduler: .service is static between firings.
-		if status != "active" {
+		if status != "active" && status != "activating" {
 			if t, _ := unitStatusFn("lerd-schedule-" + e.Name + ".timer"); t == "active" {
 				status = "active"
 			}
 		}
-		e.ScheduleRunning = status == "active"
-		e.ScheduleFailing = status == "activating" || status == "failed"
+		e.ScheduleRunning = status == "active" || status == "activating"
+		e.ScheduleFailing = status == "failed"
 	}
 	if fw.HasWorker("reverb", e.Path) && !suppressed["reverb"] {
 		e.HasReverb = true
 		status, _ := unitStatusFn("lerd-reverb-" + e.Name)
-		e.ReverbRunning = status == "active"
-		e.ReverbFailing = status == "activating" || status == "failed"
+		e.ReverbRunning = status == "active" || status == "activating"
+		e.ReverbFailing = status == "failed"
 	}
 	if fw.HasWorker("horizon", e.Path) && !suppressed["horizon"] {
 		e.HasHorizon = true
 		status, _ := unitStatusFn("lerd-horizon-" + e.Name)
-		e.HorizonRunning = status == "active"
-		e.HorizonFailing = status == "activating" || status == "failed"
+		e.HorizonRunning = status == "active" || status == "activating"
+		e.HorizonFailing = status == "failed"
 		e.HasQueueWorker = false // Horizon manages queues
 	}
 
@@ -401,8 +401,8 @@ func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
 		e.FrameworkWorkers = append(e.FrameworkWorkers, WorkerInfo{
 			Name:    wname,
 			Label:   label,
-			Running: unitStatus == "active",
-			Failing: unitStatus == "activating" || unitStatus == "failed",
+			Running: unitStatus == "active" || unitStatus == "activating",
+			Failing: unitStatus == "failed",
 		})
 	}
 }
