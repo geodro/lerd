@@ -28,7 +28,7 @@ Once installed, Lerd opens in its own window without browser chrome, just like a
 
 The dashboard uses a three-pane layout:
 
-- **Left icon rail** — switch between Sites, Services, and System with icon buttons; theme toggle and docs link at the bottom
+- **Left icon rail** — switch between Sites, Services, and System with icon buttons; a separator below lists a per-service icon for every running service that exposes a dashboard (phpMyAdmin, pgAdmin, Mailpit, RustFS, Meilisearch, Mongo Express, Selenium…) — clicking one opens the dashboard inline as a full-width iframe over the middle and detail panels; theme toggle and docs link at the bottom
 - **Middle list panel** — scrollable list of all items in the active section; status dots, compact rows, collapsible groups
 - **Detail panel** — full controls and live logs for the selected item
 
@@ -68,7 +68,8 @@ The header has a **+** button that opens the **preset picker modal**: a one-clic
 Selecting a service opens the detail panel with start/stop controls, status, and the correct `.env` connection values with a one-click copy button. Database service detail panels (mysql, postgres, mongo, and any installed alternate like `mysql-5-7`) get two extras:
 
 - **Suggestion banner** — a sky-blue tip offering to install the paired admin UI (phpMyAdmin / pgAdmin / Mongo Express) when it isn't installed yet. Dismissable per-preset; dismissal persists in `localStorage`.
-- **Open admin button** — when the paired admin UI is installed, a button on the header opens its dashboard in a new tab and auto-starts the admin service if needed. When no admin UI is installed and the service is active, a fallback **Open connection URL** anchor hands the `mysql://` / `postgresql://` / `mongodb://` URL to your registered DB client (DBeaver, TablePlus, Compass…).
+- **Open admin button** — when the paired admin UI is installed, a button on the header opens its dashboard inline as a full-width iframe overlay and auto-starts the admin service if needed. When no admin UI is installed and the service is active, a fallback **Open connection URL** anchor hands the `mysql://` / `postgresql://` / `mongodb://` URL to your registered DB client (DBeaver, TablePlus, Compass…).
+- **Dashboard button** — for any service that exposes a dashboard URL (Mailpit, RustFS, Meilisearch, phpMyAdmin…), a Dashboard button in the header opens it as an inline full-width iframe. The iframe overlay has its own header with the service URL, an **Open in new tab** escape hatch, and a close button. Clicking one of the main nav icons (Sites / Services / System) also closes the overlay.
 
 ## System
 

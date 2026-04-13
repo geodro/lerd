@@ -65,20 +65,33 @@
     <div class="flex flex-col gap-1">
       <button @click="setTab('sites')" title="Sites"
         class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
-        :class="tab==='sites' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
+        :class="!dashboardSvc && tab==='sites' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
       </button>
       <button @click="setTab('services')" title="Services"
         class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
-        :class="tab==='services' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
+        :class="!dashboardSvc && tab==='services' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
       </button>
       <button @click="setTab('system')" title="System"
         class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
-        :class="tab==='system' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
+        :class="!dashboardSvc && tab==='system' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       </button>
     </div>
+
+    <!-- Dashboard icons for services that expose a dashboard URL -->
+    <template x-if="dashboardServices.length > 0">
+      <div class="flex flex-col items-center gap-1 mt-3 pt-3 border-t border-gray-200 dark:border-lerd-border w-8">
+        <template x-for="svc in dashboardServices" :key="'dash-'+svc.name">
+          <button @click="openDashboardIframe(svc)" :title="serviceLabel(svc) + ' dashboard'"
+            class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
+            :class="dashboardSvc && dashboardSvc.name === svc.name ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-gray-300'">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-html="dashboardIconSvg(svc.name)"></svg>
+          </button>
+        </template>
+      </div>
+    </template>
 
     <!-- Bottom: theme + docs + version -->
     <div class="mt-auto flex flex-col items-center gap-2">
@@ -1135,12 +1148,12 @@
                     </button>
                   </template>
                   <template x-if="selectedService.status === 'active' && selectedService.dashboard">
-                    <a :href="selectedService.dashboard" target="_blank"
+                    <button @click="openDashboardIframe(selectedService)"
                       class="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 transition-colors"
                       title="Open dashboard">
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                       Dashboard
-                    </a>
+                    </button>
                   </template>
                   <!-- Open paired admin UI (phpMyAdmin / pgAdmin) when installed. Starts the admin service if it isn't already running. -->
                   <template x-if="adminServiceFor(selectedService)">
@@ -1840,6 +1853,24 @@
 
     </div><!-- end detail area -->
 
+    <!-- Full-width dashboard iframe overlay: covers middle list + detail area -->
+    <div x-show="dashboardSvc" x-cloak class="fixed inset-y-0 right-0 left-14 z-30 flex flex-col bg-white dark:bg-lerd-bg">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-lerd-border shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <svg class="w-5 h-5 text-gray-500 dark:text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-html="dashboardSvc ? dashboardIconSvg(dashboardSvc.name) : ''"></svg>
+          <span class="text-sm font-medium text-gray-900 dark:text-white truncate" x-text="dashboardSvc ? serviceLabel(dashboardSvc) : ''"></span>
+          <a :href="dashboardSvc ? dashboardSvc.dashboard : '#'" target="_blank" class="font-mono text-[10px] text-sky-600 dark:text-sky-400 hover:underline truncate" x-text="dashboardSvc ? dashboardSvc.dashboard : ''"></a>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a :href="dashboardSvc ? dashboardSvc.dashboard : '#'" target="_blank" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors">Open in new tab</a>
+          <button @click="dashboardSvc = null" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors" title="Close">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <iframe :src="dashboardSvc ? dashboardSvc.dashboard : ''" class="flex-1 w-full bg-white border-0"></iframe>
+    </div>
+
   </main><!-- end main content area -->
 
   <!-- ════════════════════════════════════════════
@@ -1983,6 +2014,7 @@ function lerdApp() {
     servicesLoading: false,
     selectedSvc: null,
     svcDetailTab: 'logs',
+    dashboardSvc: null,
     openWorkerGroup: null,
     systemStatus: {},
     statusLoading: false,
@@ -2095,6 +2127,7 @@ function lerdApp() {
     setTab(t) {
       this.tab = t;
       this.mobileShowDetail = false;
+      this.dashboardSvc = null;
       location.hash = t;
     },
 
@@ -2999,6 +3032,50 @@ function lerdApp() {
       return this.services.find(s => s.name === this.selectedSvc) || null;
     },
 
+    get dashboardServices() {
+      return this.services.filter(s => s.dashboard && s.status === 'active');
+    },
+
+    openDashboardIframe(svc) {
+      this.dashboardSvc = this.dashboardSvc && this.dashboardSvc.name === svc.name ? null : svc;
+    },
+
+    dashboardIconSvg(name) {
+      // Heroicons outline paths keyed by service name / family.
+      const icons = {
+        // database cylinder — phpmyadmin, pgadmin, adminer
+        database: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 1.657 3.582 3 8 3s8-1.343 8-3V7M4 7c0 1.657 3.582 3 8 3s8-1.343 8-3M4 7c0-1.657 3.582-3 8-3s8 1.343 8 3m0 5c0 1.657-3.582 3-8 3s-8-1.343-8-3"/>',
+        // envelope — mailpit, mailhog
+        mail: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>',
+        // magnifying glass — meilisearch, elastic, typesense
+        search: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>',
+        // stacked disks — rustfs, minio, s3
+        storage: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>',
+        // window/external — fallback
+        window: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 9h16"/>',
+        // leaf — mongo, mongo-express (mongo brand is a leaf)
+        leaf: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 21c0-6 0-12 0-18c-4 3-7 7-7 11a7 7 0 007 7zm0 0a7 7 0 007-7c0-4-3-8-7-11"/>',
+        // browser with play button — selenium (browser automation)
+        browserPlay: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 9h16M10 13l4 2.5L10 18v-5z"/>',
+      };
+      const map = {
+        phpmyadmin: icons.database,
+        pgadmin: icons.database,
+        adminer: icons.database,
+        mailpit: icons.mail,
+        mailhog: icons.mail,
+        meilisearch: icons.search,
+        elasticsearch: icons.search,
+        typesense: icons.search,
+        rustfs: icons.storage,
+        minio: icons.storage,
+        'mongo-express': icons.leaf,
+        mongo: icons.leaf,
+        selenium: icons.browserPlay,
+      };
+      return map[name] || icons.window;
+    },
+
     get selectedPHPVersion() {
       if (!this.selectedSystem || !this.selectedSystem.startsWith('php-')) return null;
       const v = this.selectedSystem.slice(4);
@@ -3179,7 +3256,8 @@ function lerdApp() {
         await this.toggleService(adminSvc, 'start');
       }
       if (adminSvc.dashboard) {
-        window.open(adminSvc.dashboard, '_blank');
+        const fresh = this.services.find(s => s.name === adminSvc.name) || adminSvc;
+        this.dashboardSvc = fresh;
       }
     },
 

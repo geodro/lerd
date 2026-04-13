@@ -12,3 +12,8 @@ dynamic_env:
 depends_on:
   - mysql
 dashboard: http://localhost:8080
+files:
+  - target: /etc/phpmyadmin/config.user.inc.php
+    content: |
+      <?php
+      $cfg['AllowThirdPartyFraming'] = true;

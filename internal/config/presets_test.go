@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,16 @@ func TestLoadPreset_PhpMyAdmin(t *testing.T) {
 	}
 	if len(p.DependsOn) != 1 || p.DependsOn[0] != "mysql" {
 		t.Errorf("phpmyadmin should depend on mysql, got %v", p.DependsOn)
+	}
+	foundFramingCfg := false
+	for _, f := range p.Files {
+		if f.Target == "/etc/phpmyadmin/config.user.inc.php" && strings.Contains(f.Content, "AllowThirdPartyFraming") {
+			foundFramingCfg = true
+			break
+		}
+	}
+	if !foundFramingCfg {
+		t.Errorf("phpmyadmin preset must ship config.user.inc.php enabling AllowThirdPartyFraming for iframe embedding")
 	}
 }
 
