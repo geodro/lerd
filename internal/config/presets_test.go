@@ -74,6 +74,16 @@ func TestLoadPreset_PgAdmin(t *testing.T) {
 	if len(p.DependsOn) != 1 || p.DependsOn[0] != "postgres" {
 		t.Errorf("pgadmin should depend on postgres, got %v", p.DependsOn)
 	}
+	foundFramingCfg := false
+	for _, f := range p.Files {
+		if f.Target == "/pgadmin4/config_local.py" && strings.Contains(f.Content, "X_FRAME_OPTIONS") {
+			foundFramingCfg = true
+			break
+		}
+	}
+	if !foundFramingCfg {
+		t.Errorf("pgadmin preset must ship config_local.py clearing X_FRAME_OPTIONS for iframe embedding")
+	}
 }
 
 func TestLoadPreset_MySQL_MultiVersion(t *testing.T) {

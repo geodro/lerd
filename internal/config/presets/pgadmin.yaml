@@ -33,3 +33,8 @@ files:
     chown: true
     content: |
       lerd-postgres:5432:*:postgres:lerd
+  - target: /pgadmin4/config_local.py
+    content: |
+      X_FRAME_OPTIONS = ''
+      ENHANCED_COOKIE_PROTECTION = False
+      WTF_CSRF_CHECK_DEFAULT = False
