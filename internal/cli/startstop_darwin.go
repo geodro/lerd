@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,24 +106,61 @@ func ensurePodmanMachineRunning() {
 		}
 	} else {
 		m := machines[0]
-		if !m.rootful {
-			// Switch to rootful — required for nginx to bind ports 80/443.
+
+		needsRootful := !m.rootful
+		needsMemory := false
+
+		// Check whether the machine has at least 4 GB RAM. MySQL + PHP-FPM +
+		// Horizon together need it; machines initialised with the default 2 GB
+		// run out of memory and thrash swap, causing 800%+ host CPU usage.
+		const minMemoryMiB = 4096
+		if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
+			"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
+			if memBytes, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memBytes > 0 {
+				if memBytes/(1024*1024) < minMemoryMiB {
+					needsMemory = true
+				}
+			}
+		}
+
+		if needsRootful || needsMemory {
 			if m.running {
-				fmt.Println("  --> Stopping Podman Machine to enable rootful mode ...")
+				var reason string
+				switch {
+				case needsRootful && needsMemory:
+					reason = "enable rootful mode and increase memory to 4 GB"
+				case needsRootful:
+					reason = "enable rootful mode"
+				default:
+					reason = "increase memory to 4 GB"
+				}
+				fmt.Printf("  --> Stopping Podman Machine to %s ...\n", reason)
 				stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
 				stopCmd.Stdout = os.Stdout
 				stopCmd.Stderr = os.Stderr
 				stopCmd.Run() //nolint:errcheck
 			}
-			fmt.Println("  --> Enabling rootful mode for Podman Machine (required for ports 80/443) ...")
-			setCmd := exec.Command(podman.PodmanBin(), "machine", "set", "--rootful", m.name)
-			setCmd.Stdout = os.Stdout
-			setCmd.Stderr = os.Stderr
-			if err := setCmd.Run(); err != nil {
-				fmt.Printf("  WARN: podman machine set --rootful: %v\n", err)
+			if needsRootful {
+				fmt.Println("  --> Enabling rootful mode for Podman Machine (required for ports 80/443) ...")
+				setCmd := exec.Command(podman.PodmanBin(), "machine", "set", "--rootful", m.name)
+				setCmd.Stdout = os.Stdout
+				setCmd.Stderr = os.Stderr
+				if err := setCmd.Run(); err != nil {
+					fmt.Printf("  WARN: podman machine set --rootful: %v\n", err)
+				}
+			}
+			if needsMemory {
+				fmt.Printf("  --> Setting Podman Machine memory to %d MB (recommended minimum) ...\n", minMemoryMiB)
+				setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
+					"--memory", strconv.Itoa(minMemoryMiB), m.name)
+				setCmd.Stdout = os.Stdout
+				setCmd.Stderr = os.Stderr
+				if err := setCmd.Run(); err != nil {
+					fmt.Printf("  WARN: podman machine set --memory: %v\n", err)
+				}
 			}
 		} else if m.running {
-			return // already running and rootful
+			return // already running and correctly configured
 		}
 	}
 
@@ -138,12 +176,12 @@ func ensurePodmanMachineRunning() {
 	// `podman machine start` exits before the API socket is ready to handle
 	// container operations. Poll `podman ps` (which exercises the full
 	// container stack, not just the info endpoint) until it succeeds, then
-	// wait an extra second for the socket to fully settle.
+	// wait a few extra seconds for the socket to fully settle.
 	fmt.Print("  --> Waiting for Podman Machine to be ready ...")
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := exec.Command(podman.PodmanBin(), "ps", "-q").Run(); err == nil {
-			time.Sleep(1 * time.Second) // brief grace period before container ops
+			time.Sleep(3 * time.Second) // grace period before container ops
 			fmt.Println(" ready")
 			return
 		}

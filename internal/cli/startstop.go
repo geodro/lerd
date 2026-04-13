@@ -44,6 +44,15 @@ func ensureImages() {
 
 	for _, unit := range units {
 		image := quadletImage(unit)
+
+		// On macOS there are no quadlet files, so quadletImage returns "".
+		// Derive the image name from the unit name for PHP-FPM units so that
+		// images are rebuilt after a VM reset without requiring manual intervention.
+		if image == "" && strings.HasPrefix(unit, "lerd-php") && strings.HasSuffix(unit, "-fpm") {
+			short := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-php"), "-fpm")
+			image = "lerd-php" + short + "-fpm:local"
+		}
+
 		if image == "" || seen[image] {
 			continue
 		}
@@ -121,6 +130,32 @@ func NewQuitCmd() *cobra.Command {
 		Use:   "quit",
 		Short: "Stop all Lerd processes and containers (including UI, watcher, and tray)",
 		RunE:  runQuit,
+	}
+}
+
+// ensureDefaultPHPInstalled builds the FPM image and writes the unit file for
+// the configured default PHP version if it has never been installed. This
+// handles the case where the user sets a new default (e.g. 8.5) before running
+// `lerd php install`, so `lerd start` transparently installs it.
+func ensureDefaultPHPInstalled() {
+	cfg, err := config.LoadGlobal()
+	if err != nil || cfg == nil || cfg.PHP.DefaultVersion == "" {
+		return
+	}
+	defaultVer := cfg.PHP.DefaultVersion
+	installed, _ := phpPkg.ListInstalled()
+	for _, v := range installed {
+		if v == defaultVer {
+			return // already installed
+		}
+	}
+	fmt.Printf("  --> Installing PHP %s (configured default, not yet installed) ...\n", defaultVer)
+	if err := podman.BuildFPMImage(defaultVer, false); err != nil {
+		fmt.Printf("  WARN: build PHP %s image: %v\n", defaultVer, err)
+		return
+	}
+	if err := podman.WriteFPMQuadlet(defaultVer); err != nil {
+		fmt.Printf("  WARN: write PHP %s unit: %v\n", defaultVer, err)
 	}
 }
 
@@ -324,6 +359,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// Restore quadlets and worker units that may be missing after an
 	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
 	restoreSiteInfrastructure()
+
+	// If the configured default PHP version has never been installed (no plist /
+	// quadlet / container), install it now so coreUnits() can include it.
+	ensureDefaultPHPInstalled()
 
 	// Pre-flight port conflict check.
 	units := append(coreUnits(), installedServiceUnits()...)

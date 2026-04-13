@@ -664,7 +664,7 @@ func (m *darwinServiceManager) Disable(name string) error {
 // IsActive returns true if the service is currently running.
 // For container units we also check the container directly.
 func (m *darwinServiceManager) IsActive(name string) bool {
-	if running, _ := podman.ContainerRunning(name); running {
+	if podman.Cache.Running(name) {
 		return true
 	}
 	domain := uidDomain()
@@ -693,7 +693,7 @@ func (m *darwinServiceManager) UnitStatus(name string) (string, error) {
 	out, err := launchctl("print", domain+"/"+label)
 	if err != nil {
 		// Not loaded at all — check container directly before giving up.
-		if running, _ := podman.ContainerRunning(name); running {
+		if podman.Cache.Running(name) {
 			return "active", nil
 		}
 		if _, statErr := os.Stat(plistPath(name)); statErr == nil {
@@ -707,7 +707,7 @@ func (m *darwinServiceManager) UnitStatus(name string) (string, error) {
 	}
 	// For exited-0 or waiting: the job may be a container launcher that
 	// succeeded (-d detach). Check the actual container state.
-	if running, _ := podman.ContainerRunning(name); running {
+	if podman.Cache.Running(name) {
 		return "active", nil
 	}
 	if strings.Contains(s, "state = waiting") || strings.Contains(s, "last exit code = 0") {

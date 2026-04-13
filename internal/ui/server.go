@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,7 +132,14 @@ func Start(currentVersion string) error {
 	// pushes a fresh snapshot to every connected browser. The bus debounces,
 	// so bursty mutations (e.g. restarting a set of workers) still collapse
 	// into one broadcast.
+	// Start the container state cache. One background goroutine polls
+	// podman ps every N seconds; all hot paths (buildStatus, siteinfo,
+	// IsActive) read from the cache instead of spawning per-container
+	// podman inspect subprocesses.
+	podman.Cache.Start(context.Background())
+
 	podman.AfterUnitChange = func(name string) {
+		podman.Cache.Refresh() // bring the cache up-to-date after any mutation
 		siteinfo.InvalidateUnitCache()
 		eventbus.Default.Publish(eventbus.KindSites)
 		eventbus.Default.Publish(eventbus.KindServices)
@@ -379,14 +387,14 @@ func buildStatus() StatusResponse {
 	}
 
 	dnsOK, _ := dns.Check(tld)
-	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
+	nginxRunning := podman.Cache.Running("lerd-nginx")
 	watcherRunning := services.Mgr.IsActive("lerd-watcher")
 
 	versions, _ := phpPkg.ListInstalled()
 	var phpStatuses []PHPStatus
 	for _, v := range versions {
 		short := strings.ReplaceAll(v, ".", "")
-		running, _ := podman.ContainerRunning("lerd-php" + short + "-fpm")
+		running := podman.Cache.Running("lerd-php" + short + "-fpm")
 		xdebugEnabled := cfg != nil && cfg.IsXdebugEnabled(v)
 		phpStatuses = append(phpStatuses, PHPStatus{Version: v, Running: running, XdebugEnabled: xdebugEnabled})
 	}

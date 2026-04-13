@@ -147,7 +147,9 @@ var faviconCandidates = []string{
 // no longer fans out into 125+ subprocesses per /api/sites request.
 var (
 	unitStatusFn       = unitStatusCached
-	containerRunningFn = podman.ContainerRunning
+	containerRunningFn = func(name string) (bool, error) {
+		return podman.Cache.Running(name), nil
+	}
 )
 
 // LoadAll loads all non-ignored sites and enriches them according to flags.

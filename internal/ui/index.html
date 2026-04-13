@@ -2147,9 +2147,10 @@ function lerdApp() {
       this.loadServices();
       this.loadPresets();
       this.loadStatus();
+      this._pollInterval = () => document.hidden ? 60000 : 15000;
       this._startPollFallback = () => {
         if (this._statusInterval) return;
-        this._statusInterval = setInterval(() => {
+        const poll = () => {
           this.loadSites();
           if (this.tab === 'services') { this.loadServices(); }
           if (this.tab === 'system') {
@@ -2158,14 +2159,35 @@ function lerdApp() {
             this.loadLANStatus();
             this.loadRemoteControl();
           }
-        }, 5000);
+        };
+        const schedule = () => {
+          this._statusInterval = setTimeout(() => {
+            poll();
+            schedule();
+          }, this._pollInterval());
+        };
+        schedule();
       };
       this._stopPollFallback = () => {
         if (this._statusInterval) {
-          clearInterval(this._statusInterval);
+          clearTimeout(this._statusInterval);
           this._statusInterval = null;
         }
       };
+      document.addEventListener('visibilitychange', () => {
+        if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+          this._ws.send(JSON.stringify({type: 'visibility', visible: !document.hidden}));
+          if (!document.hidden) {
+            // Refresh immediately when tab regains focus in case state changed.
+            this.loadSites();
+            this.loadStatus();
+          }
+        } else if (this._statusInterval != null) {
+          // In fallback mode: restart with the new interval rate.
+          this._stopPollFallback();
+          this._startPollFallback();
+        }
+      });
       this._connectWS();
     },
 
@@ -2185,6 +2207,7 @@ function lerdApp() {
         ws.onopen = () => {
           this._wsBackoff = 1000;
           this._stopPollFallback();
+          ws.send(JSON.stringify({type: 'visibility', visible: !document.hidden}));
         };
         ws.onmessage = (e) => {
           let msg;

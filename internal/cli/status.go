@@ -196,7 +196,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 				if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok && fw.Workers != nil {
 					for wName, wDef := range fw.Workers {
 						switch wName {
-						case "queue", "schedule", "reverb":
+						case "queue", "schedule", "reverb", "horizon":
 							continue
 						}
 						if wDef.Check != nil && !config.MatchesRule(s.Path, *wDef.Check) {

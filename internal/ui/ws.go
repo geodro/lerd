@@ -2,8 +2,35 @@ package ui
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
+	"sync/atomic"
+	"time"
+
+	"github.com/geodro/lerd/internal/podman"
 )
+
+// visibleClients tracks how many browser tabs currently report as visible.
+// When at least one tab is focused the cache polls more aggressively.
+var visibleClients atomic.Int32
+
+const (
+	intervalFocused = 15 * time.Second
+	intervalIdle    = 60 * time.Second
+)
+
+func noteVisibility(visible bool) {
+	if visible {
+		if visibleClients.Add(1) == 1 {
+			podman.Cache.SetInterval(intervalFocused)
+		}
+	} else {
+		if visibleClients.Add(-1) <= 0 {
+			visibleClients.Store(0)
+			podman.Cache.SetInterval(intervalIdle)
+		}
+	}
+}
 
 // handleWS upgrades the HTTP connection to a websocket and streams snapshot
 // updates to the client. The initial frame carries a full snapshot of sites,
@@ -26,8 +53,21 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reader goroutine: handle ping/close frames, drop the channel on any
-	// error so the writer loop exits.
+	// connVisible tracks whether THIS connection is currently counted as
+	// visible. Only the reader goroutine writes it; the deferred cleanup
+	// reads it after the reader has exited (close(done) happens-before the
+	// <-done branch), so there is no data race.
+	connVisible := true
+	noteVisibility(true)
+	defer func() {
+		if connVisible {
+			noteVisibility(false)
+		}
+	}()
+
+	// Reader goroutine: handle ping/close/visibility frames.
+	// Visibility frames carry {"type":"visibility","visible":bool} and let
+	// the server tune the container cache polling interval.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -44,6 +84,15 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			case wsOpClose:
 				_ = ws.WriteClose()
 				return
+			case wsOpText:
+				var msg struct {
+					Type    string `json:"type"`
+					Visible bool   `json:"visible"`
+				}
+				if json.Unmarshal(payload, &msg) == nil && msg.Type == "visibility" && msg.Visible != connVisible {
+					noteVisibility(msg.Visible)
+					connVisible = msg.Visible
+				}
 			}
 		}
 	}()
