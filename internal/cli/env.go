@@ -246,6 +246,27 @@ func runEnv(_ *cobra.Command, _ []string) error {
 				}
 				continue
 			}
+			if svc == "rustfs" {
+				// Honour existing AWS_BUCKET from .env; fall back to project slug.
+				bucketName := strings.TrimSpace(envMap["AWS_BUCKET"])
+				if bucketName == "" || bucketName == "lerd" {
+					bucketName = s3BucketName(dbName)
+				}
+				updates["AWS_BUCKET"] = bucketName
+				updates["AWS_URL"] = "http://localhost:9000/" + bucketName
+				if err := ensureServiceRunning(svc); err != nil {
+					fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
+				}
+				created, err := createS3Bucket(bucketName)
+				if err != nil {
+					fmt.Printf("  [WARN] could not create bucket %q: %v\n", bucketName, err)
+				} else if created {
+					fmt.Printf("  Created bucket %q\n", bucketName)
+				} else {
+					fmt.Printf("  Bucket %q already exists\n", bucketName)
+				}
+				continue
+			}
 			if err := ensureServiceRunning(svc); err != nil {
 				fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
 			}
@@ -314,20 +335,28 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			}
 
 			if svc == "rustfs" {
-				bucketName := s3BucketName(dbName)
+				// Honour an existing AWS_BUCKET in .env (set manually or by a
+				// previous lerd env run) so we create/target the right bucket.
+				// Fall back to deriving the name from the project slug.
+				bucketName := strings.TrimSpace(envMap["AWS_BUCKET"])
+				if bucketName == "" || bucketName == "lerd" {
+					bucketName = s3BucketName(dbName)
+				}
 				updates["AWS_BUCKET"] = bucketName
 				updates["AWS_URL"] = "http://localhost:9000/" + bucketName
 				if err := ensureServiceRunning(svc); err != nil {
 					fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
+				}
+				// Always attempt bucket creation — ensureServiceRunning may have
+				// timed out on the host probe while the container network is already
+				// up, or rustfs was already running before lerd env ran.
+				created, err := createS3Bucket(bucketName)
+				if err != nil {
+					fmt.Printf("  [WARN] could not create bucket %q: %v\n", bucketName, err)
+				} else if created {
+					fmt.Printf("  Created bucket %q\n", bucketName)
 				} else {
-					created, err := createS3Bucket(bucketName)
-					if err != nil {
-						fmt.Printf("  [WARN] could not create bucket %q: %v\n", bucketName, err)
-					} else if created {
-						fmt.Printf("  Created bucket %q\n", bucketName)
-					} else {
-						fmt.Printf("  Bucket %q already exists\n", bucketName)
-					}
+					fmt.Printf("  Bucket %q already exists\n", bucketName)
 				}
 				continue
 			}
@@ -594,6 +623,8 @@ func s3BucketName(name string) string {
 
 // createS3Bucket creates a bucket for the given name in lerd-rustfs using an ephemeral mc container.
 // Returns (true, nil) if created, (false, nil) if it already existed, or (false, err) on failure.
+// Retries up to 3 times (2 s apart) to bridge the window between the host TCP port becoming
+// reachable and the container network being fully ready for mc operations.
 func createS3Bucket(name string) (bool, error) {
 	const (
 		alias   = "lerd"
@@ -601,24 +632,35 @@ func createS3Bucket(name string) (bool, error) {
 		mcEnv   = "MC_HOST_lerd=http://lerd:lerdpassword@lerd-rustfs:9000"
 	)
 
-	lsCmd := podman.Cmd("run", "--rm", "--network", "lerd",
-		"-e", mcEnv, mcImage, "ls", alias+"/"+name)
-	if err := lsCmd.Run(); err == nil {
-		return false, nil
-	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
 
-	mbCmd := podman.Cmd("run", "--rm", "--network", "lerd",
-		"-e", mcEnv, mcImage, "mb", alias+"/"+name)
-	if out, err := mbCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
-	}
+		// Bucket already exists?
+		lsCmd := podman.Cmd("run", "--rm", "--network", "lerd",
+			"-e", mcEnv, mcImage, "ls", alias+"/"+name)
+		if lsCmd.Run() == nil {
+			return false, nil
+		}
 
-	pubCmd := podman.Cmd("run", "--rm", "--network", "lerd",
-		"-e", mcEnv, mcImage, "anonymous", "set", "public", alias+"/"+name)
-	if out, err := pubCmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("mc anonymous set public: %s", strings.TrimSpace(string(out)))
+		mbCmd := podman.Cmd("run", "--rm", "--network", "lerd",
+			"-e", mcEnv, mcImage, "mb", alias+"/"+name)
+		out, err := mbCmd.CombinedOutput()
+		if err != nil {
+			lastErr = fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			continue
+		}
+
+		pubCmd := podman.Cmd("run", "--rm", "--network", "lerd",
+			"-e", mcEnv, mcImage, "anonymous", "set", "public", alias+"/"+name)
+		if out, err := pubCmd.CombinedOutput(); err != nil {
+			return false, fmt.Errorf("mc anonymous set public: %s", strings.TrimSpace(string(out)))
+		}
+		return true, nil
 	}
-	return true, nil
+	return false, lastErr
 }
 
 // ensureServiceRunning starts the service if it is not already active, then
