@@ -1144,6 +1144,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
+		cli.RegenerateFamilyConsumersForService(name)
 		writeJSON(w, map[string]any{"ok": true})
 		return
 	case "pin":
