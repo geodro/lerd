@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.5] — 2026-04-13
+
+### Fixed
+
+- **macOS ARM64 postgres pulled an image with no ARM64 manifest** — `platformImageOverride` was applied before `svcCfg.Image` from global config, so the macOS substitute (`imresamu/postgis`) was silently overwritten by `postgis/postgis:16-3.5-alpine` on every `ensureServiceQuadlet` and `lerd install` run. The override now runs last and only when the resolved image is the known-bad upstream `postgis/postgis` + `alpine` suffix, leaving user-pinned custom images untouched. The embedded quadlet fallback also moves from `postgis:16-3.5-alpine` to `postgis:16-3.5` so fresh Linux installs get an image with an ARM64 manifest. (#175)
+
+---
+
 ## [1.12.4] — 2026-04-13
 
 ### Fixed
