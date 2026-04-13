@@ -241,4 +241,3 @@ func TestConcurrentPollAndRead(t *testing.T) {
 	}
 	wg.Wait()
 }
-

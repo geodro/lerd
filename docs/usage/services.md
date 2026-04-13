@@ -447,6 +447,8 @@ When `lerd env` runs in a project directory, it checks each custom service's `en
 
 `lerd start` and `lerd stop` include any custom service that has a quadlet file installed (i.e. has been started at least once via `lerd service start`). They are started and stopped alongside the built-in services.
 
+Custom service containers are given a 5-second graceful stop window before podman sends `SIGKILL`. This keeps `lerd service stop` and the web UI's Stop button responsive even for images with slow shutdown sequences (Selenium Chromium/supervisord, for example, can otherwise block for 30 s+). If you remove a preset service and reinstall it after upgrading lerd, the new `StopTimeout=5` value lands automatically. Existing installs of a slow-stopping service can pick up the change with `lerd service remove <name> && lerd service preset <name>`.
+
 ### Pinning services
 
 By default, lerd can auto-stop services that no active site references in its `.env`. Use `pin` to keep a service running regardless of which sites are active:

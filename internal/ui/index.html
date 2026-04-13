@@ -3842,8 +3842,10 @@ function lerdApp() {
       svc.loading = true;
       svc.error = '';
       svc.flash = '';
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 8000);
       try {
-        const res = await fetch(`/api/services/${svc.name}/${action}`, { method: 'POST' });
+        const res = await fetch(`/api/services/${svc.name}/${action}`, { method: 'POST', signal: ctrl.signal });
         const data = await res.json();
         if (data.ok) {
           svc.status = data.status || (action === 'start' ? 'active' : 'inactive');
@@ -3855,8 +3857,14 @@ function lerdApp() {
         }
         await this.loadServices();
       } catch (e) {
-        svc.error = e.message || 'Request failed';
+        if (e.name === 'AbortError') {
+          svc.flash = action === 'start' ? 'Starting in background…' : 'Stopping in background…';
+          setTimeout(() => { svc.flash = ''; }, 4000);
+        } else {
+          svc.error = e.message || 'Request failed';
+        }
       } finally {
+        clearTimeout(timeoutId);
         svc.loading = false;
       }
     },

@@ -217,6 +217,20 @@ func TestGenerateCustomQuadlet_NoShareHosts(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomQuadlet_StopTimeout(t *testing.T) {
+	// Images like selenium/standalone-chromium hang for 30s+ on graceful
+	// shutdown. StopTimeout=5 bounds podman's SIGTERM-wait so systemctl stop
+	// returns promptly instead of blocking the UI.
+	svc := &config.CustomService{
+		Name:  "selenium",
+		Image: "docker.io/selenium/standalone-chromium:latest",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if !strings.Contains(out, "StopTimeout=5") {
+		t.Errorf("expected StopTimeout=5 in [Container] section, got:\n%s", out)
+	}
+}
+
 func TestSortPaths(t *testing.T) {
 	paths := []string{"/var/www/app", "/opt", "/var/www"}
 	sortPaths(paths)

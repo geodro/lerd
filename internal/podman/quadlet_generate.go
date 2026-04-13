@@ -23,6 +23,10 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 	fmt.Fprintf(&b, "Image=%s\n", svc.Image)
 	fmt.Fprintf(&b, "ContainerName=lerd-%s\n", svc.Name)
 	b.WriteString("Network=lerd\n")
+	// Bound podman's graceful-stop window so images with slow shutdown
+	// sequences (selenium/supervisord, chromium) don't block systemctl stop
+	// for the full 90 s default. Mirrors the --stop-timeout=5 used on macOS.
+	b.WriteString("StopTimeout=5\n")
 
 	if svc.ShareHosts {
 		fmt.Fprintf(&b, "Volume=%s:/etc/hosts:ro,z\n", config.BrowserHostsFile())
