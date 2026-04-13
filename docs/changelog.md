@@ -11,6 +11,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.3] — 2026-04-13
+
+### Fixed
+
+- **pgAdmin crash loop and iframe embedding** — pgAdmin now ships a mounted `config_local.py` that disables `X-Frame-Options`, `ENHANCED_COOKIE_PROTECTION`, and `WTF_CSRF_CHECK_DEFAULT`, so it renders inside the inline dashboard overlay with working sessions and preferences. Also fixes a launchd plist XML escaping bug where `'` and `"` in env var values were emitted as numeric character references that Apple's plist parser passed through literally, corrupting container env and crash-looping pgAdmin on macOS. Adds a Slonik (elephant) icon for pgAdmin in the dashboard rail. (#171)
+- **UI service remove left family consumers stale** — the web UI's remove handler did not call `RegenerateFamilyConsumers`, so removing mariadb from the UI left phpMyAdmin's `PMA_HOSTS` pointing at the gone host. The UI now matches the CLI behaviour. (#172)
+- **Workers showed as off on macOS while running** — `unitStatusFn` defaulted to a `systemctl`-based path that does not exist on macOS, so the UI never reflected running workers. Darwin now overrides it to use `podman.UnitStatus`, the same path `lerd status` uses. (#170)
+
+---
+
 ## [1.12.2] — 2026-04-13
 
 ### Added
