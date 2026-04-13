@@ -848,6 +848,12 @@ func autoStopUnusedFPMs() {
 		return
 	}
 	active := activePHPVersions()
+	// Never stop the globally configured default PHP version — it must always be
+	// available for `php`, `composer`, and `laravel new` shims even when no site
+	// explicitly references it (same logic as coreUnits).
+	if cfg, cfgErr := config.LoadGlobal(); cfgErr == nil && cfg != nil {
+		active[cfg.PHP.DefaultVersion] = true
+	}
 	for _, v := range versions {
 		if active[v] {
 			continue

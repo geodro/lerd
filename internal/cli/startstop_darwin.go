@@ -113,11 +113,12 @@ func ensurePodmanMachineRunning() {
 		// Check whether the machine has at least 4 GB RAM. MySQL + PHP-FPM +
 		// Horizon together need it; machines initialised with the default 2 GB
 		// run out of memory and thrash swap, causing 800%+ host CPU usage.
+		// {{.Resources.Memory}} returns MiB directly (not bytes).
 		const minMemoryMiB = 4096
 		if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
 			"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
-			if memBytes, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memBytes > 0 {
-				if memBytes/(1024*1024) < minMemoryMiB {
+			if memMiB, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memMiB > 0 {
+				if memMiB < minMemoryMiB {
 					needsMemory = true
 				}
 			}
