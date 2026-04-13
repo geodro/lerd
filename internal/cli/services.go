@@ -629,15 +629,20 @@ func ensureServiceQuadlet(name string) error {
 	if err != nil {
 		return fmt.Errorf("unknown service %q", name)
 	}
-	if override := platformImageOverride(name); override != "" {
-		content = podman.ApplyImage(content, override)
-	}
 	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
 		if svcCfg, ok := cfg.Services[name]; ok {
 			content = podman.ApplyImage(content, svcCfg.Image)
 			if len(svcCfg.ExtraPorts) > 0 {
 				content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 			}
+		}
+	}
+	// Platform override applied last so it wins over the global config image.
+	// The override only fires when the resolved image is a known-bad one for
+	// this platform (e.g. postgis/postgis alpine has no ARM64 manifest on macOS).
+	if currentImage := podman.CurrentImage(content); currentImage != "" {
+		if override := platformImageOverride(name, currentImage); override != "" {
+			content = podman.ApplyImage(content, override)
 		}
 	}
 	if err := podman.WriteContainerUnitFn(quadletName, content); err != nil {

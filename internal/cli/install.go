@@ -186,9 +186,6 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
 		svcName := strings.TrimPrefix(name, "lerd-")
-		if override := platformImageOverride(svcName); override != "" {
-			content = podman.ApplyImage(content, override)
-		}
 		// Match ensureServiceQuadlet so install and the runtime service
 		// path produce byte-identical files. Without this, a user who has
 		// pinned an image (e.g. `mysql:8.0` instead of the embed's
@@ -200,6 +197,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 				if len(svcCfg.ExtraPorts) > 0 {
 					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
 				}
+			}
+		}
+		// Platform override applied last so it wins over the global config image.
+		if currentImage := podman.CurrentImage(content); currentImage != "" {
+			if override := platformImageOverride(svcName, currentImage); override != "" {
+				content = podman.ApplyImage(content, override)
 			}
 		}
 		changed, err := podman.WriteQuadletDiff(name, content)

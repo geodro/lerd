@@ -35,6 +35,18 @@ func ApplyImage(content, image string) string {
 	return content
 }
 
+// CurrentImage returns the value of the Image= line in quadlet content,
+// or "" if no such line exists.
+func CurrentImage(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Image=") {
+			return strings.TrimPrefix(trimmed, "Image=")
+		}
+	}
+	return ""
+}
+
 // ApplyExtraPorts appends extra PublishPort lines to quadlet content.
 func ApplyExtraPorts(content string, extraPorts []string) string {
 	var sb strings.Builder
