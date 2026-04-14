@@ -79,7 +79,9 @@ If lerd setup has already run, .env will contain lerd credentials. Use the
 --sail-db-* flags to supply the original Sail database credentials instead.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sailDBNameExplicit = cmd.Flags().Changed("sail-db-name")
-			return runImportSail(noStop, skipS3, sailDBUser, sailDBPassword, sailDBName, sailDBNameExplicit)
+			userExplicit := cmd.Flags().Changed("sail-db-user")
+			passExplicit := cmd.Flags().Changed("sail-db-password")
+			return runImportSail(noStop, skipS3, sailDBUser, sailDBPassword, sailDBName, sailDBNameExplicit, userExplicit, passExplicit)
 		},
 	}
 	cmd.Flags().BoolVar(&noStop, "no-stop", false, "Leave Sail running after import is complete")
@@ -124,7 +126,7 @@ type sailS3Env struct {
 	bucket    string
 }
 
-func runImportSail(noStop, skipS3 bool, sailDBUser, sailDBPassword, sailDBName string, sailDBNameExplicit bool) error {
+func runImportSail(noStop, skipS3 bool, sailDBUser, sailDBPassword, sailDBName string, sailDBNameExplicit, sailDBUserExplicit, sailDBPasswordExplicit bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -203,9 +205,52 @@ func runImportSail(noStop, skipS3 bool, sailDBUser, sailDBPassword, sailDBName s
 		}
 	}
 
-	// --- Start Sail ---
-	fmt.Println("Starting Sail...")
-	upArgs := append(composeArgs, "up", "-d")
+	// Resolve only the services we need (DB + MinIO if S3) so Sail's app
+	// container is never built — we only need data volumes for the import.
+	dbService := sailFindDBService(compose, sailEnv.connection)
+	if dbService == "" {
+		return fmt.Errorf("could not detect a database service in docker-compose for connection %q", sailEnv.connection)
+	}
+	// Prefer credentials from the compose service environment over .env, since
+	// the container is started with whatever is in the compose file (which may
+	// substitute ${DB_USERNAME:-default} from the original Sail .env).
+	if detectedUser, detectedPass := sailDetectDBCreds(compose, dbService); detectedUser != "" {
+		if !sailDBUserExplicit {
+			sailEnv.username = detectedUser
+		}
+		if !sailDBPasswordExplicit && detectedPass != "" {
+			sailEnv.password = detectedPass
+		}
+	}
+	servicesToStart := []string{dbService}
+
+	var minioSvc, minioUser, minioPass string
+	var minioPort int
+	if !skipS3 && s3 != nil {
+		minioSvc, minioPort, minioUser, minioPass = sailFindMinio(compose, portRemap)
+		if minioSvc != "" {
+			servicesToStart = append(servicesToStart, minioSvc)
+		}
+	}
+
+	// mysql/mysql-server:8.0 stores its socket in /var/lib/mysql (persistent),
+	// so a prior unclean shutdown leaves mysql.sock.lock and mysqld refuses to
+	// start. Clean it via a throwaway container that mounts the same volume.
+	if isMysqlLikeService(compose, dbService) {
+		cleanArgs := append([]string{}, composeArgs...)
+		cleanArgs = append(cleanArgs, "run", "--rm", "--no-deps", "--entrypoint", "sh",
+			dbService, "-c",
+			"rm -f /var/lib/mysql/*.sock /var/lib/mysql/*.sock.lock /var/lib/mysql/*.pid 2>/dev/null || true")
+		cleanCmd := exec.Command(composeBin, cleanArgs...)
+		// Silence noisy output from the throwaway container.
+		_ = cleanCmd.Run()
+	}
+
+	// --force-recreate guarantees a clean container even if a previous run
+	// left one behind. Volumes are preserved.
+	fmt.Printf("Starting Sail services: %s\n", strings.Join(servicesToStart, ", "))
+	upArgs := append(composeArgs, "up", "-d", "--no-deps", "--force-recreate")
+	upArgs = append(upArgs, servicesToStart...)
 	upCmd := exec.Command(composeBin, upArgs...)
 	upCmd.Stdout = os.Stdout
 	upCmd.Stderr = os.Stderr
@@ -226,49 +271,56 @@ func runImportSail(noStop, skipS3 bool, sailDBUser, sailDBPassword, sailDBName s
 	}
 
 	// --- Wait for DB readiness ---
-	dbService := sailFindDBService(compose, sailEnv.connection)
-	if dbService == "" {
-		return fmt.Errorf("could not detect a database service in docker-compose for connection %q", sailEnv.connection)
-	}
 	fmt.Printf("Waiting for Sail %s to be ready...\n", dbService)
 	if err := sailWaitDB(composeArgs, dbService, sailEnv, composeBin); err != nil {
 		return fmt.Errorf("Sail DB not ready: %w", err)
 	}
 
-	// --- Auto-detect database name if not explicitly provided ---
-	// lerd setup overwrites DB_DATABASE in .env, so the database name in the Sail
-	// MySQL volume may differ from what's in .env.  When the user hasn't passed an
-	// explicit --sail-db-name, query the available databases and pick the right one.
+	// Auto-detect the Sail database name when no --sail-db-name is passed, since
+	// lerd setup may have overwritten DB_DATABASE in .env.
 	if !sailDBNameExplicit {
 		if detected, err := sailDetectDatabase(composeArgs, dbService, sailEnv, composeBin); err == nil && detected != "" {
 			sailEnv.database = detected
 		}
 	}
 
-	// --- Dump database from Sail (using Sail credentials) ---
-	fmt.Printf("Dumping database %q from Sail...\n", sailEnv.database)
-	dumpFile, err := sailDumpDB(composeArgs, dbService, sailEnv, composeBin)
+	// Count tables before dump: refuse to wipe lerd's DB with an empty or
+	// missing Sail database, and prompt the user for confirmation.
+	tableCount, err := sailCountTables(composeArgs, dbService, sailEnv, composeBin)
 	if err != nil {
-		return fmt.Errorf("dumping Sail DB: %w", err)
+		return fmt.Errorf("inspecting Sail database %q: %w", sailEnv.database, err)
 	}
-	defer os.Remove(dumpFile)
+	if tableCount == 0 {
+		fmt.Printf("Sail database %q has no tables — refusing to overwrite lerd DB with empty data.\n", sailEnv.database)
+		fmt.Println("Skipping database import.")
+	} else {
+		fmt.Printf("Found database %q with %d tables. ", sailEnv.database, tableCount)
+		if !promptConfirm(fmt.Sprintf("Import into lerd (will overwrite %q)?", lerdEnv.database)) {
+			fmt.Println("Database import skipped.")
+		} else {
+			fmt.Printf("Dumping database %q from Sail...\n", sailEnv.database)
+			dumpFile, err := sailDumpDB(composeArgs, dbService, sailEnv, composeBin)
+			if err != nil {
+				return fmt.Errorf("dumping Sail DB: %w", err)
+			}
+			defer os.Remove(dumpFile)
 
-	// --- Import into lerd (using lerd credentials from .env) ---
-	fmt.Printf("Importing into lerd (%s / %s)...\n", lerdEnv.connection, lerdEnv.database)
-	if err := ensureServiceRunning(connToService(lerdEnv.connection)); err != nil {
-		return fmt.Errorf("starting lerd DB service: %w", err)
+			fmt.Printf("Importing into lerd (%s / %s)...\n", lerdEnv.connection, lerdEnv.database)
+			if err := ensureServiceRunning(connToService(lerdEnv.connection)); err != nil {
+				return fmt.Errorf("starting lerd DB service: %w", err)
+			}
+			if err := sailRecreateDB(lerdEnv); err != nil {
+				return fmt.Errorf("recreating database: %w", err)
+			}
+			if err := sailImportDump(dumpFile, lerdEnv); err != nil {
+				return fmt.Errorf("importing dump: %w", err)
+			}
+			fmt.Println("Database imported.")
+		}
 	}
-	if err := sailRecreateDB(lerdEnv); err != nil {
-		return fmt.Errorf("recreating database: %w", err)
-	}
-	if err := sailImportDump(dumpFile, lerdEnv); err != nil {
-		return fmt.Errorf("importing dump: %w", err)
-	}
-	fmt.Println("Database imported.")
 
 	// --- S3 import ---
 	if !skipS3 && s3 != nil {
-		minioSvc, minioPort, minioUser, minioPass := sailFindMinio(compose, portRemap)
 		if minioSvc != "" {
 			// Credentials for Sail's MinIO come from the compose environment block
 			// (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD), NOT from .env's AWS_ACCESS_KEY_ID
@@ -401,10 +453,17 @@ func sailBuildTempCompose(composeFilePath, cwd, composeBin string) (*sailCompose
 	services, _ := raw["services"].(map[string]interface{})
 	var strippedSvcs []string
 
+	// Under rootless podman, named volumes need ":U" so podman chowns them to
+	// the container user. Docker compose rejects ":U", so podman-only.
+	isPodman := strings.Contains(composeBin, "podman")
+
 	for name, svcRaw := range services {
 		svc, ok := svcRaw.(map[string]interface{})
 		if !ok {
 			continue
+		}
+		if isPodman {
+			sailAddPodmanVolumeChown(svc)
 		}
 		if !sailDataServices[name] {
 			if _, hasPorts := svc["ports"]; hasPorts {
@@ -547,6 +606,146 @@ func sailHostPort(raw interface{}) int {
 		n, _ := strconv.Atoi(parts[len(parts)-2])
 		return n
 	}
+}
+
+// Runs a COUNT(*) against information_schema.tables / pg_tables for the
+// target database. Returns 0 when the database is missing or has no tables.
+func sailCountTables(composeArgs []string, service string, env *dbEnv, composeBin string) (int, error) {
+	var args []string
+	args = append(args, composeArgs...)
+	args = append(args, "exec", "-T")
+	switch env.connection {
+	case "mysql", "mariadb":
+		args = append(args, "-e", "MYSQL_PWD="+env.password,
+			service, "mysql", "-h", "127.0.0.1", "-u"+env.username, "-N", "-B", "-e",
+			fmt.Sprintf("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%q;", env.database))
+	case "pgsql", "postgres":
+		args = append(args, "-e", "PGPASSWORD="+env.password,
+			service, "psql", "-U", env.username, "-d", env.database, "-tAc",
+			"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';")
+	default:
+		return 0, nil
+	}
+	out, err := exec.Command(composeBin, args...).Output()
+	if err != nil {
+		// Database may not exist — treat as zero.
+		return 0, nil
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n, nil
+}
+
+// Counts objects in a Sail MinIO bucket via `mc ls --recursive`.
+func sailCountBucketObjects(mcImage, sailMCEnv, bucket string) (int, error) {
+	cmd := podman.Cmd("run", "--rm", "-e", sailMCEnv, mcImage, "ls", "--recursive", "sail/"+bucket)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// Prints a numbered list and returns the chosen option. An invalid or empty
+// answer re-prompts; we return "" only if options is empty.
+func promptSelect(prompt string, options []string) string {
+	if len(options) == 0 {
+		return ""
+	}
+	for {
+		fmt.Printf("%s:\n", prompt)
+		for i, o := range options {
+			fmt.Printf("  %d) %s\n", i+1, o)
+		}
+		fmt.Print("Choice [1]: ")
+		var answer string
+		fmt.Scanln(&answer) //nolint:errcheck
+		answer = strings.TrimSpace(answer)
+		if answer == "" {
+			return options[0]
+		}
+		idx, err := strconv.Atoi(answer)
+		if err == nil && idx >= 1 && idx <= len(options) {
+			return options[idx-1]
+		}
+		fmt.Printf("Invalid choice %q — please enter a number between 1 and %d.\n", answer, len(options))
+	}
+}
+
+// Prompts the user with "[y/N]" and returns true only on an explicit yes.
+func promptConfirm(question string) bool {
+	fmt.Printf("%s [y/N] ", question)
+	var answer string
+	fmt.Scanln(&answer) //nolint:errcheck
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer == "y" || answer == "yes"
+}
+
+// Reads DB credentials from the compose service's environment block. Covers
+// both MYSQL_* (mysql/mariadb) and POSTGRES_* (pgsql) keys.
+func sailDetectDBCreds(cf *sailComposeFile, service string) (user, password string) {
+	svc, ok := cf.Services[service]
+	if !ok {
+		return "", ""
+	}
+	env := svc.Environment
+	if u := env["MYSQL_USER"]; u != "" {
+		return u, env["MYSQL_PASSWORD"]
+	}
+	if u := env["POSTGRES_USER"]; u != "" {
+		return u, env["POSTGRES_PASSWORD"]
+	}
+	return "", ""
+}
+
+// Only matches mysql/mysql-server — mariadb and standard mysql images put
+// their socket in /var/run/mysqld (ephemeral) and don't need cleanup.
+func isMysqlLikeService(cf *sailComposeFile, service string) bool {
+	svc, ok := cf.Services[service]
+	if !ok {
+		return false
+	}
+	img := strings.ToLower(svc.Image)
+	return strings.Contains(img, "mysql/mysql-server")
+}
+
+// Appends ":U" to named-volume mounts so rootless podman chowns the volume
+// to the container user on start. Bind mounts and long-form entries are left
+// alone; only applied under podman because docker-compose rejects ":U".
+func sailAddPodmanVolumeChown(svc map[string]interface{}) {
+	vols, ok := svc["volumes"].([]interface{})
+	if !ok {
+		return
+	}
+	for i, v := range vols {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		parts := strings.SplitN(s, ":", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		src := parts[0]
+		if strings.HasPrefix(src, "/") || strings.HasPrefix(src, ".") || strings.HasPrefix(src, "~") {
+			continue // bind mount
+		}
+		if len(parts) == 3 {
+			opts := parts[2]
+			if strings.Contains(","+opts+",", ",U,") {
+				continue
+			}
+			vols[i] = s + ",U"
+		} else {
+			vols[i] = s + ":U"
+		}
+	}
+	svc["volumes"] = vols
 }
 
 // sailDataServices is the set of Sail backing-service names whose port bindings
@@ -734,9 +933,7 @@ func sailDetectDatabase(composeArgs []string, service string, env *dbEnv, compos
 		return candidates[0], nil
 	}
 	if len(candidates) > 1 {
-		fmt.Printf("Multiple Sail databases found: %s\n", strings.Join(candidates, ", "))
-		fmt.Printf("  Using %q — pass --sail-db-name to choose a different one.\n", candidates[0])
-		return candidates[0], nil
+		return promptSelect("Multiple Sail databases found, pick one", candidates), nil
 	}
 	return "", nil
 }
@@ -913,22 +1110,79 @@ func sailImportS3(s3 *sailS3Env, minioPort int, dbName string) error {
 		return fmt.Errorf("creating lerd bucket %q: %w", lerdBucket, err)
 	}
 
-	// Use host.containers.internal to reach host-published ports from inside
-	// the mc container — works on both macOS (Podman VM) and Linux.
 	const hostGW = "host.containers.internal"
 	sailMCEnv := fmt.Sprintf("MC_HOST_sail=http://%s:%s@%s:%d",
 		s3.accessKey, s3.secretKey, hostGW, minioPort)
 	lerdMCEnv := fmt.Sprintf("MC_HOST_lerd=http://lerd:lerdpassword@%s:9000", hostGW)
+
+	sourceBucket, err := sailResolveSourceBucket(mcImage, sailMCEnv, s3.bucket)
+	if err != nil {
+		return err
+	}
+	if sourceBucket != s3.bucket {
+		fmt.Printf("  Configured bucket %q not found on Sail MinIO; using %q instead.\n", s3.bucket, sourceBucket)
+	}
+
+	// Count objects before mirror: skip (and don't touch lerd) if the source
+	// bucket is empty, and otherwise prompt before overwriting lerd.
+	objectCount, err := sailCountBucketObjects(mcImage, sailMCEnv, sourceBucket)
+	if err != nil {
+		return fmt.Errorf("listing bucket %q: %w", sourceBucket, err)
+	}
+	if objectCount == 0 {
+		fmt.Printf("  Bucket %q is empty — skipping S3 import.\n", sourceBucket)
+		return nil
+	}
+	fmt.Printf("  Found %d files in bucket %q. ", objectCount, sourceBucket)
+	if !promptConfirm(fmt.Sprintf("Mirror into lerd bucket %q?", lerdBucket)) {
+		fmt.Println("  S3 import skipped.")
+		return nil
+	}
 
 	mirrorCmd := podman.Cmd("run", "--rm",
 		"-e", sailMCEnv,
 		"-e", lerdMCEnv,
 		mcImage,
 		"mirror", "--overwrite",
-		"sail/"+s3.bucket,
+		"sail/"+sourceBucket,
 		"lerd/"+lerdBucket,
 	)
 	mirrorCmd.Stdout = os.Stdout
 	mirrorCmd.Stderr = os.Stderr
 	return mirrorCmd.Run()
+}
+
+// Lists buckets on the Sail MinIO via `mc ls sail/` and picks the right one:
+// prefer the configured name, fall back to the only one present, or error
+// with the available options.
+func sailResolveSourceBucket(mcImage, sailMCEnv, configured string) (string, error) {
+	lsCmd := podman.Cmd("run", "--rm", "-e", sailMCEnv, mcImage, "ls", "sail")
+	out, err := lsCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("listing Sail buckets: %w", err)
+	}
+	var buckets []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		// `mc ls` output: "[date] PREFIX bucket/"
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		name := strings.TrimSuffix(fields[len(fields)-1], "/")
+		if name != "" {
+			buckets = append(buckets, name)
+		}
+	}
+	if len(buckets) == 0 {
+		return "", fmt.Errorf("no buckets found on Sail MinIO")
+	}
+	for _, b := range buckets {
+		if b == configured {
+			return b, nil
+		}
+	}
+	if len(buckets) == 1 {
+		return buckets[0], nil
+	}
+	return promptSelect(fmt.Sprintf("Bucket %q not found on Sail MinIO, pick one", configured), buckets), nil
 }

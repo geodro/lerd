@@ -200,7 +200,7 @@ func runLink(args []string) error {
 		var sailAnswer string
 		fmt.Scanln(&sailAnswer) //nolint:errcheck
 		if sailAnswer == "" || sailAnswer[0] == 'Y' || sailAnswer[0] == 'y' {
-			if err := runImportSail(false, false, "sail", "password", sailDBName, sailDBName != ""); err != nil {
+			if err := runImportSail(false, false, "sail", "password", sailDBName, sailDBName != "", false, false); err != nil {
 				fmt.Printf("[WARN] sail import: %v\n", err)
 			}
 		}

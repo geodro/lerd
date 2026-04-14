@@ -27,7 +27,7 @@ When you run `lerd link` on a project that has `laravel/sail` in `composer.json`
 
 1. **Reads the compose file** and remaps any ports that conflict with lerd's running services (MySQL, Redis, MinIO/RustFS, …) so Sail can start alongside lerd without clashes
 2. **Strips non-essential ports** from app / proxy services (nginx, traefik, Vite dev server, …) so only data services are exposed on the host
-3. **Starts Sail** with the remapped configuration
+3. **Starts only the data services** (DB, and MinIO when S3 is needed) with `compose up -d --no-deps`, so Sail's app container is never built. A broken or slow app image build (Node/npm quirks, missing build args, private registry auth, …) doesn't block the import because lerd only needs the database and storage volumes.
 4. **Waits for the database** to be ready, then auto-detects the correct database name (handles the case where `lerd env` has already overwritten `DB_DATABASE`)
 5. **Dumps the database** from the Sail container and imports it into lerd's MySQL or PostgreSQL
 6. **Mirrors S3/MinIO files** from the Sail MinIO container into lerd's RustFS (skipped automatically when S3 is not configured)
@@ -43,7 +43,7 @@ Remapping conflicting ports for Sail:
   3306  → 23306
   6379  → 26379
   9000  → 29000
-Starting Sail...
+Starting Sail services: mysql, minio
 Waiting for Sail mysql to be ready...
 Dumping database "laravel" from Sail...
 Importing into lerd (mysql / myapp)...
