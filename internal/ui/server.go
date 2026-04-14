@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	_ "embed"
+
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/geodro/lerd/internal/applog"
 	"github.com/geodro/lerd/internal/certs"
@@ -138,6 +141,9 @@ func Start(currentVersion string) error {
 	// podman inspect subprocesses.
 	podman.Cache.Start(context.Background())
 
+	// Restart any LAN share proxies that were active before this process started.
+	go cli.RestoreLANShareProxies()
+
 	podman.AfterUnitChange = func(name string) {
 		// Run the poll and snapshot publish in a goroutine so the HTTP
 		// handler (and the unit start/stop call that triggered this) returns
@@ -165,6 +171,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/sites", withCORS(handleSites))
 	mux.HandleFunc("/api/services", withCORS(handleServices))
 	mux.HandleFunc("/api/ws", handleWS)
+	mux.HandleFunc("/api/lan-qr/", withCORS(handleLANQR))
 
 	// Cross-process notifier: the CLI and MCP processes run outside
 	// lerd-ui and can't publish to the in-process eventbus. They POST
@@ -585,7 +592,9 @@ type SiteResponse struct {
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
-	Services []string `json:"services,omitempty"`
+	Services    []string `json:"services,omitempty"`
+	LANPort     int      `json:"lan_port,omitempty"`
+	LANShareURL string   `json:"lan_share_url,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -669,6 +678,8 @@ func buildSites() []SiteResponse {
 			Branch:             e.Branch,
 			Worktrees:          worktreeResponses,
 			Services:           e.Services,
+			LANPort:            e.LANPort,
+			LANShareURL:        cli.LANShareURL(e.LANPort),
 		})
 	}
 	return sites
@@ -1431,6 +1442,30 @@ func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleLANQR serves a QR code PNG for the LAN share URL of a site.
+// Path: /api/lan-qr/{domain}
+func handleLANQR(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimPrefix(r.URL.Path, "/api/lan-qr/")
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil || site.LANPort == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	shareURL := cli.LANShareURL(site.LANPort)
+	if shareURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := qrcode.Encode(shareURL, qrcode.Medium, 160)
+	if err != nil {
+		http.Error(w, "qr encode: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeContent(w, r, "qr.png", time.Time{}, bytes.NewReader(png))
+}
+
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
 	OK    bool   `json:"ok"`
@@ -1633,6 +1668,20 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if !site.Paused {
 			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "lan:share":
+		if _, err := cli.LANShareStart(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "lan:unshare":
+		if err := cli.LANShareStop(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return

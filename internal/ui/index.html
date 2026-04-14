@@ -725,6 +725,31 @@
                     <span x-show="selectedSite.tlsError" class="text-[10px] text-red-500" x-text="selectedSite.tlsError"></span>
                   </div>
 
+                  <!-- LAN share -->
+                  <div class="flex items-center gap-1.5">
+                    <button @click="toggleLANShare(selectedSite)" :disabled="selectedSite.lanShareLoading" :title="selectedSite.lan_port ? 'Stop LAN sharing' : 'Share on LAN — other devices can reach this site at the shown IP:port without any DNS setup'"
+                      class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50"
+                      :class="selectedSite.lan_port ? 'bg-teal-500' : 'bg-gray-300 dark:bg-lerd-muted'">
+                      <span class="inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200" :class="selectedSite.lan_port ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+                      <svg x-show="selectedSite.lanShareLoading" class="animate-spin absolute right-[-14px] w-2.5 h-2.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                    </button>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">LAN</span>
+                    <template x-if="selectedSite.lan_share_url">
+                      <div x-data="{ showQR: false, qrX: 0, qrY: 0 }"
+                           @mouseenter="let r = $el.getBoundingClientRect(); qrX = r.left; qrY = r.bottom + 4; showQR = true"
+                           @mouseleave="showQR = false">
+                        <a :href="selectedSite.lan_share_url" target="_blank" class="text-[10px] text-teal-600 dark:text-teal-400 font-mono hover:underline" x-text="selectedSite.lan_share_url"></a>
+                        <div x-show="showQR" :style="`position:fixed; left:${qrX}px; top:${qrY}px; z-index:9999`"
+                             class="p-1.5 bg-white dark:bg-lerd-card rounded shadow-lg border border-gray-200 dark:border-lerd-border">
+                          <img :src="apiBase + '/api/lan-qr/' + selectedSite.domain" width="160" height="160" alt="QR code">
+                        </div>
+                      </div>
+                    </template>
+                    <span x-show="selectedSite.lanShareError" class="text-[10px] text-red-500" x-text="selectedSite.lanShareError"></span>
+                  </div>
+
+                  <div class="w-px h-4 bg-gray-200 dark:bg-lerd-border mx-0.5"></div>
+
                   <!-- Queue -->
                   <div x-show="selectedSite.has_queue_worker" class="flex items-center gap-1.5">
                     <button @click="toggleQueue(selectedSite)" :disabled="selectedSite.queueLoading" :title="selectedSite.queue_failing ? 'Queue worker is failing — click to restart' : selectedSite.queue_running ? 'Stop queue worker' : 'Start queue worker'"
@@ -2598,6 +2623,7 @@ function lerdApp() {
         scheduleLoading: false, scheduleError: '',
         reverbLoading: false, reverbError: '',
         horizonLoading: false, horizonError: '',
+        lanShareLoading: false, lanShareError: '',
         unlinkLoading: false, pauseLoading: false,
         framework_workers: (s.framework_workers || []).map(w => ({ ...w, loading: false, error: '' })),
       });
@@ -2636,6 +2662,8 @@ function lerdApp() {
           e.latest_log_time = s.latest_log_time;
           e.branch = s.branch;
           e.paused = s.paused;
+          e.lan_port = s.lan_port;
+          e.lan_share_url = s.lan_share_url;
           if (s.framework_workers) {
             if (e.framework_workers) {
               s.framework_workers.forEach(sw => {
@@ -3694,6 +3722,23 @@ function lerdApp() {
         site.reverbError = e.message || 'Request failed';
       } finally {
         site.reverbLoading = false;
+      }
+    },
+
+    async toggleLANShare(site) {
+      site.lanShareLoading = true;
+      site.lanShareError = '';
+      try {
+        const action = site.lan_port ? 'lan:unshare' : 'lan:share';
+        const res = await fetch(`/api/sites/${site.domain}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) {
+          site.lanShareError = data.error || 'Failed';
+        }
+      } catch (e) {
+        site.lanShareError = e.message || 'Request failed';
+      } finally {
+        site.lanShareLoading = false;
       }
     },
 

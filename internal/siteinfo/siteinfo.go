@@ -112,6 +112,9 @@ type EnrichedSite struct {
 	// Services
 	Services []string
 
+	// LAN sharing
+	LANPort int
+
 	// App metadata
 	HasAppLogs    bool
 	LatestLogTime string
@@ -206,6 +209,7 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		PausedWorkers:       s.PausedWorkers,
 		PublicDir:           s.PublicDir,
 		AppURL:              s.AppURL,
+		LANPort:             s.LANPort,
 		FrameworkName:       s.Framework,
 		OriginalPHPVersion:  s.PHPVersion,
 		OriginalNodeVersion: s.NodeVersion,

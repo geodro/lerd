@@ -26,6 +26,11 @@ type Site struct {
 	// (`<scheme>://<primary-domain>`). Use this for personal customizations
 	// you don't want to share via .lerd.yaml.
 	AppURL string `yaml:"app_url,omitempty"`
+	// LANPort, when non-zero, means a host-level reverse proxy is (or should
+	// be) listening on 0.0.0.0:LANPort, forwarding to the site with the Host
+	// header rewritten. LAN devices can reach the site at <lanIP>:LANPort
+	// without any DNS configuration.
+	LANPort int `yaml:"lan_port,omitempty"`
 }
 
 // PrimaryDomain returns the first (primary) domain for the site.
@@ -62,6 +67,7 @@ type siteYAML struct {
 	Framework     string   `yaml:"framework,omitempty"`
 	PublicDir     string   `yaml:"public_dir,omitempty"`
 	AppURL        string   `yaml:"app_url,omitempty"`
+	LANPort       int      `yaml:"lan_port,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
@@ -78,6 +84,7 @@ func (s Site) toYAML() siteYAML {
 		Framework:     s.Framework,
 		PublicDir:     s.PublicDir,
 		AppURL:        s.AppURL,
+		LANPort:       s.LANPort,
 	}
 }
 
@@ -99,6 +106,7 @@ func (sy siteYAML) toSite() Site {
 		Framework:     sy.Framework,
 		PublicDir:     sy.PublicDir,
 		AppURL:        sy.AppURL,
+		LANPort:       sy.LANPort,
 	}
 }
 

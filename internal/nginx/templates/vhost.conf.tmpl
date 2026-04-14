@@ -30,6 +30,7 @@ server {
         fastcgi_buffers 16 16k;
         fastcgi_buffer_size 32k;
         include fastcgi_params;
+        fastcgi_param SERVER_NAME $host;
     }
 
     location ~ /\.ht {
