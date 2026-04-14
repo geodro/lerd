@@ -59,4 +59,3 @@ func CertExists(domain string) bool {
 	_, err := os.Stat(certFile)
 	return err == nil
 }
-
