@@ -31,6 +31,11 @@ error()   { echo -e "  ${RED}✗${RESET}  $*" >&2; }
 die()     { error "$*"; exit 1; }
 header()  { echo -e "\n${BOLD}$*${RESET}"; }
 ask()     { echo -en "  ${BOLD}?${RESET}  $* [y/N] "; read -r _ans </dev/tty 2>/dev/null || true; [[ "$_ans" =~ ^[Yy]$ ]]; }
+star_note() {
+  echo ""
+  echo -e "  ${CYAN}★${RESET}  If lerd is useful to you, a GitHub star helps others find it:"
+  echo -e "     https://github.com/${REPO}"
+}
 
 # ── Platform detection ───────────────────────────────────────────────────────
 detect_arch() {
@@ -382,6 +387,7 @@ cmd_install() {
   info "Running 'lerd install' to complete setup ..."
   echo ""
   "${INSTALL_DIR}/${BINARY}" install
+  star_note
 }
 
 # ── Update ───────────────────────────────────────────────────────────────────
@@ -406,6 +412,7 @@ cmd_update() {
   [ -f "${tmpdir}/lerd-tray" ] && install -m 755 "${tmpdir}/lerd-tray" "${INSTALL_DIR}/lerd-tray"
   rm -rf "$tmpdir"
   success "Updated to lerd v${latest}"
+  star_note
 }
 
 # ── Uninstall ────────────────────────────────────────────────────────────────
