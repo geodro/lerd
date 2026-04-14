@@ -21,10 +21,10 @@ func TestSailExtractDefault(t *testing.T) {
 		{"${FORWARD_DB_PORT:-3306}", "3306"},
 		{"${FORWARD_REDIS_PORT:-6379}", "6379"},
 		{"${FORWARD_MINIO_PORT:-9000}", "9000"},
-		{"${VAR:-}", ""},                // empty default
+		{"${VAR:-}", ""},                           // empty default
 		{"${VAR_NO_DEFAULT}", "${VAR_NO_DEFAULT}"}, // no :- → unchanged
-		{"3306", "3306"},               // plain number → unchanged
-		{"", ""},                       // empty string → unchanged
+		{"3306", "3306"},                           // plain number → unchanged
+		{"", ""},                                   // empty string → unchanged
 	}
 	for _, c := range cases {
 		got := sailExtractDefault(c.in)
@@ -167,10 +167,10 @@ func TestSailRemapPortString(t *testing.T) {
 func TestSailDetectS3(t *testing.T) {
 	t.Run("detected via FILESYSTEM_DISK=s3", func(t *testing.T) {
 		env := map[string]string{
-			"FILESYSTEM_DISK":   "s3",
-			"AWS_ACCESS_KEY_ID": "minioadmin",
+			"FILESYSTEM_DISK":       "s3",
+			"AWS_ACCESS_KEY_ID":     "minioadmin",
 			"AWS_SECRET_ACCESS_KEY": "minioadmin",
-			"AWS_BUCKET":        "myapp",
+			"AWS_BUCKET":            "myapp",
 		}
 		s3 := sailDetectS3(env)
 		if s3 == nil {
@@ -770,9 +770,9 @@ func TestSailPortRemapRoundTrip(t *testing.T) {
 				"image": "sail-8.4/app",
 				"ports": []string{"80:80", "5173:5173"},
 			},
-			"mysql":  map[string]interface{}{"image": "mysql/mysql-server:8.0", "ports": []string{"3306:3306"}},
-			"redis":  map[string]interface{}{"image": "redis:alpine", "ports": []string{"6379:6379"}},
-			"minio":  map[string]interface{}{"image": "minio/minio:latest", "ports": []string{"9000:9000", "8900:8900"}},
+			"mysql": map[string]interface{}{"image": "mysql/mysql-server:8.0", "ports": []string{"3306:3306"}},
+			"redis": map[string]interface{}{"image": "redis:alpine", "ports": []string{"6379:6379"}},
+			"minio": map[string]interface{}{"image": "minio/minio:latest", "ports": []string{"9000:9000", "8900:8900"}},
 		},
 	})
 	if err != nil {

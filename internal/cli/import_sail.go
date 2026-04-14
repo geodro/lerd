@@ -658,7 +658,6 @@ func sailPortToString(raw interface{}) string {
 	return ""
 }
 
-
 // sailFindDBService returns the docker-compose service name for the DB.
 func sailFindDBService(cf *sailComposeFile, connection string) string {
 	candidates := map[string][]string{
