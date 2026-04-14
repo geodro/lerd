@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	_ "embed"
+
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/geodro/lerd/internal/applog"
 	"github.com/geodro/lerd/internal/certs"
@@ -138,6 +141,9 @@ func Start(currentVersion string) error {
 	// podman inspect subprocesses.
 	podman.Cache.Start(context.Background())
 
+	// Restart any LAN share proxies that were active before this process started.
+	go cli.RestoreLANShareProxies()
+
 	podman.AfterUnitChange = func(name string) {
 		// Run the poll and snapshot publish in a goroutine so the HTTP
 		// handler (and the unit start/stop call that triggered this) returns
@@ -165,6 +171,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/sites", withCORS(handleSites))
 	mux.HandleFunc("/api/services", withCORS(handleServices))
 	mux.HandleFunc("/api/ws", handleWS)
+	mux.HandleFunc("/api/lan-qr/", withCORS(handleLANQR))
 
 	// Cross-process notifier: the CLI and MCP processes run outside
 	// lerd-ui and can't publish to the in-process eventbus. They POST
@@ -286,6 +293,101 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// graphicalSessionKeys lists the env vars a GUI terminal needs to attach to
+// the user's compositor. Missing any of these (notably WAYLAND_DISPLAY /
+// DISPLAY) causes the spawned terminal to exit silently after fork.
+var graphicalSessionKeys = []string{
+	"WAYLAND_DISPLAY",
+	"DISPLAY",
+	"XAUTHORITY",
+	"XDG_SESSION_TYPE",
+	"XDG_CURRENT_DESKTOP",
+	"XDG_RUNTIME_DIR",
+	"XDG_DATA_DIRS",
+	"DBUS_SESSION_BUS_ADDRESS",
+}
+
+// graphicalEnv returns os.Environ() enriched with graphical-session vars
+// pulled from the systemd user manager and (as a last resort) probed from
+// $XDG_RUNTIME_DIR. When lerd-ui runs as a lingering user service started at
+// boot, its own env has no DISPLAY / WAYLAND_DISPLAY, so any GUI child it
+// spawns dies on startup. This helper patches that up at spawn time.
+//
+// Darwin doesn't need this (Terminal/iTerm are launched via `open` which
+// reattaches to the user's Aqua session), so the caller should skip it there.
+func graphicalEnv() []string {
+	env := os.Environ()
+	have := map[string]string{}
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			have[kv[:i]] = kv[i+1:]
+		}
+	}
+
+	merged := map[string]string{}
+	for _, k := range graphicalSessionKeys {
+		if v := have[k]; v != "" {
+			merged[k] = v
+		}
+	}
+
+	if out, err := exec.Command("systemctl", "--user", "show-environment").Output(); err == nil {
+		sc := bufio.NewScanner(strings.NewReader(string(out)))
+		for sc.Scan() {
+			line := sc.Text()
+			i := strings.IndexByte(line, '=')
+			if i <= 0 {
+				continue
+			}
+			k, v := line[:i], line[i+1:]
+			for _, want := range graphicalSessionKeys {
+				if k == want && merged[k] == "" && v != "" {
+					merged[k] = v
+				}
+			}
+		}
+	}
+
+	if merged["WAYLAND_DISPLAY"] == "" {
+		runtimeDir := merged["XDG_RUNTIME_DIR"]
+		if runtimeDir == "" {
+			runtimeDir = have["XDG_RUNTIME_DIR"]
+		}
+		if runtimeDir == "" {
+			runtimeDir = fmt.Sprintf("/run/user/%d", os.Getuid())
+		}
+		if entries, err := os.ReadDir(runtimeDir); err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if strings.HasPrefix(name, "wayland-") && !strings.HasSuffix(name, ".lock") {
+					merged["WAYLAND_DISPLAY"] = name
+					if merged["XDG_RUNTIME_DIR"] == "" {
+						merged["XDG_RUNTIME_DIR"] = runtimeDir
+					}
+					break
+				}
+			}
+		}
+	}
+
+	out := make([]string, 0, len(env)+len(merged))
+	for _, kv := range env {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, overridden := merged[kv[:i]]; overridden {
+			continue
+		}
+		out = append(out, kv)
+	}
+	for k, v := range merged {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
 // openTerminalAt opens the user's preferred terminal emulator in dir.
 // It checks $TERMINAL first, then falls back to a list of common emulators.
 func openTerminalAt(dir string) error {
@@ -337,6 +439,9 @@ func openTerminalAt(dir string) error {
 		}
 		cmd := exec.Command(bin, args...)
 		cmd.Dir = dir
+		if runtime.GOOS != "darwin" {
+			cmd.Env = graphicalEnv()
+		}
 		if err := cmd.Start(); err != nil {
 			return err
 		}
@@ -487,7 +592,9 @@ type SiteResponse struct {
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
-	Services []string `json:"services,omitempty"`
+	Services    []string `json:"services,omitempty"`
+	LANPort     int      `json:"lan_port,omitempty"`
+	LANShareURL string   `json:"lan_share_url,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -571,6 +678,8 @@ func buildSites() []SiteResponse {
 			Branch:             e.Branch,
 			Worktrees:          worktreeResponses,
 			Services:           e.Services,
+			LANPort:            e.LANPort,
+			LANShareURL:        cli.LANShareURL(e.LANPort),
 		})
 	}
 	return sites
@@ -1333,6 +1442,30 @@ func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleLANQR serves a QR code PNG for the LAN share URL of a site.
+// Path: /api/lan-qr/{domain}
+func handleLANQR(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimPrefix(r.URL.Path, "/api/lan-qr/")
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil || site.LANPort == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	shareURL := cli.LANShareURL(site.LANPort)
+	if shareURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := qrcode.Encode(shareURL, qrcode.Medium, 160)
+	if err != nil {
+		http.Error(w, "qr encode: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeContent(w, r, "qr.png", time.Time{}, bytes.NewReader(png))
+}
+
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
 	OK    bool   `json:"ok"`
@@ -1535,6 +1668,20 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if !site.Paused {
 			_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "lan:share":
+		if _, err := cli.LANShareStart(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "lan:unshare":
+		if err := cli.LANShareStop(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
@@ -2120,6 +2267,9 @@ func openTerminalCommand(script string) error {
 			continue
 		}
 		cmd := exec.Command(bin, t.args...)
+		if runtime.GOOS != "darwin" {
+			cmd.Env = graphicalEnv()
+		}
 		if err := cmd.Start(); err != nil {
 			return err
 		}
