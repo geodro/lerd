@@ -124,6 +124,8 @@ Xdebug is configured with:
 - `xdebug.client_port=9003`
 
 Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
+
+`host.containers.internal` is resolved dynamically: when lerd writes the shared hosts file it probes the running `lerd-nginx` container for the IP that podman uses for the host gateway, so Xdebug reaches your IDE on any podman networking stack (rootless or rootful, pasta, netavark, slirp4netns).
 :::
 
 ---

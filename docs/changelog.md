@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.13.1] — 2026-04-14
+
+### Fixed
+
+- **Xdebug and inter-site HTTP inside PHP-FPM containers** (closes #186). The shared `/etc/hosts` bind-mounted into every PHP-FPM container used to hardcode `169.254.1.2` both for `host.containers.internal` and for every linked `.test` domain. That address is only a valid host gateway on rootless podman with pasta/netavark/slirp4netns, so Xdebug timed out connecting back to the IDE on other podman configurations. It also routed inter-site HTTP through a fragile `FPM → pasta host-loopback → host 127.0.0.1:80 (rootlessport) → lerd-nginx` chain that failed on some podman versions and surfaced as 504s during debugging. `WriteContainerHosts` now probes the real host gateway by exec-ing `getent hosts host.containers.internal` inside `lerd-nginx`, with a throwaway alpine container on the lerd network as fallback, and the old constant as a final fallback. Two distinct IPs are written: `host.containers.internal` points at the detected host gateway for Xdebug and any host-side tooling, while every `.test` domain resolves straight to `lerd-nginx`'s bridge IP so inter-site HTTP travels container-to-container over the lerd network without any pasta hop. Rendering was extracted into a pure `renderContainerHosts` helper with table-driven unit tests covering empty registries, nginx IP wiring, IP separation regressions, and loopback preservation.
+
+---
+
 ## [1.13.0] — 2026-04-14
 
 ### Added

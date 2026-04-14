@@ -9,29 +9,23 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
-// WriteContainerHosts writes the shared hosts file that is bind-mounted into every
-// PHP-FPM container at /etc/hosts. It contains the standard loopback entries,
-// host.containers.internal, and one entry per linked site pointing to
-// host.containers.internal (169.254.1.2) so that .test domains resolve correctly
-// inside containers without requiring a container restart when sites are added or removed.
+// Fallback for podman rootless + pasta/netavark/slirp4netns.
+const fallbackHostGatewayIP = "169.254.1.2"
+
+// WriteContainerHosts writes the shared /etc/hosts bind-mounted into every
+// PHP-FPM container. host.containers.internal uses the probed host gateway;
+// .test domains point at lerd-nginx directly on the lerd bridge network.
 func WriteContainerHosts() error {
 	reg, err := config.LoadSites()
 	if err != nil {
 		return fmt.Errorf("loading sites: %w", err)
 	}
 
-	var sb strings.Builder
-	sb.WriteString("127.0.0.1 localhost\n")
-	sb.WriteString("::1 localhost\n")
-	sb.WriteString("169.254.1.2 host.containers.internal host.docker.internal\n")
+	hostIP := DetectHostGatewayIP()
+	nginxIP := nginxContainerIP()
 
-	for _, site := range reg.Sites {
-		for _, domain := range site.Domains {
-			fmt.Fprintf(&sb, "169.254.1.2 %s\n", domain)
-		}
-	}
-
-	if err := os.WriteFile(config.ContainerHostsFile(), []byte(sb.String()), 0644); err != nil {
+	content := renderContainerHosts(reg, hostIP, nginxIP)
+	if err := os.WriteFile(config.ContainerHostsFile(), []byte(content), 0644); err != nil {
 		return err
 	}
 
@@ -39,6 +33,23 @@ func WriteContainerHosts() error {
 	// lerd-nginx's IP on the Podman network so Chromium inside Selenium
 	// (or similar containers) can reach sites via HTTP/HTTPS.
 	return writeBrowserHosts(reg)
+}
+
+// renderContainerHosts builds the /etc/hosts contents for PHP-FPM containers.
+// .test domains go to nginxIP (direct bridge), host.containers.internal to
+// hostIP (host gateway for Xdebug and other host-side services).
+func renderContainerHosts(reg *config.SiteRegistry, hostIP, nginxIP string) string {
+	var sb strings.Builder
+	sb.WriteString("127.0.0.1 localhost\n")
+	sb.WriteString("::1 localhost\n")
+	fmt.Fprintf(&sb, "%s host.containers.internal host.docker.internal\n", hostIP)
+
+	for _, site := range reg.Sites {
+		for _, domain := range site.Domains {
+			fmt.Fprintf(&sb, "%s %s\n", nginxIP, domain)
+		}
+	}
+	return sb.String()
 }
 
 // writeBrowserHosts writes the browser-testing hosts file. It resolves
@@ -59,6 +70,47 @@ func writeBrowserHosts(reg *config.SiteRegistry) error {
 	}
 
 	return os.WriteFile(config.BrowserHostsFile(), []byte(sb.String()), 0644)
+}
+
+// DetectHostGatewayIP returns the IP podman uses for host.containers.internal
+// on the lerd network. Tries an exec into lerd-nginx, then a throwaway alpine
+// probe, and finally falls back to fallbackHostGatewayIP.
+func DetectHostGatewayIP() string {
+	if ip := parseHostGatewayFromExec("lerd-nginx"); ip != "" {
+		return ip
+	}
+	if ip := parseHostGatewayFromProbe(); ip != "" {
+		return ip
+	}
+	return fallbackHostGatewayIP
+}
+
+func parseHostGatewayFromExec(container string) string {
+	out, err := exec.Command(PodmanBin(), "exec", container,
+		"getent", "hosts", "host.containers.internal").Output()
+	if err != nil {
+		return ""
+	}
+	return firstField(string(out))
+}
+
+func parseHostGatewayFromProbe() string {
+	out, err := exec.Command(PodmanBin(), "run", "--rm", "--network", "lerd",
+		"docker.io/library/alpine", "getent", "hosts", "host.containers.internal").Output()
+	if err != nil {
+		return ""
+	}
+	return firstField(string(out))
+}
+
+func firstField(s string) string {
+	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	return ""
 }
 
 // nginxContainerIP returns the IP address of lerd-nginx on the lerd Podman
