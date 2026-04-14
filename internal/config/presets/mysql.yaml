@@ -25,14 +25,3 @@ env_vars:
   - DB_USERNAME=root
   - DB_PASSWORD=lerd
 connection_url: mysql://root:lerd@127.0.0.1:{{host_port}}/lerd
-files:
-  - target: /etc/mysql/conf.d/lerd.cnf
-    content: |
-      [mysqld]
-      character-set-server=utf8mb4
-      collation-server=utf8mb4_unicode_ci
-      innodb_large_prefix=ON
-      innodb_file_format=Barracuda
-      innodb_file_per_table=ON
-      innodb_strict_mode=OFF
-      loose-innodb_default_row_format=DYNAMIC

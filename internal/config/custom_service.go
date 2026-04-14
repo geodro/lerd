@@ -70,7 +70,11 @@ type CustomService struct {
 	ConnectionURL string            `yaml:"connection_url,omitempty"`
 	Description   string            `yaml:"description,omitempty"`
 	DependsOn     []string          `yaml:"depends_on,omitempty"`
-	Files         []FileMount       `yaml:"files,omitempty"`
+	// Files is deprecated as a YAML user field but kept with its yaml tag so
+	// LoadCustomServiceFromFile can detect legacy on-disk entries and migrate
+	// them away. The authoritative source of file mounts is presetFiles in
+	// preset_files.go, looked up by Preset at materialise time.
+	Files []FileMount `yaml:"files,omitempty"`
 	// Family groups related services so admin UIs can auto-discover every
 	// member. e.g. the mysql preset declares family: mysql, and phpMyAdmin
 	// uses dynamic_env to read all family members at quadlet generation time.
@@ -210,18 +214,23 @@ func ResolveDynamicEnv(svc *CustomService) error {
 		}
 		switch parts[0] {
 		case "discover_family":
-			seen := map[string]bool{}
-			var all []string
-			for _, fam := range strings.Split(parts[1], ",") {
-				for _, host := range ServicesInFamily(strings.TrimSpace(fam)) {
-					if !seen[host] {
-						seen[host] = true
-						all = append(all, host)
-					}
-				}
+			hosts := uniqueFamilyHosts(parts[1])
+			svc.Environment[k] = strings.Join(hosts, ",")
+		case "repeat_family":
+			// repeat_family:<families>=<value> → N copies of <value>, comma-joined,
+			// where N = number of unique hosts across the listed families. Used to
+			// build PMA_USERS/PMA_PASSWORDS arrays parallel to PMA_HOSTS.
+			eq := strings.Index(parts[1], "=")
+			if eq < 0 {
+				return fmt.Errorf("service %s: repeat_family needs <families>=<value>, got %q", svc.Name, parts[1])
 			}
-			sort.Strings(all)
-			svc.Environment[k] = strings.Join(all, ",")
+			hosts := uniqueFamilyHosts(parts[1][:eq])
+			value := parts[1][eq+1:]
+			repeats := make([]string, len(hosts))
+			for i := range repeats {
+				repeats[i] = value
+			}
+			svc.Environment[k] = strings.Join(repeats, ",")
 		default:
 			return fmt.Errorf("service %s: unknown dynamic_env directive %q", svc.Name, parts[0])
 		}
@@ -229,17 +238,38 @@ func ResolveDynamicEnv(svc *CustomService) error {
 	return nil
 }
 
-// MaterializeServiceFiles writes each FileMount in svc to its host path,
-// creating the parent directory and applying the requested mode.
+// uniqueFamilyHosts returns sorted, de-duplicated container hostnames across a
+// comma-separated list of family names.
+func uniqueFamilyHosts(families string) []string {
+	seen := map[string]bool{}
+	var all []string
+	for _, fam := range strings.Split(families, ",") {
+		for _, host := range ServicesInFamily(strings.TrimSpace(fam)) {
+			if !seen[host] {
+				seen[host] = true
+				all = append(all, host)
+			}
+		}
+	}
+	sort.Strings(all)
+	return all
+}
+
+// MaterializeServiceFiles writes each FileMount for svc to its host path,
+// creating the parent directory and applying the requested mode. The file
+// list is looked up from the hardcoded presetFiles map using svc.Preset, so
+// the Go binary is always the source of truth — updating lerd and restarting
+// the service is enough to roll out new file contents.
 func MaterializeServiceFiles(svc *CustomService) error {
-	if len(svc.Files) == 0 {
+	files := PresetFiles(svc.Preset)
+	if len(files) == 0 {
 		return nil
 	}
 	dir := ServiceFilesDir(svc.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating files dir for %s: %w", svc.Name, err)
 	}
-	for _, f := range svc.Files {
+	for _, f := range files {
 		if f.Target == "" {
 			return fmt.Errorf("service %s: file mount missing target", svc.Name)
 		}
@@ -294,6 +324,11 @@ func LoadCustomService(name string) (*CustomService, error) {
 }
 
 // LoadCustomServiceFromFile parses a CustomService from any YAML file path.
+//
+// files: is an internal mechanism for bundled presets only and is not a
+// user feature. Any files: entries in the on-disk YAML are stripped on load
+// (and the file re-saved without them) so the hardcoded Go definitions in
+// presetFiles are the single source of truth.
 func LoadCustomServiceFromFile(path string) (*CustomService, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -309,6 +344,15 @@ func LoadCustomServiceFromFile(path string) (*CustomService, error) {
 	if svc.Image == "" {
 		return nil, fmt.Errorf("%s: missing required field \"image\"", path)
 	}
+	// Migrate: legacy YAMLs may have a files: block. Strip it and re-save so
+	// the on-disk file matches the new schema. Safe to ignore save errors —
+	// the in-memory value is what matters for this load.
+	if len(svc.Files) > 0 {
+		svc.Files = nil
+		if migrated, err := yaml.Marshal(&svc); err == nil {
+			_ = os.WriteFile(path, migrated, 0644)
+		}
+	}
 	return &svc, nil
 }
 
@@ -316,6 +360,13 @@ func LoadCustomServiceFromFile(path string) (*CustomService, error) {
 func SaveCustomService(svc *CustomService) error {
 	if !validServiceName.MatchString(svc.Name) {
 		return fmt.Errorf("invalid service name %q: must match [a-z0-9][a-z0-9-]*", svc.Name)
+	}
+	// Refuse env values with newlines/NUL so a malicious value can't inject
+	// extra systemd directives (e.g. Exec=) into the generated .container.
+	for k, v := range svc.Environment {
+		if strings.ContainsAny(v, "\n\r\x00") {
+			return fmt.Errorf("invalid environment value for %q: must not contain newline or NUL", k)
+		}
 	}
 	dir := CustomServicesDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {

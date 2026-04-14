@@ -12,7 +12,7 @@ Volume=%h/.local/share/lerd/data/rustfs:/data:z
 UserNS=keep-id:uid=10001,gid=10001
 Environment=RUSTFS_ACCESS_KEY=lerd
 Environment=RUSTFS_SECRET_KEY=lerdpassword
-Exec=/data
+Exec=--console-enable /data
 
 [Service]
 Restart=always

@@ -1900,7 +1900,7 @@
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <a :href="dashboardSvc ? dashboardSvc.dashboard : '#'" target="_blank" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors">Open in new tab</a>
-          <button @click="dashboardSvc = null" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors" title="Close">
+          <button @click="dashboardSvc = null; location.hash = tab" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors" title="Close">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -2045,7 +2045,13 @@
 function lerdApp() {
   return {
     theme: localStorage.getItem('lerd-theme') || 'auto',
-    tab: ['sites','services','system'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'sites',
+    tab: (() => {
+      const h = location.hash.slice(1);
+      for (const t of ['sites', 'services', 'system']) {
+        if (h === t || h.startsWith(t + '/')) return t;
+      }
+      return 'sites';
+    })(),
     mobileShowDetail: false,
     sites: [],
     sitesLoading: false,
@@ -2177,6 +2183,15 @@ function lerdApp() {
       this.mobileShowDetail = false;
       this.dashboardSvc = null;
       location.hash = t;
+      // First visit to the sites tab with nothing selected picks the
+      // freshest app-log site, mirroring the old firstLoad behaviour.
+      if (t === 'sites' && !this.selectedSiteDomain && this.sites.length) {
+        const withLogs = this.sites.filter(s => s.has_app_logs && s.latest_log_time);
+        if (withLogs.length > 0) {
+          withLogs.sort((a, b) => b.latest_log_time.localeCompare(a.latest_log_time));
+          this.selectSite(withLogs[0]);
+        }
+      }
     },
 
     init() {
@@ -2237,6 +2252,12 @@ function lerdApp() {
         }
       });
       this._connectWS();
+      // Respond to browser back/forward so #service/<name> deep links work
+      // and switching tabs via the URL bar lands on the right view.
+      window.addEventListener('hashchange', () => this.applyHash());
+      // Initial dispatch once services have been loaded so #service/<name>
+      // can resolve the service object.
+      setTimeout(() => this.applyHash(), 100);
     },
 
     // _connectWS opens a websocket to /api/ws so the dashboard receives
@@ -2629,7 +2650,24 @@ function lerdApp() {
       });
       if (firstLoad) {
         this.sites = raw.map(decorate);
-        if (!this.selectedSiteDomain) {
+        // Only auto-pick a default site when the user is actually on the
+        // sites tab AND no iframe view (service dashboard / docs) is
+        // claimed by the URL hash. Otherwise the selection races with
+        // hash-based deep links and drags the address bar back to sites.
+        const hashRaw = location.hash.slice(1);
+        const hashOwnsIframe = hashRaw === 'docs' || hashRaw.startsWith('service/');
+        if (!this.selectedSiteDomain && this.tab === 'sites' && !hashOwnsIframe) {
+          // Honour #sites/<domain> first so refresh/deep-links win over
+          // the "latest app logs" default below.
+          const h = hashRaw;
+          if (h.startsWith('sites/')) {
+            const domain = h.slice('sites/'.length);
+            const site = this.sites.find(s => s.domain === domain);
+            if (site) {
+              this.selectSite(site);
+              return;
+            }
+          }
           const withLogs = this.sites.filter(s => s.has_app_logs && s.latest_log_time);
           if (withLogs.length > 0) {
             withLogs.sort((a, b) => b.latest_log_time.localeCompare(a.latest_log_time));
@@ -2687,6 +2725,7 @@ function lerdApp() {
       this.selectedSiteDomain = site.domain;
       this.siteLogsTab = site.has_app_logs ? 'app' : 'fpm';
       this.mobileShowDetail = true;
+      if (this.tab === 'sites') location.hash = 'sites/' + site.domain;
       this.closeSiteQueueLogs();
       this.closeSiteHorizonLogs();
       this.closeSiteStripeLogs();
@@ -2998,6 +3037,7 @@ function lerdApp() {
       this.selectedSvc = svc.name;
       this.svcDetailTab = 'logs';
       this.mobileShowDetail = true;
+      if (this.tab === 'services') location.hash = 'services/' + svc.name;
       this.openServiceLogs(svc);
     },
 
@@ -3045,6 +3085,7 @@ function lerdApp() {
       this.systemLogs.connected = false;
       this.selectedSystem = item;
       this.mobileShowDetail = true;
+      if (this.tab === 'system') location.hash = 'system/' + item;
       if (item === 'dns' && this.systemStatus.dns?.ok) this.openSystemLogs('lerd-dns');
       if (item === 'nginx' && this.systemStatus.nginx?.running) this.openSystemLogs('lerd-nginx');
       if (item === 'watcher') this.openWatcherLogs();
@@ -3111,15 +3152,71 @@ function lerdApp() {
     },
 
     openDashboardIframe(svc) {
-      this.dashboardSvc = this.dashboardSvc && this.dashboardSvc.name === svc.name ? null : svc;
+      if (this.dashboardSvc && this.dashboardSvc.name === svc.name) {
+        this.dashboardSvc = null;
+        location.hash = this.tab;
+        return;
+      }
+      this.dashboardSvc = svc;
+      location.hash = 'service/' + svc.name;
     },
 
     openDocsIframe() {
       if (this.dashboardSvc && this.dashboardSvc.name === 'docs') {
         this.dashboardSvc = null;
+        location.hash = this.tab;
         return;
       }
       this.dashboardSvc = { name: 'docs', label: 'Documentation', dashboard: 'https://geodro.github.io/lerd/' };
+      location.hash = 'docs';
+    },
+
+    // Dispatches a URL hash to the right view. Called on init and on
+    // hashchange events so browser back/forward works. Hash formats:
+    //   #sites / #services / #system         → main tabs (no selection)
+    //   #sites/<domain>                      → sites tab with that site selected
+    //   #services/<name>                     → services tab with that service selected
+    //   #system/<section>                    → system tab with that section selected
+    //   #docs                                 → docs iframe
+    //   #service/<name>                       → service dashboard iframe
+    applyHash() {
+      const h = location.hash.slice(1);
+      if (h === '' || h === 'sites' || h === 'services' || h === 'system') {
+        this.tab = h || 'sites';
+        this.dashboardSvc = null;
+        return;
+      }
+      if (h === 'docs') {
+        this.dashboardSvc = { name: 'docs', label: 'Documentation', dashboard: 'https://geodro.github.io/lerd/' };
+        return;
+      }
+      if (h.startsWith('service/')) {
+        const name = h.slice('service/'.length);
+        const svc = this.services.find(s => s.name === name);
+        if (svc) this.dashboardSvc = svc;
+        return;
+      }
+      this.dashboardSvc = null;
+      if (h.startsWith('sites/')) {
+        this.tab = 'sites';
+        const domain = h.slice('sites/'.length);
+        const site = this.sites.find(s => s.domain === domain);
+        if (site && this.selectedSiteDomain !== domain) this.selectSite(site);
+        return;
+      }
+      if (h.startsWith('services/')) {
+        this.tab = 'services';
+        const name = h.slice('services/'.length);
+        const svc = this.services.find(s => s.name === name);
+        if (svc && this.selectedSvc !== name) this.selectService(svc);
+        return;
+      }
+      if (h.startsWith('system/')) {
+        this.tab = 'system';
+        const key = h.slice('system/'.length);
+        if (this.selectedSystem !== key) this.selectSystem(key);
+        return;
+      }
     },
 
     dashboardIconSvg(name) {
@@ -3269,6 +3366,12 @@ function lerdApp() {
 
     installablePresets() {
       return this.presets.filter(p => {
+        // Hide presets whose dependencies are not installed yet (e.g.
+        // mongo-express disappears until mongo is installed) so the list
+        // only shows things the user can actually install right now.
+        if ((p.missing_deps || []).length > 0) {
+          return false;
+        }
         if ((p.versions || []).length > 0) {
           return p.versions.length > (p.installed_tags || []).length;
         }

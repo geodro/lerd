@@ -362,27 +362,6 @@ depends_on:
                                        # `lerd service start <name>` recursively starts each dep first.
                                        # `lerd service stop <name>` stops anything that depends on it first.
 
-# Bind-mounted config files materialised on the host at install time
-files:
-  - target: /etc/mytool/config.yaml    # absolute path inside the container
-    content: |                         # literal file body, written verbatim
-      key: value
-      nested:
-        item: 1
-  - target: /run/secret                # files needing strict perms / non-root reads
-    mode: "0600"                       # octal permission bits, default "0644"
-    chown: true                        # adds :U to the volume mount so podman re-chowns
-                                       # the file to the container user. Required when
-                                       # the in-container process runs as a non-root uid
-                                       # (e.g. pgAdmin's uid 5050) and 0600 would otherwise
-                                       # hide the file from it.
-    content: |
-      hunter2
-
-# Files are rendered to ~/.local/share/lerd/service-files/<name>/ and bind-mounted
-# at the declared target. Materialisation runs at install time and on every
-# `lerd service start` so editing the YAML and restarting picks up changes.
-
 # Family groups related services so admin UIs can auto-discover every member.
 # Built-in mysql / postgres / redis / etc. are always implicitly in the family
 # of the same name. Multi-version preset alternates inherit this through the

@@ -4,16 +4,11 @@ description: phpMyAdmin web UI for every installed lerd MySQL service
 ports:
   - "8080:80"
 environment:
-  PMA_USER: root
-  PMA_PASSWORD: lerd
   UPLOAD_LIMIT: 256M
 dynamic_env:
   PMA_HOSTS: discover_family:mysql,mariadb
+  PMA_USERS: repeat_family:mysql,mariadb=root
+  PMA_PASSWORDS: repeat_family:mysql,mariadb=lerd
 depends_on:
   - mysql
 dashboard: http://localhost:8080
-files:
-  - target: /etc/phpmyadmin/config.user.inc.php
-    content: |
-      <?php
-      $cfg['AllowThirdPartyFraming'] = true;

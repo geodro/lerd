@@ -55,7 +55,7 @@ func TestLoadPreset_PhpMyAdmin(t *testing.T) {
 		t.Errorf("phpmyadmin should depend on mysql, got %v", p.DependsOn)
 	}
 	foundFramingCfg := false
-	for _, f := range p.Files {
+	for _, f := range PresetFiles("phpmyadmin") {
 		if f.Target == "/etc/phpmyadmin/config.user.inc.php" && strings.Contains(f.Content, "AllowThirdPartyFraming") {
 			foundFramingCfg = true
 			break
@@ -75,7 +75,7 @@ func TestLoadPreset_PgAdmin(t *testing.T) {
 		t.Errorf("pgadmin should depend on postgres, got %v", p.DependsOn)
 	}
 	foundFramingCfg := false
-	for _, f := range p.Files {
+	for _, f := range PresetFiles("pgadmin") {
 		if f.Target == "/pgadmin4/config_local.py" && strings.Contains(f.Content, "X_FRAME_OPTIONS") {
 			foundFramingCfg = true
 			break
@@ -196,6 +196,45 @@ func TestResolveDynamicEnv_DiscoverFamily(t *testing.T) {
 	}
 	if got := svc.Environment["PMA_HOSTS"]; got != "lerd-mysql" {
 		t.Errorf("PMA_HOSTS = %q, want lerd-mysql", got)
+	}
+}
+
+func TestResolveDynamicEnv_RepeatFamily(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	svc := &CustomService{
+		Name:  "phpmyadmin",
+		Image: "phpmyadmin:latest",
+		DynamicEnv: map[string]string{
+			"PMA_HOSTS":     "discover_family:mysql,mariadb",
+			"PMA_USERS":     "repeat_family:mysql,mariadb=root",
+			"PMA_PASSWORDS": "repeat_family:mysql,mariadb=lerd",
+		},
+	}
+	if err := ResolveDynamicEnv(svc); err != nil {
+		t.Fatalf("ResolveDynamicEnv: %v", err)
+	}
+	hosts := strings.Split(svc.Environment["PMA_HOSTS"], ",")
+	users := strings.Split(svc.Environment["PMA_USERS"], ",")
+	passes := strings.Split(svc.Environment["PMA_PASSWORDS"], ",")
+	if len(hosts) == 0 {
+		t.Fatalf("expected at least one host, got %q", svc.Environment["PMA_HOSTS"])
+	}
+	if len(users) != len(hosts) || len(passes) != len(hosts) {
+		t.Errorf("users/passwords length mismatch: hosts=%d users=%d passes=%d",
+			len(hosts), len(users), len(passes))
+	}
+	for _, u := range users {
+		if u != "root" {
+			t.Errorf("user = %q, want root", u)
+		}
+	}
+	for _, p := range passes {
+		if p != "lerd" {
+			t.Errorf("password = %q, want lerd", p)
+		}
 	}
 }
 

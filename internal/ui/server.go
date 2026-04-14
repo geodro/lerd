@@ -710,7 +710,7 @@ type ServiceResponse struct {
 // builtinDashboards maps built-in service names to their dashboard URLs.
 var builtinDashboards = map[string]string{
 	"mailpit":     "http://localhost:8025",
-	"rustfs":      "http://localhost:9001",
+	"rustfs":      "http://localhost:9001/rustfs/console/",
 	"meilisearch": "http://localhost:7700",
 }
 
