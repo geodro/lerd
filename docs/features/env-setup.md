@@ -38,6 +38,39 @@ Services prefixed with `From .lerd.yaml` were not referenced in the env file but
 
 ---
 
+## Automatic backup
+
+The first time `lerd env` modifies an existing `.env`, it saves a copy as `.env.before_lerd` in the project root. This backup is created once and never overwritten on subsequent runs.
+
+The backup lets you:
+- **See exactly what lerd changed** — diff `.env.before_lerd` against `.env`
+- **Restore the original** with `lerd env:restore` (see below)
+- **Preserve original Sail credentials** — `lerd import sail` reads S3 configuration from `.env.before_lerd` when it exists, so the original Sail MinIO bucket and endpoint are used even after lerd has overwritten `.env`
+
+Example output when the backup is created:
+
+```
+Updating existing .env...
+  Backed up original .env → .env.before_lerd
+  Detected mysql        — applying lerd connection values
+  ...
+Done.
+```
+
+---
+
+## Restoring the original .env
+
+```bash
+lerd env:restore
+```
+
+Copies `.env.before_lerd` back to `.env`. Useful when switching a project back to Laravel Sail or another local environment.
+
+After restoring, run `lerd env` again to re-apply lerd connection values.
+
+---
+
 ## Safe to re-run
 
 Running `lerd env` on a project that already has a `.env` is safe — it only updates connection-related keys and leaves everything else untouched.

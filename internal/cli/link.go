@@ -192,6 +192,20 @@ func runLink(args []string) error {
 	}
 	fmt.Printf("Linked: %s -> %s (PHP %s, Node %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, nodeVersion, frameworkLabel)
 
+	// Sail detection — offer to import data before setup so lerd's DB is
+	// populated from the existing Sail environment.
+	if isInteractive() && !linkSkipSetupPrompt && config.ComposerHasPackage(cwd, "laravel/sail") {
+		sailDBName := sailLinkDetectDBName(cwd)
+		fmt.Print("\nThis project uses Laravel Sail. Import database (and S3 files) from Sail into lerd? [Y/n] ")
+		var sailAnswer string
+		fmt.Scanln(&sailAnswer) //nolint:errcheck
+		if sailAnswer == "" || sailAnswer[0] == 'Y' || sailAnswer[0] == 'y' {
+			if err := runImportSail(false, false, "sail", "password", sailDBName, sailDBName != ""); err != nil {
+				fmt.Printf("[WARN] sail import: %v\n", err)
+			}
+		}
+	}
+
 	if proj.IsEmpty() {
 		if isInteractive() {
 			fmt.Print("\nNo .lerd.yaml found. Run lerd init? [Y/n] ")
@@ -288,6 +302,14 @@ func runLink(args []string) error {
 	}
 
 	return nil
+}
+
+// sailLinkDetectDBName reads DB_DATABASE from the project's .env so the link
+// prompt can pass the correct Sail database name directly to runImportSail.
+// Returns "" when .env is absent or DB_DATABASE is not set.
+func sailLinkDetectDBName(cwd string) string {
+	env := sailReadRawEnv(cwd)
+	return env["DB_DATABASE"]
 }
 
 // startWorkersForSite starts the named workers for a site.
