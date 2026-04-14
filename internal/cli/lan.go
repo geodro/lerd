@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"net/http"
+	"os"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/spf13/cobra"
@@ -34,6 +36,8 @@ sites. Run 'lerd lan:expose off' to revert.`,
 	cmd.AddCommand(newLANExposeCmd())
 	cmd.AddCommand(newLANUnexposeCmd())
 	cmd.AddCommand(newLANStatusCmd())
+	cmd.AddCommand(newLANShareCmd())
+	cmd.AddCommand(newLANUnshareCmd())
 	return cmd
 }
 
@@ -58,6 +62,20 @@ func NewLANStatusCmd() *cobra.Command {
 	cmd := newLANStatusCmd()
 	cmd.Use = "lan:status"
 	cmd.Hidden = true
+	return cmd
+}
+
+// NewLANShareCmd returns the `lerd lan:share` colon-style alias.
+func NewLANShareCmd() *cobra.Command {
+	cmd := newLANShareCmd()
+	cmd.Use = "lan:share"
+	return cmd
+}
+
+// NewLANUnshareCmd returns the `lerd lan:unshare` colon-style alias.
+func NewLANUnshareCmd() *cobra.Command {
+	cmd := newLANUnshareCmd()
+	cmd.Use = "lan:unshare"
 	return cmd
 }
 
@@ -126,6 +144,99 @@ func newLANUnexposeCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newLANShareCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "share",
+		Short: "Share the current site on a stable LAN port (no DNS setup required on clients)",
+		Long: `Assigns a stable port to the current site and starts a host-level reverse
+proxy on 0.0.0.0:<port>. Any device on the same network can reach the site
+at http://<your-LAN-IP>:<port> without configuring DNS or a resolver.
+
+The proxy rewrites the Host header so nginx routes correctly, and rewrites
+absolute URLs in HTML/CSS/JS responses so asset and redirect URLs point to
+the LAN address instead of the .test domain.
+
+The assigned port is stored in sites.yaml and reused across restarts.
+Run 'lerd lan:unshare' to stop sharing and release the port.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			siteName, err := queueSiteName(cwd)
+			if err != nil {
+				return err
+			}
+			// Persist the port assignment (daemon will start the proxy).
+			port, err := LANShareEnsurePort(siteName)
+			if err != nil {
+				return err
+			}
+			// Tell the running daemon to start the proxy now.
+			site, _ := config.FindSite(siteName)
+			if site != nil {
+				notifyDaemon(site.PrimaryDomain(), "lan:share") //nolint:errcheck
+			}
+			ip, _ := detectPrimaryLANIP()
+			if ip == "" {
+				ip = "<your-LAN-IP>"
+			}
+			shareURL := fmt.Sprintf("http://%s:%d", ip, port)
+			fmt.Printf("Sharing %s at %s\n", siteName, shareURL)
+			fmt.Println("Other devices on the network can use that URL directly — no DNS setup needed.")
+			fmt.Println()
+			PrintLANShareQR(shareURL)
+			fmt.Println()
+			fmt.Println("Run 'lerd lan:unshare' to stop.")
+			return nil
+		},
+	}
+}
+
+func newLANUnshareCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unshare",
+		Short: "Stop LAN sharing for the current site",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			siteName, err := queueSiteName(cwd)
+			if err != nil {
+				return err
+			}
+			site, err := config.FindSite(siteName)
+			if err != nil {
+				return err
+			}
+			// Tell the running daemon to stop the proxy and clear the port.
+			// If the daemon is not reachable, clear the port directly so the
+			// proxy is not restored on next daemon start.
+			if nErr := notifyDaemon(site.PrimaryDomain(), "lan:unshare"); nErr != nil {
+				site.LANPort = 0
+				_ = config.AddSite(*site)
+			}
+			fmt.Printf("LAN sharing stopped for %s.\n", siteName)
+			return nil
+		},
+	}
+}
+
+// notifyDaemon posts an action to the running lerd-ui daemon API. It is a
+// best-effort call; callers should handle errors gracefully.
+func notifyDaemon(domain, action string) error {
+	resp, err := http.Post(
+		fmt.Sprintf("http://127.0.0.1:7073/api/sites/%s/%s", domain, action),
+		"application/json", nil,
+	)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }
 
 func newLANStatusCmd() *cobra.Command {

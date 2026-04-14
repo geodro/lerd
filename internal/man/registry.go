@@ -46,7 +46,13 @@ func BuildRegistry() []Page {
 	bySection := make(map[string][]Page)
 
 	_ = fs.WalkDir(docsfs.FS, "docs", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".md") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == "node_modules" {
+			return fs.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".md") {
 			return nil
 		}
 
