@@ -95,10 +95,11 @@
 
     <!-- Bottom: theme + docs + version -->
     <div class="mt-auto flex flex-col items-center gap-2">
-      <a href="https://geodro.github.io/lerd/" target="_blank" rel="noopener" title="Documentation"
-        class="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+      <button @click="openDocsIframe()" title="Documentation"
+        class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors"
+        :class="dashboardSvc && dashboardSvc.name === 'docs' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-600 dark:hover:text-gray-300'">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
-      </a>
+      </button>
       <div class="flex flex-col rounded-md border border-gray-200 dark:border-lerd-border overflow-hidden">
         <template x-for="m in ['light','auto','dark']" :key="'rail-t-'+m">
           <button @click="setTheme(m)" :title="m"
@@ -1621,6 +1622,17 @@
                   <span x-text="version.checking ? 'Checking…' : 'Check for updates'"></span>
                 </button>
 
+                <!-- GitHub star nudge -->
+                <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <svg class="w-3.5 h-3.5 shrink-0 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.922-.755 1.688-1.54 1.118l-3.366-2.446a1 1 0 00-1.176 0l-3.366 2.446c-.784.57-1.838-.196-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.098 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z"/></svg>
+                  <span>Finding lerd useful?</span>
+                  <a href="https://github.com/geodro/lerd" target="_blank" rel="noopener"
+                    class="font-medium text-lerd-red hover:text-lerd-redhov underline-offset-2 hover:underline">
+                    Star it on GitHub
+                  </a>
+                  <span>to help others discover it.</span>
+                </div>
+
                 <!-- LAN exposure -->
                 <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
                   <div class="flex items-center justify-between mb-2">
@@ -1854,11 +1866,11 @@
     </div><!-- end detail area -->
 
     <!-- Full-width dashboard iframe overlay: covers middle list + detail area -->
-    <div x-show="dashboardSvc" x-cloak class="fixed inset-y-0 right-0 left-14 z-30 flex flex-col bg-white dark:bg-lerd-bg">
+    <div x-show="dashboardSvc" x-cloak class="fixed top-0 right-0 left-0 bottom-16 md:left-14 md:bottom-0 z-30 flex flex-col bg-white dark:bg-lerd-bg">
       <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-lerd-border shrink-0">
         <div class="flex items-center gap-3 min-w-0">
           <svg class="w-5 h-5 text-gray-500 dark:text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-html="dashboardSvc ? dashboardIconSvg(dashboardSvc.name) : ''"></svg>
-          <span class="text-sm font-medium text-gray-900 dark:text-white truncate" x-text="dashboardSvc ? serviceLabel(dashboardSvc) : ''"></span>
+          <span class="text-sm font-medium text-gray-900 dark:text-white truncate" x-text="dashboardSvc ? (dashboardSvc.label || serviceLabel(dashboardSvc)) : ''"></span>
           <a :href="dashboardSvc ? dashboardSvc.dashboard : '#'" target="_blank" class="font-mono text-[10px] text-sky-600 dark:text-sky-400 hover:underline truncate" x-text="dashboardSvc ? dashboardSvc.dashboard : ''"></a>
         </div>
         <div class="flex items-center gap-2 shrink-0">
@@ -1876,25 +1888,36 @@
   <!-- ════════════════════════════════════════════
        MOBILE BOTTOM NAV
   ════════════════════════════════════════════ -->
-  <nav class="md:hidden fixed bottom-0 left-0 right-0 z-30 flex border-t border-gray-200 dark:border-lerd-border bg-white dark:bg-lerd-card">
-    <button @click="setTab('sites'); mobileShowDetail = false"
-      class="flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors"
-      :class="tab==='sites' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-      <span class="text-[10px] font-medium">Sites</span>
+  <nav class="md:hidden fixed bottom-0 left-0 right-0 z-30 flex h-16 border-t border-gray-200 dark:border-lerd-border bg-white dark:bg-lerd-card">
+   <button @click="setTab('sites'); mobileShowDetail = false"
+     class="grow basis-0 min-w-0 flex flex-col items-center justify-center gap-0.5 transition-colors"
+     :class="!dashboardSvc && tab==='sites' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
+     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+     <span class="text-[10px] font-medium">Sites</span>
+   </button>
+   <button @click="setTab('services'); mobileShowDetail = false"
+     class="grow basis-0 min-w-0 flex flex-col items-center justify-center gap-0.5 transition-colors"
+     :class="!dashboardSvc && tab==='services' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
+     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+     <span class="text-[10px] font-medium">Services</span>
+   </button>
+   <button @click="setTab('system'); mobileShowDetail = false"
+     class="grow basis-0 min-w-0 flex flex-col items-center justify-center gap-0.5 transition-colors"
+     :class="!dashboardSvc && tab==='system' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
+     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+     <span class="text-[10px] font-medium">System</span>
+   </button>
+   <template x-if="dashboardServices.length > 0">
+    <div class="grow-0 shrink-0 w-px bg-gray-200 dark:bg-lerd-border"></div>
+   </template>
+   <template x-for="svc in dashboardServices" :key="'mdash-'+svc.name">
+    <button @click="openDashboardIframe(svc)"
+      class="grow basis-0 min-w-0 flex flex-col items-center justify-center gap-0.5 transition-colors"
+      :class="dashboardSvc && dashboardSvc.name === svc.name ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
+      <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-html="dashboardIconSvg(svc.name)"></svg>
+      <span class="text-[10px] font-medium truncate max-w-full px-1" x-text="serviceLabel(svc)"></span>
     </button>
-    <button @click="setTab('services'); mobileShowDetail = false"
-      class="flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors"
-      :class="tab==='services' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
-      <span class="text-[10px] font-medium">Services</span>
-    </button>
-    <button @click="setTab('system'); mobileShowDetail = false"
-      class="flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors"
-      :class="tab==='system' ? 'text-lerd-red' : 'text-gray-400 dark:text-gray-500'">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-      <span class="text-[10px] font-medium">System</span>
-    </button>
+   </template>
   </nav>
 
   <!-- Live logs drawer (fixed bottom) -->
@@ -3063,6 +3086,14 @@ function lerdApp() {
       this.dashboardSvc = this.dashboardSvc && this.dashboardSvc.name === svc.name ? null : svc;
     },
 
+    openDocsIframe() {
+      if (this.dashboardSvc && this.dashboardSvc.name === 'docs') {
+        this.dashboardSvc = null;
+        return;
+      }
+      this.dashboardSvc = { name: 'docs', label: 'Documentation', dashboard: 'https://geodro.github.io/lerd/' };
+    },
+
     dashboardIconSvg(name) {
       // Heroicons outline paths keyed by service name / family.
       const icons = {
@@ -3097,6 +3128,7 @@ function lerdApp() {
         'mongo-express': icons.leaf,
         mongo: icons.leaf,
         selenium: icons.browserPlay,
+        docs: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>',
       };
       return map[name] || icons.window;
     },
