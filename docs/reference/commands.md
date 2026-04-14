@@ -65,6 +65,29 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 
+## LAN
+
+### LAN sharing (per-site, no DNS setup required on clients)
+
+| Command | Description |
+|---|---|
+| `lerd lan:share` | Start a LAN reverse proxy for the current site on a stable port; prints the URL and a QR code |
+| `lerd lan:unshare` | Stop LAN sharing for the current site and release its port |
+
+The proxy runs inside the lerd daemon (`lerd-ui`) — no external tool needed and no internet access required. Any device on the same network can reach the site at `http://<your-LAN-IP>:<port>` without configuring DNS. The assigned port is stored in `sites.yaml` and reused across restarts. The proxy rewrites the Host header so nginx routes correctly, and rewrites absolute URLs in HTML/CSS/JS responses so asset and redirect URLs point to the LAN address instead of the `.test` domain. See [LAN sharing](/usage/remote-development#lan-sharing-per-site) for details.
+
+`lerd share` (without `lan:`) is different — it wraps an external tunnel tool (ngrok/cloudflared/Expose/SSH) to expose the site to the **public internet**.
+
+### Full LAN exposure (all sites, DNS-based)
+
+| Command | Description |
+|---|---|
+| `lerd lan:expose` | Expose all lerd services to the LAN — binds nginx to `0.0.0.0`, starts the DNS forwarder |
+| `lerd lan:unexpose` | Restrict everything back to `127.0.0.1` |
+| `lerd lan:status` | Show whether lerd is currently exposed to the local network |
+
+See [Remote / LAN Development](/usage/remote-development) for the full walkthrough.
+
 ## PHP
 
 | Command | Description |
