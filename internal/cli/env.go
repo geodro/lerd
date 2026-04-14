@@ -141,6 +141,16 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	} else {
 		fmt.Printf("Updating existing %s...\n", envRelPath)
+		// Back up the original .env the first time lerd modifies it, so the user
+		// can inspect what changed and restore it with `lerd env:restore`.
+		backupPath := filepath.Join(cwd, ".env.before_lerd")
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			if err := copyEnvFile(envPath, backupPath); err != nil {
+				fmt.Printf("  [WARN] could not back up %s: %v\n", envRelPath, err)
+			} else {
+				fmt.Printf("  Backed up original %s → .env.before_lerd\n", envRelPath)
+			}
+		}
 	}
 
 	// 2. Parse the env file into a key→value map (for detection)
@@ -879,6 +889,39 @@ func runSiteInit(svc *config.CustomService, ctx siteTemplateCtx) {
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("  [WARN] site_init for %s failed: %v\n", svc.Name, err)
 	}
+}
+
+// NewEnvRestoreCmd returns the env:restore command.
+func NewEnvRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "env:restore",
+		Short: "Restore .env from the pre-lerd backup (.env.before_lerd)",
+		Long: `Restores the .env file from the backup that 'lerd env' created the first
+time it was run on this project (.env.before_lerd).
+
+Useful when switching back from lerd to Laravel Sail or another environment.`,
+		RunE: runEnvRestore,
+	}
+}
+
+func runEnvRestore(_ *cobra.Command, _ []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	backupPath := filepath.Join(cwd, ".env.before_lerd")
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		return fmt.Errorf(".env.before_lerd not found — run 'lerd env' first to create a backup")
+	}
+
+	envPath := filepath.Join(cwd, ".env")
+	if err := copyEnvFile(backupPath, envPath); err != nil {
+		return fmt.Errorf("restoring .env: %w", err)
+	}
+	fmt.Println("Restored .env from .env.before_lerd")
+	fmt.Println("Run 'lerd env' again to re-apply lerd connection settings.")
+	return nil
 }
 
 // copyEnvFile copies src to dst with 0644 permissions.

@@ -21,6 +21,17 @@
 
 **Choose Lerd when:** you work across many projects at once and don't want a separate stack per repo, you can't modify project files, you want instant `.test` routing, or you want the Herd experience on Linux as well as macOS.
 
+### Migrating from Sail to Lerd
+
+`lerd import sail` imports a Sail project's database and S3/MinIO files into lerd in one command — no manual dump/restore needed. It starts Sail temporarily with remapped ports (so there are no conflicts with lerd's running services), dumps the database, mirrors storage files, then tears Sail back down.
+
+```bash
+cd ~/Projects/myapp
+lerd sail import
+```
+
+See [Importing from Laravel Sail](/usage/import-sail) for details.
+
 ---
 
 ## Lerd vs ddev

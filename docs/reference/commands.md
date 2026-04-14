@@ -52,7 +52,7 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 |---|---|
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
-| `lerd link [name]` | Register the current directory as a site |
+| `lerd link [name]` | Register the current directory as a site; prompts to import data when `laravel/sail` is detected in `composer.json` |
 | `lerd link [name] --domain foo.test` | Register with a custom domain |
 | `lerd unlink [name]` | Stop serving the site |
 | `lerd sites` | Table view of all registered sites |
@@ -62,7 +62,8 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
 | `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
 | `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
-| `lerd env` | Configure `.env` for the current project with lerd service connection settings |
+| `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run |
+| `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 
 ## LAN
@@ -142,6 +143,18 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | `lerd db:import [-d name] <file.sql>` | Import a SQL dump (defaults to site DB from `.env`) |
 | `lerd db:export [-d name] [-o file.sql]` | Export a database to a SQL dump (defaults to site DB from `.env`) |
 | `lerd db:shell` | Open an interactive MySQL or PostgreSQL shell |
+
+## Import
+
+| Command | Description |
+|---|---|
+| `lerd import sail` | Import database and S3/MinIO files from a Laravel Sail project into lerd |
+| `lerd sail import` | Alias — natural order when already in a Sail project (`lerd sail <anything-else>` proxies to `vendor/bin/sail`) |
+| `lerd import sail --skip-s3` | Import database only, skip S3/MinIO file mirroring |
+| `lerd import sail --no-stop` | Leave Sail running after import completes |
+| `lerd import sail --sail-db-name <name>` | Override the Sail-side database name (auto-detected by default) |
+
+See [Importing from Laravel Sail](/usage/import-sail) for full documentation.
 
 ## Queue workers
 

@@ -91,6 +91,7 @@ export default defineConfig({
             { text: 'Node', link: '/usage/node' },
             { text: 'Services', link: '/usage/services' },
             { text: 'Database', link: '/usage/database' },
+            { text: 'Importing from Sail', link: '/usage/import-sail' },
             { text: 'Frameworks & Workers', link: '/usage/frameworks' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
             { text: 'Browser Testing', link: '/usage/browser-testing' },
