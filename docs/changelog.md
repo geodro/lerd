@@ -37,7 +37,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **PHP-FPM subdomain detection** — `SERVER_NAME` is now set to `$host` in PHP-FPM vhosts so subdomain routing works correctly under nginx.
 - **Mobile dashboard layout broken by the iframe overlay** — the dashboard iframe assumed the desktop left rail was always visible and extended full-height, hiding the mobile bottom nav, and dashboard service icons only existed in the desktop rail so mobile users had no way to reach them. The overlay now spans full width on mobile and stops above the nav, the mobile bottom nav gains a scrollable dashboards group with a separator, the nav is pinned to `h-16` to match the iframe's reserved offset, the docs sidebar link reuses the iframe trigger, and the bottom nav is flattened so built-in tabs and dashboard services share equal width instead of each group claiming half the bar.
 - **`lerd man` indexed `node_modules` when walking docs** — the docs FS walker now skips `node_modules` so man-page generation no longer drags vendor directories into the index.
-- **VitePress build broken on `{{.Resources.Memory}}`** — Vue's compiler parses interpolations even inside backtick code spans, and the leading dot fails JS expression parsing. The token is now wrapped in an explicit `<code v-pre>` element so Vue skips it.
+- **VitePress build broken on <code v-pre>{{.Resources.Memory}}</code>** — Vue's compiler parses interpolations even inside backtick code spans, and the leading dot fails JS expression parsing. The token is now wrapped in an explicit `<code v-pre>` element so Vue skips it.
 
 ---
 
