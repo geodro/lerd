@@ -251,25 +251,16 @@ func loadDBEnv(cwd string) (*dbEnv, error) {
 		return nil, fmt.Errorf("DB_DATABASE not set in .env")
 	}
 
-	// Credentials: use individual vars when present; fall back to lerd service defaults.
-	// We do not use credentials from DATABASE_URL — lerd connects via podman exec
-	// using the container's fixed root/lerd credentials.
+	// Always use container admin credentials. Ignoring app-level DB_USERNAME /
+	// DB_PASSWORD avoids authenticating as a role that doesn't exist in the
+	// container (e.g. DB_USERNAME=root against pgsql).
 	svcDefaults := serviceToDBEnv(connToService(conn))
-	username := vals["DB_USERNAME"]
-	if username == "" {
-		username = svcDefaults.username
-	}
-	password := vals["DB_PASSWORD"]
-	if password == "" {
-		password = svcDefaults.password
-	}
-
 	return &dbEnv{
 		service:    connToService(conn),
 		connection: conn,
 		database:   db,
-		username:   username,
-		password:   password,
+		username:   svcDefaults.username,
+		password:   svcDefaults.password,
 	}, nil
 }
 
@@ -464,6 +455,28 @@ func runDbShell(flagService, flagDatabase string) error {
 		return fmt.Errorf("could not start %s: %w", env.service, err)
 	}
 
+	if env.database != "" {
+		exists, err := databaseExists(env.service, env.database)
+		if err != nil {
+			return fmt.Errorf("checking database %q: %w", env.database, err)
+		}
+		if !exists {
+			if !isInteractive() {
+				return fmt.Errorf("database %q does not exist in %s — run 'lerd db:create %s'", env.database, env.service, env.database)
+			}
+			fmt.Printf("Database %q does not exist in %s. Create it? [Y/n] ", env.database, env.service)
+			var answer string
+			fmt.Scanln(&answer) //nolint:errcheck
+			if answer != "" && answer[0] != 'Y' && answer[0] != 'y' {
+				return fmt.Errorf("database %q does not exist", env.database)
+			}
+			if _, err := createDatabase(env.service, env.database); err != nil {
+				return fmt.Errorf("creating database %q: %w", env.database, err)
+			}
+			fmt.Printf("Created database %q\n", env.database)
+		}
+	}
+
 	container := "lerd-" + env.service
 	var cmd *exec.Cmd
 	switch env.connection {
@@ -484,6 +497,44 @@ func runDbShell(flagService, flagDatabase string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// databaseExists returns whether the named database exists in the given lerd
+// DB service's container. Uses the same admin credentials createDatabase uses.
+func databaseExists(svc, name string) (bool, error) {
+	container := "lerd-" + svc
+	family := svc
+	if inferred := config.InferFamily(svc); inferred != "" {
+		family = inferred
+	}
+	switch family {
+	case "mysql", "mariadb":
+		binaries := []string{"mysql", "mariadb"}
+		if family == "mariadb" {
+			binaries = []string{"mariadb", "mysql"}
+		}
+		var lastErr error
+		for _, bin := range binaries {
+			check := podman.Cmd("exec", container, bin, "-uroot", "-plerd",
+				"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
+			out, err := check.Output()
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			return strings.TrimSpace(string(out)) != "0", nil
+		}
+		return false, lastErr
+	case "postgres":
+		cmd := podman.Cmd("exec", container, "psql", "-U", "postgres", "-tAc",
+			fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname='%s';", name))
+		out, err := cmd.Output()
+		if err != nil {
+			return false, err
+		}
+		return strings.TrimSpace(string(out)) == "1", nil
+	}
+	return true, nil
 }
 
 // connToService maps a DB_CONNECTION value to the lerd service name.
@@ -585,20 +636,11 @@ func loadDBEnvLenient(cwd string) (*dbEnv, error) {
 	}
 
 	svcDefaults := serviceToDBEnv(connToService(conn))
-	username := vals["DB_USERNAME"]
-	if username == "" {
-		username = svcDefaults.username
-	}
-	password := vals["DB_PASSWORD"]
-	if password == "" {
-		password = svcDefaults.password
-	}
-
 	return &dbEnv{
 		service:    connToService(conn),
 		connection: conn,
 		database:   db,
-		username:   username,
-		password:   password,
+		username:   svcDefaults.username,
+		password:   svcDefaults.password,
 	}, nil
 }
