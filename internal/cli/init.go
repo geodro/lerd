@@ -196,34 +196,40 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		copy(keepCustomWorkers, customWorkerNames)
 	}
 
-	formGroups := []*huh.Group{
-		huh.NewGroup(
-			huh.NewInput().
-				Title("PHP version").
-				Value(&phpVersion).
-				Validate(func(s string) error {
-					if s == "" {
-						return nil
-					}
-					return validatePHPVersion(s)
-				}),
+	firstGroupFields := []huh.Field{
+		huh.NewInput().
+			Title("PHP version").
+			Value(&phpVersion).
+			Validate(func(s string) error {
+				if s == "" {
+					return nil
+				}
+				return validatePHPVersion(s)
+			}),
+	}
+	if lerdManagesNode() {
+		firstGroupFields = append(firstGroupFields,
 			huh.NewInput().
 				Title("Node version").
 				Description("Leave blank to skip").
 				Value(&nodeVersion),
-			huh.NewConfirm().
-				Title("Enable HTTPS?").
-				Value(&secured),
-			huh.NewSelect[string]().
-				Title("Database").
-				Options(dbOptions...).
-				Value(&dbChoice),
-			huh.NewMultiSelect[string]().
-				Title("Services").
-				Options(huh.NewOptions(nonDBServiceOptions...)...).
-				Value(&nonDBSelected),
-		),
+		)
 	}
+	firstGroupFields = append(firstGroupFields,
+		huh.NewConfirm().
+			Title("Enable HTTPS?").
+			Value(&secured),
+		huh.NewSelect[string]().
+			Title("Database").
+			Options(dbOptions...).
+			Value(&dbChoice),
+		huh.NewMultiSelect[string]().
+			Title("Services").
+			Options(huh.NewOptions(nonDBServiceOptions...)...).
+			Value(&nonDBSelected),
+	)
+
+	formGroups := []*huh.Group{huh.NewGroup(firstGroupFields...)}
 
 	if len(customWorkerNames) > 0 {
 		formGroups = append(formGroups, huh.NewGroup(
