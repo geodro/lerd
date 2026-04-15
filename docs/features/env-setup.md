@@ -40,7 +40,7 @@ Services prefixed with `From .lerd.yaml` were not referenced in the env file but
 
 ## Automatic backup
 
-The first time `lerd env` modifies an existing `.env`, it saves a copy as `.env.before_lerd` in the project root. This backup is created once and never overwritten on subsequent runs.
+The first time `lerd env` modifies an existing `.env` that has not yet been touched by lerd, it saves a copy as `.env.before_lerd` in the project root and adds the file to `.gitignore` (if one exists). Once lerd has written its connection values to `.env`, subsequent runs skip the backup entirely — so deleting `.env.before_lerd` is safe and it will never be recreated.
 
 The backup lets you:
 - **See exactly what lerd changed** — diff `.env.before_lerd` against `.env`
