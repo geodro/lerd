@@ -141,14 +141,19 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	} else {
 		fmt.Printf("Updating existing %s...\n", envRelPath)
-		// Back up the original .env the first time lerd modifies it, so the user
-		// can inspect what changed and restore it with `lerd env:restore`.
+		// Back up the original .env the first time lerd modifies it (so the user
+		// can inspect what changed and restore with `lerd env:restore`), but only
+		// if lerd hasn't already written to it — detected by presence of the word
+		// "lerd" in the file (e.g. DB_HOST=lerd-mysql).
 		backupPath := filepath.Join(cwd, ".env.before_lerd")
-		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-			if err := copyEnvFile(envPath, backupPath); err != nil {
-				fmt.Printf("  [WARN] could not back up %s: %v\n", envRelPath, err)
-			} else {
-				fmt.Printf("  Backed up original %s → .env.before_lerd\n", envRelPath)
+		if !envFileHasLerd(envPath) {
+			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+				if err := copyEnvFile(envPath, backupPath); err != nil {
+					fmt.Printf("  [WARN] could not back up %s: %v\n", envRelPath, err)
+				} else {
+					fmt.Printf("  Backed up original %s → .env.before_lerd\n", envRelPath)
+					addToGitignore(cwd, ".env.before_lerd")
+				}
 			}
 		}
 	}
@@ -922,6 +927,38 @@ func runEnvRestore(_ *cobra.Command, _ []string) error {
 	fmt.Println("Restored .env from .env.before_lerd")
 	fmt.Println("Run 'lerd env' again to re-apply lerd connection settings.")
 	return nil
+}
+
+// addToGitignore appends entry to dir/.gitignore if the file exists and the
+// entry is not already present. Failures are silently ignored.
+func addToGitignore(dir, entry string) {
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		return // file doesn't exist or can't be read — skip
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == entry {
+			return // already present
+		}
+	}
+	content := string(data)
+	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	content += entry + "\n"
+	_ = os.WriteFile(gitignorePath, []byte(content), 0644)
+}
+
+// envFileHasLerd reports whether path already contains lerd-written values.
+// lerd always writes hostnames like "lerd-mysql", "lerd-redis", etc., so a
+// simple substring search is sufficient.
+func envFileHasLerd(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(data)), "lerd")
 }
 
 // copyEnvFile copies src to dst with 0644 permissions.

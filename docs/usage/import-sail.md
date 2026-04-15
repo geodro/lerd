@@ -84,7 +84,7 @@ Use `--sail-db-*` flags only when your project uses non-default Sail credentials
 
 ### `.env.before_lerd`
 
-When `lerd env` first modifies a project's `.env`, it saves the original file as `.env.before_lerd`. The import command reads S3 detection keys (`FILESYSTEM_DISK`, `AWS_ENDPOINT`, `AWS_BUCKET`) from this backup when it exists, so the original Sail S3 configuration is used even after lerd has overwritten `.env`.
+When `lerd env` first modifies a project's `.env` (before lerd has written any values to it), it saves the original file as `.env.before_lerd`. The import command reads S3 detection keys (`FILESYSTEM_DISK`, `AWS_ENDPOINT`, `AWS_BUCKET`) from this backup when it exists, so the original Sail S3 configuration is used even after lerd has overwritten `.env`.
 
 ---
 
