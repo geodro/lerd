@@ -97,7 +97,7 @@ func TestAddShellShims_LaravelShim(t *testing.T) {
 	// addShellShims expects a shell env var for the PATH block.
 	t.Setenv("SHELL", "/bin/sh")
 
-	if err := addShellShims(); err != nil {
+	if err := addShellShims(false); err != nil {
 		t.Fatalf("addShellShims: %v", err)
 	}
 
@@ -132,7 +132,7 @@ func TestAddShellShims_LaravelShimRespectsComposerHome(t *testing.T) {
 
 	t.Setenv("SHELL", "/bin/sh")
 
-	if err := addShellShims(); err != nil {
+	if err := addShellShims(false); err != nil {
 		t.Fatalf("addShellShims: %v", err)
 	}
 
