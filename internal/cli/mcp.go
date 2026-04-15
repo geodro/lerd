@@ -778,21 +778,24 @@ Arguments for ` + bt + `stripe_listen` + bt + `:
 - ` + bt + `webhook_path` + bt + ` (optional): webhook route path (default: ` + bt + `"/stripe/webhook"` + bt + `)
 
 ### ` + bt + `db_export` + bt + `
-Export a database to a SQL dump file. Arguments:
-- ` + bt + `path` + bt + ` (optional): absolute path to the Laravel project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
-- ` + bt + `database` + bt + ` (optional): database name to export (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
+Export a database to a SQL dump file. Works with any project type — service and database are auto-detected. Arguments:
+- ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
+- ` + bt + `service` + bt + ` (optional): lerd service name to target (e.g. ` + bt + `mysql` + bt + `, ` + bt + `postgres` + bt + `) — overrides auto-detection
+- ` + bt + `database` + bt + ` (optional): database name to export — overrides auto-detection
 - ` + bt + `output` + bt + ` (optional): output file path (defaults to ` + bt + `<database>.sql` + bt + ` in the project root)
 
 ### ` + bt + `db_import` + bt + `
-Import a SQL dump file into the project database. Reads connection details from ` + bt + `.env` + bt + `. The database service must already be running. Arguments:
+Import a SQL dump file into the project database. Service and database are auto-detected; the service is started if not already running. Arguments:
 - ` + bt + `file` + bt + ` (required): absolute path to the SQL file to import
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory
-- ` + bt + `database` + bt + ` (optional): database name to import into (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
+- ` + bt + `service` + bt + ` (optional): lerd service name to target — overrides auto-detection
+- ` + bt + `database` + bt + ` (optional): database name to import into — overrides auto-detection
 
 ### ` + bt + `db_create` + bt + `
-Create a database and a ` + bt + `<name>_testing` + bt + ` variant for the project. Infers the database name and engine from ` + bt + `.env` + bt + `, falling back to the project directory name. The service must be running. Arguments:
+Create a database and a ` + bt + `<name>_testing` + bt + ` variant for the project. Service and database name are auto-detected; the service is started if not already running. Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root
-- ` + bt + `name` + bt + ` (optional): database name (defaults to ` + bt + `DB_DATABASE` + bt + ` from ` + bt + `.env` + bt + `)
+- ` + bt + `service` + bt + ` (optional): lerd service name to target — overrides auto-detection
+- ` + bt + `name` + bt + ` (optional): database name — overrides auto-detection
 
 ### ` + bt + `logs` + bt + `
 Fetch recent container logs. ` + bt + `target` + bt + ` is optional — when omitted, returns logs for the current site's PHP-FPM container (resolved from ` + bt + `LERD_SITE_PATH` + bt + `). Specify ` + bt + `target` + bt + ` only when you want a different container:
@@ -1053,9 +1056,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `service_remove` + bt + ` | Stop and deregister a custom service |
 | ` + bt + `service_expose` + bt + ` | Add or remove an extra published port on a built-in service (persisted) |
 | ` + bt + `service_env` + bt + ` | Return the recommended ` + bt + `.env` + bt + ` connection variables for a service |
-| ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file (defaults to site DB from ` + bt + `.env` + bt + `) |
-| ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database (reads connection from ` + bt + `.env` + bt + `) |
-| ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant (infers name from ` + bt + `.env` + bt + ` or project dir) |
+| ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file — auto-detects service and database; accepts optional ` + bt + `service` + bt + ` override |
+| ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database — auto-detects service and database; starts the service if needed |
+| ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant — auto-detects service and name; starts the service if needed |
 | ` + bt + `queue_start` + bt + ` | Start the queue worker for a site (any framework with a queue worker) |
 | ` + bt + `queue_stop` + bt + ` | Stop the queue worker |
 | ` + bt + `horizon_start` + bt + ` | Start Laravel Horizon for a site (use instead of queue_start when laravel/horizon is installed) |
@@ -1115,8 +1118,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `framework_add` + bt + ` accepts ` + bt + `workers` + bt + ` (map) and ` + bt + `setup` + bt + ` (array) — both support an optional ` + bt + `check` + bt + ` field (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `) to conditionally show based on project deps; for Laravel, custom setup commands replace built-in storage:link/migrate/db:seed
 - Framework env vars support service version placeholders: ` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + ` — resolved from the running service image tag
 - ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + ` rebuild the FPM image and restart the container — may take a minute; ` + bt + `version` + bt + ` defaults to the project or global PHP version
-- ` + bt + `db_import` + bt + ` requires the database service to be running; pipe the file by absolute path — it reads connection info from ` + bt + `.env` + bt + `
-- ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist
+- ` + bt + `db_import` + bt + ` / ` + bt + `db_export` + bt + ` / ` + bt + `db_create` + bt + ` auto-detect service and database via: ` + bt + `service` + bt + ` arg → framework definition detect rules → ` + bt + `DB_CONNECTION` + bt + ` / ` + bt + `DB_TYPE` + bt + ` / ` + bt + `TYPEORM_CONNECTION` + bt + ` / ` + bt + `DATABASE_URL` + bt + ` / ` + bt + `DB_PORT` + bt + `; pass ` + bt + `service` + bt + ` explicitly for projects with no env config
+- ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist; starts the service automatically if not running
 - ` + bt + `park` + bt + ` auto-registers all PHP subdirectories as sites in one call; ` + bt + `unpark` + bt + ` removes them all — project files are NOT deleted
 `
 

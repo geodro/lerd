@@ -62,7 +62,7 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
 | `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
 | `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
-| `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run |
+| `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run (skipped if lerd has already written to the file) |
 | `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 

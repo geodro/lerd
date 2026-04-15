@@ -104,6 +104,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		wantLaravelInstaller = confirmInstallPrompt("Install Laravel installer (laravel new)?")
 	}
 
+	wantLerdNode := true
+	if systemNode := detectSystemNode(); systemNode != "" {
+		fmt.Printf("  --> Node.js detected at %s\n", systemNode)
+		wantLerdNode = confirmInstallPrompt("Let lerd manage Node.js versions (installs fnm shims, may override system node)?")
+	}
+
 	// 4. mkcert CA — interactive (may prompt for sudo)
 	fmt.Println("  --> Installing mkcert CA")
 	cmd := exec.Command(certs.MkcertPath(), "-install")
@@ -500,7 +506,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	installCleanupScript()
 
 	step("Adding shell PATH configuration")
-	if err := addShellShims(); err != nil {
+	if err := addShellShims(wantLerdNode); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
 	}
 	ok()
@@ -679,6 +685,31 @@ func installLaravelInstaller() error {
 	return cmd.Run()
 }
 
+// lerdManagesNode reports whether lerd's node shim is present in its bin dir,
+// meaning the user opted in to fnm-based node version management.
+func lerdManagesNode() bool {
+	shim := filepath.Join(config.BinDir(), "node")
+	_, err := os.Stat(shim)
+	return err == nil
+}
+
+// detectSystemNode returns the path to a node binary found in PATH outside of
+// lerd's own bin dir, or "" if none exists. Used during install to decide
+// whether to write fnm-backed node/npm/npx shims.
+func detectSystemNode() string {
+	lerdBin := config.BinDir()
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == lerdBin {
+			continue
+		}
+		candidate := filepath.Join(dir, "node")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // confirmInstallPrompt asks a [Y/n] question. Must be called before any
 // RunParallel invocation, which leaves a goroutine reading from os.Stdin.
 func confirmInstallPrompt(question string) bool {
@@ -743,7 +774,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func addShellShims() error {
+func addShellShims(manageNode bool) error {
 	home, _ := os.UserHomeDir()
 	binDir := config.BinDir()
 	lerdBin := filepath.Join(home, ".local", "bin", "lerd")
@@ -777,7 +808,10 @@ func addShellShims() error {
 
 	// Write node/npm/npx shims — use fnm directly so they work inside containers
 	// (lerd is glibc-linked and cannot run inside Alpine-based PHP containers).
-	nodeShimTmpl := `#!/bin/sh
+	// Only written when lerd is managing Node versions; skipped when the user
+	// declined the prompt because they already have their own node installed.
+	if manageNode {
+		nodeShimTmpl := `#!/bin/sh
 FNM="%s"
 VERSION=""
 for f in .node-version .nvmrc; do
@@ -787,13 +821,18 @@ if [ -n "$VERSION" ]; then
   "$FNM" install "$VERSION" >/dev/null 2>&1 || true
   exec "$FNM" exec --using="$VERSION" -- %s "$@"
 else
+  if [ -z "$("$FNM" list 2>/dev/null)" ]; then
+    printf 'No Node.js version installed. Run: lerd node:install 22\n' >&2
+    exit 1
+  fi
   exec "$FNM" exec --using=default -- %s "$@"
 fi
 `
-	for _, bin := range []string{"node", "npm", "npx"} {
-		shim := fmt.Sprintf(nodeShimTmpl, fnmBin, bin, bin)
-		if err := os.WriteFile(filepath.Join(binDir, bin), []byte(shim), 0755); err != nil {
-			return fmt.Errorf("writing %s shim: %w", bin, err)
+		for _, bin := range []string{"node", "npm", "npx"} {
+			shim := fmt.Sprintf(nodeShimTmpl, fnmBin, bin, bin)
+			if err := os.WriteFile(filepath.Join(binDir, bin), []byte(shim), 0755); err != nil {
+				return fmt.Errorf("writing %s shim: %w", bin, err)
+			}
 		}
 	}
 
