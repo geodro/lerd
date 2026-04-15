@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.14.1] — 2026-04-16
+
+### Fixed
+
+- **Node version dropdown missing from site rows in the dashboard**. The 1.14.0 `node_managed_by_lerd` gate was implemented as an outer `<template x-if>` wrapping two inner templates (empty-list placeholder and populated `<select>`). Alpine.js's `x-if` directive only renders a single child element, so the outer template silently rendered nothing and the Node dropdown disappeared for every site, even on machines where lerd manages Node. Flattened into two sibling templates that each include the `node_managed_by_lerd` condition inline, matching the existing PHP dropdown pattern.
+
+---
+
 ## [1.14.0] — 2026-04-16
 
 ### Added
