@@ -11,6 +11,20 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.14.0] — 2026-04-16
+
+### Added
+
+- **Node version management** (#191). Lerd now detects whether Node is managed by the system (distro package, nvm, fnm, mise, asdf, volta) or by lerd itself, and adapts the UI and init wizard accordingly. On machines where Node is system-managed, the dashboard shows a "system" badge next to the Node.js sidebar section, hides the per-site Node version dropdown, and the `lerd init` wizard omits the Node version input (an existing `node_version` in `.lerd.yaml` is preserved). The status API gains `node_managed_by_lerd`. Also fixes a UI regression where installing Node from the dashboard could emit a spurious "unknown version" error.
+- **Decoupled `lerd db:*` commands** (#192). `lerd db:import`, `db:export`, `db:create`, and `db:shell` now work in any project type (NestJS, Next.js, Go, Rails, etc.) without requiring a linked site or PHP-style `.env`. Resolution chain (first match wins): `--service` flag, `.lerd.yaml db:` block, framework detect rules, then generic `.env` inference (`DB_CONNECTION` / `DB_TYPE` / `TYPEORM_CONNECTION` / `DATABASE_URL` / `DB_PORT`). Credentials from `.env` are intentionally ignored, because lerd always connects via `podman exec` using the container's fixed admin credentials (`postgres/lerd` or `root/lerd`), so a mismatched `DB_USERNAME=root` against a pgsql container no longer fails with `role "root" does not exist`. `db:shell` now checks whether the target database exists and prompts to create it before opening the shell, instead of dumping a raw psql error.
+
+### Changed
+
+- **Skip `.env` backup when lerd has already written the file** (#193). `lerd env` used to unconditionally copy `.env` to `.env.before_lerd` on first run, which could overwrite a legitimate user backup if lerd had previously rewritten the file. The backup is now skipped when lerd has already written `.env` in this project, so `.env.before_lerd` always reflects the user's pre-lerd state.
+- **Tray improvements** (#194). The tray "Open Dashboard" entry now opens the dashboard in the default browser, the update prompt wording is clearer, and "Quit" now stops the full lerd-ui + daemon stack instead of just dismissing the tray.
+
+---
+
 ## [1.13.1] — 2026-04-14
 
 ### Fixed
