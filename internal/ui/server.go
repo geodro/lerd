@@ -464,12 +464,13 @@ func mustJSON(v any) string {
 
 // StatusResponse is the response for GET /api/status.
 type StatusResponse struct {
-	DNS            DNSStatus    `json:"dns"`
-	Nginx          ServiceCheck `json:"nginx"`
-	PHPFPMs        []PHPStatus  `json:"php_fpms"`
-	PHPDefault     string       `json:"php_default"`
-	NodeDefault    string       `json:"node_default"`
-	WatcherRunning bool         `json:"watcher_running"`
+	DNS               DNSStatus    `json:"dns"`
+	Nginx             ServiceCheck `json:"nginx"`
+	PHPFPMs           []PHPStatus  `json:"php_fpms"`
+	PHPDefault        string       `json:"php_default"`
+	NodeDefault       string       `json:"node_default"`
+	NodeManagedByLerd bool         `json:"node_managed_by_lerd"`
+	WatcherRunning    bool         `json:"watcher_running"`
 }
 
 type DNSStatus struct {
@@ -518,13 +519,17 @@ func buildStatus() StatusResponse {
 		phpDefault = cfg.PHP.DefaultVersion
 		nodeDefault = cfg.Node.DefaultVersion
 	}
+	nodeShim := filepath.Join(config.BinDir(), "node")
+	_, nodeShimErr := os.Stat(nodeShim)
+	nodeManagedByLerd := nodeShimErr == nil
 	return StatusResponse{
-		DNS:            DNSStatus{OK: dnsOK, TLD: tld},
-		Nginx:          ServiceCheck{Running: nginxRunning},
-		PHPFPMs:        phpStatuses,
-		PHPDefault:     phpDefault,
-		NodeDefault:    nodeDefault,
-		WatcherRunning: watcherRunning,
+		DNS:               DNSStatus{OK: dnsOK, TLD: tld},
+		Nginx:             ServiceCheck{Running: nginxRunning},
+		PHPFPMs:           phpStatuses,
+		PHPDefault:        phpDefault,
+		NodeDefault:       nodeDefault,
+		NodeManagedByLerd: nodeManagedByLerd,
+		WatcherRunning:    watcherRunning,
 	}
 }
 
@@ -2033,11 +2038,14 @@ func handleInstallNodeVersion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	version := r.URL.Query().Get("version")
-	if version == "" || !validVersion.MatchString(version) {
+	var req struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Version == "" || !validVersion.MatchString(req.Version) {
 		writeJSON(w, map[string]any{"ok": false, "error": "invalid version"})
 		return
 	}
+	version := req.Version
 	major := strings.SplitN(version, ".", 2)[0]
 	fnmPath := config.BinDir() + "/fnm"
 	cmd := exec.Command(fnmPath, "install", major)
