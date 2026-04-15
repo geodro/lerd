@@ -8,6 +8,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ProjectDB holds optional database targeting info for the project.
+// Setting these in .lerd.yaml lets db commands work without a .env file,
+// which is useful for non-PHP projects (NestJS, Go, etc.).
+type ProjectDB struct {
+	Service  string `yaml:"service,omitempty"`
+	Database string `yaml:"database,omitempty"`
+}
+
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
 	Domains          []string                   `yaml:"domains,omitempty"`
@@ -24,7 +32,8 @@ type ProjectConfig struct {
 	// the framework-configured URL key) on every `lerd env` run. Committed to
 	// the repo so the choice is shared across machines. Takes precedence over
 	// the per-machine override in sites.yaml.
-	AppURL string `yaml:"app_url,omitempty"`
+	AppURL string    `yaml:"app_url,omitempty"`
+	DB     ProjectDB `yaml:"db,omitempty"`
 }
 
 // IsEmpty returns true when the config has no meaningful content, which
@@ -32,7 +41,8 @@ type ProjectConfig struct {
 func (c *ProjectConfig) IsEmpty() bool {
 	return len(c.Domains) == 0 && c.PHPVersion == "" && c.NodeVersion == "" &&
 		c.Framework == "" && len(c.Services) == 0 && len(c.Workers) == 0 &&
-		len(c.CustomWorkers) == 0 && !c.Secured && c.AppURL == ""
+		len(c.CustomWorkers) == 0 && !c.Secured && c.AppURL == "" &&
+		c.DB.Service == "" && c.DB.Database == ""
 }
 
 // ServiceNames returns the name of every service in the config, for callers
