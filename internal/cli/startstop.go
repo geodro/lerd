@@ -820,6 +820,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+	units = append(units, registeredFrameworkWorkerUnits()...)
 	// Stop scheduled-worker timers explicitly. Stopping the sibling
 	// oneshot .service is a no-op (it isn't running between firings),
 	// so without this the timer keeps dispatching after `lerd stop`.
@@ -852,7 +853,7 @@ func runQuit(_ *cobra.Command, _ []string) error {
 	}
 
 	// Stop process units.
-	for _, unit := range []string{"lerd-ui", "lerd-watcher"} {
+	for _, unit := range []string{"lerd-ui", "lerd-watcher", "lerd-tray"} {
 		fmt.Printf("  --> %s ... ", unit)
 		if err := podman.StopUnit(unit); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
@@ -860,10 +861,8 @@ func runQuit(_ *cobra.Command, _ []string) error {
 			fmt.Println("OK")
 		}
 	}
-
-	// Kill the tray.
+	// Also kill any directly-launched tray instance not managed by launchd/systemd.
 	killTray()
-	fmt.Println("  --> lerd-tray ... OK")
 
 	return nil
 }

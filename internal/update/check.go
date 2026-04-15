@@ -37,11 +37,13 @@ func CachedUpdateCheck(currentVersion string) (*UpdateInfo, error) {
 		return nil, nil
 	}
 
-	if !VersionGreaterThan(StripV(latest), StripV(currentVersion)) {
+	cur := StripGitDescribe(StripV(currentVersion))
+	lat := StripV(latest)
+	if !VersionGreaterThan(lat, cur) {
 		return nil, nil
 	}
 
-	changelog, _ := FetchChangelog(StripV(currentVersion), StripV(latest))
+	changelog, _ := FetchChangelog(cur, lat)
 	return &UpdateInfo{
 		LatestVersion: latest,
 		Changelog:     changelog,
