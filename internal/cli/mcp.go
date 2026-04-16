@@ -1036,13 +1036,28 @@ custom_workers:
     restart: always
 ` + "```" + `
 
-3. Link and verify:
+3. **Configure environment variables BEFORE linking.** The container starts immediately on ` + bt + `site_link` + bt + `, so the app's ` + bt + `.env` + bt + ` (or equivalent config) must already have the correct service connection strings. Lerd services are reachable by container name on the ` + bt + `lerd` + bt + ` network:
+` + "```" + `
+DB_HOST=lerd-mysql          # or lerd-postgres
+DB_PORT=3306                # 5432 for postgres
+DB_USERNAME=root            # postgres for postgres
+DB_PASSWORD=lerd
+REDIS_HOST=lerd-redis
+REDIS_PORT=6379
+` + "```" + `
+   Start the services first if they're not running:
+` + "```" + `
+service_start(name: "mysql")
+service_start(name: "redis")
+` + "```" + `
+
+4. Link and verify:
 ` + "```" + `
 site_link()            // builds image, creates container, generates nginx vhost
 sites()                // verify the site is listed with custom_container: true
 ` + "```" + `
 
-The ` + bt + `container.port` + bt + ` field is required — it's the port the app listens on inside the container. ` + bt + `container.containerfile` + bt + ` defaults to ` + bt + `Containerfile.lerd` + bt + `. Workers defined in ` + bt + `custom_workers` + bt + ` exec into the custom container. Services are reachable by name (` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, etc.) from inside the container.
+The ` + bt + `container.port` + bt + ` field is required — it's the port the app listens on inside the container. ` + bt + `container.containerfile` + bt + ` defaults to ` + bt + `Containerfile.lerd` + bt + `. Workers defined in ` + bt + `custom_workers` + bt + ` exec into the custom container.
 
 ## .lerd.yaml Reference
 
@@ -1215,7 +1230,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `, ` + bt + `lerd-horizon-myapp` + bt + `)
 - ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + ` change the PHP/Node version for a site; the FPM container for the new PHP version must be running after calling ` + bt + `site_php` + bt + `
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
-- **Custom container sites** (Node.js, Python, Go, etc.) — mandatory sequence: **(1)** write a Containerfile in the project root (default name ` + bt + `Containerfile.lerd` + bt + `; any name works — point ` + bt + `container.containerfile` + bt + ` at it if using a different name like ` + bt + `Dockerfile` + bt + `); **(2)** write ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: <N>}` + bt + ` (plus optional ` + bt + `domains` + bt + `, ` + bt + `services` + bt + `, ` + bt + `secured` + bt + `) — there is no MCP tool for this; write the file directly or ask the user to run ` + bt + `lerd init` + bt + ` (CLI wizard that generates the file interactively); **(3)** call ` + bt + `site_link` + bt + ` — it builds the image, starts the container, and configures nginx to reverse-proxy to it. **Never call ` + bt + `site_link` + bt + ` before steps 1–2**: without ` + bt + `container:` + bt + ` config the site registers as a PHP-FPM site (wrong); if that happened, call ` + bt + `site_unlink` + bt + ` first, write the files, then link again. Workers in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_restart` + bt + ` restarts the container without rebuilding. When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
+- **Custom container sites** (Node.js, Python, Go, etc.) — mandatory sequence: **(1)** write a Containerfile in the project root (default name ` + bt + `Containerfile.lerd` + bt + `; any name works if you set ` + bt + `container.containerfile` + bt + `); **(2)** write ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: <N>}` + bt + ` (plus optional ` + bt + `domains` + bt + `, ` + bt + `services` + bt + `, ` + bt + `secured` + bt + `) — there is no MCP tool for this; write the file directly or ask the user to run ` + bt + `lerd init` + bt + `; **(3)** configure the project's ` + bt + `.env` + bt + ` (or equivalent config) with service connection strings BEFORE linking — use ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, ` + bt + `lerd-postgres` + bt + ` as hostnames and start needed services with ` + bt + `service_start` + bt + `; **(4)** call ` + bt + `site_link` + bt + ` — the container starts immediately, so the env must already be correct. **Never call ` + bt + `site_link` + bt + ` before steps 1–3**: without ` + bt + `container:` + bt + ` config the site registers as PHP-FPM (wrong); if that happened, ` + bt + `site_unlink` + bt + ` first, write the files, then link again. Workers in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_restart` + bt + ` restarts without rebuilding. When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
 - Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `selenium` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first
