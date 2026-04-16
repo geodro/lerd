@@ -11,6 +11,30 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.15.0] — 2026-04-16
+
+### Added
+
+- **Per-project custom container support** (#198). Non-PHP sites (Node.js, Python, Go, Ruby, etc.) can define a `Containerfile.lerd` and a `container:` section in `.lerd.yaml`. Lerd builds a dedicated image, runs it as a named container, and nginx reverse-proxies to it. Full lifecycle: `lerd link` builds and starts, `lerd unlink` stops and cleans up (prompts to remove the image), `lerd secure`/`lerd unsecure` toggle HTTPS, `lerd pause`/`lerd unpause` stop and start the container, `lerd restart` restarts without rebuilding, `lerd rebuild` forces a fresh image build. Workers defined in `custom_workers` exec into the container. Services are reachable by name (`lerd-mysql`, `lerd-redis`, etc.) on the shared Podman network.
+- **`lerd restart` command**. Restarts the container for any site type: the per-project custom container for custom sites, or the shared PHP-FPM container for PHP sites. Also available as `site_restart` MCP tool and in the dashboard (restart icon in the site header).
+- **`lerd rebuild` command**. Rebuilds the custom container image from the Containerfile and restarts the container. Also available as `site_rebuild` MCP tool and `POST /api/sites/{domain}/rebuild` in the dashboard.
+- **`lerd init` custom container wizard**. When no PHP project is detected (no `composer.json`, no framework) and a `Containerfile.lerd` exists, the wizard switches to custom container mode and asks for the container port, containerfile path, HTTPS, and services.
+- **Containerfile MD5 caching**. `lerd link` skips the image build when the Containerfile hasn't changed since the last build. The hash is stored in `~/.local/share/lerd/container-hashes/`. `lerd rebuild` always forces a fresh build.
+- **Dashboard: custom container UI**. Container icon (cube) in the sidebar, base image badge (e.g. `node:22-alpine :3000`) instead of the PHP dropdown, "Container" logs tab, restart button, worker toggles for `custom_workers`, running/stopped status reflecting the custom container.
+- **`site_restart` and `site_rebuild` MCP tools**. Skill content updated with custom container architecture, `.lerd.yaml` reference including `container` and `custom_workers` fields, setup workflow, and env var configuration guidance.
+
+### Fixed
+
+- **Watcher overwriting custom container sites**. The site file watcher and `siteinfo.enrichVersions` no longer re-detect PHP/Node versions for custom container sites, preventing the empty values from being overwritten with defaults.
+- **Parked watcher re-registering custom containers**. `RegisterProject` now skips sites already registered as custom containers.
+- **Service auto-stop ignoring `.lerd.yaml`**. `CountSitesUsingService` and `sitesUsingService` now check `.lerd.yaml` services list in addition to `.env` scanning, preventing auto-stop of services used only by custom container sites.
+- **Domain change producing 502**. `RegenerateSiteVhost` now uses custom container vhost templates for custom sites instead of PHP templates.
+- **`lerd install`/`lerd update` overwriting custom vhosts**. The vhost regeneration during install now branches for custom container sites.
+- **`lerd start`/`lerd stop` trying to start/stop workers for ignored sites**. `registeredFrameworkWorkerUnits` now skips ignored and paused sites.
+- **`lerd pause`/`lerd unpause` not stopping/starting custom containers**. Pause now stops the custom container, unpause starts it and restores the proxy vhost.
+
+---
+
 ## [1.14.1] — 2026-04-16
 
 ### Fixed
