@@ -170,7 +170,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 
 // GenerateWorktreeVhost renders the HTTP vhost template for a worktree checkout
 // and writes it to conf.d/<domain>.conf.
-func GenerateWorktreeVhost(domain, path, phpVersion string) error {
+func GenerateWorktreeVhost(site config.Site, domain, path, phpVersion string) error {
 	tmplData, err := GetTemplate("vhost.conf.tmpl")
 	if err != nil {
 		return err
@@ -181,14 +181,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 		return err
 	}
 
-	data := VhostData{
-		Domain:          domain,
-		ServerNames:     domain,
-		Path:            path,
-		PHPVersion:      phpVersion,
-		PHPVersionShort: phpShort(phpVersion),
-		PublicDir:       "public",
-	}
+	data := worktreeVhostData(site, domain, path, phpVersion)
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -204,7 +197,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 
 // GenerateWorktreeSSLVhost renders the SSL vhost template for a worktree checkout,
 // reusing the parent site's wildcard certificate (*.parentDomain).
-func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) error {
+func GenerateWorktreeSSLVhost(site config.Site, domain, path, phpVersion string) error {
 	tmplData, err := GetTemplate("vhost-ssl.conf.tmpl")
 	if err != nil {
 		return err
@@ -215,15 +208,8 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 		return err
 	}
 
-	data := VhostData{
-		Domain:          domain,
-		ServerNames:     domain,
-		Path:            path,
-		PHPVersion:      phpVersion,
-		PHPVersionShort: phpShort(phpVersion),
-		CertDomain:      parentDomain,
-		PublicDir:       "public",
-	}
+	data := worktreeVhostData(site, domain, path, phpVersion)
+	data.CertDomain = site.PrimaryDomain()
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -235,6 +221,25 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 	}
 	confPath := filepath.Join(config.NginxConfD(), domain+".conf")
 	return os.WriteFile(confPath, buf.Bytes(), 0644)
+}
+
+func worktreeVhostData(site config.Site, domain, path, phpVersion string) VhostData {
+	worktreeSite := site
+	worktreeSite.Path = path
+	worktreeSite.Domains = []string{domain}
+
+	proxyPath, proxyPort, hasProxy := detectSiteProxy(worktreeSite)
+	return VhostData{
+		Domain:          domain,
+		ServerNames:     domain,
+		Path:            path,
+		PHPVersion:      phpVersion,
+		PHPVersionShort: phpShort(phpVersion),
+		PublicDir:       resolvePublicDir(worktreeSite),
+		Proxy:           hasProxy,
+		ProxyPath:       proxyPath,
+		ProxyPort:       proxyPort,
+	}
 }
 
 // GeneratePausedVhost writes a minimal nginx vhost that serves the static paused

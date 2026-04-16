@@ -11,6 +11,7 @@ import (
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -438,11 +439,12 @@ func unpauseWorktrees(site *config.Site, phpVersion string) {
 		return
 	}
 	for _, wt := range worktrees {
+		podman.EnsurePathMounted(wt.Path, phpVersion)
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
+			vhostErr = nginx.GenerateWorktreeSSLVhost(*site, wt.Domain, wt.Path, phpVersion)
 		} else {
-			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
+			vhostErr = nginx.GenerateWorktreeVhost(*site, wt.Domain, wt.Path, phpVersion)
 		}
 		if vhostErr != nil {
 			fmt.Printf("  [WARN] restoring worktree vhost %s: %v\n", wt.Domain, vhostErr)

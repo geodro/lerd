@@ -9,6 +9,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // SecureSite issues a TLS certificate for the site and switches its nginx vhost to HTTPS.
@@ -34,7 +35,8 @@ func SecureSite(site config.Site) error {
 	// Regenerate SSL vhosts and update APP_URL for any worktrees.
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
-			_ = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.PrimaryDomain())
+			podman.EnsurePathMounted(wt.Path, site.PHPVersion)
+			_ = nginx.GenerateWorktreeSSLVhost(site, wt.Domain, wt.Path, site.PHPVersion)
 			envfile.UpdateAppURL(wt.Path, "https", wt.Domain) //nolint:errcheck
 		}
 	}
@@ -56,7 +58,8 @@ func UnsecureSite(site config.Site) error {
 	// Switch any worktree SSL vhosts back to plain HTTP and update APP_URL.
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
-			_ = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, site.PHPVersion)
+			podman.EnsurePathMounted(wt.Path, site.PHPVersion)
+			_ = nginx.GenerateWorktreeVhost(site, wt.Domain, wt.Path, site.PHPVersion)
 			envfile.UpdateAppURL(wt.Path, "http", wt.Domain) //nolint:errcheck
 		}
 	}

@@ -1399,7 +1399,14 @@
                   </div>
                 </template>
               </div>
-              <p class="px-3 sm:px-5 py-3 text-xs text-gray-400 shrink-0">Monitors parked directories, site files, git worktrees, and DNS health. Logs WARN and ERROR events by default; set <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">LERD_DEBUG=1</code> in the service environment for verbose output.</p>
+              <div class="flex items-center justify-between px-3 sm:px-5 py-3 shrink-0">
+                <p class="text-xs text-gray-400">Monitors parked directories, site files, git worktrees, and DNS health. Logs WARN and ERROR events by default; set <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">LERD_DEBUG=1</code> in the service environment for verbose output.</p>
+                <button @click="scanWorktrees()" :disabled="worktreeScanning" class="shrink-0 ml-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-violet-300 dark:border-violet-500/30 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" title="Scan all sites for git worktrees and regenerate nginx vhosts">
+                  <svg x-show="worktreeScanning" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                  <svg x-show="!worktreeScanning" class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/></svg>
+                  <span x-text="worktreeScanning ? 'Scanning…' : 'Scan Worktrees'"></span>
+                </button>
+              </div>
               <div class="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div class="flex items-center justify-between px-3 sm:px-5 py-2 shrink-0">
                   <span class="flex items-center gap-1.5 text-[10px]" :class="systemLogs.connected ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-400 dark:text-gray-600'">
@@ -2113,6 +2120,7 @@ function lerdApp() {
     lerdStarting: false,
     lerdStopping: false,
     watcherStarting: false,
+    worktreeScanning: false,
     pausedSectionOpen: false,
     logs: {
       open: false,
@@ -4218,6 +4226,17 @@ function lerdApp() {
         await this.loadStatus();
         if (this.systemStatus.watcher_running) this.openWatcherLogs();
       } catch (_) {} finally { this.watcherStarting = false; }
+    },
+
+    async scanWorktrees() {
+      this.worktreeScanning = true;
+      try {
+        const res = await fetch('/api/worktrees/scan', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          await this.loadSites();
+        }
+      } catch (_) {} finally { this.worktreeScanning = false; }
     },
 
     async loadStatus() {

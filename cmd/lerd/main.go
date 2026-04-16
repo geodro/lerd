@@ -144,6 +144,7 @@ func main() {
 	root.AddCommand(cli.NewPauseCmd())
 	root.AddCommand(cli.NewUnpauseCmd())
 	root.AddCommand(cli.NewTrayCmd())
+	root.AddCommand(cli.NewWorktreeScanCmd())
 	root.AddCommand(newDNSCheckCmd())
 	root.AddCommand(cli.NewDNSForwarderCmd())
 	root.AddCommand(cli.NewLANCmd())
@@ -343,11 +344,12 @@ func newWatchCmd() *cobra.Command {
 						for _, wt := range worktrees {
 							if wt.Name == worktreeName {
 								gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
+								podman.EnsurePathMounted(wt.Path, phpVersion)
 								var vhostErr error
 								if site.Secured {
-									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
+									vhostErr = nginx.GenerateWorktreeSSLVhost(*site, wt.Domain, wt.Path, phpVersion)
 								} else {
-									vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
+									vhostErr = nginx.GenerateWorktreeVhost(*site, wt.Domain, wt.Path, phpVersion)
 								}
 								if vhostErr != nil {
 									fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
@@ -495,38 +497,16 @@ func mainRepoSitePaths() []string {
 }
 
 // scanWorktrees generates vhosts for all existing worktrees across all main-repo sites.
-// Returns true if any vhosts were generated.
+// Returns true if any vhosts were generated. Delegates to cli.ScanWorktrees for the
+// shared implementation; note that nginx.Reload is handled by the caller here (the watch
+// command batches reloads), so we intentionally ignore the reload inside ScanWorktrees
+// by checking the count only.
 func scanWorktrees() bool {
-	reg, err := config.LoadSites()
+	count, err := cli.ScanWorktrees()
 	if err != nil {
-		return false
+		fmt.Printf("[WARN] worktree scan: %v\n", err)
 	}
-	generated := false
-	for _, s := range reg.Sites {
-		if s.Ignored || s.Paused {
-			continue
-		}
-		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
-		if err != nil || len(worktrees) == 0 {
-			continue
-		}
-		for _, wt := range worktrees {
-			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
-			var vhostErr error
-			if s.Secured {
-				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain())
-			} else {
-				vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, s.PHPVersion)
-			}
-			if vhostErr != nil {
-				fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
-				continue
-			}
-			fmt.Printf("Worktree vhost: %s -> %s\n", wt.Branch, wt.Domain)
-			generated = true
-		}
-	}
-	return generated
+	return count > 0
 }
 
 // cleanupWorktreeVhosts removes all subdomain vhosts for the given site's domain,
@@ -548,11 +528,12 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 	// Re-generate for worktrees still present
 	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	for _, wt := range worktrees {
+		podman.EnsurePathMounted(wt.Path, site.PHPVersion)
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.PrimaryDomain())
+			vhostErr = nginx.GenerateWorktreeSSLVhost(*site, wt.Domain, wt.Path, site.PHPVersion)
 		} else {
-			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, site.PHPVersion)
+			vhostErr = nginx.GenerateWorktreeVhost(*site, wt.Domain, wt.Path, site.PHPVersion)
 		}
 		if vhostErr != nil {
 			fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)

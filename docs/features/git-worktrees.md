@@ -9,7 +9,7 @@ cd ~/Lerd/myapp
 git worktree add ../myapp-feature feature/auth
 
 # Lerd immediately creates:
-#   http://feature-auth.myapp.test  →  ~/Lerd/myapp-feature/public
+#   http://feature-auth.myapp.test  →  the worktree's document root
 ```
 
 Branch names are sanitised to be subdomain-safe: `/`, `_`, and `.` are replaced with `-`, and non-alphanumeric characters are stripped.
@@ -21,7 +21,7 @@ Branch names are sanitised to be subdomain-safe: `/`, `_`, and `.` are replaced 
 When the Lerd watcher daemon is running it watches each registered site's `.git/` directory. As soon as `git worktree add` writes its metadata under `.git/worktrees/`, Lerd:
 
 1. Reads the branch name and checkout path from the worktree metadata.
-2. Generates an nginx vhost for `<branch>.<site>.test` pointing at the worktree's `public/` directory.
+2. Generates an nginx vhost for `<branch>.<site>.test` pointing at the worktree's document root, using the same framework/public-dir rules as the parent site.
 3. Reloads nginx so the subdomain starts serving immediately.
 
 When `git worktree remove` is run the vhost is removed and nginx is reloaded.

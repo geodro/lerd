@@ -215,6 +215,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/app-logs/", withCORS(handleAppLogs))
 	mux.HandleFunc("/api/watcher/logs", withCORS(handleWatcherLogs))
 	mux.HandleFunc("/api/watcher/start", withCORS(handleWatcherStart))
+	mux.HandleFunc("/api/worktrees/scan", withCORS(publishAfter(handleWorktreeScan, eventbus.KindSites)))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
 	mux.HandleFunc("/api/xdebug/", withCORS(publishAfter(handleXdebugAction, eventbus.KindStatus)))
@@ -2397,6 +2398,19 @@ func handleWatcherStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func handleWorktreeScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	count, err := cli.ScanWorktrees()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "count": count})
 }
 
 func handleWatcherLogs(w http.ResponseWriter, r *http.Request) {

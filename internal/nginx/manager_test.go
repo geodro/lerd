@@ -186,7 +186,8 @@ func TestGenerateVhost_confFileNamedAfterPrimary(t *testing.T) {
 
 func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 	confD := setupConfD(t)
-	if err := GenerateWorktreeVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3"); err != nil {
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test"}, Path: "/srv/myapp"}
+	if err := GenerateWorktreeVhost(site, "feat-x.myapp.test", "/srv/myapp-feat", "8.3"); err != nil {
 		t.Fatalf("GenerateWorktreeVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
@@ -198,11 +199,24 @@ func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 	}
 }
 
+func TestGenerateWorktreeVhost_usesParentPublicDir(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test"}, Path: "/srv/myapp", PublicDir: "web"}
+	if err := GenerateWorktreeVhost(site, "feat-x.myapp.test", "/srv/myapp-feat", "8.3"); err != nil {
+		t.Fatalf("GenerateWorktreeVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
+	if !strings.Contains(content, "root /srv/myapp-feat/web") {
+		t.Errorf("expected worktree to inherit parent public dir in:\n%s", content)
+	}
+}
+
 // ── GenerateWorktreeSSLVhost ──────────────────────────────────────────────────
 
 func TestGenerateWorktreeSSLVhost_usesParentCert(t *testing.T) {
 	confD := setupConfD(t)
-	if err := GenerateWorktreeSSLVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test"); err != nil {
+	site := config.Site{Name: "myapp", Domains: []string{"myapp.test"}, Path: "/srv/myapp"}
+	if err := GenerateWorktreeSSLVhost(site, "feat-x.myapp.test", "/srv/myapp-feat", "8.3"); err != nil {
 		t.Fatalf("GenerateWorktreeSSLVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))

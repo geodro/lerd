@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	gitpkg "github.com/geodro/lerd/internal/git"
 )
 
 // WriteContainerUnitFn writes a container unit file for the given name and content.
@@ -29,8 +30,9 @@ var SkipQuadletUpToDateCheck bool
 
 // ExtraVolumePaths returns absolute paths that need to be bind-mounted into the
 // PHP-FPM container because they are outside the user's home directory. It
-// collects parked directories and linked site paths, deduplicates them, and
-// returns only the top-level ancestors (so /var/www covers /var/www/app).
+// collects parked directories, linked site paths, and detected worktree paths,
+// deduplicates them, and returns only the top-level ancestors (so /var/www
+// covers /var/www/app).
 func ExtraVolumePaths() []string {
 	home, _ := os.UserHomeDir()
 	if home == "" {
@@ -58,6 +60,13 @@ func ExtraVolumePaths() []string {
 	if reg, err := config.LoadSites(); err == nil {
 		for _, site := range reg.Sites {
 			add(site.Path)
+			worktrees, wtErr := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
+			if wtErr != nil {
+				continue
+			}
+			for _, wt := range worktrees {
+				add(wt.Path)
+			}
 		}
 	}
 
