@@ -110,6 +110,7 @@ export default defineConfig({
             { text: 'Git Worktrees', link: '/features/git-worktrees' },
             { text: 'Project Setup', link: '/features/project-setup' },
             { text: 'Environment Setup', link: '/features/env-setup' },
+            { text: 'Custom Containers', link: '/features/custom-containers' },
             { text: 'AI Integration (MCP)', link: '/features/mcp' },
           ],
         },
