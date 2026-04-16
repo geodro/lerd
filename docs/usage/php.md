@@ -125,7 +125,7 @@ Xdebug is configured with:
 
 Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
 
-`host.containers.internal` is resolved dynamically: when lerd writes the shared hosts file it probes the running `lerd-nginx` container for the IP that podman uses for the host gateway, so Xdebug reaches your IDE on any podman networking stack (rootless or rootful, pasta, netavark, slirp4netns).
+`host.containers.internal` is resolved via a real reachability probe: when lerd writes the shared hosts file it tries each candidate IP (netavark's `host.containers.internal` entry, the host's primary LAN IP, slirp4netns's `10.0.2.2`) by opening a TCP connection to lerd-ui on port 7073 from inside lerd-nginx, and writes the first one that succeeds. If none succeed, `lerd doctor` reports the failure so you get a real diagnosis instead of Xdebug silently timing out with `Time-out connecting to debugging client`.
 :::
 
 ---

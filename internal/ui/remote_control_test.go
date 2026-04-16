@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -313,6 +314,34 @@ func TestRemoteControlGate_optionsBypassesAuth(t *testing.T) {
 
 	if !next.called {
 		t.Error("OPTIONS preflight blocked — CORS will fail")
+	}
+}
+
+// Unix socket connections must be treated as loopback. The lerd.localhost
+// nginx vhost reaches lerd-ui over the bind-mounted socket, and the request
+// arrives with a non-IP RemoteAddr ("@"). Without the ctxKeyUnixSocket
+// fast-path, the gate would 403 it the same as a LAN client and the
+// dashboard would be unreachable via lerd.localhost. Regression test for
+// the fix that replaced host.containers.internal:7073 with the unix socket.
+func TestRemoteControlGate_unixSocketTreatedAsLoopback(t *testing.T) {
+	setupConfigDirRaw(t, "", "", false) // LAN exposure off, no creds
+
+	next := &nextHandler{}
+	gate := withRemoteControlGate(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sites", nil)
+	req.RemoteAddr = "@" // typical for anonymous unix socket peer
+	ctx := context.WithValue(req.Context(), ctxKeyUnixSocket{}, true)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	gate.ServeHTTP(rec, req)
+
+	if !next.called {
+		t.Error("unix socket request blocked — lerd.localhost vhost will 403")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("unix socket status = %d, want 200", rec.Code)
 	}
 }
 

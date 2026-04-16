@@ -148,6 +148,20 @@ func ErrorPagesDir() string {
 	return filepath.Join(DataDir(), "error-pages")
 }
 
+// RunDir returns the directory for runtime sockets shared between lerd-ui
+// (host process) and lerd-nginx (container). Bind-mounted into lerd-nginx so
+// the lerd.localhost vhost can reach lerd-ui without depending on container
+// → host TCP routing (host.containers.internal / 169.254.1.2), which is
+// unreliable across podman/netavark/pasta versions and host network changes.
+func RunDir() string {
+	return filepath.Join(DataDir(), "run")
+}
+
+// UISocketPath returns the path to the lerd-ui unix domain socket.
+func UISocketPath() string {
+	return filepath.Join(RunDir(), "lerd-ui.sock")
+}
+
 // ContainerHostsFile returns the path to the shared hosts file mounted into PHP containers.
 func ContainerHostsFile() string {
 	return filepath.Join(DataDir(), "hosts")

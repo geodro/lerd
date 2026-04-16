@@ -139,6 +139,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	if err := nginx.EnsureLerdVhost(); err != nil {
 		return err
 	}
+	// The lerd-nginx quadlet bind-mounts RunDir so the lerd.localhost vhost
+	// can reach lerd-ui over a unix socket. Must exist before nginx starts.
+	if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+		return err
+	}
 	ok()
 
 	step("Regenerating vhosts")
