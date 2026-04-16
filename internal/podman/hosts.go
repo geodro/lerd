@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,7 +38,11 @@ func WriteContainerHosts() error {
 	nginxIP := nginxContainerIP()
 
 	content := renderContainerHosts(reg, hostIP, nginxIP)
-	if err := os.WriteFile(config.ContainerHostsFile(), []byte(content), 0644); err != nil {
+	hostsPath := config.ContainerHostsFile()
+	if err := os.MkdirAll(filepath.Dir(hostsPath), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(hostsPath, []byte(content), 0644); err != nil {
 		return err
 	}
 
@@ -81,7 +86,11 @@ func writeBrowserHosts(reg *config.SiteRegistry) error {
 		}
 	}
 
-	return os.WriteFile(config.BrowserHostsFile(), []byte(sb.String()), 0644)
+	browserPath := config.BrowserHostsFile()
+	if err := os.MkdirAll(filepath.Dir(browserPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(browserPath, []byte(sb.String()), 0644)
 }
 
 // DetectHostGatewayIP returns an IP that is reachable from inside lerd-nginx

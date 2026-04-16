@@ -364,6 +364,43 @@ func WriteXdebugIni(version string, enabled bool) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+// ensureFPMHostsFile guarantees the bind-mount source for the FPM container's
+// /etc/hosts is a regular file before podman starts the container. Three states
+// are normalised here:
+//
+//  1. Path exists and is a directory (podman auto-created it on a previous
+//     broken start, same race as the xdebug ini): remove it and fall through
+//     to the missing-file branch.
+//  2. Path is missing: try a real WriteContainerHosts; if that fails (e.g.
+//     LoadSites errors), write a minimal static header so the mount still
+//     succeeds and host.containers.internal resolves to something.
+//  3. Path is already a regular file: no-op.
+func ensureFPMHostsFile() error {
+	hostsPath := config.ContainerHostsFile()
+	info, err := os.Stat(hostsPath)
+	if err == nil && info.IsDir() {
+		if rmErr := os.Remove(hostsPath); rmErr != nil {
+			return fmt.Errorf("removing stale hosts directory: %w", rmErr)
+		}
+		err = os.ErrNotExist
+	}
+	if !os.IsNotExist(err) {
+		return nil
+	}
+	if writeErr := WriteContainerHosts(); writeErr == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(hostsPath), 0755); err != nil {
+		return err
+	}
+	hostIP := DetectHostGatewayIP()
+	return os.WriteFile(hostsPath, []byte(
+		"127.0.0.1 localhost\n"+
+			"::1 localhost\n"+
+			hostIP+" host.containers.internal host.docker.internal\n",
+	), 0644)
+}
+
 // EnsureXdebugIni creates the xdebug ini file for the given PHP version if it doesn't
 // already exist as a regular file. This prevents Podman from auto-creating a directory
 // at the bind-mount source path when the container starts before the file is written.
@@ -393,21 +430,8 @@ func WriteFPMQuadlet(version string) error {
 		return fmt.Errorf("creating xdebug ini: %w", err)
 	}
 
-	// The hosts file is bind-mounted into the container. Podman refuses to start if the
-	// source path does not exist, so create it when missing (WriteContainerHosts will
-	// populate it properly on the next link/unlink/start).
-	hostsPath := config.ContainerHostsFile()
-	if _, err := os.Stat(hostsPath); os.IsNotExist(err) {
-		if err := WriteContainerHosts(); err != nil {
-			// Non-fatal: write the static header so the mount succeeds and
-			// host.containers.internal resolves correctly even before lerd link runs.
-			hostIP := DetectHostGatewayIP()
-			_ = os.WriteFile(hostsPath, []byte(
-				"127.0.0.1 localhost\n"+
-					"::1 localhost\n"+
-					hostIP+" host.containers.internal host.docker.internal\n",
-			), 0644)
-		}
+	if err := ensureFPMHostsFile(); err != nil {
+		return err
 	}
 
 	tmplContent, err := GetQuadletTemplate("lerd-php-fpm.container.tmpl")
@@ -580,10 +604,20 @@ func EnsurePathMounted(path, phpVersion string) {
 }
 
 // EnsureUserIni creates the per-version user php.ini with defaults if it doesn't exist.
+// Same bind-mount race as EnsureXdebugIni: when this path is missing at FPM
+// container start time, podman auto-creates it as a directory and the next
+// EnsureUserIni call (which only Stat'd, didn't IsDir-check) silently no-ops
+// while the user's php.ini is never written. Heal stale directories before
+// returning the no-op fast path.
 func EnsureUserIni(version string) error {
 	path := config.PHPUserIniFile(version)
-	if _, err := os.Stat(path); err == nil {
-		return nil // already exists
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return nil // already a regular file
+		}
+		if rmErr := os.Remove(path); rmErr != nil {
+			return fmt.Errorf("removing stale user ini directory: %w", rmErr)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
