@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -195,7 +196,37 @@ func runUpdate(currentVersion string, beta bool) error {
 			}
 		}
 	}
+
+	restartLerdUserServices()
 	return nil
+}
+
+// restartLerdUserServices restarts the long-running lerd user units so they
+// pick up the freshly replaced binary. Linux keeps the old inode alive for
+// processes that have the binary open, so without an explicit restart the
+// daemons keep executing the pre-update code and report the old version.
+// Only currently-active units are restarted, so disabled services are left
+// alone.
+func restartLerdUserServices() {
+	units := []string{"lerd-ui.service", "lerd-watcher.service", "lerd-tray.service"}
+	var active []string
+	for _, u := range units {
+		if systemd.IsServiceActive(u) {
+			active = append(active, u)
+		}
+	}
+	if len(active) == 0 {
+		return
+	}
+	fmt.Println("\n==> Restarting lerd services to pick up the new binary")
+	for _, u := range active {
+		fmt.Printf("  --> %s ... ", u)
+		if err := systemd.RestartService(u); err != nil {
+			fmt.Printf("WARN (%v)\n", err)
+		} else {
+			fmt.Println("OK")
+		}
+	}
 }
 
 // downloadReleaseBinary downloads and extracts the release archive for the
