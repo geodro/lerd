@@ -175,21 +175,21 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/ws", handleWS)
 	mux.HandleFunc("/api/lan-qr/", withCORS(handleLANQR))
 
-	// Cross-process notifier: the CLI and MCP processes run outside
-	// lerd-ui and can't publish to the in-process eventbus. They POST
-	// here after any unit lifecycle change so lerd-ui invalidates its
-	// snapshot cache and pushes a fresh broadcast to every browser.
-	// Loopback-only because anything that wouldn't go through the gate
-	// has no business triggering an invalidation.
+	// Cross-process notifier for CLI/MCP. Loopback-only. PollNow in a
+	// goroutine so the handler returns under the CLI's 500 ms POST
+	// timeout while the cache refresh drives the next WS broadcast.
 	mux.HandleFunc("/api/internal/notify", func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackRequest(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		siteinfo.InvalidateUnitCache()
-		eventbus.Default.Publish(eventbus.KindSites)
-		eventbus.Default.Publish(eventbus.KindServices)
-		eventbus.Default.Publish(eventbus.KindStatus)
+		go func() {
+			podman.Cache.PollNow()
+			siteinfo.InvalidateUnitCache()
+			eventbus.Default.Publish(eventbus.KindSites)
+			eventbus.Default.Publish(eventbus.KindServices)
+			eventbus.Default.Publish(eventbus.KindStatus)
+		}()
 		w.WriteHeader(http.StatusNoContent)
 	})
 
