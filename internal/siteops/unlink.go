@@ -41,11 +41,12 @@ func UnlinkSiteCore(site *config.Site, parkedDirs []string) error {
 	}
 
 	// Clean up the per-project custom container if this site uses one.
+	// The image is kept so relinking is fast; use `lerd rebuild` to
+	// force a fresh build.
 	if site.IsCustomContainer() {
 		_ = podman.StopUnit(podman.CustomContainerName(site.Name))
 		podman.RemoveCustomContainer(site.Name)
 		_ = podman.RemoveCustomContainerQuadlet(site.Name)
-		_ = podman.RemoveCustomImage(site.Name)
 	}
 
 	if IsParkedSite(site.Path, parkedDirs) {
