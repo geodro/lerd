@@ -1614,6 +1614,13 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
+	case "rebuild":
+		if err := cli.RebuildSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
 	case "horizon:start":
 		phpVersion := site.PHPVersion
 		if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {

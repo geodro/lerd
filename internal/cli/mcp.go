@@ -766,7 +766,10 @@ Pause or resume a site. Both take ` + bt + `site` + bt + ` (required, site name 
 Use this to free up resources for sites you're not actively working on without fully unlinking them.
 
 ### ` + bt + `site_restart` + bt + `
-Restart the container for a site. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool). For custom container sites this restarts the dedicated per-project container; for PHP sites it restarts the shared PHP-FPM container for that site's PHP version.
+Restart the container for a site without rebuilding the image. Takes ` + bt + `site` + bt + ` (required). For custom container sites this restarts the dedicated container; for PHP sites it restarts the shared FPM container.
+
+### ` + bt + `site_rebuild` + bt + `
+Rebuild the custom container image from the Containerfile and restart the container. Takes ` + bt + `site` + bt + ` (required). Use after changing the Containerfile. ` + bt + `site_link` + bt + ` reuses the cached image; ` + bt + `site_rebuild` + bt + ` forces a fresh build. Only works for custom container sites.
 
 ### ` + bt + `service_pin` + bt + ` / ` + bt + `service_unpin` + bt + `
 Pin or unpin a service. Both take ` + bt + `name` + bt + ` (required).
@@ -956,8 +959,8 @@ site_unpause(site: "old-project")  // restore and restart
 
 **Restart a site's container (e.g. after changing Containerfile):**
 ` + "```" + `
-site_restart(site: "nestjs-app")  // restarts lerd-custom-nestjs-app
-site_restart(site: "myapp")       // restarts lerd-php84-fpm (shared FPM)
+site_restart(site: "nestjs-app")  // restarts container (no rebuild)
+site_rebuild(site: "nestjs-app")  // rebuilds image from Containerfile + restarts
 ` + "```" + `
 
 **Keep a service always running regardless of active site:**
@@ -1199,6 +1202,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `site_pause` + bt + ` | Pause a site: stop workers and custom container, replace vhost with landing page |
 | ` + bt + `site_unpause` + bt + ` | Resume a paused site: start container, restore vhost, restart workers |
 | ` + bt + `site_restart` + bt + ` | Restart a site's container (custom container or PHP-FPM) |
+| ` + bt + `site_rebuild` + bt + ` | Rebuild custom container image from Containerfile and restart |
 | ` + bt + `service_pin` + bt + ` | Pin a service so it is never auto-stopped even when no sites reference it |
 | ` + bt + `service_unpin` + bt + ` | Unpin a service so it can be auto-stopped when unused |
 | ` + bt + `stripe_listen` + bt + ` | Start a Stripe webhook listener for a site |

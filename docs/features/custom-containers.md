@@ -168,7 +168,13 @@ LAN sharing works transparently since it proxies through nginx.
 
 ## Rebuilding
 
-To rebuild the image after changing your Containerfile, re-run `lerd link`. The image is rebuilt from scratch.
+`lerd rebuild` removes the old image, rebuilds from the Containerfile, and restarts the container:
+
+```bash
+lerd rebuild
+```
+
+`lerd link` reuses the cached image if it already exists. Use `lerd rebuild` when you change the Containerfile.
 
 ## CLI commands
 
@@ -179,6 +185,7 @@ To rebuild the image after changing your Containerfile, re-run `lerd link`. The 
 | `lerd secure` / `lerd unsecure` | Toggle HTTPS |
 | `lerd pause` / `lerd unpause` | Pause/resume the site and container |
 | `lerd restart` | Restart the container |
+| `lerd rebuild` | Rebuild image from Containerfile and restart |
 | `lerd worker start <name>` | Start a custom worker |
 | `lerd worker stop <name>` | Stop a custom worker |
 | `lerd worker list` | List available workers and status |

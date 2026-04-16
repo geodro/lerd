@@ -155,8 +155,10 @@ func FinishLink(site config.Site, phpVersion string) error {
 // site: build the image, write a dedicated quadlet, generate a proxy vhost,
 // update container hosts, and reload nginx.
 func FinishCustomLink(site config.Site, containerCfg *config.ContainerConfig) error {
-	if err := podman.BuildCustomImage(site.Name, site.Path, containerCfg); err != nil {
-		return fmt.Errorf("building custom image: %w", err)
+	if !podman.CustomImageExists(site.Name) {
+		if err := podman.BuildCustomImage(site.Name, site.Path, containerCfg); err != nil {
+			return fmt.Errorf("building custom image: %w", err)
+		}
 	}
 
 	// Pre-create the shared hosts file before writing the unit so that the

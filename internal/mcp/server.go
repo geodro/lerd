@@ -1368,6 +1368,20 @@ func toolList() []mcpTool {
 			},
 		},
 		mcpTool{
+			Name:        "site_rebuild",
+			Description: "Rebuild the custom container image from the Containerfile and restart the container. Use after changing the Containerfile. For PHP sites use php_ext_add/php_ext_remove instead.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		mcpTool{
 			Name:        "service_pin",
 			Description: "Pin a service so it is never auto-stopped, even when no sites reference it. Starts the service if it is not already running.",
 			InputSchema: mcpSchema{
@@ -1544,6 +1558,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execSiteUnpause(args)
 	case "site_restart":
 		return execSiteRestart(args)
+	case "site_rebuild":
+		return execSiteRebuild(args)
 	case "service_pin":
 		return execServicePin(args)
 	case "service_unpin":
@@ -4626,6 +4642,14 @@ func execSiteRestart(args map[string]any) (any, *rpcError) {
 		return toolErr("site is required"), nil
 	}
 	return runLerdCmd("restart", siteName)
+}
+
+func execSiteRebuild(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	return runLerdCmd("rebuild", siteName)
 }
 
 func execServicePin(args map[string]any) (any, *rpcError) {

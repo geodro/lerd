@@ -63,6 +63,7 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd pause [name]` | Pause a site: stop workers (and custom container if applicable), replace vhost with landing page |
 | `lerd unpause [name]` | Resume a paused site: start container, restore vhost, restart workers |
 | `lerd restart [name]` | Restart the container for the current or named site (custom container or PHP-FPM) |
+| `lerd rebuild [name]` | Rebuild the custom container image from Containerfile and restart |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run (skipped if lerd has already written to the file) |
 | `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |

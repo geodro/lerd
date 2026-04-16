@@ -71,6 +71,7 @@ func main() {
 	root.AddCommand(cli.NewLinkCmd())
 	root.AddCommand(cli.NewUnlinkCmd())
 	root.AddCommand(cli.NewRestartCmd())
+	root.AddCommand(cli.NewRebuildCmd())
 	root.AddCommand(cli.NewUnparkCmd())
 	root.AddCommand(cli.NewSitesCmd())
 	root.AddCommand(cli.NewSecureCmd())

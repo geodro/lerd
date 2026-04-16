@@ -50,6 +50,12 @@ func HasContainerfile(projectPath string) bool {
 	return err == nil
 }
 
+// CustomImageExists returns true when the local image for a site's custom
+// container is present in the podman store.
+func CustomImageExists(siteName string) bool {
+	return ImageExists(CustomImageName(siteName))
+}
+
 // BuildCustomImage builds the OCI image for a site's custom container from
 // the user's Containerfile. The image is tagged as lerd-custom-{siteName}:local.
 func BuildCustomImage(siteName, projectPath string, cfg *config.ContainerConfig) error {
