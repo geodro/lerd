@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/siteops"
 )
 
@@ -128,5 +129,37 @@ func TestFreeSiteName_legacyDomainField(t *testing.T) {
 	got := freeSiteName("myapp", "/projects/new")
 	if got != "myapp-2" {
 		t.Errorf("got %q, want %q", got, "myapp-2")
+	}
+}
+
+// ── RegisterProject skips custom containers ─────────────────────────────────
+
+func TestRegisterProject_SkipsCustomContainer(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	// Create a project directory with a composer.json so it looks like a PHP project.
+	projectDir := filepath.Join(t.TempDir(), "nestapp")
+	os.MkdirAll(projectDir, 0755)
+	os.WriteFile(filepath.Join(projectDir, "composer.json"), []byte(`{}`), 0644)
+
+	// Pre-register the site as a custom container.
+	config.AddSite(config.Site{
+		Name:          "nestapp",
+		Domains:       []string{"nestapp.test"},
+		Path:          projectDir,
+		ContainerPort: 3000,
+	})
+
+	cfg := &config.GlobalConfig{}
+	cfg.DNS.TLD = "test"
+	cfg.PHP.DefaultVersion = "8.4"
+
+	registered, err := RegisterProject(projectDir, cfg)
+	if err != nil {
+		t.Fatalf("RegisterProject: %v", err)
+	}
+	if registered {
+		t.Error("RegisterProject should return false for a custom container site")
 	}
 }

@@ -40,6 +40,7 @@ func init() {
 	podman.DaemonReloadFn = Mgr.DaemonReload
 	podman.SkipQuadletUpToDateCheck = true
 	podman.UnitLifecycle = Mgr
+	podman.RemoveContainerUnitFn = Mgr.RemoveContainerUnit
 	// Keep launchd plists in sync when WriteQuadletDiff updates a .container file.
 	podman.AfterQuadletWriteFn = func(name, content string) error {
 		return Mgr.WriteContainerUnit(name, content)

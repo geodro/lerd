@@ -150,3 +150,44 @@ func FinishLink(site config.Site, phpVersion string) error {
 
 	return nil
 }
+
+// FinishCustomLink performs the post-registration steps for a custom container
+// site: build the image, write a dedicated quadlet, generate a proxy vhost,
+// update container hosts, and reload nginx.
+func FinishCustomLink(site config.Site, containerCfg *config.ContainerConfig) error {
+	if err := podman.BuildCustomImage(site.Name, site.Path, containerCfg); err != nil {
+		return fmt.Errorf("building custom image: %w", err)
+	}
+
+	if err := podman.WriteCustomContainerQuadlet(site.Name, site.Path, site.ContainerPort); err != nil {
+		return fmt.Errorf("writing custom quadlet: %w", err)
+	}
+	_ = podman.DaemonReloadFn()
+
+	// Start the custom container so the site is immediately reachable.
+	if err := podman.StartUnit(podman.CustomContainerName(site.Name)); err != nil {
+		fmt.Printf("[WARN] starting custom container: %v\n", err)
+	}
+
+	if site.Secured {
+		if err := certs.SecureSite(site); err != nil {
+			return fmt.Errorf("securing site: %w", err)
+		}
+	} else {
+		if err := nginx.GenerateCustomVhost(site); err != nil {
+			return fmt.Errorf("generating custom vhost: %w", err)
+		}
+	}
+
+	_ = podman.WriteContainerHosts()
+
+	if err := nginx.Reload(); err != nil {
+		return fmt.Errorf("nginx reload: %w", err)
+	}
+
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
+	}
+
+	return nil
+}

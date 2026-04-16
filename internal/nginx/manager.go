@@ -55,6 +55,8 @@ type VhostData struct {
 	Proxy           bool   // true when the site has a worker with WebSocket/HTTP proxy config
 	ProxyPath       string // URL path for the proxy (e.g. "/app")
 	ProxyPort       int    // port the worker listens on inside the PHP-FPM container
+	CustomContainer string // container name for custom container sites (e.g. "lerd-custom-nestapp")
+	CustomPort      int    // port the app listens on inside the custom container
 }
 
 // phpShort converts "8.4" → "84".
@@ -154,6 +156,72 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 		Proxy:           hasProxy,
 		ProxyPath:       proxyPath,
 		ProxyPort:       proxyPort,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
+		return err
+	}
+	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+	return os.WriteFile(confPath, buf.Bytes(), 0644)
+}
+
+// GenerateCustomVhost renders the HTTP vhost template for a custom container
+// site and writes it to conf.d. Nginx reverse-proxies to the container instead
+// of using fastcgi_pass.
+func GenerateCustomVhost(site config.Site) error {
+	tmplData, err := GetTemplate("vhost-custom.conf.tmpl")
+	if err != nil {
+		return err
+	}
+
+	tmpl, err := template.New("vhost-custom").Parse(string(tmplData))
+	if err != nil {
+		return err
+	}
+
+	data := VhostData{
+		Domain:          site.PrimaryDomain(),
+		ServerNames:     serverNamesWithWildcards(site.Domains),
+		CustomContainer: podman.CustomContainerName(site.Name),
+		CustomPort:      site.ContainerPort,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
+		return err
+	}
+	confPath := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+	return os.WriteFile(confPath, buf.Bytes(), 0644)
+}
+
+// GenerateCustomSSLVhost renders the SSL vhost template for a custom container
+// site and writes it to conf.d.
+func GenerateCustomSSLVhost(site config.Site) error {
+	tmplData, err := GetTemplate("vhost-custom-ssl.conf.tmpl")
+	if err != nil {
+		return err
+	}
+
+	tmpl, err := template.New("vhost-custom-ssl").Parse(string(tmplData))
+	if err != nil {
+		return err
+	}
+
+	data := VhostData{
+		Domain:          site.PrimaryDomain(),
+		ServerNames:     serverNamesWithWildcards(site.Domains),
+		CertDomain:      site.PrimaryDomain(),
+		CustomContainer: podman.CustomContainerName(site.Name),
+		CustomPort:      site.ContainerPort,
 	}
 
 	var buf bytes.Buffer

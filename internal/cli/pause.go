@@ -11,6 +11,7 @@ import (
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
@@ -66,6 +67,11 @@ func PauseSite(name string) error {
 		stopWorkerByName(site, w)
 	}
 
+	// Stop the custom container when pausing a custom container site.
+	if site.IsCustomContainer() {
+		_ = podman.StopUnit(podman.CustomContainerName(site.Name))
+	}
+
 	if err := writePausedHTML(site); err != nil {
 		return fmt.Errorf("writing paused page: %w", err)
 	}
@@ -109,33 +115,54 @@ func UnpauseSite(name string) error {
 	}
 
 	phpVersion := site.PHPVersion
-	if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
-		phpVersion = detected
-	}
 
-	if phpVersion != "" {
-		if err := ensureFPMQuadlet(phpVersion); err != nil {
-			fmt.Printf("[WARN] ensuring FPM for PHP %s: %v\n", phpVersion, err)
-		}
-	}
-
-	if site.Secured {
-		if err := nginx.GenerateSSLVhost(*site, phpVersion); err != nil {
-			return fmt.Errorf("generating SSL vhost: %w", err)
-		}
-		sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
-		mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
-		_ = os.Remove(mainConf)
-		if err := os.Rename(sslConf, mainConf); err != nil {
-			return fmt.Errorf("installing SSL vhost: %w", err)
+	if site.IsCustomContainer() {
+		// Start the custom container and restore the proxy vhost.
+		_ = podman.StartUnit(podman.CustomContainerName(site.Name))
+		if site.Secured {
+			if err := nginx.GenerateCustomSSLVhost(*site); err != nil {
+				return fmt.Errorf("generating custom SSL vhost: %w", err)
+			}
+			sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+			mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+			_ = os.Remove(mainConf)
+			if err := os.Rename(sslConf, mainConf); err != nil {
+				return fmt.Errorf("installing SSL vhost: %w", err)
+			}
+		} else {
+			if err := nginx.GenerateCustomVhost(*site); err != nil {
+				return fmt.Errorf("generating custom vhost: %w", err)
+			}
 		}
 	} else {
-		if err := nginx.GenerateVhost(*site, phpVersion); err != nil {
-			return fmt.Errorf("generating vhost: %w", err)
+		if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
+			phpVersion = detected
 		}
-	}
 
-	unpauseWorktrees(site, phpVersion)
+		if phpVersion != "" {
+			if err := ensureFPMQuadlet(phpVersion); err != nil {
+				fmt.Printf("[WARN] ensuring FPM for PHP %s: %v\n", phpVersion, err)
+			}
+		}
+
+		if site.Secured {
+			if err := nginx.GenerateSSLVhost(*site, phpVersion); err != nil {
+				return fmt.Errorf("generating SSL vhost: %w", err)
+			}
+			sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+			mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+			_ = os.Remove(mainConf)
+			if err := os.Rename(sslConf, mainConf); err != nil {
+				return fmt.Errorf("installing SSL vhost: %w", err)
+			}
+		} else {
+			if err := nginx.GenerateVhost(*site, phpVersion); err != nil {
+				return fmt.Errorf("generating vhost: %w", err)
+			}
+		}
+
+		unpauseWorktrees(site, phpVersion)
+	}
 
 	if err := nginx.Reload(); err != nil {
 		fmt.Printf("[WARN] nginx reload: %v\n", err)

@@ -166,13 +166,23 @@ func CountSitesUsingService(name string) int {
 		if s.Ignored || s.Paused {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
-		if err != nil {
-			continue
+		// Check .lerd.yaml services list (covers custom container sites
+		// that may not have a .env with lerd-{name} references).
+		if proj, pErr := LoadProjectConfig(s.Path); pErr == nil {
+			for _, svc := range proj.Services {
+				if svc.Name == name {
+					count++
+					goto next
+				}
+			}
 		}
-		if strings.Contains(string(data), needle) {
-			count++
+		// Fall back to .env scanning for PHP sites.
+		if data, err := os.ReadFile(filepath.Join(s.Path, ".env")); err == nil {
+			if strings.Contains(string(data), needle) {
+				count++
+			}
 		}
+	next:
 	}
 	return count
 }

@@ -1327,7 +1327,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_pause",
-			Description: "Pause a site: stop all its running workers (queue, schedule, reverb, stripe, custom) and replace its nginx vhost with a landing page. Auto-stops services no longer needed by any active site.",
+			Description: "Pause a site: stop all its running workers and its custom container (if applicable), and replace its nginx vhost with a landing page. Auto-stops services no longer needed by any active site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1341,7 +1341,21 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_unpause",
-			Description: "Resume a paused site: restore its nginx vhost, restart any workers that were running when it was paused, and ensure required services are running.",
+			Description: "Resume a paused site: start its custom container (if applicable), restore its nginx vhost, restart any workers that were running when it was paused, and ensure required services are running.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"site": {
+						Type:        "string",
+						Description: "Site name as shown by the sites tool",
+					},
+				},
+				Required: []string{"site"},
+			},
+		},
+		mcpTool{
+			Name:        "site_restart",
+			Description: "Restart the container for a site. For custom container sites this restarts the dedicated per-project container; for PHP sites it restarts the shared PHP-FPM container for that site's PHP version.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1528,6 +1542,8 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execSitePause(args)
 	case "site_unpause":
 		return execSiteUnpause(args)
+	case "site_restart":
+		return execSiteRestart(args)
 	case "service_pin":
 		return execServicePin(args)
 	case "service_unpin":
@@ -4489,6 +4505,14 @@ func execSiteUnpause(args map[string]any) (any, *rpcError) {
 		return toolErr("site is required"), nil
 	}
 	return runLerdCmd("unpause", siteName)
+}
+
+func execSiteRestart(args map[string]any) (any, *rpcError) {
+	siteName := strArg(args, "site")
+	if siteName == "" {
+		return toolErr("site is required"), nil
+	}
+	return runLerdCmd("restart", siteName)
 }
 
 func execServicePin(args map[string]any) (any, *rpcError) {

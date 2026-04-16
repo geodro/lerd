@@ -150,10 +150,22 @@ func newWorkerListCmd() *cobra.Command {
 
 // resolveSiteAndFramework finds the registered site and its framework for cwd.
 // Falls back to framework detection if the site has no Framework set.
+// For custom container sites without a framework, a synthetic framework is
+// returned that contains only the custom_workers from .lerd.yaml.
 func resolveSiteAndFramework(cwd string) (*config.Site, *config.Framework, string, error) {
 	site, err := config.FindSiteByPath(cwd)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+	}
+
+	// Custom container sites may not have a framework. Build a synthetic
+	// framework from .lerd.yaml custom_workers so the worker commands work.
+	if site.IsCustomContainer() && site.Framework == "" {
+		fw := &config.Framework{Name: "custom", Label: "custom container"}
+		if proj, _ := config.LoadProjectConfig(cwd); proj != nil && len(proj.CustomWorkers) > 0 {
+			fw.Workers = proj.CustomWorkers
+		}
+		return site, fw, "", nil
 	}
 
 	fwName := site.Framework
@@ -216,8 +228,14 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		command = command + " --port=" + port
 	}
 
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	// For custom container sites, exec into the custom container instead of FPM.
+	var fpmUnit string
+	if site, _ := config.FindSite(siteName); site != nil && site.IsCustomContainer() {
+		fpmUnit = podman.CustomContainerName(siteName)
+	} else {
+		versionShort := strings.ReplaceAll(phpVersion, ".", "")
+		fpmUnit = "lerd-php" + versionShort + "-fpm"
+	}
 	unitName := "lerd-" + workerName + "-" + siteName
 
 	restart := w.Restart

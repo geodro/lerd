@@ -118,8 +118,9 @@ Once the MCP server is connected, your AI assistant has access to:
 | `framework_remove` | Remove a user-defined framework; for `laravel` removes only custom worker additions |
 | `site_php` | Change the PHP version for a registered site — writes `.php-version`, updates registry, regenerates nginx vhost |
 | `site_node` | Change the Node.js version for a registered site — writes `.node-version`, installs via fnm if needed |
-| `site_pause` | Pause a site: stop all its workers and replace its vhost with a landing page |
-| `site_unpause` | Resume a paused site: restore its vhost and restart previously running workers |
+| `site_pause` | Pause a site: stop workers and custom container, replace vhost with landing page |
+| `site_unpause` | Resume a paused site: start container, restore vhost, restart workers |
+| `site_restart` | Restart a site's container (custom container or PHP-FPM) |
 | `service_pin` | Pin a service so it is never auto-stopped even when no sites reference it |
 | `service_unpin` | Unpin a service so it can be auto-stopped when unused |
 | `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |

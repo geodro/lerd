@@ -241,6 +241,104 @@ func TestProjectConfig_DomainsAndWorkers(t *testing.T) {
 	}
 }
 
+func TestProjectConfig_Container(t *testing.T) {
+	input := `domains:
+  - nestapp
+container:
+  port: 3000
+  containerfile: Containerfile
+  build_context: .
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cfg.Container == nil {
+		t.Fatal("Container is nil")
+	}
+	if cfg.Container.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Container.Port)
+	}
+	if cfg.Container.Containerfile != "Containerfile" {
+		t.Errorf("Containerfile = %q, want Containerfile", cfg.Container.Containerfile)
+	}
+	if cfg.Container.BuildContext != "." {
+		t.Errorf("BuildContext = %q, want .", cfg.Container.BuildContext)
+	}
+}
+
+func TestProjectConfig_Container_PortOnly(t *testing.T) {
+	input := `container:
+  port: 8080
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cfg.Container == nil {
+		t.Fatal("Container is nil")
+	}
+	if cfg.Container.Port != 8080 {
+		t.Errorf("Port = %d, want 8080", cfg.Container.Port)
+	}
+	if cfg.Container.Containerfile != "" {
+		t.Errorf("Containerfile = %q, want empty", cfg.Container.Containerfile)
+	}
+	if cfg.Container.BuildContext != "" {
+		t.Errorf("BuildContext = %q, want empty", cfg.Container.BuildContext)
+	}
+}
+
+func TestProjectConfig_Container_RoundTrip(t *testing.T) {
+	cfg := ProjectConfig{
+		Domains: []string{"nestapp"},
+		Container: &ContainerConfig{
+			Port:          3000,
+			Containerfile: "Containerfile.custom",
+		},
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Container == nil {
+		t.Fatal("Container is nil after round-trip")
+	}
+	if restored.Container.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", restored.Container.Port)
+	}
+	if restored.Container.Containerfile != "Containerfile.custom" {
+		t.Errorf("Containerfile = %q", restored.Container.Containerfile)
+	}
+}
+
+func TestProjectConfig_Container_IsEmpty(t *testing.T) {
+	cfg := &ProjectConfig{}
+	if !cfg.IsEmpty() {
+		t.Error("empty config should be empty")
+	}
+	cfg.Container = &ContainerConfig{Port: 3000}
+	if cfg.IsEmpty() {
+		t.Error("config with container should not be empty")
+	}
+}
+
+func TestProjectConfig_NoContainer(t *testing.T) {
+	input := `php_version: "8.4"
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Container != nil {
+		t.Errorf("expected nil container, got %+v", cfg.Container)
+	}
+}
+
 func TestProjectConfig_OldFormatCompat(t *testing.T) {
 	// Old .lerd.yaml used services: [mysql, redis] — must still parse.
 	input := `php_version: "8.3"

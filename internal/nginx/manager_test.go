@@ -444,6 +444,86 @@ func TestRepairVhosts_preservesIgnoredSiteVhost(t *testing.T) {
 
 // ── EnsureDefaultVhost ────────────────────────────────────────────────────────
 
+// ── GenerateCustomVhost ──────────────────────────────────────────────────────
+
+func TestGenerateCustomVhost_createsConfFile(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatalf("GenerateCustomVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test.conf"))
+	if !strings.Contains(content, "server_name nestapp.test") {
+		t.Errorf("expected server_name in:\n%s", content)
+	}
+	if !strings.Contains(content, "proxy_pass http://$backend:3000") {
+		t.Errorf("expected proxy_pass with port 3000 in:\n%s", content)
+	}
+	if !strings.Contains(content, "lerd-custom-nestapp") {
+		t.Errorf("expected custom container name in:\n%s", content)
+	}
+	if strings.Contains(content, "fastcgi_pass") {
+		t.Error("custom vhost should not contain fastcgi_pass")
+	}
+}
+
+func TestGenerateCustomVhost_multiDomain(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test", "api.test"}, ContainerPort: 3000}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test.conf"))
+	if !strings.Contains(content, "server_name nestapp.test *.nestapp.test api.test *.api.test") {
+		t.Errorf("expected all domains with wildcards in:\n%s", content)
+	}
+}
+
+func TestGenerateCustomVhost_websocketHeaders(t *testing.T) {
+	setupConfD(t)
+	site := config.Site{Name: "app", Domains: []string{"app.test"}, ContainerPort: 8080}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	confD := filepath.Join(os.Getenv("XDG_DATA_HOME"), "lerd", "nginx", "conf.d")
+	content := readConf(t, filepath.Join(confD, "app.test.conf"))
+	if !strings.Contains(content, "proxy_set_header Upgrade") {
+		t.Error("expected WebSocket upgrade header")
+	}
+	if !strings.Contains(content, "proxy_http_version 1.1") {
+		t.Error("expected HTTP/1.1 for WebSocket support")
+	}
+}
+
+// ── GenerateCustomSSLVhost ───────────────────────────────────────────────────
+
+func TestGenerateCustomSSLVhost_createsSSLConfFile(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomSSLVhost(site); err != nil {
+		t.Fatalf("GenerateCustomSSLVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test-ssl.conf"))
+	if !strings.Contains(content, "listen 443 ssl") {
+		t.Errorf("expected 443 ssl in:\n%s", content)
+	}
+	if !strings.Contains(content, "ssl_certificate /etc/nginx/certs/nestapp.test.crt") {
+		t.Errorf("expected ssl_certificate in:\n%s", content)
+	}
+	if !strings.Contains(content, "proxy_pass http://$backend:3000") {
+		t.Errorf("expected proxy_pass in:\n%s", content)
+	}
+	if !strings.Contains(content, "lerd-custom-nestapp") {
+		t.Errorf("expected custom container name in:\n%s", content)
+	}
+	if !strings.Contains(content, "return 302 https://") {
+		t.Errorf("expected HTTP redirect in:\n%s", content)
+	}
+	if strings.Contains(content, "fastcgi_pass") {
+		t.Error("custom SSL vhost should not contain fastcgi_pass")
+	}
+}
+
 func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	confD := setupConfD(t)
 	if err := EnsureDefaultVhost(); err != nil {

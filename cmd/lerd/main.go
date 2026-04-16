@@ -70,6 +70,7 @@ func main() {
 	root.AddCommand(cli.NewInitCmd())
 	root.AddCommand(cli.NewLinkCmd())
 	root.AddCommand(cli.NewUnlinkCmd())
+	root.AddCommand(cli.NewRestartCmd())
 	root.AddCommand(cli.NewUnparkCmd())
 	root.AddCommand(cli.NewSitesCmd())
 	root.AddCommand(cli.NewSecureCmd())
@@ -405,37 +406,42 @@ func newWatchCmd() *cobra.Command {
 						}
 						siteChanged := false
 
-						// Re-detect PHP version in case .lerd.yaml or .php-version changed.
-						{
-							phpMin, phpMax := "", ""
-							if site.Framework != "" {
-								if fw, fwOk := config.GetFrameworkForDir(site.Framework, sitePath); fwOk {
-									phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
-								}
-							}
-							detected := phpDet.DetectVersionClamped(sitePath, phpMin, phpMax, site.PHPVersion)
-							if detected != site.PHPVersion {
-								fmt.Printf("PHP version changed for %s: %s -> %s\n", site.Name, site.PHPVersion, detected)
-								site.PHPVersion = detected
-								siteChanged = true
-								if !site.Paused {
-									if site.Secured {
-										_ = nginx.GenerateSSLVhost(*site, detected)
-									} else {
-										_ = nginx.GenerateVhost(*site, detected)
-									}
-									if err := nginx.Reload(); err != nil {
-										fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+						// Custom container sites don't use PHP/Node version
+						// detection — skip re-detection to avoid overwriting
+						// the empty values with defaults.
+						if !site.IsCustomContainer() {
+							// Re-detect PHP version in case .lerd.yaml or .php-version changed.
+							{
+								phpMin, phpMax := "", ""
+								if site.Framework != "" {
+									if fw, fwOk := config.GetFrameworkForDir(site.Framework, sitePath); fwOk {
+										phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
 									}
 								}
+								detected := phpDet.DetectVersionClamped(sitePath, phpMin, phpMax, site.PHPVersion)
+								if detected != site.PHPVersion {
+									fmt.Printf("PHP version changed for %s: %s -> %s\n", site.Name, site.PHPVersion, detected)
+									site.PHPVersion = detected
+									siteChanged = true
+									if !site.Paused {
+										if site.Secured {
+											_ = nginx.GenerateSSLVhost(*site, detected)
+										} else {
+											_ = nginx.GenerateVhost(*site, detected)
+										}
+										if err := nginx.Reload(); err != nil {
+											fmt.Printf("[WARN] nginx reload after php version change for %s: %v\n", site.Name, err)
+										}
+									}
+								}
 							}
-						}
 
-						// Re-detect Node version in case .lerd.yaml, .node-version, or .nvmrc changed.
-						if detected, detErr := nodeDet.DetectVersion(sitePath); detErr == nil && detected != site.NodeVersion {
-							fmt.Printf("Node version changed for %s: %s -> %s\n", site.Name, site.NodeVersion, detected)
-							site.NodeVersion = detected
-							siteChanged = true
+							// Re-detect Node version in case .lerd.yaml, .node-version, or .nvmrc changed.
+							if detected, detErr := nodeDet.DetectVersion(sitePath); detErr == nil && detected != site.NodeVersion {
+								fmt.Printf("Node version changed for %s: %s -> %s\n", site.Name, site.NodeVersion, detected)
+								site.NodeVersion = detected
+								siteChanged = true
+							}
 						}
 
 						if siteChanged {

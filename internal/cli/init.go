@@ -12,6 +12,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	phpPkg "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -84,6 +85,36 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		return nil, err
 	}
 
+	// Decide whether to offer the custom container wizard.
+	// If the existing config already has a container section (re-running
+	// --fresh), go straight to it. Otherwise check the project: no
+	// composer.json + no detected framework suggests a non-PHP project.
+	framework, hasFramework := resolveFramework(cwd)
+	hasComposer := fileExists(filepath.Join(cwd, "composer.json"))
+	hasContainerfile := podman.HasContainerfile(cwd)
+	alreadyCustom := defaults.Container != nil
+
+	if alreadyCustom {
+		return runCustomContainerWizard(cwd, defaults, gcfg)
+	}
+	if !hasFramework && !hasComposer && hasContainerfile {
+		return runCustomContainerWizard(cwd, defaults, gcfg)
+	}
+	if !hasFramework && !hasComposer {
+		useCustom := false
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title("No PHP project detected. Set up a custom container?").
+				Description("A Containerfile.lerd in the project root defines the container image").
+				Value(&useCustom),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+		if useCustom {
+			return runCustomContainerWizard(cwd, defaults, gcfg)
+		}
+	}
+
 	// Seed defaults from the site registry when no saved config exists yet,
 	// so already-set PHP version and HTTPS state are reflected on first run.
 	if defaults.PHPVersion == "" && !defaults.Secured {
@@ -105,8 +136,6 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 			phpDefault = gcfg.PHP.DefaultVersion
 		}
 	}
-
-	framework, _ := resolveFramework(cwd)
 	phpMin, phpMax := "", ""
 	if framework != "" {
 		if fw, fwOk := config.GetFrameworkForDir(framework, cwd); fwOk {
@@ -417,6 +446,176 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		CustomWorkers:    filteredCustomWorkers,
 		AppURL:           defaults.AppURL,
 		Domains:          defaults.Domains,
+	}, nil
+}
+
+// runCustomContainerWizard runs the init wizard for custom container projects.
+// It collects the container port, containerfile path, HTTPS, services, and
+// custom workers, then returns a ProjectConfig with the container section.
+func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *config.GlobalConfig) (*config.ProjectConfig, error) {
+	portStr := "3000"
+	containerfile := "Containerfile.lerd"
+	secured := defaults.Secured
+
+	if defaults.Container != nil {
+		if defaults.Container.Port > 0 {
+			portStr = fmt.Sprintf("%d", defaults.Container.Port)
+		}
+		if defaults.Container.Containerfile != "" {
+			containerfile = defaults.Container.Containerfile
+		}
+	}
+
+	// Seed secured from site registry if available.
+	if !defaults.Secured {
+		if site, err := config.FindSiteByPath(cwd); err == nil && site.Secured {
+			secured = true
+		}
+	}
+
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Container port").
+			Description("Port the app listens on inside the container").
+			Value(&portStr).
+			Validate(func(s string) error {
+				if s == "" {
+					return fmt.Errorf("port is required")
+				}
+				for _, c := range s {
+					if c < '0' || c > '9' {
+						return fmt.Errorf("port must be a number")
+					}
+				}
+				return nil
+			}),
+		huh.NewInput().
+			Title("Containerfile").
+			Description("Path relative to project root").
+			Value(&containerfile),
+		huh.NewConfirm().
+			Title("Enable HTTPS?").
+			Value(&secured),
+	)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return nil, err
+	}
+
+	port := 0
+	fmt.Sscanf(portStr, "%d", &port)
+
+	// Services: same flow as the PHP wizard but without the database select
+	// since custom containers manage their own database connections.
+	serviceOptions := make([]string, 0, len(knownServices))
+	for _, svc := range knownServices {
+		serviceOptions = append(serviceOptions, svc)
+	}
+	if customs, err := config.ListCustomServices(); err == nil {
+		for _, svc := range customs {
+			if len(svc.EnvVars) == 0 && svc.EnvDetect == nil {
+				continue
+			}
+			serviceOptions = append(serviceOptions, svc.Name)
+		}
+	}
+
+	serviceDefaults := defaults.ServiceNames()
+	var selectedServices []string
+	copy(selectedServices, serviceDefaults)
+	selectedServices = serviceDefaults
+
+	if len(serviceOptions) > 0 {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Services").
+				Options(huh.NewOptions(serviceOptions...)...).
+				Value(&selectedServices),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Custom workers from existing config.
+	var customWorkerNames []string
+	var keepCustomWorkers []string
+	if len(defaults.CustomWorkers) > 0 {
+		for name := range defaults.CustomWorkers {
+			customWorkerNames = append(customWorkerNames, name)
+		}
+		sort.Strings(customWorkerNames)
+		keepCustomWorkers = make([]string, len(customWorkerNames))
+		copy(keepCustomWorkers, customWorkerNames)
+
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Custom workers").
+				Description("Deselect to remove from .lerd.yaml").
+				Options(huh.NewOptions(customWorkerNames...)...).
+				Value(&keepCustomWorkers),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Build services list.
+	builtIn := make(map[string]bool, len(knownServices))
+	for _, s := range knownServices {
+		builtIn[s] = true
+	}
+	inlineByName := map[string]*config.CustomService{}
+	for _, svc := range defaults.Services {
+		if svc.Custom != nil {
+			inlineByName[svc.Name] = svc.Custom
+		}
+	}
+
+	services := make([]config.ProjectService, len(selectedServices))
+	for i, name := range selectedServices {
+		if builtIn[name] {
+			services[i] = config.ProjectService{Name: name}
+			continue
+		}
+		var loaded *config.CustomService
+		if svc, err := config.LoadCustomService(name); err == nil {
+			loaded = svc
+		} else if existing := inlineByName[name]; existing != nil {
+			loaded = existing
+		}
+		if loaded != nil && loaded.Preset != "" {
+			services[i] = config.ProjectService{
+				Name:          name,
+				Preset:        loaded.Preset,
+				PresetVersion: loaded.PresetVersion,
+			}
+			continue
+		}
+		services[i] = config.ProjectService{Name: name, Custom: loaded}
+	}
+
+	// Filter custom workers.
+	var filteredCustomWorkers map[string]config.FrameworkWorker
+	if len(keepCustomWorkers) > 0 {
+		filteredCustomWorkers = make(map[string]config.FrameworkWorker, len(keepCustomWorkers))
+		for _, name := range keepCustomWorkers {
+			if w, ok := defaults.CustomWorkers[name]; ok {
+				filteredCustomWorkers[name] = w
+			}
+		}
+	}
+
+	containerCfg := &config.ContainerConfig{
+		Port: port,
+	}
+	if containerfile != "Containerfile.lerd" && containerfile != "" {
+		containerCfg.Containerfile = containerfile
+	}
+
+	return &config.ProjectConfig{
+		Secured:       secured,
+		Services:      services,
+		CustomWorkers: filteredCustomWorkers,
+		Container:     containerCfg,
+		AppURL:        defaults.AppURL,
+		Domains:       defaults.Domains,
 	}, nil
 }
 

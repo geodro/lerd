@@ -597,9 +597,11 @@ type SiteResponse struct {
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
-	Services    []string `json:"services,omitempty"`
-	LANPort     int      `json:"lan_port,omitempty"`
-	LANShareURL string   `json:"lan_share_url,omitempty"`
+	Services        []string `json:"services,omitempty"`
+	LANPort         int      `json:"lan_port,omitempty"`
+	LANShareURL     string   `json:"lan_share_url,omitempty"`
+	CustomContainer bool     `json:"custom_container,omitempty"`
+	ContainerPort   int      `json:"container_port,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -685,6 +687,8 @@ func buildSites() []SiteResponse {
 			Services:           e.Services,
 			LANPort:            e.LANPort,
 			LANShareURL:        cli.LANShareURL(e.LANPort),
+			CustomContainer:    e.ContainerPort > 0,
+			ContainerPort:      e.ContainerPort,
 		})
 	}
 	return sites
@@ -1344,7 +1348,8 @@ func countSitesUsingService(name string) int {
 	return config.CountSitesUsingService(name)
 }
 
-// sitesUsingService returns the domains of active sites whose .env references lerd-{name}.
+// sitesUsingService returns the domains of active sites that use the named service.
+// Checks both .lerd.yaml services list and .env file references.
 func sitesUsingService(name string) []string {
 	reg, err := config.LoadSites()
 	if err != nil {
@@ -1356,6 +1361,21 @@ func sitesUsingService(name string) []string {
 		if s.Ignored || s.Paused {
 			continue
 		}
+		// Check .lerd.yaml services list first.
+		if proj, pErr := config.LoadProjectConfig(s.Path); pErr == nil {
+			found := false
+			for _, svc := range proj.Services {
+				if svc.Name == name {
+					found = true
+					break
+				}
+			}
+			if found {
+				domains = append(domains, s.PrimaryDomain())
+				continue
+			}
+		}
+		// Fall back to .env scanning.
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
 		if err != nil {
 			continue
@@ -1576,6 +1596,13 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	case "unpause":
 		if err := cli.UnpauseSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "restart":
+		if err := cli.RestartSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}

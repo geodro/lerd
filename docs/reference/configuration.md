@@ -44,6 +44,9 @@ A portable, self-contained description of a project's local environment. Created
 | `app_url` | Override for `APP_URL` (or the framework's URL key) written to `.env`. Highest priority — beats the per-machine `sites.yaml` override and the default `<scheme>://<primary-domain>` generator. Use for custom path prefixes, ports, or unrelated hostnames you want shared across machines |
 | `services` | Services to start on apply. Accepts built-in names, custom service names, or full inline definitions |
 | `workers` | Active worker names for the site (e.g. `queue`, `horizon`, `schedule`, `reverb`, `stripe`). Automatically kept in sync by start/stop commands. Used by `lerd start` to restore workers after reinstall |
+| `container` | Custom container config for non-PHP sites. When present, lerd builds a dedicated container from the project's Containerfile and nginx reverse-proxies to it. See below and [Custom Containers](../features/custom-containers.md) |
+| `custom_workers` | Custom worker definitions (name to config map). Works for both PHP and custom container sites. See below |
+| `db` | Database targeting for non-PHP projects: `service` (e.g. `mysql`, `postgres`) and `database` name |
 
 ### Basic example
 
@@ -56,6 +59,67 @@ services:
   - mysql
   - redis
 ```
+
+### Custom container example
+
+For non-PHP sites (Node.js, Python, Go, etc.), define a `container` section instead of `php_version` and `framework`:
+
+```yaml
+domains:
+  - nestapp
+container:
+  port: 3000
+  containerfile: Containerfile.lerd
+services:
+  - mysql
+  - redis
+custom_workers:
+  dev-server:
+    label: Dev Server
+    command: npm run start:dev
+    restart: always
+```
+
+When `container` is present, `php_version`, `framework`, and `node_version` are ignored.
+
+#### `container` fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `port` | yes | | Port the app listens on inside the container |
+| `containerfile` | no | `Containerfile.lerd` | Path to the Containerfile (relative to project root) |
+| `build_context` | no | `.` | Build context directory (relative to project root) |
+
+See [Custom Containers](../features/custom-containers.md) for the full guide.
+
+### Custom workers
+
+Custom workers can be defined for any site type (PHP or custom container). Each entry in `custom_workers` maps a name to a worker config:
+
+```yaml
+custom_workers:
+  queue:
+    label: Queue Worker
+    command: node dist/queue.js
+    restart: always
+  cron:
+    label: Cron Job
+    command: node dist/cron.js
+    restart: on-failure
+    schedule: minutely
+```
+
+#### Worker config fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `label` | no | worker name | Display name in the dashboard |
+| `command` | yes | | Shell command to run inside the container |
+| `restart` | no | `always` | `always` or `on-failure` |
+| `schedule` | no | | systemd OnCalendar expression for timer-based workers (e.g. `minutely`, `*-*-* *:00:00`) |
+| `conflicts_with` | no | | List of worker names to stop before starting this one |
+
+Worker definitions stay in `custom_workers` permanently. The `workers` field (a separate list of names) tracks which are currently active and is synced automatically by start/stop commands.
 
 ### Inline custom service definitions
 

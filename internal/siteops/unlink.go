@@ -40,6 +40,14 @@ func UnlinkSiteCore(site *config.Site, parkedDirs []string) error {
 		os.Remove(filepath.Join(certsDir, domain+".key")) //nolint:errcheck
 	}
 
+	// Clean up the per-project custom container if this site uses one.
+	if site.IsCustomContainer() {
+		_ = podman.StopUnit(podman.CustomContainerName(site.Name))
+		podman.RemoveCustomContainer(site.Name)
+		_ = podman.RemoveCustomContainerQuadlet(site.Name)
+		_ = podman.RemoveCustomImage(site.Name)
+	}
+
 	if IsParkedSite(site.Path, parkedDirs) {
 		_ = config.IgnoreSite(site.Name)
 	} else {

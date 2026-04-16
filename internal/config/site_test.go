@@ -454,6 +454,58 @@ func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
 
+// ── IsCustomContainer ───────────────────────────────────────────────────────
+
+func TestIsCustomContainer(t *testing.T) {
+	s := &Site{ContainerPort: 3000}
+	if !s.IsCustomContainer() {
+		t.Error("expected IsCustomContainer() = true for port 3000")
+	}
+}
+
+func TestIsCustomContainer_False(t *testing.T) {
+	s := &Site{}
+	if s.IsCustomContainer() {
+		t.Error("expected IsCustomContainer() = false for zero port")
+	}
+}
+
+// ── ContainerPort round-trip ────────────────────────────────────────────────
+
+func TestSaveLoad_ContainerPort_RoundTrip(t *testing.T) {
+	setDataDir(t)
+
+	reg := &SiteRegistry{
+		Sites: []Site{
+			{Name: "nestapp", Domains: []string{"nestapp.test"}, Path: "/srv/nestapp", ContainerPort: 3000},
+			{Name: "phpapp", Domains: []string{"phpapp.test"}, Path: "/srv/phpapp", PHPVersion: "8.4"},
+		},
+	}
+	if err := SaveSites(reg); err != nil {
+		t.Fatalf("SaveSites: %v", err)
+	}
+
+	got, err := LoadSites()
+	if err != nil {
+		t.Fatalf("LoadSites: %v", err)
+	}
+	if len(got.Sites) != 2 {
+		t.Fatalf("expected 2 sites, got %d", len(got.Sites))
+	}
+	if got.Sites[0].ContainerPort != 3000 {
+		t.Errorf("nestapp ContainerPort = %d, want 3000", got.Sites[0].ContainerPort)
+	}
+	if !got.Sites[0].IsCustomContainer() {
+		t.Error("nestapp should be custom container")
+	}
+	if got.Sites[1].ContainerPort != 0 {
+		t.Errorf("phpapp ContainerPort = %d, want 0", got.Sites[1].ContainerPort)
+	}
+	if got.Sites[1].IsCustomContainer() {
+		t.Error("phpapp should not be custom container")
+	}
+}
+
 func searchString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

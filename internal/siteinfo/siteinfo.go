@@ -112,6 +112,9 @@ type EnrichedSite struct {
 	// Services
 	Services []string
 
+	// Custom container
+	ContainerPort int
+
 	// LAN sharing
 	LANPort int
 
@@ -210,6 +213,7 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		PublicDir:           s.PublicDir,
 		AppURL:              s.AppURL,
 		LANPort:             s.LANPort,
+		ContainerPort:       s.ContainerPort,
 		FrameworkName:       s.Framework,
 		OriginalPHPVersion:  s.PHPVersion,
 		OriginalNodeVersion: s.NodeVersion,
@@ -292,6 +296,11 @@ func PersistVersionChanges(sites []EnrichedSite) error {
 }
 
 func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw bool) {
+	// Custom container sites don't use PHP/Node version detection.
+	if s.IsCustomContainer() {
+		return
+	}
+
 	phpMin, phpMax := "", ""
 	if hasFw {
 		phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
@@ -314,6 +323,10 @@ func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw
 }
 
 func (e *EnrichedSite) enrichFPM() {
+	if e.ContainerPort > 0 {
+		e.FPMRunning, _ = containerRunningFn("lerd-custom-" + e.Name)
+		return
+	}
 	if e.PHPVersion != "" {
 		short := strings.ReplaceAll(e.PHPVersion, ".", "")
 		e.FPMRunning, _ = containerRunningFn("lerd-php" + short + "-fpm")
@@ -329,6 +342,16 @@ func (e *EnrichedSite) enrichStripe() {
 }
 
 func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
+	// Custom container sites without a framework get their workers from
+	// .lerd.yaml custom_workers. Build a synthetic framework so the rest
+	// of the function works uniformly.
+	if !hasFw && e.ContainerPort > 0 {
+		if proj, err := config.LoadProjectConfig(e.Path); err == nil && len(proj.CustomWorkers) > 0 {
+			fw = &config.Framework{Workers: proj.CustomWorkers}
+			hasFw = true
+		}
+	}
+
 	if !hasFw || fw.Workers == nil {
 		return
 	}

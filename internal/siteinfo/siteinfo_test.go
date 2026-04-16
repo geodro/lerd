@@ -27,6 +27,150 @@ func stubPodman(t *testing.T) {
 	})
 }
 
+// ── enrichVersions: custom container skipping ──────────────────────────────
+
+func TestEnrichVersions_CustomContainerSkipped(t *testing.T) {
+	stubPodman(t)
+
+	t.Run("custom container site skips version detection", func(t *testing.T) {
+		e := &EnrichedSite{Name: "nestapp", Path: t.TempDir(), ContainerPort: 3000}
+		s := config.Site{Name: "nestapp", Path: e.Path, ContainerPort: 3000}
+		e.enrichVersions(s, nil, false)
+
+		if e.PHPVersion != "" {
+			t.Errorf("PHPVersion = %q, want empty for custom container", e.PHPVersion)
+		}
+		if e.NodeVersion != "" {
+			t.Errorf("NodeVersion = %q, want empty for custom container", e.NodeVersion)
+		}
+		if e.PHPVersionChanged {
+			t.Error("PHPVersionChanged should be false for custom container")
+		}
+		if e.NodeVersionChanged {
+			t.Error("NodeVersionChanged should be false for custom container")
+		}
+	})
+
+	t.Run("custom container preserves pre-set versions", func(t *testing.T) {
+		e := &EnrichedSite{
+			Name:          "nestapp",
+			Path:          t.TempDir(),
+			ContainerPort: 3000,
+			PHPVersion:    "8.4",
+			NodeVersion:   "22",
+		}
+		s := config.Site{Name: "nestapp", Path: e.Path, ContainerPort: 3000, PHPVersion: "8.4", NodeVersion: "22"}
+		e.enrichVersions(s, nil, false)
+
+		if e.PHPVersion != "8.4" {
+			t.Errorf("PHPVersion = %q, want 8.4 (should be untouched)", e.PHPVersion)
+		}
+		if e.NodeVersion != "22" {
+			t.Errorf("NodeVersion = %q, want 22 (should be untouched)", e.NodeVersion)
+		}
+		if e.PHPVersionChanged {
+			t.Error("PHPVersionChanged should be false")
+		}
+	})
+
+	t.Run("non-container site runs version detection", func(t *testing.T) {
+		dir := t.TempDir()
+		e := &EnrichedSite{Name: "phpapp", Path: dir, PHPVersion: "8.3"}
+		s := config.Site{Name: "phpapp", Path: dir, PHPVersion: "8.3"}
+		e.enrichVersions(s, nil, false)
+		// The function ran detection (did not return early). Detection may
+		// change the version based on what PHP versions are installed, so
+		// we only assert that PHPVersion is non-empty, proving the early
+		// return for custom containers was NOT taken.
+		if e.PHPVersion == "" {
+			t.Error("PHPVersion should not be empty for a non-container site")
+		}
+	})
+}
+
+// ── enrichWorkers: custom container workers from .lerd.yaml ────────────────
+
+func TestEnrichWorkers_CustomContainerFromLerdYAML(t *testing.T) {
+	t.Run("custom_workers loaded for container site without framework", func(t *testing.T) {
+		origUnit := unitStatusFn
+		unitStatusFn = func(name string) (string, error) {
+			if name == "lerd-queue-mycontainer" {
+				return "active", nil
+			}
+			return "", nil
+		}
+		defer func() { unitStatusFn = origUnit }()
+
+		dir := t.TempDir()
+		lerdYAML := `custom_workers:
+  queue:
+    command: "node worker.js"
+  emailer:
+    command: "node emailer.js"
+    label: "Email Sender"
+`
+		os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte(lerdYAML), 0644)
+
+		e := &EnrichedSite{Name: "mycontainer", Path: dir, ContainerPort: 3000}
+		e.enrichWorkers(nil, false)
+
+		if !e.HasQueueWorker {
+			t.Error("expected HasQueueWorker = true from custom_workers")
+		}
+		if !e.QueueRunning {
+			t.Error("expected QueueRunning = true")
+		}
+
+		// "emailer" is a non-standard worker, should appear in FrameworkWorkers
+		if len(e.FrameworkWorkers) != 1 {
+			t.Fatalf("expected 1 framework worker, got %d", len(e.FrameworkWorkers))
+		}
+		if e.FrameworkWorkers[0].Name != "emailer" {
+			t.Errorf("FrameworkWorkers[0].Name = %q, want emailer", e.FrameworkWorkers[0].Name)
+		}
+		if e.FrameworkWorkers[0].Label != "Email Sender" {
+			t.Errorf("FrameworkWorkers[0].Label = %q, want 'Email Sender'", e.FrameworkWorkers[0].Label)
+		}
+	})
+
+	t.Run("no custom_workers for container site without .lerd.yaml", func(t *testing.T) {
+		origUnit := unitStatusFn
+		unitStatusFn = func(string) (string, error) { return "", nil }
+		defer func() { unitStatusFn = origUnit }()
+
+		e := &EnrichedSite{Name: "bare", Path: t.TempDir(), ContainerPort: 3000}
+		e.enrichWorkers(nil, false)
+
+		if e.HasQueueWorker {
+			t.Error("expected no queue worker without .lerd.yaml")
+		}
+		if len(e.FrameworkWorkers) != 0 {
+			t.Errorf("expected no framework workers, got %d", len(e.FrameworkWorkers))
+		}
+	})
+
+	t.Run("non-container site without framework gets no workers", func(t *testing.T) {
+		origUnit := unitStatusFn
+		unitStatusFn = func(string) (string, error) { return "", nil }
+		defer func() { unitStatusFn = origUnit }()
+
+		dir := t.TempDir()
+		lerdYAML := `custom_workers:
+  queue:
+    command: "php artisan queue:work"
+`
+		os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte(lerdYAML), 0644)
+
+		e := &EnrichedSite{Name: "phpapp", Path: dir}
+		e.enrichWorkers(nil, false)
+
+		// ContainerPort is 0, so the custom_workers path is not taken
+		if e.HasQueueWorker {
+			t.Error("non-container site without framework should not load custom_workers")
+		}
+	})
+}
+
 // ── DetectFavicon ───────────────────────────────────────────────────────────
 
 func TestDetectFavicon(t *testing.T) {
@@ -657,6 +801,39 @@ func TestEnrichFPM(t *testing.T) {
 		e.enrichFPM()
 		if !e.FPMRunning {
 			t.Error("expected FPMRunning = true")
+		}
+	})
+
+	t.Run("custom container checks lerd-custom container", func(t *testing.T) {
+		var checkedName string
+		origContainer := containerRunningFn
+		containerRunningFn = func(name string) (bool, error) {
+			checkedName = name
+			return true, nil
+		}
+		defer func() { containerRunningFn = origContainer }()
+
+		e := &EnrichedSite{Name: "nestapp", ContainerPort: 3000}
+		e.enrichFPM()
+		if checkedName != "lerd-custom-nestapp" {
+			t.Errorf("checked container %q, want lerd-custom-nestapp", checkedName)
+		}
+		if !e.FPMRunning {
+			t.Error("expected FPMRunning = true for running custom container")
+		}
+	})
+
+	t.Run("custom container not running", func(t *testing.T) {
+		origContainer := containerRunningFn
+		containerRunningFn = func(name string) (bool, error) {
+			return false, nil
+		}
+		defer func() { containerRunningFn = origContainer }()
+
+		e := &EnrichedSite{Name: "nestapp", ContainerPort: 3000}
+		e.enrichFPM()
+		if e.FPMRunning {
+			t.Error("expected FPMRunning = false for stopped custom container")
 		}
 	})
 }
