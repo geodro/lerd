@@ -203,7 +203,8 @@ func coreUnits() []string {
 }
 
 // installedCustomContainerUnits returns units for per-project custom containers
-// that have a quadlet installed. These are started alongside FPM and services.
+// that have a unit file installed (plist on macOS, quadlet on Linux).
+// These are started alongside FPM and services.
 func installedCustomContainerUnits() []string {
 	var units []string
 	reg, err := config.LoadSites()
@@ -215,7 +216,10 @@ func installedCustomContainerUnits() []string {
 			continue
 		}
 		unitName := podman.CustomContainerName(site.Name)
-		if podman.QuadletInstalled(unitName) {
+		// Use the platform-aware check (plist on macOS, .container quadlet on Linux)
+		// rather than podman.QuadletInstalled which only checks for .container files
+		// and always returns false on macOS where plists are used instead.
+		if services.Mgr.ContainerUnitInstalled(unitName) {
 			units = append(units, unitName)
 		}
 	}
@@ -661,15 +665,33 @@ func restoreSiteInfrastructure() {
 			continue
 		}
 
-		// Restore FPM quadlet for this site's PHP version.
-		phpVer := s.PHPVersion
-		if phpVer == "" {
-			cfg, _ := config.LoadGlobal()
-			phpVer = cfg.PHP.DefaultVersion
+		// Restore custom container plist/quadlet for custom container sites.
+		// On macOS the plist lives in ~/Library/LaunchAgents; on Linux it is a
+		// systemd quadlet. After a reinstall the unit file may be gone even though
+		// the site is still registered in sites.yaml and .lerd.yaml is on disk.
+		if s.IsCustomContainer() {
+			unitName := podman.CustomContainerName(s.Name)
+			if !services.Mgr.ContainerUnitInstalled(unitName) {
+				proj, _ := config.LoadProjectConfig(s.Path)
+				if proj != nil && proj.Container != nil {
+					if err := podman.WriteCustomContainerQuadlet(s.Name, s.Path, s.ContainerPort); err != nil {
+						fmt.Printf("[WARN] restoring custom container unit for %s: %v\n", s.Name, err)
+					}
+				}
+			}
 		}
-		if phpVer != "" && !seenPHP[phpVer] {
-			seenPHP[phpVer] = true
-			ensureFPMQuadlet(phpVer) //nolint:errcheck
+
+		// Restore FPM quadlet for this site's PHP version (PHP sites only).
+		if !s.IsCustomContainer() {
+			phpVer := s.PHPVersion
+			if phpVer == "" {
+				cfg, _ := config.LoadGlobal()
+				phpVer = cfg.PHP.DefaultVersion
+			}
+			if phpVer != "" && !seenPHP[phpVer] {
+				seenPHP[phpVer] = true
+				ensureFPMQuadlet(phpVer) //nolint:errcheck
+			}
 		}
 
 		// Read .lerd.yaml for service and worker info.

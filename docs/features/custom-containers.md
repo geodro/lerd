@@ -46,6 +46,8 @@ lerd link
 
 Lerd builds the image, creates a dedicated container, and configures nginx to reverse-proxy to it.
 
+> **Important:** `lerd link` must be called **after** both files exist. Calling it without the `container:` section in `.lerd.yaml` registers the project as a PHP-FPM site instead. If that happened, run `lerd unlink` first, then set up the files and link again. If you haven't written `.lerd.yaml` yet, run `lerd init` instead of writing it by hand — it detects the `Containerfile.lerd` and runs the custom container wizard for you.
+
 ## Configuration
 
 The `container` section in `.lerd.yaml` accepts these fields:
@@ -77,6 +79,31 @@ Services work exactly the same as for PHP sites. Containers on the `lerd` networ
 ## HTTPS
 
 `lerd secure` and `lerd unsecure` work with custom container sites. The nginx vhost is regenerated with SSL termination, and your app continues to receive plain HTTP from nginx.
+
+## Hot reload
+
+The project directory is bind-mounted into the container at the same absolute path, so file edits on the host are immediately visible inside the container. However, **filesystem watch events (inotify) do not fire** across the virtiofs mount boundary that Podman Machine uses on macOS. File watchers that rely on inotify (nodemon's default, Vite, webpack, etc.) will not detect changes.
+
+Use polling instead:
+
+| Tool | Polling flag |
+|------|-------------|
+| nodemon | `--legacy-watch` |
+| Vite | `--watch` (already polls) or set `server.watch.usePolling: true` in `vite.config` |
+| NestJS | `nest start --watch` uses nodemon — add `--legacy-watch` via `nodemon.json`: `{"legacyWatch": true}` |
+| webpack | `watchOptions: { poll: 1000 }` in webpack config |
+
+Example `package.json`:
+
+```json
+{
+  "scripts": {
+    "start:dev": "nodemon --legacy-watch src/main.js"
+  }
+}
+```
+
+The polling interval is typically 1–2 seconds, which is fine for dev.
 
 ## Workers
 

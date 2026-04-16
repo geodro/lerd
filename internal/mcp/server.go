@@ -240,7 +240,7 @@ func toolList() []mcpTool {
 	tools := []mcpTool{
 		{
 			Name:        "sites",
-			Description: "List all sites registered with lerd, including domain, path, PHP version, Node version, TLS status, and queue worker status. Call this first to find site names for other tools.",
+			Description: "List all sites registered with lerd, including domain, path, PHP version, Node version, TLS status, worker status, and custom_container/container_port for non-PHP sites. Call this first to find site names for other tools.",
 			InputSchema: mcpSchema{
 				Type:       "object",
 				Properties: map[string]mcpProp{},
@@ -566,7 +566,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "site_link",
-			Description: "Register a directory as a lerd site, generating an nginx vhost and a <name>.test domain. Use this to set up a new project.",
+			Description: "Register a directory as a lerd site, generating an nginx vhost and a <name>.test domain. Reads .lerd.yaml automatically: if a container:{port:N} section is present, builds the custom container image and proxies nginx to it; otherwise registers as a PHP/framework site. For non-PHP projects (Node.js, Python, Go, etc.): write .lerd.yaml with container:{port:N} and a Containerfile (default name Containerfile.lerd; set container.containerfile for a different name like Dockerfile) BEFORE calling this.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -851,7 +851,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "check",
-			Description: "Validate a project's .lerd.yaml file — checks YAML syntax, PHP version format, service definitions, and framework references. Reports OK/WARN/FAIL per field.",
+			Description: "Validate a project's .lerd.yaml file — checks YAML syntax, PHP version, framework references, service definitions (including preset catalog), worker definitions, container config (port required; containerfile path, default Containerfile.lerd — any filename works, set container.containerfile to point at e.g. Dockerfile), custom_workers (command required), and db.service. Reports OK/WARN/FAIL per field.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1695,15 +1695,17 @@ func execSites() (any, *rpcError) {
 		Running bool   `json:"running"`
 	}
 	type siteInfoResp struct {
-		Name        string         `json:"name"`
-		Domain      string         `json:"domain"`
-		Domains     []string       `json:"domains"`
-		Path        string         `json:"path"`
-		PHPVersion  string         `json:"php_version"`
-		NodeVersion string         `json:"node_version"`
-		TLS         bool           `json:"tls"`
-		Framework   string         `json:"framework,omitempty"`
-		Workers     []workerStatus `json:"workers,omitempty"`
+		Name            string         `json:"name"`
+		Domain          string         `json:"domain"`
+		Domains         []string       `json:"domains"`
+		Path            string         `json:"path"`
+		PHPVersion      string         `json:"php_version"`
+		NodeVersion     string         `json:"node_version"`
+		TLS             bool           `json:"tls"`
+		Framework       string         `json:"framework,omitempty"`
+		CustomContainer bool           `json:"custom_container,omitempty"`
+		ContainerPort   int            `json:"container_port,omitempty"`
+		Workers         []workerStatus `json:"workers,omitempty"`
 	}
 
 	var out []siteInfoResp
@@ -1745,15 +1747,17 @@ func execSites() (any, *rpcError) {
 		}
 
 		out = append(out, siteInfoResp{
-			Name:        e.Name,
-			Domain:      e.PrimaryDomain(),
-			Domains:     e.Domains,
-			Path:        e.Path,
-			PHPVersion:  e.PHPVersion,
-			NodeVersion: e.NodeVersion,
-			TLS:         e.Secured,
-			Framework:   e.FrameworkName,
-			Workers:     workers,
+			Name:            e.Name,
+			Domain:          e.PrimaryDomain(),
+			Domains:         e.Domains,
+			Path:            e.Path,
+			PHPVersion:      e.PHPVersion,
+			NodeVersion:     e.NodeVersion,
+			TLS:             e.Secured,
+			Framework:       e.FrameworkName,
+			CustomContainer: e.ContainerPort > 0,
+			ContainerPort:   e.ContainerPort,
+			Workers:         workers,
 		})
 	}
 	if out == nil {
@@ -2712,60 +2716,71 @@ func execCheck(args map[string]any) (any, *rpcError) {
 
 	// Workers
 	if len(cfg.Workers) > 0 {
-		fwName := cfg.Framework
-		if fwName == "" {
-			fwName, _ = config.DetectFrameworkForDir(projectPath)
-		}
-		fw, hasFw := config.GetFramework(fwName)
+		if cfg.Container != nil {
+			// Custom container site: workers must be defined in custom_workers.
+			for _, w := range cfg.Workers {
+				if _, ok := cfg.CustomWorkers[w]; ok {
+					add("worker_"+w, "ok", "")
+				} else {
+					add("worker_"+w, "fail", "not defined in custom_workers")
+				}
+			}
+		} else {
+			fwName := cfg.Framework
+			if fwName == "" {
+				fwName, _ = config.DetectFrameworkForDir(projectPath)
+			}
+			fw, hasFw := config.GetFramework(fwName)
 
-		hasQueue, hasHorizon := false, false
-		for _, w := range cfg.Workers {
-			if w == "queue" {
-				hasQueue = true
-			}
-			if w == "horizon" {
-				hasHorizon = true
-			}
-			switch w {
-			case "horizon":
-				if !siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
-					add("worker_"+w, "warn", "laravel/horizon not installed")
-				} else {
-					add("worker_"+w, "ok", "")
+			hasQueue, hasHorizon := false, false
+			for _, w := range cfg.Workers {
+				if w == "queue" {
+					hasQueue = true
 				}
-			case "reverb":
-				if !siteUsesReverb(projectPath) {
-					add("worker_"+w, "warn", "reverb not configured")
-				} else {
-					add("worker_"+w, "ok", "")
+				if w == "horizon" {
+					hasHorizon = true
 				}
-			case "queue", "schedule":
-				if hasFw && fw.Workers != nil {
-					if _, ok := fw.Workers[w]; ok {
-						add("worker_"+w, "ok", "")
+				switch w {
+				case "horizon":
+					if !siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
+						add("worker_"+w, "warn", "laravel/horizon not installed")
 					} else {
-						add("worker_"+w, "warn", "not defined for framework "+fwName)
-					}
-				} else {
-					add("worker_"+w, "warn", "no framework detected")
-				}
-			default:
-				if hasFw && fw.Workers != nil {
-					if _, ok := fw.Workers[w]; ok {
 						add("worker_"+w, "ok", "")
-					} else {
-						add("worker_"+w, "fail", "not defined for framework "+fwName)
 					}
-				} else {
-					add("worker_"+w, "fail", "no framework worker definition found")
+				case "reverb":
+					if !siteUsesReverb(projectPath) {
+						add("worker_"+w, "warn", "reverb not configured")
+					} else {
+						add("worker_"+w, "ok", "")
+					}
+				case "queue", "schedule":
+					if hasFw && fw.Workers != nil {
+						if _, ok := fw.Workers[w]; ok {
+							add("worker_"+w, "ok", "")
+						} else {
+							add("worker_"+w, "warn", "not defined for framework "+fwName)
+						}
+					} else {
+						add("worker_"+w, "warn", "no framework detected")
+					}
+				default:
+					if hasFw && fw.Workers != nil {
+						if _, ok := fw.Workers[w]; ok {
+							add("worker_"+w, "ok", "")
+						} else {
+							add("worker_"+w, "fail", "not defined for framework "+fwName)
+						}
+					} else {
+						add("worker_"+w, "fail", "no framework worker definition found")
+					}
 				}
 			}
-		}
-		if hasQueue && hasHorizon {
-			add("workers_conflict", "warn", "both queue and horizon listed — horizon manages queues")
-		}
-		if hasQueue && siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
-			add("workers_conflict", "warn", "queue listed but horizon installed — horizon will be started instead")
+			if hasQueue && hasHorizon {
+				add("workers_conflict", "warn", "both queue and horizon listed — horizon manages queues")
+			}
+			if hasQueue && siteHasComposerPkg(projectPath, `"laravel/horizon"`) {
+				add("workers_conflict", "warn", "queue listed but horizon installed — horizon will be started instead")
+			}
 		}
 	}
 
@@ -2779,6 +2794,16 @@ func execCheck(args map[string]any) (any, *rpcError) {
 			}
 			continue
 		}
+		if svc.Preset != "" {
+			if _, err := config.LoadPreset(svc.Preset); err != nil {
+				add("service_"+svc.Name, "fail", fmt.Sprintf("unknown preset %q", svc.Preset))
+			} else if _, err := config.LoadCustomService(svc.Name); err != nil {
+				add("service_"+svc.Name, "warn", fmt.Sprintf("preset %q not installed — run: lerd service preset install %s", svc.Preset, svc.Preset))
+			} else {
+				add("service_"+svc.Name, "ok", "preset: "+svc.Preset)
+			}
+			continue
+		}
 		if isKnownService(svc.Name) {
 			add("service_"+svc.Name, "ok", "")
 			continue
@@ -2787,6 +2812,51 @@ func execCheck(args map[string]any) (any, *rpcError) {
 			add("service_"+svc.Name, "ok", "custom")
 		} else {
 			add("service_"+svc.Name, "fail", "not a built-in and no definition found")
+		}
+	}
+
+	// Container
+	if cfg.Container != nil {
+		if cfg.Container.Port <= 0 || cfg.Container.Port > 65535 {
+			add("container.port", "fail", "required and must be 1–65535")
+		} else {
+			add("container.port", "ok", fmt.Sprintf("%d", cfg.Container.Port))
+		}
+		cfPath := cfg.Container.Containerfile
+		if cfPath == "" {
+			cfPath = "Containerfile.lerd"
+		}
+		if _, err := os.Stat(filepath.Join(projectPath, cfPath)); os.IsNotExist(err) {
+			add("container.containerfile", "warn", cfPath+" not found — lerd link will fail")
+		} else {
+			add("container.containerfile", "ok", cfPath)
+		}
+		if cfg.Container.BuildContext != "" {
+			if _, err := os.Stat(filepath.Join(projectPath, cfg.Container.BuildContext)); os.IsNotExist(err) {
+				add("container.build_context", "warn", cfg.Container.BuildContext+" not found")
+			} else {
+				add("container.build_context", "ok", cfg.Container.BuildContext)
+			}
+		}
+	}
+
+	// custom_workers
+	for name, w := range cfg.CustomWorkers {
+		if w.Command == "" {
+			add("custom_worker."+name, "fail", "command is required")
+		} else {
+			add("custom_worker."+name, "ok", "")
+		}
+	}
+
+	// db
+	if cfg.DB.Service != "" {
+		if isKnownService(cfg.DB.Service) {
+			add("db.service", "ok", cfg.DB.Service)
+		} else if _, err := config.LoadCustomService(cfg.DB.Service); err == nil {
+			add("db.service", "ok", cfg.DB.Service+" (custom)")
+		} else {
+			add("db.service", "fail", cfg.DB.Service+" is not a known service")
 		}
 	}
 
@@ -3279,12 +3349,24 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		return toolErr("loading config: " + err.Error()), nil
 	}
 
+	proj, _ := config.LoadProjectConfig(projectPath)
+
 	rawName := strArg(args, "name")
 	if rawName == "" {
 		rawName = filepath.Base(projectPath)
 	}
-	name, domain := siteops.SiteNameAndDomain(rawName, cfg.DNS.TLD)
-	domains := []string{domain}
+	name, _ := siteops.SiteNameAndDomain(rawName, cfg.DNS.TLD)
+
+	// Build domains: prefer .lerd.yaml domains, fall back to auto-generated.
+	var domains []string
+	if proj != nil && len(proj.Domains) > 0 {
+		for _, d := range proj.Domains {
+			domains = append(domains, strings.ToLower(d)+"."+cfg.DNS.TLD)
+		}
+	} else {
+		_, domain := siteops.SiteNameAndDomain(rawName, cfg.DNS.TLD)
+		domains = []string{domain}
+	}
 
 	// Validate domains are not used by other sites.
 	for _, d := range domains {
@@ -3293,17 +3375,38 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	// Detect framework so the correct public_dir and workers are used.
-	framework := ""
-	if name, ok := config.DetectFrameworkForDir(projectPath); ok {
-		framework = name
+	// Custom container path: .lerd.yaml has a container section with a port.
+	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
+		secured := siteops.CleanupRelink(projectPath, name)
+		site := config.Site{
+			Name:          name,
+			Domains:       domains,
+			Path:          projectPath,
+			Secured:       secured,
+			ContainerPort: proj.Container.Port,
+		}
+		if err := config.AddSite(site); err != nil {
+			return toolErr("registering site: " + err.Error()), nil
+		}
+		_ = config.SyncProjectDomains(projectPath, site.Domains, cfg.DNS.TLD)
+		if err := siteops.FinishCustomLink(site, proj.Container); err != nil {
+			return toolErr(err.Error()), nil
+		}
+		return toolOK(fmt.Sprintf("Linked %s -> %s (custom container, port %d)", name, strings.Join(domains, ", "), proj.Container.Port)), nil
 	}
 
+	// PHP / framework path.
+	framework := ""
+	if fname, ok := config.DetectFrameworkForDir(projectPath); ok {
+		framework = fname
+	}
 	versions := siteops.DetectSiteVersions(projectPath, framework, cfg.PHP.DefaultVersion, cfg.Node.DefaultVersion)
 	phpVersion, nodeVersion := versions.PHP, versions.Node
+	if proj != nil && proj.PHPVersion != "" {
+		phpVersion = proj.PHPVersion
+	}
 
 	secured := siteops.CleanupRelink(projectPath, name)
-
 	site := config.Site{
 		Name:        name,
 		Domains:     domains,
@@ -3317,6 +3420,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 	if err := config.AddSite(site); err != nil {
 		return toolErr("registering site: " + err.Error()), nil
 	}
+	_ = config.SyncProjectDomains(projectPath, site.Domains, cfg.DNS.TLD)
 
 	if err := siteops.FinishLink(site, phpVersion); err != nil {
 		return toolErr(err.Error()), nil

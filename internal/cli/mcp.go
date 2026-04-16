@@ -605,6 +605,8 @@ Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_
 - ` + bt + `path` + bt + ` (optional): absolute path to the project directory — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
 - ` + bt + `name` + bt + ` (optional): domain name without TLD (e.g. ` + bt + `"myapp"` + bt + ` becomes ` + bt + `myapp.test` + bt + `; defaults to directory name, cleaned up)
 
+> **Non-PHP projects (Node.js, Python, Go, etc.):** a Containerfile and ` + bt + `.lerd.yaml` + bt + ` with a ` + bt + `container: {port: <N>}` + bt + ` section must exist **before** calling ` + bt + `site_link` + bt + `. The Containerfile can be named anything (` + bt + `Containerfile.lerd` + bt + ` is the default; set ` + bt + `container.containerfile` + bt + ` to point at a different name like ` + bt + `Dockerfile` + bt + `). Write ` + bt + `.lerd.yaml` + bt + ` directly (there is no MCP tool for this — see the custom container setup workflow in the Workflows section below), or ask the user to run ` + bt + `lerd init` + bt + ` which runs an interactive wizard and writes the file. Calling ` + bt + `site_link` + bt + ` without this config registers the site as a PHP-FPM site, which is wrong. If that happened, call ` + bt + `site_unlink` + bt + ` first, set up the files, then ` + bt + `site_link` + bt + ` again.
+
 ` + bt + `site_unlink` + bt + ` takes ` + bt + `path` + bt + ` (optional, same resolution as ` + bt + `site_link` + bt + `). Removes the site and all its domains. Project files are NOT deleted.
 
 ### ` + bt + `site_domain_add` + bt + ` / ` + bt + `site_domain_remove` + bt + `
@@ -1009,14 +1011,16 @@ check()   // validates .lerd.yaml syntax, services, PHP version
 
 **Set up a custom container site (Node.js, Python, Go, etc.):**
 
-1. Create a ` + bt + `Containerfile.lerd` + bt + ` in the project root:
+1. Create a ` + bt + `Containerfile.lerd` + bt + ` in the project root (do NOT add WORKDIR or COPY — lerd volume-mounts the project directory at its host path and sets --workdir automatically):
 ` + "```dockerfile" + `
 FROM node:20-alpine
-WORKDIR /app
+RUN npm install -g nodemon
 CMD ["npm", "run", "start:dev"]
 ` + "```" + `
 
-2. Create or update ` + bt + `.lerd.yaml` + bt + ` with the container section:
+   > **Hot-reload on macOS**: inotify events do not fire across Podman Machine's virtiofs mount. Use polling: nodemon needs ` + bt + `--legacy-watch` + bt + `, Vite needs ` + bt + `server.watch.usePolling: true` + bt + `, webpack needs ` + bt + `watchOptions: { poll: 1000 }` + bt + `. Example ` + bt + `package.json` + bt + `: ` + "`" + `"start:dev": "nodemon --legacy-watch src/main.js"` + "`" + `.
+
+2. Write ` + bt + `.lerd.yaml` + bt + ` with the container section (there is no MCP tool for this — write the file directly, or ask the user to run ` + bt + `lerd init` + bt + ` which runs an interactive wizard and writes it):
 ` + "```yaml" + `
 domains:
   - myapp
@@ -1113,7 +1117,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Custom workers can be added per-project (` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + `) or globally (` + bt + `~/.config/lerd/frameworks/<name>.yaml` + bt + `); use ` + bt + `worker_add` + bt + ` / ` + bt + `worker_remove` + bt + ` — both survive framework store updates
 - Framework setup commands (one-off bootstrap steps like migrations, storage links) are defined in the framework YAML and shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed; custom frameworks can define their own
 - Service version placeholders (` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + `) are available in framework env vars and are resolved from the service image tag at ` + bt + `lerd env` + bt + ` time
-- **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port; lerd builds a per-project image, runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it; workers exec into the custom container; services are accessible by name on the shared ` + bt + `lerd` + bt + ` Podman network
+- **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port; lerd builds a per-project image, runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it; the project directory is volume-mounted at its host path with ` + bt + `--workdir` + bt + ` set automatically — do NOT add ` + bt + `WORKDIR` + bt + ` or ` + bt + `COPY` + bt + ` to the Containerfile; workers exec into the custom container; services are accessible by name on the shared ` + bt + `lerd` + bt + ` Podman network; **hot-reload file watchers must use polling on macOS** (inotify does not fire across Podman Machine's virtiofs mount) — nodemon: ` + bt + `--legacy-watch` + bt + `, Vite: ` + bt + `server.watch.usePolling: true` + bt + `, webpack: ` + bt + `watchOptions: { poll: 1000 }` + bt + `
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
 
 ### Available MCP tools
@@ -1136,7 +1140,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
 | ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` — returns structured JSON with per-key sync status |
-| ` + bt + `site_link` + bt + ` | Register a directory as a lerd site (creates nginx vhost + ` + bt + `.test` + bt + ` domain) |
+| ` + bt + `site_link` + bt + ` | Register a directory as a lerd site — **non-PHP projects** must have a Containerfile (default name ` + bt + `Containerfile.lerd` + bt + `; set ` + bt + `container.containerfile` + bt + ` for a different path, e.g. ` + bt + `Dockerfile` + bt + `) + ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: N}` + bt + ` written first, otherwise the site registers as PHP (wrong) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
 | ` + bt + `site_domain_add` + bt + ` | Add an additional domain to a site (without TLD) |
 | ` + bt + `site_domain_remove` + bt + ` | Remove a domain from a site (cannot remove last) |
@@ -1211,7 +1215,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `, ` + bt + `lerd-horizon-myapp` + bt + `)
 - ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + ` change the PHP/Node version for a site; the FPM container for the new PHP version must be running after calling ` + bt + `site_php` + bt + `
 - ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
-- **Custom container sites**: for non-PHP projects (Node.js, Python, Go, etc.), create a ` + bt + `Containerfile.lerd` + bt + ` in the project root and add ` + bt + `container: {port: <N>}` + bt + ` to ` + bt + `.lerd.yaml` + bt + `. ` + bt + `site_link` + bt + ` builds the image, starts the container, and nginx reverse-proxies to it. Workers defined in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_restart` + bt + ` restarts the container (e.g. after Containerfile changes). When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
+- **Custom container sites** (Node.js, Python, Go, etc.) — mandatory sequence: **(1)** write a Containerfile in the project root (default name ` + bt + `Containerfile.lerd` + bt + `; any name works — point ` + bt + `container.containerfile` + bt + ` at it if using a different name like ` + bt + `Dockerfile` + bt + `); **(2)** write ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: <N>}` + bt + ` (plus optional ` + bt + `domains` + bt + `, ` + bt + `services` + bt + `, ` + bt + `secured` + bt + `) — there is no MCP tool for this; write the file directly or ask the user to run ` + bt + `lerd init` + bt + ` (CLI wizard that generates the file interactively); **(3)** call ` + bt + `site_link` + bt + ` — it builds the image, starts the container, and configures nginx to reverse-proxy to it. **Never call ` + bt + `site_link` + bt + ` before steps 1–2**: without ` + bt + `container:` + bt + ` config the site registers as a PHP-FPM site (wrong); if that happened, call ` + bt + `site_unlink` + bt + ` first, write the files, then link again. Workers in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_restart` + bt + ` restarts the container without rebuilding. When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
 - ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
 - Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `selenium` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first

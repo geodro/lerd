@@ -14,7 +14,7 @@ import (
 func NewCheckCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
-		Short: "Validate .lerd.yaml syntax, services, and PHP version",
+		Short: "Validate .lerd.yaml — PHP version, services, workers, container config, custom_workers, and db",
 		RunE:  runCheck,
 	}
 }
@@ -82,52 +82,62 @@ func runCheck(_ *cobra.Command, _ []string) error {
 
 	// Workers
 	if len(cfg.Workers) > 0 {
-		fwName := cfg.Framework
-		fw, hasFw := config.GetFrameworkForDir(fwName, cwd)
-
-		hasQueue := false
-		hasHorizon := false
-		for _, w := range cfg.Workers {
-			if w == "queue" {
-				hasQueue = true
+		if cfg.Container != nil {
+			// Custom container site: workers must be defined in custom_workers.
+			for _, w := range cfg.Workers {
+				if _, ok := cfg.CustomWorkers[w]; ok {
+					fmt.Printf("  OK    worker: %s\n", w)
+				} else {
+					fmt.Printf("  FAIL  worker: %q is not defined in custom_workers\n", w)
+					errors++
+				}
 			}
-			if w == "horizon" {
-				hasHorizon = true
-			}
+		} else {
+			fwName := cfg.Framework
+			fw, hasFw := config.GetFrameworkForDir(fwName, cwd)
 
-			if !hasFw || fw.Workers == nil {
-				if fwName != "" {
-					fmt.Printf("  WARN  worker: %q — framework %s has no worker definitions\n", w, fwName)
+			hasQueue := false
+			hasHorizon := false
+			for _, w := range cfg.Workers {
+				if w == "queue" {
+					hasQueue = true
+				}
+				if w == "horizon" {
+					hasHorizon = true
+				}
+
+				if !hasFw || fw.Workers == nil {
+					if fwName != "" {
+						fmt.Printf("  WARN  worker: %q — framework %s has no worker definitions\n", w, fwName)
+						warnings++
+					} else {
+						fmt.Printf("  WARN  worker: %q — no framework detected\n", w)
+						warnings++
+					}
+					continue
+				}
+				wDef, ok := fw.Workers[w]
+				if !ok {
+					fmt.Printf("  FAIL  worker: %q is not defined for framework %s\n", w, fwName)
+					errors++
+					continue
+				}
+				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
+					fmt.Printf("  WARN  worker: %s — prerequisite not met (check rule failed)\n", w)
 					warnings++
 				} else {
-					fmt.Printf("  WARN  worker: %q — no framework detected\n", w)
-					warnings++
+					fmt.Printf("  OK    worker: %s\n", w)
 				}
-				continue
 			}
-			wDef, ok := fw.Workers[w]
-			if !ok {
-				fmt.Printf("  FAIL  worker: %q is not defined for framework %s\n", w, fwName)
-				errors++
-				continue
-			}
-			// Check if the worker's prerequisite (Check rule) is satisfied.
-			if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
-				fmt.Printf("  WARN  worker: %s — prerequisite not met (check rule failed)\n", w)
+
+			if hasQueue && hasHorizon {
+				fmt.Printf("  WARN  workers: both queue and horizon are listed — horizon manages queues, queue worker will be skipped\n")
 				warnings++
-			} else {
-				fmt.Printf("  OK    worker: %s\n", w)
 			}
-		}
-
-		if hasQueue && hasHorizon {
-			fmt.Printf("  WARN  workers: both queue and horizon are listed — horizon manages queues, queue worker will be skipped\n")
-			warnings++
-		}
-
-		if hasQueue && SiteHasHorizon(cwd) {
-			fmt.Printf("  WARN  workers: queue is listed but laravel/horizon is installed — horizon will be started instead\n")
-			warnings++
+			if hasQueue && SiteHasHorizon(cwd) {
+				fmt.Printf("  WARN  workers: queue is listed but laravel/horizon is installed — horizon will be started instead\n")
+				warnings++
+			}
 		}
 	}
 
@@ -144,6 +154,21 @@ func runCheck(_ *cobra.Command, _ []string) error {
 			continue
 		}
 
+		if svc.Preset != "" {
+			// Preset reference — verify the preset exists in the catalog, then
+			// check whether it has been installed on this machine.
+			if _, err := config.LoadPreset(svc.Preset); err != nil {
+				fmt.Printf("  FAIL  service %q: unknown preset %q\n", svc.Name, svc.Preset)
+				errors++
+			} else if _, err := config.LoadCustomService(svc.Name); err != nil {
+				fmt.Printf("  WARN  service %s: preset %q not installed — run: lerd service preset install %s\n", svc.Name, svc.Preset, svc.Preset)
+				warnings++
+			} else {
+				fmt.Printf("  OK    service: %s (preset: %s)\n", svc.Name, svc.Preset)
+			}
+			continue
+		}
+
 		if isKnownService(svc.Name) {
 			fmt.Printf("  OK    service: %s\n", svc.Name)
 			continue
@@ -155,6 +180,56 @@ func runCheck(_ *cobra.Command, _ []string) error {
 		} else {
 			fmt.Printf("  FAIL  service %q: not a built-in service and no definition found at %s\n",
 				svc.Name, filepath.Join(config.CustomServicesDir(), svc.Name+".yaml"))
+			errors++
+		}
+	}
+
+	// Container
+	if cfg.Container != nil {
+		if cfg.Container.Port <= 0 || cfg.Container.Port > 65535 {
+			fmt.Printf("  FAIL  container.port: required and must be 1–65535\n")
+			errors++
+		} else {
+			fmt.Printf("  OK    container.port: %d\n", cfg.Container.Port)
+		}
+		cfPath := cfg.Container.Containerfile
+		if cfPath == "" {
+			cfPath = "Containerfile.lerd"
+		}
+		if _, err := os.Stat(filepath.Join(cwd, cfPath)); os.IsNotExist(err) {
+			fmt.Printf("  WARN  container.containerfile: %s not found — lerd link will fail\n", cfPath)
+			warnings++
+		} else {
+			fmt.Printf("  OK    container.containerfile: %s\n", cfPath)
+		}
+		if cfg.Container.BuildContext != "" {
+			if _, err := os.Stat(filepath.Join(cwd, cfg.Container.BuildContext)); os.IsNotExist(err) {
+				fmt.Printf("  WARN  container.build_context: %s not found\n", cfg.Container.BuildContext)
+				warnings++
+			} else {
+				fmt.Printf("  OK    container.build_context: %s\n", cfg.Container.BuildContext)
+			}
+		}
+	}
+
+	// custom_workers
+	for name, w := range cfg.CustomWorkers {
+		if w.Command == "" {
+			fmt.Printf("  FAIL  custom_worker.%s: command is required\n", name)
+			errors++
+		} else {
+			fmt.Printf("  OK    custom_worker.%s\n", name)
+		}
+	}
+
+	// db
+	if cfg.DB.Service != "" {
+		if isKnownService(cfg.DB.Service) {
+			fmt.Printf("  OK    db.service: %s\n", cfg.DB.Service)
+		} else if _, err := config.LoadCustomService(cfg.DB.Service); err == nil {
+			fmt.Printf("  OK    db.service: %s (custom)\n", cfg.DB.Service)
+		} else {
+			fmt.Printf("  FAIL  db.service: %q is not a known service\n", cfg.DB.Service)
 			errors++
 		}
 	}

@@ -159,6 +159,12 @@ func FinishCustomLink(site config.Site, containerCfg *config.ContainerConfig) er
 		return fmt.Errorf("building custom image: %w", err)
 	}
 
+	// Pre-create the shared hosts file before writing the unit so that the
+	// macOS WriteContainerUnit helper (which calls os.MkdirAll on every volume
+	// source path) does not create a directory at the hosts-file path if the
+	// file doesn't exist yet.  WriteFPMQuadlet does the same pre-creation step.
+	_ = podman.WriteContainerHosts()
+
 	if err := podman.WriteCustomContainerQuadlet(site.Name, site.Path, site.ContainerPort); err != nil {
 		return fmt.Errorf("writing custom quadlet: %w", err)
 	}

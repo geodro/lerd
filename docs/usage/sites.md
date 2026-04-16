@@ -85,6 +85,20 @@ lerd init --fresh
 
 ---
 
+## Non-PHP / custom container sites
+
+For Node.js, Python, Go, or any other non-PHP runtime, lerd builds a dedicated container image per project and has nginx reverse-proxy to it. The workflow differs from PHP sites:
+
+1. Create a `Containerfile.lerd` in the project root that defines the runtime and start command.
+2. Run `lerd init` — it detects the non-PHP project (no `composer.json`) and switches to custom container mode, asking for the port, HTTPS, and services. It writes `.lerd.yaml` for you. Alternatively write `.lerd.yaml` manually with a `container: {port: N}` section.
+3. Run `lerd link` — it builds the image, starts the container as `lerd-custom-<sitename>`, and generates the nginx vhost.
+
+> **Important:** calling `lerd link` without the container config registers the project as a PHP-FPM site (wrong). If that happened, run `lerd unlink` first, set up the files, then `lerd link` again.
+
+See [Custom Containers](../features/custom-containers.md) for the full configuration reference.
+
+---
+
 ## Projects outside the home directory
 
 By default, the PHP-FPM and nginx containers only have access to files under `$HOME`. If your project lives elsewhere (e.g. `/var/www`, `/opt/projects`, `/var/local`), lerd automatically detects this and adds the required volume mount to both containers.
