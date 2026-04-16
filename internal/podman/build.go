@@ -349,12 +349,35 @@ func WriteXdebugIni(version string, enabled bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
+	// Podman auto-creates a directory at the bind-mount source when the file is missing
+	// at container start time. Remove it so os.WriteFile can create the real file.
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("removing stale xdebug ini directory: %w", err)
+		}
+	}
 	mode := "off"
 	if enabled {
 		mode = "debug"
 	}
 	content := fmt.Sprintf("[xdebug]\nxdebug.mode=%s\nxdebug.start_with_request=yes\nxdebug.client_host=host.containers.internal\nxdebug.client_port=9003\n", mode)
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// EnsureXdebugIni creates the xdebug ini file for the given PHP version if it doesn't
+// already exist as a regular file. This prevents Podman from auto-creating a directory
+// at the bind-mount source path when the container starts before the file is written.
+func EnsureXdebugIni(version string) error {
+	path := config.PHPConfFile(version)
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		return nil // already a regular file
+	}
+	cfg, cfgErr := config.LoadGlobal()
+	if cfgErr != nil {
+		return cfgErr
+	}
+	return WriteXdebugIni(version, cfg.IsXdebugEnabled(version))
 }
 
 // WriteFPMQuadlet writes the systemd quadlet for a PHP-FPM version and reloads the
@@ -365,6 +388,9 @@ func WriteFPMQuadlet(version string) error {
 
 	if err := EnsureUserIni(version); err != nil {
 		return fmt.Errorf("creating user ini: %w", err)
+	}
+	if err := EnsureXdebugIni(version); err != nil {
+		return fmt.Errorf("creating xdebug ini: %w", err)
 	}
 
 	// The hosts file is bind-mounted into the container. Podman refuses to start if the
