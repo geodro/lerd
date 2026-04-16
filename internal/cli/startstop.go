@@ -822,6 +822,9 @@ func registeredFrameworkWorkerUnits() []string {
 	}
 	out := make([]string, 0)
 	for _, s := range reg.Sites {
+		if s.Ignored || s.Paused {
+			continue
+		}
 		proj, err := config.LoadProjectConfig(s.Path)
 		if err != nil || proj == nil {
 			continue
