@@ -4517,6 +4517,9 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return toolErr(fmt.Sprintf("site %q not found — run sites to list registered sites", siteName)), nil
 	}
+	if site.IsCustomContainer() {
+		return toolErr("custom container sites do not use PHP versions — the container defines its own runtime"), nil
+	}
 
 	// Write .php-version pin file (keeps CLI php and other tools in sync).
 	phpVersionFile := filepath.Join(site.Path, ".php-version")

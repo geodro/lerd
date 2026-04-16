@@ -1554,6 +1554,10 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "writing .php-version: " + err.Error()})
 			return
 		}
+		if site.IsCustomContainer() {
+			writeJSON(w, SiteActionResponse{Error: "custom container sites do not use PHP versions"})
+			return
+		}
 		_ = config.SetProjectPHPVersion(site.Path, version)
 		site.PHPVersion = version
 		// Regenerate vhost with new PHP version

@@ -20,7 +20,23 @@ func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 		_ = nginx.RemoveVhost(oldPrimary)
 	}
 
-	if site.Secured {
+	if site.IsCustomContainer() {
+		if site.Secured {
+			if err := nginx.GenerateCustomSSLVhost(*site); err != nil {
+				return fmt.Errorf("generating custom SSL vhost: %w", err)
+			}
+			sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
+			mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
+			_ = os.Remove(mainConf)
+			if err := os.Rename(sslConf, mainConf); err != nil {
+				return fmt.Errorf("installing custom SSL vhost: %w", err)
+			}
+		} else {
+			if err := nginx.GenerateCustomVhost(*site); err != nil {
+				return fmt.Errorf("generating custom vhost: %w", err)
+			}
+		}
+	} else if site.Secured {
 		if err := nginx.GenerateSSLVhost(*site, site.PHPVersion); err != nil {
 			return fmt.Errorf("generating SSL vhost: %w", err)
 		}

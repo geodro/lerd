@@ -519,7 +519,13 @@ func RepairVhosts() []VhostRepair {
 				continue
 			}
 			// Regenerate as plain HTTP vhost.
-			if err := GenerateVhost(site, site.PHPVersion); err != nil {
+			var regenErr error
+			if site.IsCustomContainer() {
+				regenErr = GenerateCustomVhost(site)
+			} else {
+				regenErr = GenerateVhost(site, site.PHPVersion)
+			}
+			if regenErr != nil {
 				continue
 			}
 			reg.Sites[i].Secured = false
