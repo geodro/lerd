@@ -47,6 +47,7 @@ func RebuildSite(name string) error {
 	if err := podman.BuildCustomImage(name, site.Path, proj.Container); err != nil {
 		return err
 	}
+	podman.StoreContainerfileHash(name, site.Path, proj.Container)
 
 	// Restart the container to pick up the new image.
 	unit := podman.CustomContainerName(name)

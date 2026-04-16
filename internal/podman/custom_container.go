@@ -2,6 +2,7 @@ package podman
 
 import (
 	"bufio"
+	"crypto/md5"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,6 +55,58 @@ func HasContainerfile(projectPath string) bool {
 // container is present in the podman store.
 func CustomImageExists(siteName string) bool {
 	return ImageExists(CustomImageName(siteName))
+}
+
+// CustomImageUpToDate returns true when the image exists and the stored
+// Containerfile hash matches the current file on disk. Returns false when
+// the image is missing, the hash file is missing, or the Containerfile
+// has changed since the last build.
+func CustomImageUpToDate(siteName, projectPath string, cfg *config.ContainerConfig) bool {
+	if !CustomImageExists(siteName) {
+		return false
+	}
+	stored := readContainerfileHash(siteName)
+	if stored == "" {
+		return false
+	}
+	current := hashContainerfile(projectPath, cfg)
+	return current != "" && current == stored
+}
+
+// StoreContainerfileHash persists the MD5 hash of the current Containerfile
+// so subsequent link calls can skip the build when the file hasn't changed.
+func StoreContainerfileHash(siteName, projectPath string, cfg *config.ContainerConfig) {
+	hash := hashContainerfile(projectPath, cfg)
+	if hash == "" {
+		return
+	}
+	dir := filepath.Join(config.DataDir(), "container-hashes")
+	os.MkdirAll(dir, 0755)                                         //nolint:errcheck
+	os.WriteFile(filepath.Join(dir, siteName), []byte(hash), 0644) //nolint:errcheck
+}
+
+// RemoveContainerfileHash removes the stored hash for a site.
+func RemoveContainerfileHash(siteName string) {
+	path := filepath.Join(config.DataDir(), "container-hashes", siteName)
+	os.Remove(path) //nolint:errcheck
+}
+
+func hashContainerfile(projectPath string, cfg *config.ContainerConfig) string {
+	path := ResolveContainerfile(projectPath, cfg)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", md5.Sum(data))
+}
+
+func readContainerfileHash(siteName string) string {
+	path := filepath.Join(config.DataDir(), "container-hashes", siteName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // BuildCustomImage builds the OCI image for a site's custom container from

@@ -114,6 +114,56 @@ func TestContainerBaseImage_CustomPath(t *testing.T) {
 	}
 }
 
+func TestHashContainerfile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Containerfile.lerd"), []byte("FROM node:20-alpine\n"), 0644)
+	h1 := hashContainerfile(dir, nil)
+	if h1 == "" {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// Same content, same hash.
+	h2 := hashContainerfile(dir, nil)
+	if h1 != h2 {
+		t.Errorf("same file should produce same hash: %q vs %q", h1, h2)
+	}
+
+	// Change content, different hash.
+	os.WriteFile(filepath.Join(dir, "Containerfile.lerd"), []byte("FROM python:3.12\n"), 0644)
+	h3 := hashContainerfile(dir, nil)
+	if h3 == h1 {
+		t.Error("different content should produce different hash")
+	}
+}
+
+func TestHashContainerfile_Missing(t *testing.T) {
+	dir := t.TempDir()
+	h := hashContainerfile(dir, nil)
+	if h != "" {
+		t.Errorf("missing file should return empty hash, got %q", h)
+	}
+}
+
+func TestStoreAndReadContainerfileHash(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Containerfile.lerd"), []byte("FROM node:20\n"), 0644)
+
+	StoreContainerfileHash("mysite", dir, nil)
+	stored := readContainerfileHash("mysite")
+	expected := hashContainerfile(dir, nil)
+	if stored != expected {
+		t.Errorf("stored hash %q != expected %q", stored, expected)
+	}
+
+	RemoveContainerfileHash("mysite")
+	if got := readContainerfileHash("mysite"); got != "" {
+		t.Errorf("hash should be empty after removal, got %q", got)
+	}
+}
+
 func TestHasContainerfile_Absent(t *testing.T) {
 	dir := t.TempDir()
 	if HasContainerfile(dir) {

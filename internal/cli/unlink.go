@@ -65,6 +65,7 @@ func UnlinkSite(name string) error {
 			fmt.Scanln(&answer) //nolint:errcheck
 			if answer != "" && (answer[0] == 'y' || answer[0] == 'Y') {
 				_ = podman.RemoveCustomImage(site.Name)
+				podman.RemoveContainerfileHash(site.Name)
 				fmt.Println("Image removed.")
 			}
 		}
