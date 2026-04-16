@@ -383,6 +383,14 @@ func newWatchCmd() *cobra.Command {
 			// Watch DNS health and re-apply resolver config if .test breaks.
 			go watcher.WatchDNS(30*time.Second, cfg.DNS.TLD)
 
+			// Watch host gateway reachability. A laptop that changes networks
+			// (home wifi → coffee shop → mobile hotspot) ends up with a stale
+			// LAN IP for host.containers.internal in the shared /etc/hosts,
+			// and Xdebug silently times out until the next lerd start. The
+			// watcher verifies the current entry every tick and reprobes
+			// only when it stops responding.
+			go watcher.WatchHostGateway(30 * time.Second)
+
 			// Watch key site config files and signal queue:restart on change.
 			go func() {
 				err := watcher.WatchSiteFiles(

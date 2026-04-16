@@ -160,6 +160,41 @@ func hostCandidates(getentIP, lanIP string) []string {
 	return candidates
 }
 
+// HostReachable returns true when the given IP is reachable from lerd-nginx
+// on the host probe port. Exported for the background watcher so it can
+// cheaply verify whether the current /etc/hosts entry is still valid before
+// running a full reprobe. Returns false when lerd-nginx isn't running.
+func HostReachable(ip string) bool {
+	if !ContainerRunningQuiet("lerd-nginx") {
+		return false
+	}
+	return probeHostFromNginx(ip, hostProbePort)
+}
+
+// ReadHostGatewayFromFile reads the current host.containers.internal IP
+// from the bind-mounted /etc/hosts file that PHP-FPM containers see.
+// Returns "" if the file is missing or the entry isn't present. Used by
+// the watcher to compare on-disk state against a fresh probe without
+// rewriting the file when nothing has changed.
+func ReadHostGatewayFromFile() string {
+	data, err := os.ReadFile(config.ContainerHostsFile())
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		for _, name := range fields[1:] {
+			if name == "host.containers.internal" {
+				return fields[0]
+			}
+		}
+	}
+	return ""
+}
+
 // probeHostFromNginx returns true if lerd-nginx can open a TCP connection to
 // ip:port within 2 seconds. Uses busybox nc (-z = scan only, -w = timeout).
 func probeHostFromNginx(ip, port string) bool {
