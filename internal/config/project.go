@@ -24,6 +24,7 @@ type ContainerConfig struct {
 	Port          int    `yaml:"port"`                    // port the app listens on inside the container (required)
 	Containerfile string `yaml:"containerfile,omitempty"` // path to Containerfile, default "Containerfile.lerd"
 	BuildContext  string `yaml:"build_context,omitempty"` // build context directory, default "."
+	SSL           bool   `yaml:"ssl,omitempty"`           // proxy to the container via HTTPS (app serves TLS on its port)
 }
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.

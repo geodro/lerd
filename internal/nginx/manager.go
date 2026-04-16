@@ -57,6 +57,7 @@ type VhostData struct {
 	ProxyPort       int    // port the worker listens on inside the PHP-FPM container
 	CustomContainer string // container name for custom container sites (e.g. "lerd-custom-nestapp")
 	CustomPort      int    // port the app listens on inside the custom container
+	BackendSSL      bool   // proxy to the container via HTTPS (app serves TLS on its own port)
 }
 
 // phpShort converts "8.4" → "84".
@@ -189,6 +190,7 @@ func GenerateCustomVhost(site config.Site) error {
 		ServerNames:     serverNamesWithWildcards(site.Domains),
 		CustomContainer: podman.CustomContainerName(site.Name),
 		CustomPort:      site.ContainerPort,
+		BackendSSL:      site.ContainerSSL,
 	}
 
 	var buf bytes.Buffer
@@ -222,6 +224,7 @@ func GenerateCustomSSLVhost(site config.Site) error {
 		CertDomain:      site.PrimaryDomain(),
 		CustomContainer: podman.CustomContainerName(site.Name),
 		CustomPort:      site.ContainerPort,
+		BackendSSL:      site.ContainerSSL,
 	}
 
 	var buf bytes.Buffer

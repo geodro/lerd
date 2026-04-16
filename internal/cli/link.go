@@ -132,13 +132,14 @@ func runLink(args []string) error {
 	// Custom container path: the project defines its own Containerfile and
 	// nginx reverse-proxies to it. Skip PHP/framework detection entirely.
 	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
-		secured := siteops.CleanupRelink(cwd, name)
+		secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
 		site := config.Site{
 			Name:          name,
 			Domains:       domains,
 			Path:          cwd,
 			Secured:       secured,
 			ContainerPort: proj.Container.Port,
+			ContainerSSL:  proj.Container.SSL,
 		}
 		if err := config.AddSite(site); err != nil {
 			return fmt.Errorf("registering site: %w", err)
@@ -185,7 +186,7 @@ func runLink(args []string) error {
 		}
 	}
 
-	secured := siteops.CleanupRelink(cwd, name)
+	secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
 
 	site := config.Site{
 		Name:        name,

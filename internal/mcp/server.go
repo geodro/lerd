@@ -1705,6 +1705,7 @@ func execSites() (any, *rpcError) {
 		Framework       string         `json:"framework,omitempty"`
 		CustomContainer bool           `json:"custom_container,omitempty"`
 		ContainerPort   int            `json:"container_port,omitempty"`
+		ContainerSSL    bool           `json:"container_ssl,omitempty"`
 		Workers         []workerStatus `json:"workers,omitempty"`
 	}
 
@@ -1757,6 +1758,7 @@ func execSites() (any, *rpcError) {
 			Framework:       e.FrameworkName,
 			CustomContainer: e.ContainerPort > 0,
 			ContainerPort:   e.ContainerPort,
+			ContainerSSL:    e.ContainerSSL,
 			Workers:         workers,
 		})
 	}
@@ -2838,6 +2840,9 @@ func execCheck(args map[string]any) (any, *rpcError) {
 				add("container.build_context", "ok", cfg.Container.BuildContext)
 			}
 		}
+		if cfg.Container.SSL {
+			add("container.ssl", "ok", "nginx will proxy_pass via HTTPS with ssl_verify off")
+		}
 	}
 
 	// custom_workers
@@ -3377,13 +3382,14 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 
 	// Custom container path: .lerd.yaml has a container section with a port.
 	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
-		secured := siteops.CleanupRelink(projectPath, name)
+		secured := siteops.CleanupRelink(projectPath, name) || (proj != nil && proj.Secured)
 		site := config.Site{
 			Name:          name,
 			Domains:       domains,
 			Path:          projectPath,
 			Secured:       secured,
 			ContainerPort: proj.Container.Port,
+			ContainerSSL:  proj.Container.SSL,
 		}
 		if err := config.AddSite(site); err != nil {
 			return toolErr("registering site: " + err.Error()), nil
@@ -3406,7 +3412,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		phpVersion = proj.PHPVersion
 	}
 
-	secured := siteops.CleanupRelink(projectPath, name)
+	secured := siteops.CleanupRelink(projectPath, name) || (proj != nil && proj.Secured)
 	site := config.Site{
 		Name:        name,
 		Domains:     domains,

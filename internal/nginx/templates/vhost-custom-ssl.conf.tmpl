@@ -13,7 +13,7 @@ server {
 
     location / {
         set $backend "{{.CustomContainer}}";
-        proxy_pass http://$backend:{{.CustomPort}};
+        proxy_pass {{if .BackendSSL}}https{{else}}http{{end}}://$backend:{{.CustomPort}};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -23,5 +23,8 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        {{- if .BackendSSL}}
+        proxy_ssl_verify off;
+        {{- end}}
     }
 }

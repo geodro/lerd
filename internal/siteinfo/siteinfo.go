@@ -114,6 +114,7 @@ type EnrichedSite struct {
 
 	// Custom container
 	ContainerPort  int
+	ContainerSSL   bool
 	ContainerImage string
 
 	// LAN sharing
@@ -215,6 +216,7 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		AppURL:              s.AppURL,
 		LANPort:             s.LANPort,
 		ContainerPort:       s.ContainerPort,
+		ContainerSSL:        s.ContainerSSL,
 		ContainerImage:      containerImage(s),
 		FrameworkName:       s.Framework,
 		OriginalPHPVersion:  s.PHPVersion,

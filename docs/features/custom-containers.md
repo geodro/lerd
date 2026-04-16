@@ -13,9 +13,11 @@ Lerd can serve sites that use their own container instead of the shared PHP-FPM 
 
 ```dockerfile
 FROM node:20-alpine
-WORKDIR /app
+RUN npm install -g nodemon
 CMD ["npm", "run", "start:dev"]
 ```
+
+> The project directory is bind-mounted at runtime, so no `WORKDIR` or `COPY` is needed. Install any global CLI tools (nodemon, ts-node, etc.) in the image itself.
 
 2. Run `lerd init`:
 
@@ -57,6 +59,7 @@ The `container` section in `.lerd.yaml` accepts these fields:
 | `port` | yes | | Port the app listens on inside the container |
 | `containerfile` | no | `Containerfile.lerd` | Path to the Containerfile (relative to project root) |
 | `build_context` | no | `.` | Build context directory (relative to project root) |
+| `ssl` | no | `false` | Set to `true` if the app serves HTTPS on its port (nginx will `proxy_pass https://` with `proxy_ssl_verify off`) |
 
 ## How it works
 
@@ -79,6 +82,16 @@ Services work exactly the same as for PHP sites. Containers on the `lerd` networ
 ## HTTPS
 
 `lerd secure` and `lerd unsecure` work with custom container sites. The nginx vhost is regenerated with SSL termination, and your app continues to receive plain HTTP from nginx.
+
+If your app itself serves HTTPS on its port (e.g. it has its own TLS cert), set `ssl: true` under `container:` so nginx proxies via HTTPS:
+
+```yaml
+container:
+  port: 3000
+  ssl: true
+```
+
+Nginx will use `proxy_pass https://` and skip certificate verification (`proxy_ssl_verify off`) since the container cert is self-signed. Run `lerd check` to confirm the setting is recognised.
 
 ## Hot reload
 

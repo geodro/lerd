@@ -35,6 +35,9 @@ type Site struct {
 	// container instead of the shared PHP-FPM image. The value is the port the
 	// app listens on inside the container; nginx reverse-proxies to it.
 	ContainerPort int `yaml:"container_port,omitempty"`
+	// ContainerSSL, when true, means the app inside the custom container serves
+	// TLS on its port; nginx will proxy_pass via HTTPS with ssl_verify off.
+	ContainerSSL bool `yaml:"container_ssl,omitempty"`
 }
 
 // IsCustomContainer returns true when the site uses a per-project custom
@@ -79,6 +82,7 @@ type siteYAML struct {
 	AppURL        string   `yaml:"app_url,omitempty"`
 	LANPort       int      `yaml:"lan_port,omitempty"`
 	ContainerPort int      `yaml:"container_port,omitempty"`
+	ContainerSSL  bool     `yaml:"container_ssl,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
@@ -97,6 +101,7 @@ func (s Site) toYAML() siteYAML {
 		AppURL:        s.AppURL,
 		LANPort:       s.LANPort,
 		ContainerPort: s.ContainerPort,
+		ContainerSSL:  s.ContainerSSL,
 	}
 }
 
@@ -120,6 +125,7 @@ func (sy siteYAML) toSite() Site {
 		AppURL:        sy.AppURL,
 		LANPort:       sy.LANPort,
 		ContainerPort: sy.ContainerPort,
+		ContainerSSL:  sy.ContainerSSL,
 	}
 }
 

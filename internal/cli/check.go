@@ -210,6 +210,9 @@ func runCheck(_ *cobra.Command, _ []string) error {
 				fmt.Printf("  OK    container.build_context: %s\n", cfg.Container.BuildContext)
 			}
 		}
+		if cfg.Container.SSL {
+			fmt.Printf("  OK    container.ssl: true (nginx will proxy_pass via HTTPS with ssl_verify off)\n")
+		}
 	}
 
 	// custom_workers
