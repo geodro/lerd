@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"text/template"
@@ -723,14 +724,26 @@ func writeErrorPages() error {
 // which reverse-proxies to the lerd-ui process running on the host so the
 // browser's URL bar stays on lerd.localhost (no redirect to localhost:7073).
 //
-// The proxy hop uses a unix domain socket (config.UISocketPath()) bind-mounted
-// from the host into lerd-nginx. This avoids container → host TCP routing,
-// which depends on netavark / pasta / rootless wiring up host.containers.internal
-// (169.254.1.2) and silently breaks across podman versions and host network
-// changes. Unix sockets only require filesystem access, which the bind mount
-// provides directly. lerd-ui marks all socket-arriving requests as loopback
-// inside isLoopbackRequest, so the gate behaves identically to a direct
-// http://localhost:7073 visit.
+// The upstream differs by platform because container → host connectivity
+// works differently on each:
+//
+//   - Linux: lerd-nginx runs in a rootless podman bridge. Reaching the
+//     host over TCP via host.containers.internal depends on netavark /
+//     pasta wiring up the 169.254.1.2 alias, which silently breaks
+//     across podman versions and host network changes. We bind-mount
+//     lerd-ui's unix socket into the container instead — filesystem
+//     access only, no networking, no detection. lerd-ui marks
+//     socket-arriving requests as loopback in isLoopbackRequest.
+//
+//   - macOS: lerd-ui runs as a native macOS process and lerd-nginx runs
+//     inside the podman-machine VM. Unix sockets don't traverse the
+//     virtio-fs / 9p hypervisor boundary as functional sockets, so
+//     binding one on the macOS host doesn't help the VM. We fall back
+//     to TCP via host.containers.internal:7073 — gvproxy reliably
+//     forwards this on podman-machine, and the request carries an
+//     X-Lerd-Trust header that the gate matches against the per-install
+//     token (proxy_set_header overwrites any client-supplied value, so
+//     a LAN attacker can't inject it).
 //
 // .localhost is RFC 6761 reserved and always resolves to the visiting
 // device's loopback, so this vhost is unreachable from a LAN browser doing
@@ -741,13 +754,42 @@ func EnsureLerdVhost() error {
 		return err
 	}
 
-	// This vhost serves ONLY static dashboard assets (HTML, icons, manifest).
-	// /api/* is intentionally NOT proxied — clients must hit lerd-ui on
-	// :7073 directly. The dashboard JavaScript detects when it was loaded
-	// from lerd.localhost and rewrites all API/EventSource calls to absolute
-	// http://localhost:7073 URLs, which the browser sends directly over
-	// loopback.
-	content := fmt.Sprintf(`server {
+	var content string
+	if runtime.GOOS == "darwin" {
+		token, err := LoadOrGenerateTrustToken()
+		if err != nil {
+			return fmt.Errorf("loading trust token: %w", err)
+		}
+		content = fmt.Sprintf(`server {
+    listen 80;
+    server_name lerd.localhost;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Lerd-Trust %s;
+
+    location = / {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location ^~ /icons/ {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location = /manifest.webmanifest {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location / {
+        return 444;
+    }
+}
+`, token)
+	} else {
+		content = fmt.Sprintf(`server {
     listen 80;
     server_name lerd.localhost;
 
@@ -757,29 +799,24 @@ func EnsureLerdVhost() error {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 
-    # The HTML shell.
     location = / {
         proxy_pass http://unix:%[1]s:;
     }
 
-    # Embedded SVG/PNG icons used by the dashboard and the PWA manifest.
     location ^~ /icons/ {
         proxy_pass http://unix:%[1]s:$request_uri;
     }
 
-    # The PWA manifest.
     location = /manifest.webmanifest {
         proxy_pass http://unix:%[1]s:$request_uri;
     }
 
-    # Everything else (notably /api/*) is closed. Clients must reach
-    # the API directly on http://localhost:7073 where the loopback gate
-    # is enforced at the TCP layer.
     location / {
         return 444;
     }
 }
 `, config.UISocketPath())
+	}
 	return os.WriteFile(filepath.Join(config.NginxConfD(), "lerd.localhost.conf"), []byte(content), 0644)
 }
 

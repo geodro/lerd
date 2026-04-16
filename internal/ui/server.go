@@ -270,33 +270,38 @@ func Start(currentVersion string) error {
 
 	handler := withRemoteControlGate(mux)
 
-	// Unix socket listener for the lerd.localhost nginx vhost. Errors here
-	// are non-fatal — if the socket can't be created, lerd.localhost won't
-	// work but direct http://localhost:7073 access still does.
-	if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
-		fmt.Printf("[WARN] creating %s: %v — lerd.localhost vhost will not work\n", config.RunDir(), err)
-	} else {
-		sockPath := config.UISocketPath()
-		_ = os.Remove(sockPath)
-		unixLn, err := net.Listen("unix", sockPath)
-		if err != nil {
-			fmt.Printf("[WARN] binding %s: %v — lerd.localhost vhost will not work\n", sockPath, err)
+	// Unix socket listener for the lerd.localhost nginx vhost. Linux only:
+	// on macOS, lerd-nginx runs inside the podman-machine VM and unix
+	// sockets don't traverse virtio-fs as functional sockets, so the
+	// vhost falls back to TCP via host.containers.internal there.
+	// Errors are non-fatal — direct http://localhost:7073 access still
+	// works even if the socket can't be created.
+	if runtime.GOOS != "darwin" {
+		if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+			fmt.Printf("[WARN] creating %s: %v — lerd.localhost vhost will not work\n", config.RunDir(), err)
 		} else {
-			if err := os.Chmod(sockPath, 0660); err != nil {
-				fmt.Printf("[WARN] chmod %s: %v\n", sockPath, err)
-			}
-			unixSrv := &http.Server{
-				Handler: handler,
-				ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
-					return context.WithValue(ctx, ctxKeyUnixSocket{}, true)
-				},
-			}
-			go func() {
-				fmt.Printf("Lerd UI listening on unix:%s\n", sockPath)
-				if err := unixSrv.Serve(unixLn); err != nil && err != http.ErrServerClosed {
-					fmt.Printf("[WARN] unix socket server exited: %v\n", err)
+			sockPath := config.UISocketPath()
+			_ = os.Remove(sockPath)
+			unixLn, err := net.Listen("unix", sockPath)
+			if err != nil {
+				fmt.Printf("[WARN] binding %s: %v — lerd.localhost vhost will not work\n", sockPath, err)
+			} else {
+				if err := os.Chmod(sockPath, 0660); err != nil {
+					fmt.Printf("[WARN] chmod %s: %v\n", sockPath, err)
 				}
-			}()
+				unixSrv := &http.Server{
+					Handler: handler,
+					ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
+						return context.WithValue(ctx, ctxKeyUnixSocket{}, true)
+					},
+				}
+				go func() {
+					fmt.Printf("Lerd UI listening on unix:%s\n", sockPath)
+					if err := unixSrv.Serve(unixLn); err != nil && err != http.ErrServerClosed {
+						fmt.Printf("[WARN] unix socket server exited: %v\n", err)
+					}
+				}()
+			}
 		}
 	}
 
