@@ -77,3 +77,72 @@ func TestRenderContainerHosts_PreservesLoopback(t *testing.T) {
 		t.Errorf("loopback entries missing or out of order:\n%s", got)
 	}
 }
+
+func TestHostCandidates(t *testing.T) {
+	cases := []struct {
+		name     string
+		getentIP string
+		lanIP    string
+		want     []string
+	}{
+		{
+			// Happy path: all three candidates present and distinct. Probe
+			// order is preserved so host.containers.internal gets the first
+			// shot — the address Xdebug docs already point users at, and the
+			// canonical choice on macOS/gvproxy.
+			name:     "all distinct",
+			getentIP: "169.254.1.2",
+			lanIP:    "192.168.1.10",
+			want:     []string{"169.254.1.2", "192.168.1.10", "10.0.2.2"},
+		},
+		{
+			// Regression: when getent and the LAN IP collide (some setups
+			// alias them), the duplicate must be dropped so we don't probe
+			// the same address twice and waste a 2 s timeout.
+			name:     "getent and lan IP collide",
+			getentIP: "192.168.1.10",
+			lanIP:    "192.168.1.10",
+			want:     []string{"192.168.1.10", "10.0.2.2"},
+		},
+		{
+			// getent fails (no host.containers.internal entry, fresh install,
+			// or container not yet up) — fall back to LAN IP plus slirp4netns
+			// default. This is the path that rescues the rootless-netns case
+			// behind issue #186 when netavark hasn't wired up an alias.
+			name:     "getent missing",
+			getentIP: "",
+			lanIP:    "192.168.1.10",
+			want:     []string{"192.168.1.10", "10.0.2.2"},
+		},
+		{
+			// No LAN connection (offline laptop). Still try the addresses we
+			// know about so an Xdebug-over-loopback setup keeps a chance.
+			name:     "lan IP missing",
+			getentIP: "169.254.1.2",
+			lanIP:    "",
+			want:     []string{"169.254.1.2", "10.0.2.2"},
+		},
+		{
+			// Worst case: nothing detected. The slirp4netns default is the
+			// only thing left to try. Better than returning an empty list,
+			// because on slirp4netns systems 10.0.2.2 actually routes.
+			name:     "nothing detected",
+			getentIP: "",
+			lanIP:    "",
+			want:     []string{"10.0.2.2"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := hostCandidates(c.getentIP, c.lanIP)
+			if len(got) != len(c.want) {
+				t.Fatalf("hostCandidates(%q,%q) = %v, want %v", c.getentIP, c.lanIP, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("hostCandidates(%q,%q)[%d] = %q, want %q", c.getentIP, c.lanIP, i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}

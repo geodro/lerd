@@ -219,6 +219,27 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// ── Container → Host Connectivity ────────────────────────────────────────
+	// The PHP-FPM containers reach the host (Xdebug, host-side services)
+	// via the host.containers.internal /etc/hosts entry. lerd writes that
+	// IP based on a real reachability probe — TCP-connect each candidate
+	// from inside lerd-nginx to lerd-ui's :7073. If no candidate works,
+	// Xdebug times out silently with no error in the FPM logs other than
+	// "Time-out connecting to debugging client" (issue #186 redux). This
+	// check surfaces the failure so the user gets a real diagnosis.
+	fmt.Println("\n[Container → Host connectivity]")
+	if !services.Mgr.IsActive("lerd-nginx") {
+		warn("host reachability probe", "skipped — lerd-nginx not running (start lerd first)")
+	} else if !services.Mgr.IsActive("lerd-ui") {
+		warn("host reachability probe", "skipped — lerd-ui not running (the probe targets its :7073 listener)")
+	} else if ip := podman.DetectHostGatewayIPProbeOnly(); ip != "" {
+		ok(fmt.Sprintf("host reachable from containers (%s)", ip))
+	} else {
+		fail("host reachable from containers",
+			"no candidate routed back to the host (Xdebug, inter-container → host calls will time out)",
+			"check rootless podman / netavark / pasta routing; run: podman unshare --rootless-netns ip addr (expected: 169.254.1.2 on podman bridge or DNAT for it)")
+	}
+
 	// ── Version Info ─────────────────────────────────────────────────────────
 	fmt.Println("\n[Version Info]")
 
