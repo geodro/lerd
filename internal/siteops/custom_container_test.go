@@ -347,7 +347,7 @@ func TestCustomContainer_NestJS_IsNotPHPSite(t *testing.T) {
 // noopLifecycle is a stub for podman.UnitLifecycle that does nothing.
 type noopLifecycle struct{}
 
-func (n *noopLifecycle) Start(name string) error              { return nil }
-func (n *noopLifecycle) Stop(name string) error               { return nil }
-func (n *noopLifecycle) Restart(name string) error            { return nil }
+func (n *noopLifecycle) Start(name string) error                { return nil }
+func (n *noopLifecycle) Stop(name string) error                 { return nil }
+func (n *noopLifecycle) Restart(name string) error              { return nil }
 func (n *noopLifecycle) UnitStatus(name string) (string, error) { return "inactive", nil }

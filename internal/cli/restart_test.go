@@ -14,9 +14,9 @@ type fakeUnitLifecycle struct {
 	restartedUnit string
 }
 
-func (f *fakeUnitLifecycle) Start(name string) error          { return nil }
-func (f *fakeUnitLifecycle) Stop(name string) error           { return nil }
-func (f *fakeUnitLifecycle) Restart(name string) error        { f.restartedUnit = name; return nil }
+func (f *fakeUnitLifecycle) Start(name string) error                { return nil }
+func (f *fakeUnitLifecycle) Stop(name string) error                 { return nil }
+func (f *fakeUnitLifecycle) Restart(name string) error              { f.restartedUnit = name; return nil }
 func (f *fakeUnitLifecycle) UnitStatus(name string) (string, error) { return "active", nil }
 
 func TestRestartSite_CustomContainer(t *testing.T) {
