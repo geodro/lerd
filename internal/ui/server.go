@@ -602,6 +602,7 @@ type SiteResponse struct {
 	LANShareURL     string   `json:"lan_share_url,omitempty"`
 	CustomContainer bool     `json:"custom_container,omitempty"`
 	ContainerPort   int      `json:"container_port,omitempty"`
+	ContainerImage  string   `json:"container_image,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -689,6 +690,7 @@ func buildSites() []SiteResponse {
 			LANShareURL:        cli.LANShareURL(e.LANPort),
 			CustomContainer:    e.ContainerPort > 0,
 			ContainerPort:      e.ContainerPort,
+			ContainerImage:     e.ContainerImage,
 		})
 	}
 	return sites

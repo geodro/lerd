@@ -78,6 +78,42 @@ func TestHasContainerfile_Present(t *testing.T) {
 	}
 }
 
+func TestContainerBaseImage(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Containerfile.lerd"), []byte("FROM node:20-alpine\nWORKDIR /app\n"), 0644)
+	got := ContainerBaseImage(dir, nil)
+	if got != "node:20-alpine" {
+		t.Errorf("ContainerBaseImage = %q, want node:20-alpine", got)
+	}
+}
+
+func TestContainerBaseImage_StripsDockerIO(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Containerfile.lerd"), []byte("FROM docker.io/library/python:3.12-slim\n"), 0644)
+	got := ContainerBaseImage(dir, nil)
+	if got != "python:3.12-slim" {
+		t.Errorf("ContainerBaseImage = %q, want python:3.12-slim", got)
+	}
+}
+
+func TestContainerBaseImage_Missing(t *testing.T) {
+	dir := t.TempDir()
+	got := ContainerBaseImage(dir, nil)
+	if got != "" {
+		t.Errorf("ContainerBaseImage = %q, want empty", got)
+	}
+}
+
+func TestContainerBaseImage_CustomPath(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM golang:1.23-alpine\n"), 0644)
+	cfg := &config.ContainerConfig{Port: 8080, Containerfile: "Dockerfile"}
+	got := ContainerBaseImage(dir, cfg)
+	if got != "golang:1.23-alpine" {
+		t.Errorf("ContainerBaseImage = %q, want golang:1.23-alpine", got)
+	}
+}
+
 func TestHasContainerfile_Absent(t *testing.T) {
 	dir := t.TempDir()
 	if HasContainerfile(dir) {

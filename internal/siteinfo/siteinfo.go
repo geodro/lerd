@@ -113,7 +113,8 @@ type EnrichedSite struct {
 	Services []string
 
 	// Custom container
-	ContainerPort int
+	ContainerPort  int
+	ContainerImage string
 
 	// LAN sharing
 	LANPort int
@@ -214,6 +215,7 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		AppURL:              s.AppURL,
 		LANPort:             s.LANPort,
 		ContainerPort:       s.ContainerPort,
+		ContainerImage:      containerImage(s),
 		FrameworkName:       s.Framework,
 		OriginalPHPVersion:  s.PHPVersion,
 		OriginalNodeVersion: s.NodeVersion,
@@ -293,6 +295,19 @@ func PersistVersionChanges(sites []EnrichedSite) error {
 		}
 	}
 	return nil
+}
+
+// containerImage returns the base image from the Containerfile for custom
+// container sites (e.g. "node:20-alpine"). Returns "" for PHP sites.
+func containerImage(s config.Site) string {
+	if s.ContainerPort == 0 {
+		return ""
+	}
+	proj, err := config.LoadProjectConfig(s.Path)
+	if err != nil {
+		return ""
+	}
+	return podman.ContainerBaseImage(s.Path, proj.Container)
 }
 
 func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw bool) {

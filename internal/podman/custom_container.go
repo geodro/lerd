@@ -1,10 +1,12 @@
 package podman
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 )
@@ -92,6 +94,34 @@ func RemoveCustomImage(siteName string) error {
 	imageName := CustomImageName(siteName)
 	_ = exec.Command(PodmanBin(), "rmi", "-f", imageName).Run()
 	return nil
+}
+
+// ContainerBaseImage reads the Containerfile for a project and returns the
+// base image from the first FROM instruction, e.g. "node:20-alpine".
+// Returns "" if the file cannot be read or has no FROM line.
+func ContainerBaseImage(projectPath string, cfg *config.ContainerConfig) string {
+	path := ResolveContainerfile(projectPath, cfg)
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "FROM ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				// Strip the registry prefix for cleaner display.
+				image := parts[1]
+				image = strings.TrimPrefix(image, "docker.io/library/")
+				image = strings.TrimPrefix(image, "docker.io/")
+				return image
+			}
+		}
+	}
+	return ""
 }
 
 // RemoveCustomContainer removes the stopped container for a site's custom

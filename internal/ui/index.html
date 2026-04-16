@@ -704,7 +704,7 @@
                 <!-- Version selects + toggles row -->
                 <div class="flex items-center gap-4 overflow-x-auto">
                   <template x-if="selectedSite.custom_container">
-                    <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded px-2 py-1" x-text="'Container :' + selectedSite.container_port"></span>
+                    <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded px-2 py-1" x-text="(selectedSite.container_image || 'container') + ' :' + selectedSite.container_port"></span>
                   </template>
                   <template x-if="!selectedSite.custom_container && phpVersions.length === 0">
                     <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">PHP ...</span>
@@ -2717,6 +2717,7 @@ function lerdApp() {
           e.node_version = s.node_version;
           e.custom_container = s.custom_container;
           e.container_port = s.container_port;
+          e.container_image = s.container_image;
           e.tls = s.tls;
           e.fpm_running = s.fpm_running;
           e.queue_running = s.queue_running;
