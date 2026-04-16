@@ -151,22 +151,39 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			if site.Paused || site.Ignored {
 				continue
 			}
-			phpVer := site.PHPVersion
-			if phpVer == "" && cfg != nil {
-				phpVer = cfg.PHP.DefaultVersion
-			}
-			if site.Secured {
-				if err := nginx.GenerateSSLVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
-					continue
+			if site.IsCustomContainer() {
+				if site.Secured {
+					if err := nginx.GenerateCustomSSLVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+						continue
+					}
+					sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+					mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+					os.Remove(mainConf)          //nolint:errcheck
+					os.Rename(sslConf, mainConf) //nolint:errcheck
+				} else {
+					if err := nginx.GenerateCustomVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+					}
 				}
-				sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
-				mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
-				os.Remove(mainConf)          //nolint:errcheck
-				os.Rename(sslConf, mainConf) //nolint:errcheck
 			} else {
-				if err := nginx.GenerateVhost(site, phpVer); err != nil {
-					fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+				phpVer := site.PHPVersion
+				if phpVer == "" && cfg != nil {
+					phpVer = cfg.PHP.DefaultVersion
+				}
+				if site.Secured {
+					if err := nginx.GenerateSSLVhost(site, phpVer); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+						continue
+					}
+					sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+					mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+					os.Remove(mainConf)          //nolint:errcheck
+					os.Rename(sslConf, mainConf) //nolint:errcheck
+				} else {
+					if err := nginx.GenerateVhost(site, phpVer); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+					}
 				}
 			}
 		}
