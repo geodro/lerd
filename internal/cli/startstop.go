@@ -422,6 +422,12 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if err := nginx.EnsureLerdVhost(); err != nil {
 		fmt.Printf("  WARN: lerd vhost: %v\n", err)
 	}
+	// The lerd-nginx quadlet bind-mounts RunDir so the lerd.localhost vhost
+	// can reach lerd-ui over a unix socket. The directory must exist before
+	// the container starts or podman will create it root-owned.
+	if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+		fmt.Printf("  WARN: run dir: %v\n", err)
+	}
 
 	// Refresh dnsmasq upstream config from the current system DNS before lerd-dns starts.
 	// This ensures the config reflects any DNS changes (new servers added, DHCP change)

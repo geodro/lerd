@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -59,21 +60,22 @@ var iconMaskable192PNG []byte
 //go:embed icons/icon-maskable-512.png
 var iconMaskable512PNG []byte
 
-// listenAddr is the address lerd-ui binds to. lerd-ui ALWAYS listens on
-// 0.0.0.0:7073 because:
+// listenAddr is the TCP address lerd-ui binds to. It listens on 0.0.0.0:7073
+// so browsers can hit it directly and LAN clients (gated by the remote-control
+// middleware) can reach it when lan:expose is on. The gate — not the bind
+// address — is the security boundary.
 //
-//  1. The remote-control middleware (withRemoteControlGate) is the actual
-//     security boundary — it returns 403 on every non-loopback request
-//     when cfg.UI.PasswordHash is empty, and gates with HTTP Basic auth
-//     when set. The gate already enforces "loopback only" semantics
-//     regardless of where the TCP connection arrives.
-//  2. The lerd.localhost nginx vhost reverse-proxies static assets back
-//     to lerd-ui via host.containers.internal:7073 — that path goes
-//     through the podman bridge gateway, NOT loopback, so binding
-//     127.0.0.1 here would break the vhost.
-//
-// In short: the bind address is not the security boundary; the gate is.
+// lerd-ui ALSO listens on a unix socket at config.UISocketPath() for the
+// lerd.localhost nginx vhost. Bind-mounting a socket into lerd-nginx is more
+// reliable than reaching the host over TCP via host.containers.internal,
+// which depends on netavark / pasta / rootless routing wiring up 169.254.1.2
+// (something that differs across podman versions and breaks silently).
 const listenAddr = "0.0.0.0:7073"
+
+// ctxKeyUnixSocket marks HTTP requests that arrived over the unix socket
+// listener. These are treated as loopback by isLoopbackRequest since only
+// processes with filesystem access to the socket can connect.
+type ctxKeyUnixSocket struct{}
 
 var knownServices = siteinfo.KnownServices
 
@@ -266,8 +268,40 @@ func Start(currentVersion string) error {
 		w.Write(indexHTML) //nolint:errcheck
 	})
 
+	handler := withRemoteControlGate(mux)
+
+	// Unix socket listener for the lerd.localhost nginx vhost. Errors here
+	// are non-fatal — if the socket can't be created, lerd.localhost won't
+	// work but direct http://localhost:7073 access still does.
+	if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+		fmt.Printf("[WARN] creating %s: %v — lerd.localhost vhost will not work\n", config.RunDir(), err)
+	} else {
+		sockPath := config.UISocketPath()
+		_ = os.Remove(sockPath)
+		unixLn, err := net.Listen("unix", sockPath)
+		if err != nil {
+			fmt.Printf("[WARN] binding %s: %v — lerd.localhost vhost will not work\n", sockPath, err)
+		} else {
+			if err := os.Chmod(sockPath, 0660); err != nil {
+				fmt.Printf("[WARN] chmod %s: %v\n", sockPath, err)
+			}
+			unixSrv := &http.Server{
+				Handler: handler,
+				ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
+					return context.WithValue(ctx, ctxKeyUnixSocket{}, true)
+				},
+			}
+			go func() {
+				fmt.Printf("Lerd UI listening on unix:%s\n", sockPath)
+				if err := unixSrv.Serve(unixLn); err != nil && err != http.ErrServerClosed {
+					fmt.Printf("[WARN] unix socket server exited: %v\n", err)
+				}
+			}()
+		}
+	}
+
 	fmt.Printf("Lerd UI listening on http://%s\n", listenAddr)
-	return http.ListenAndServe(listenAddr, withRemoteControlGate(mux))
+	return http.ListenAndServe(listenAddr, handler)
 }
 
 var allowedCORSOrigins = map[string]bool{

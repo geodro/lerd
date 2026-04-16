@@ -545,3 +545,28 @@ func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 		t.Errorf("expected error page at %s", errorPage)
 	}
 }
+
+func TestEnsureLerdVhost_proxiesUnixSocket(t *testing.T) {
+	confD := setupConfD(t)
+	if err := EnsureLerdVhost(); err != nil {
+		t.Fatalf("EnsureLerdVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
+
+	// The vhost MUST proxy via the unix socket and MUST NOT mention
+	// host.containers.internal. Reaching the host over TCP via netavark's
+	// 169.254.1.2 alias is the failure mode this fix removes; if a future
+	// refactor reintroduces it, this test catches the regression.
+	want := "proxy_pass http://unix:" + config.UISocketPath()
+	if !strings.Contains(content, want) {
+		t.Errorf("expected %q in vhost, got:\n%s", want, content)
+	}
+	if strings.Contains(content, "host.containers.internal") {
+		t.Errorf("vhost still references host.containers.internal:\n%s", content)
+	}
+
+	// /api/* must remain closed — the dashboard JS hits :7073 directly.
+	if !strings.Contains(content, "return 444") {
+		t.Errorf("expected catch-all 'return 444' in:\n%s", content)
+	}
+}

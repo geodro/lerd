@@ -723,22 +723,14 @@ func writeErrorPages() error {
 // which reverse-proxies to the lerd-ui process running on the host so the
 // browser's URL bar stays on lerd.localhost (no redirect to localhost:7073).
 //
-// Background: lerd-nginx runs in a rootless podman bridge, so any outbound
-// connection it makes to a host service arrives with a non-loopback source
-// IP (the bridge gateway, e.g. 10.89.7.1). Without further context, lerd-ui
-// cannot tell a legitimate proxy hop from this vhost apart from a LAN
-// attacker hitting http://server-ip:7073 directly.
-//
-// We bridge that gap with a per-install random trust token (see
-// trust_token.go) injected via `proxy_set_header X-Lerd-Trust <token>;`.
-// Two properties make this safe against header injection:
-//
-//  1. `proxy_set_header` REPLACES any client-supplied X-Lerd-Trust value,
-//     so a LAN attacker who sets the header in their own request has it
-//     overwritten by nginx before it reaches lerd-ui. The only header value
-//     that ever reaches lerd-ui is the legitimate one nginx put there.
-//  2. The token lives in ~/.local/share/lerd/nginx-trust-token with mode
-//  0600. An off-host attacker cannot read it.
+// The proxy hop uses a unix domain socket (config.UISocketPath()) bind-mounted
+// from the host into lerd-nginx. This avoids container → host TCP routing,
+// which depends on netavark / pasta / rootless wiring up host.containers.internal
+// (169.254.1.2) and silently breaks across podman versions and host network
+// changes. Unix sockets only require filesystem access, which the bind mount
+// provides directly. lerd-ui marks all socket-arriving requests as loopback
+// inside isLoopbackRequest, so the gate behaves identically to a direct
+// http://localhost:7073 visit.
 //
 // .localhost is RFC 6761 reserved and always resolves to the visiting
 // device's loopback, so this vhost is unreachable from a LAN browser doing
@@ -749,55 +741,35 @@ func EnsureLerdVhost() error {
 		return err
 	}
 
-	token, err := LoadOrGenerateTrustToken()
-	if err != nil {
-		return fmt.Errorf("loading trust token: %w", err)
-	}
-
 	// This vhost serves ONLY static dashboard assets (HTML, icons, manifest).
 	// /api/* is intentionally NOT proxied — clients must hit lerd-ui on
-	// :7073 directly, where loopback enforcement actually works. The
-	// dashboard JavaScript detects when it was loaded from lerd.localhost
-	// and rewrites all API/EventSource calls to absolute http://localhost:7073
-	// URLs, which the browser sends directly over loopback (bypassing nginx
-	// and the auth gate via the loopback peer check).
-	//
-	// host.containers.internal is podman's standard alias for the host
-	// gateway from inside a rootless container. lerd-ui binds 0.0.0.0:7073
-	// so it's reachable via that path. The X-Lerd-Trust header injected
-	// below identifies the static-asset proxy hop as a legitimate nginx
-	// request so lerd-ui's gate serves the HTML — it does NOT grant the
-	// proxied request access to /api/* because nginx returns 444 for any
-	// path outside the explicit static allowlist before it ever reaches
-	// the proxy.
+	// :7073 directly. The dashboard JavaScript detects when it was loaded
+	// from lerd.localhost and rewrites all API/EventSource calls to absolute
+	// http://localhost:7073 URLs, which the browser sends directly over
+	// loopback.
 	content := fmt.Sprintf(`server {
     listen 80;
     server_name lerd.localhost;
 
-    # Shared proxy settings for the static asset locations below.
-    # Trust token (X-Lerd-Trust) identifies this hop as nginx-on-the-host
-    # so lerd-ui's gate serves the asset; proxy_set_header OVERWRITES any
-    # client-supplied value, so a LAN attacker cannot inject it.
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Lerd-Trust %s;
 
     # The HTML shell.
     location = / {
-        proxy_pass http://host.containers.internal:7073;
+        proxy_pass http://unix:%[1]s:;
     }
 
     # Embedded SVG/PNG icons used by the dashboard and the PWA manifest.
     location ^~ /icons/ {
-        proxy_pass http://host.containers.internal:7073;
+        proxy_pass http://unix:%[1]s:$request_uri;
     }
 
     # The PWA manifest.
     location = /manifest.webmanifest {
-        proxy_pass http://host.containers.internal:7073;
+        proxy_pass http://unix:%[1]s:$request_uri;
     }
 
     # Everything else (notably /api/*) is closed. Clients must reach
@@ -807,7 +779,7 @@ func EnsureLerdVhost() error {
         return 444;
     }
 }
-`, token)
+`, config.UISocketPath())
 	return os.WriteFile(filepath.Join(config.NginxConfD(), "lerd.localhost.conf"), []byte(content), 0644)
 }
 
