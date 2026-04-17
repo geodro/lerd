@@ -106,3 +106,50 @@ func StripV(v string) string {
 	}
 	return v
 }
+
+// StripGitDescribe removes git-describe suffixes like "-dirty" or "-5-gabcdef"
+// while preserving semver pre-release tags like "-beta.1" or "-rc.1".
+// Git-describe suffixes contain a commit hash segment starting with "g".
+func StripGitDescribe(v string) string {
+	for {
+		i := strings.LastIndexByte(v, '-')
+		if i < 0 {
+			break
+		}
+		suffix := v[i+1:]
+		if suffix == "dirty" {
+			v = v[:i]
+			continue
+		}
+		// Git describe hash segment: g followed by hex chars.
+		// Also strip the preceding commit-count segment (e.g. "-5-gabcdef").
+		if len(suffix) > 1 && suffix[0] == 'g' && isHex(suffix[1:]) {
+			v = v[:i]
+			// Now check if the new last segment is a numeric commit count.
+			if j := strings.LastIndexByte(v, '-'); j >= 0 && isNumeric(v[j+1:]) {
+				v = v[:j]
+			}
+			continue
+		}
+		break
+	}
+	return v
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}

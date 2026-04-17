@@ -5,12 +5,15 @@ const OG_IMAGE = `${SITE_URL}/assets/social-preview.png`
 
 export default defineConfig({
   title: 'Lerd',
-  description: 'Open-source Herd-like local PHP development environment for Linux. Automatic .test domains, PHP 8.2–8.4, rootless Podman. Works on Ubuntu, Fedora, Arch, and Debian.',
+  description: 'Open-source Herd-like local PHP development environment for Linux. Automatic .test domains, PHP 8.2–8.5, rootless Podman. Works on Ubuntu, Fedora, Arch, and Debian.',
   base: '/lerd/',
   cleanUrls: true,
 
   sitemap: {
     hostname: SITE_URL,
+    transformItems(items) {
+      return items.map(item => ({ ...item, url: `lerd/${item.url}` }))
+    },
   },
 
   head: [
@@ -72,6 +75,7 @@ export default defineConfig({
             { text: 'Laravel', link: '/getting-started/laravel' },
             { text: 'Symfony', link: '/getting-started/symfony' },
             { text: 'WordPress', link: '/getting-started/wordpress' },
+            { text: 'Containers (Node, Python, Go, …)', link: '/getting-started/containers' },
           ],
         },
         {
@@ -83,34 +87,70 @@ export default defineConfig({
       ],
       '/usage/': [
         {
-          text: 'Usage',
+          text: 'Lifecycle',
           items: [
             { text: 'Start, Stop & Autostart', link: '/usage/lifecycle' },
+          ],
+        },
+        {
+          text: 'Sites & Runtimes',
+          items: [
             { text: 'Site Management', link: '/usage/sites' },
             { text: 'PHP', link: '/usage/php' },
             { text: 'Node', link: '/usage/node' },
+            { text: 'Custom Containers', link: '/usage/custom-containers' },
+          ],
+        },
+        {
+          text: 'Services & Data',
+          items: [
             { text: 'Services', link: '/usage/services' },
+            { text: 'Service presets', link: '/usage/service-presets' },
+            { text: 'Custom services', link: '/usage/custom-services' },
             { text: 'Database', link: '/usage/database' },
-            { text: 'Importing from Sail', link: '/usage/import-sail' },
-            { text: 'Frameworks & Workers', link: '/usage/frameworks' },
+          ],
+        },
+        {
+          text: 'Frameworks & Workers',
+          items: [
+            { text: 'Frameworks', link: '/usage/frameworks' },
+            { text: 'Framework Workers', link: '/usage/framework-workers' },
+            { text: 'Framework Definitions', link: '/usage/framework-definitions' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
             { text: 'Browser Testing', link: '/usage/browser-testing' },
+          ],
+        },
+        {
+          text: 'Integrations & Migration',
+          items: [
             { text: 'Stripe', link: '/usage/stripe' },
+            { text: 'LAN sharing', link: '/usage/lan-sharing' },
             { text: 'Remote / LAN Development', link: '/usage/remote-development' },
+            { text: 'Importing from Sail', link: '/usage/import-sail' },
           ],
         },
       ],
       '/features/': [
         {
-          text: 'Features',
+          text: 'UI & AI',
           items: [
             { text: 'Web UI', link: '/features/web-ui' },
             { text: 'System Tray', link: '/features/system-tray' },
-            { text: 'HTTPS / TLS', link: '/features/https' },
-            { text: 'Git Worktrees', link: '/features/git-worktrees' },
+            { text: 'AI Integration (MCP)', link: '/features/mcp' },
+          ],
+        },
+        {
+          text: 'Project lifecycle',
+          items: [
             { text: 'Project Setup', link: '/features/project-setup' },
             { text: 'Environment Setup', link: '/features/env-setup' },
-            { text: 'AI Integration (MCP)', link: '/features/mcp' },
+          ],
+        },
+        {
+          text: 'Networking',
+          items: [
+            { text: 'HTTPS / TLS', link: '/features/https' },
+            { text: 'Git Worktrees', link: '/features/git-worktrees' },
           ],
         },
       ],
@@ -120,8 +160,18 @@ export default defineConfig({
           items: [
             { text: 'Command Reference', link: '/reference/commands' },
             { text: 'Configuration', link: '/reference/configuration' },
+          ],
+        },
+        {
+          text: 'Internals',
+          items: [
             { text: 'Directory Layout', link: '/reference/directory-layout' },
             { text: 'Architecture', link: '/reference/architecture' },
+          ],
+        },
+        {
+          text: 'Help',
+          items: [
             { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },
@@ -132,8 +182,18 @@ export default defineConfig({
           items: [
             { text: 'Command Reference', link: '/reference/commands' },
             { text: 'Configuration', link: '/reference/configuration' },
+          ],
+        },
+        {
+          text: 'Internals',
+          items: [
             { text: 'Directory Layout', link: '/reference/directory-layout' },
             { text: 'Architecture', link: '/reference/architecture' },
+          ],
+        },
+        {
+          text: 'Help',
+          items: [
             { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },

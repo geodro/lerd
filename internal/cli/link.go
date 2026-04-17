@@ -129,6 +129,29 @@ func runLink(args []string) error {
 	warnFilteredDomains(removed)
 	domains = kept
 
+	// Custom container path: the project defines its own Containerfile and
+	// nginx reverse-proxies to it. Skip PHP/framework detection entirely.
+	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
+		secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
+		site := config.Site{
+			Name:          name,
+			Domains:       domains,
+			Path:          cwd,
+			Secured:       secured,
+			ContainerPort: proj.Container.Port,
+			ContainerSSL:  proj.Container.SSL,
+		}
+		if err := config.AddSite(site); err != nil {
+			return fmt.Errorf("registering site: %w", err)
+		}
+		_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
+		if err := siteops.FinishCustomLink(site, proj.Container); err != nil {
+			return err
+		}
+		fmt.Printf("Linked: %s -> %s (custom container, port %d)\n", name, strings.Join(domains, ", "), proj.Container.Port)
+		return linkApplyServices(cwd, proj)
+	}
+
 	framework, ok := resolveFramework(cwd)
 	detectedPublicDir := ""
 	if !ok {
@@ -163,7 +186,7 @@ func runLink(args []string) error {
 		}
 	}
 
-	secured := siteops.CleanupRelink(cwd, name)
+	secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
 
 	site := config.Site{
 		Name:        name,
@@ -246,61 +269,68 @@ func runLink(args []string) error {
 			}
 		}
 
-		for _, svc := range proj.Services {
-			// Preset reference: install the bundled preset locally if the
-			// teammate's machine does not have it yet, so the project is
-			// portable across machines without inlining the definition.
-			if svc.Preset != "" {
-				if _, err := config.LoadCustomService(svc.Name); err != nil {
-					fmt.Printf("  Installing preset %s%s\n", svc.Preset, presetVersionSuffix(svc.PresetVersion))
-					if _, err := InstallPresetByName(svc.Preset, svc.PresetVersion); err != nil {
-						fmt.Printf("[WARN] installing preset %s: %v\n", svc.Preset, err)
-						continue
-					}
-				}
-			} else if svc.Custom != nil {
-				svc.Custom.Name = svc.Name
-				existing, loadErr := config.LoadCustomService(svc.Name)
-				shouldSave := true
-				if loadErr == nil {
-					action, err := confirmReplace("service", svc.Name, existing, svc.Custom)
-					if err != nil {
-						return err
-					}
-					switch action {
-					case replaceFromProject:
-						shouldSave = true
-					case replaceFromDisk:
-						svc.Custom = existing
-						shouldSave = false
-						// Update .lerd.yaml so the diff doesn't recur on next link.
-						if p, _ := config.LoadProjectConfig(cwd); p != nil {
-							for i, s := range p.Services {
-								if s.Name == svc.Name {
-									p.Services[i].Custom = existing
-									_ = config.SaveProjectConfig(cwd, p)
-									break
-								}
-							}
-						}
-					default:
-						shouldSave = false
-					}
-				}
-				if shouldSave {
-					if err := config.SaveCustomService(svc.Custom); err != nil {
-						fmt.Printf("[WARN] registering service %s: %v\n", svc.Name, err)
-						continue
-					}
-				}
-			}
-			if err := ensureServiceRunning(svc.Name); err != nil {
-				fmt.Printf("[WARN] service %s: %v\n", svc.Name, err)
-			}
+		if err := linkApplyServices(cwd, proj); err != nil {
+			return err
 		}
-
 	}
 
+	return nil
+}
+
+// linkApplyServices installs and starts services declared in .lerd.yaml.
+// Shared by both the standard PHP link path and the custom container path.
+func linkApplyServices(cwd string, proj *config.ProjectConfig) error {
+	if proj == nil {
+		return nil
+	}
+	for _, svc := range proj.Services {
+		if svc.Preset != "" {
+			if _, err := config.LoadCustomService(svc.Name); err != nil {
+				fmt.Printf("  Installing preset %s%s\n", svc.Preset, presetVersionSuffix(svc.PresetVersion))
+				if _, err := InstallPresetByName(svc.Preset, svc.PresetVersion); err != nil {
+					fmt.Printf("[WARN] installing preset %s: %v\n", svc.Preset, err)
+					continue
+				}
+			}
+		} else if svc.Custom != nil {
+			svc.Custom.Name = svc.Name
+			existing, loadErr := config.LoadCustomService(svc.Name)
+			shouldSave := true
+			if loadErr == nil {
+				action, err := confirmReplace("service", svc.Name, existing, svc.Custom)
+				if err != nil {
+					return err
+				}
+				switch action {
+				case replaceFromProject:
+					shouldSave = true
+				case replaceFromDisk:
+					svc.Custom = existing
+					shouldSave = false
+					if p, _ := config.LoadProjectConfig(cwd); p != nil {
+						for i, s := range p.Services {
+							if s.Name == svc.Name {
+								p.Services[i].Custom = existing
+								_ = config.SaveProjectConfig(cwd, p)
+								break
+							}
+						}
+					}
+				default:
+					shouldSave = false
+				}
+			}
+			if shouldSave {
+				if err := config.SaveCustomService(svc.Custom); err != nil {
+					fmt.Printf("[WARN] registering service %s: %v\n", svc.Name, err)
+					continue
+				}
+			}
+		}
+		if err := ensureServiceRunning(svc.Name); err != nil {
+			fmt.Printf("[WARN] service %s: %v\n", svc.Name, err)
+		}
+	}
 	return nil
 }
 

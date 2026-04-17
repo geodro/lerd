@@ -23,7 +23,7 @@
 | `lerd about` | Show version, build info, and project URL |
 | `lerd man [page]` | Browse the built-in documentation in the terminal; pass a page name to jump directly (e.g. `lerd man sites`) |
 | `lerd check` | Validate `.lerd.yaml` syntax, services, and PHP version before setup |
-| `lerd doctor` | Full environment diagnostic — podman, systemd, DNS, ports, PHP images, config validity |
+| `lerd doctor` | Full environment diagnostic: podman, systemd, DNS, ports, PHP images, config validity |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 
 ## Project creation
@@ -38,13 +38,13 @@
 
 | Command | Description |
 |---|---|
-| `lerd init` | Wizard: choose PHP version, HTTPS, and services → save `.lerd.yaml` → apply |
+| `lerd init` | Wizard: choose PHP version, HTTPS, and services, save `.lerd.yaml`, apply |
 | `lerd init --fresh` | Re-run the wizard with existing `.lerd.yaml` values as defaults |
-| `lerd setup` | Bootstrap a project — runs the lerd init wizard first, then a checkbox list of steps |
+| `lerd setup` | Bootstrap a project: runs the lerd init wizard first, then a checkbox list of steps |
 | `lerd setup --all` | Run init (or apply saved `.lerd.yaml`) and all steps without prompting (useful in CI) |
 | `lerd setup --skip-open` | Same as above but don't open the browser at the end |
 
-Setup steps include common tasks (composer install, npm install, lerd env) plus framework-specific commands defined in the framework's `setup` field (e.g. migrations, storage links). See [Frameworks & Workers](/usage/frameworks) for how to define custom setup commands.
+Setup steps include common tasks (composer install, npm install, lerd env) plus framework-specific commands defined in the framework's `setup` field (e.g. migrations, storage links). See [Framework definitions](/usage/framework-definitions) for how to define custom setup commands.
 
 ## Site management
 
@@ -52,17 +52,19 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 |---|---|
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
-| `lerd link [name]` | Register the current directory as a site; prompts to import data when `laravel/sail` is detected in `composer.json` |
+| `lerd link [name]` | Register the current directory as a site; prompts to import data when `laravel/sail` is detected in `composer.json`. **Non-PHP projects** (Node.js, Python, Go, etc.) must have `Containerfile.lerd` and `.lerd.yaml` with `container: {port: N}` already written before calling this, see [Custom Containers](../usage/custom-containers.md) |
 | `lerd link [name] --domain foo.test` | Register with a custom domain |
 | `lerd unlink [name]` | Stop serving the site |
 | `lerd sites` | Table view of all registered sites |
 | `lerd open [name]` | Open the site in the default browser |
 | `lerd share [name]` | Expose the site publicly via ngrok, cloudflared, or Expose (auto-detected) |
-| `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS — updates `APP_URL` in `.env` |
-| `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
-| `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
-| `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
-| `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run |
+| `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS, updates `APP_URL` in `.env` |
+| `lerd unsecure [name]` | Remove TLS and switch back to HTTP, updates `APP_URL` in `.env` |
+| `lerd pause [name]` | Pause a site: stop workers (and custom container if applicable), replace vhost with landing page |
+| `lerd unpause [name]` | Resume a paused site: start container, restore vhost, restart workers |
+| `lerd restart [name]` | Restart the container for the current or named site (custom container or PHP-FPM) |
+| `lerd rebuild [name]` | Rebuild the custom container image from Containerfile and restart |
+| `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run (skipped if lerd has already written to the file) |
 | `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 
@@ -75,15 +77,15 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd lan:share` | Start a LAN reverse proxy for the current site on a stable port; prints the URL and a QR code |
 | `lerd lan:unshare` | Stop LAN sharing for the current site and release its port |
 
-The proxy runs inside the lerd daemon (`lerd-ui`) — no external tool needed and no internet access required. Any device on the same network can reach the site at `http://<your-LAN-IP>:<port>` without configuring DNS. The assigned port is stored in `sites.yaml` and reused across restarts. The proxy rewrites the Host header so nginx routes correctly, and rewrites absolute URLs in HTML/CSS/JS responses so asset and redirect URLs point to the LAN address instead of the `.test` domain. See [LAN sharing](/usage/remote-development#lan-sharing-per-site) for details.
+The proxy runs inside the lerd daemon (`lerd-ui`), no external tool needed and no internet access required. Any device on the same network can reach the site at `http://<your-LAN-IP>:<port>` without configuring DNS. The assigned port is stored in `sites.yaml` and reused across restarts. The proxy rewrites the Host header so nginx routes correctly, and rewrites absolute URLs in HTML/CSS/JS responses so asset and redirect URLs point to the LAN address instead of the `.test` domain. See [LAN sharing](/usage/lan-sharing) for details.
 
-`lerd share` (without `lan:`) is different — it wraps an external tunnel tool (ngrok/cloudflared/Expose/SSH) to expose the site to the **public internet**.
+`lerd share` (without `lan:`) is different: it wraps an external tunnel tool (ngrok/cloudflared/Expose/SSH) to expose the site to the **public internet**.
 
 ### Full LAN exposure (all sites, DNS-based)
 
 | Command | Description |
 |---|---|
-| `lerd lan:expose` | Expose all lerd services to the LAN — binds nginx to `0.0.0.0`, starts the DNS forwarder |
+| `lerd lan:expose` | Expose all lerd services to the LAN: binds nginx to `0.0.0.0`, starts the DNS forwarder |
 | `lerd lan:unexpose` | Restrict everything back to `127.0.0.1` |
 | `lerd lan:status` | Show whether lerd is currently exposed to the local network |
 
@@ -94,7 +96,7 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | Command | Description |
 |---|---|
 | `lerd use <version>` | Set the global PHP version and build the FPM image if needed |
-| `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` and updates `.lerd.yaml` if present, then re-links |
+| `lerd isolate <version>` | Pin PHP version for cwd: writes `.php-version` and updates `.lerd.yaml` if present, then re-links |
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images (pulls pre-built base by default; `--local` builds from source) |
 | `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io for the given (or all supported) versions; `--local` builds from source instead |
@@ -113,7 +115,7 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | `lerd node:install <version>` | Install a Node.js version globally via fnm |
 | `lerd node:uninstall <version>` | Uninstall a Node.js version via fnm |
 | `lerd node:use <version>` | Set the default Node.js version |
-| `lerd isolate:node <version>` | Pin Node version for cwd — writes `.node-version`, runs `fnm install` |
+| `lerd isolate:node <version>` | Pin Node version for cwd: writes `.node-version`, runs `fnm install` |
 | `lerd node [args...]` | Run `node` using the project's pinned version via fnm |
 | `lerd npm [args...]` | Run `npm` using the project's pinned Node version via fnm |
 | `lerd npx [args...]` | Run `npx` using the project's pinned Node version via fnm |
@@ -149,7 +151,7 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | Command | Description |
 |---|---|
 | `lerd import sail` | Import database and S3/MinIO files from a Laravel Sail project into lerd |
-| `lerd sail import` | Alias — natural order when already in a Sail project (`lerd sail <anything-else>` proxies to `vendor/bin/sail`) |
+| `lerd sail import` | Alias, natural order when already in a Sail project (`lerd sail <anything-else>` proxies to `vendor/bin/sail`) |
 | `lerd import sail --skip-s3` | Import database only, skip S3/MinIO file mirroring |
 | `lerd import sail --no-stop` | Leave Sail running after import completes |
 | `lerd import sail --sail-db-name <name>` | Override the Sail-side database name (auto-detected by default) |
@@ -165,7 +167,7 @@ See [Importing from Laravel Sail](/usage/import-sail) for full documentation.
 
 ## Horizon
 
-For projects that use `laravel/horizon` — lerd detects it automatically from `composer.json`.
+For projects that use `laravel/horizon`, lerd detects it automatically from `composer.json`.
 
 | Command | Description |
 |---|---|
@@ -174,7 +176,7 @@ For projects that use `laravel/horizon` — lerd detects it automatically from `
 
 ## Reverb
 
-Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with the `laravel/reverb` package — lerd detects it automatically from `composer.json`.
+Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with the `laravel/reverb` package, lerd detects it automatically from `composer.json`.
 
 | Command | Description |
 |---|---|
@@ -216,7 +218,7 @@ Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with
 | Command | Description |
 |---|---|
 | `lerd console [args...]` | Run the framework's console command (e.g., `php artisan` for Laravel, `php bin/console` for Symfony) inside the project's PHP-FPM container |
-| `lerd artisan [args...]` | Alias for `lerd console` — equivalent to `php artisan` since the `php` shim also runs inside the FPM container |
+| `lerd artisan [args...]` | Alias for `lerd console`, equivalent to `php artisan` since the `php` shim also runs inside the FPM container |
 | `lerd a [args...]` | Short alias for `lerd console` / `lerd artisan` |
 | `lerd test [args...]` | Shortcut for `lerd artisan test` |
 | `lerd <vendor-bin> [args...]` | Run any composer-installed binary from the project's `vendor/bin` directory (e.g. `lerd pest`, `lerd pint`, `lerd phpstan`). Real lerd commands always win over vendor binaries with the same name. |
@@ -226,7 +228,7 @@ Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with
 
 | Command | Description |
 |---|---|
-| `lerd mcp:enable-global` | Register lerd MCP at user scope — available in every Claude Code session regardless of directory |
+| `lerd mcp:enable-global` | Register lerd MCP at user scope, available in every Claude Code session regardless of directory |
 | `lerd mcp:inject` | Inject the lerd MCP config and AI skill files into the current project |
 | `lerd mcp:inject --path <dir>` | Inject into a specific project directory |
 

@@ -1,6 +1,6 @@
 # Git Worktrees
 
-Lerd automatically detects [git worktrees](https://git-scm.com/docs/git-worktree) and gives each checkout its own subdomain — no configuration needed.
+Lerd automatically detects [git worktrees](https://git-scm.com/docs/git-worktree) and gives each checkout its own subdomain, no configuration needed.
 
 ```bash
 cd ~/Lerd/myapp
@@ -64,8 +64,8 @@ Worktrees are shown indented under their parent site:
 
 ```
 NAME            DOMAIN                   PHP    NODE   TLS   PATH
-myapp           myapp.test               8.4    22     ✓     ~/Lerd/myapp
-↳ feature-auth  feature-auth.myapp.test  8.4    —      —     ~/Lerd/myapp-feature
+myapp           myapp.test               8.5    22     ✓     ~/Lerd/myapp
+↳ feature-auth  feature-auth.myapp.test  8.5    -      -     ~/Lerd/myapp-feature
 ```
 
 ---

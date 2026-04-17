@@ -42,7 +42,7 @@ lerd service start <name>
 
 Either way, the service appears in `lerd service list`, the Web UI Services panel, and `lerd start` / `lerd stop` cycles.
 
-For the full YAML schema (env vars, `depends_on`, `site_init`, `{{site}}` placeholders, etc.) see [Services reference](../usage/services.md#yaml-schema).
+For the full YAML schema (env vars, `depends_on`, `site_init`, `{{site}}` placeholders, etc.) see [Custom services reference](../usage/custom-services.md#yaml-schema).
 
 ---
 
@@ -115,7 +115,7 @@ lerd service add ~/.config/lerd/services/adminer.yaml
 lerd service start adminer
 ```
 
-Open `http://localhost:8083`. Choose the system (MySQL → host `lerd-mysql`, or PostgreSQL → host `lerd-postgres`), then user `root` / `postgres` and password `lerd`.
+Open `http://localhost:8083`. Choose the system (MySQL with host `lerd-mysql`, or PostgreSQL with host `lerd-postgres`), then user `root` / `postgres` and password `lerd`.
 
 ---
 
@@ -198,7 +198,7 @@ lerd service stop mongodb        # stop without removing
 lerd service remove mongodb      # stop + remove quadlet + delete YAML
 ```
 
-The data directory at `~/.local/share/lerd/data/<name>/` is **not** deleted by `service remove` — wipe it manually if you want a clean slate.
+The data directory at `~/.local/share/lerd/data/<name>/` is **not** deleted by `service remove`. Wipe it manually if you want a clean slate.
 
 ---
 
@@ -211,12 +211,12 @@ Three of the recipes above (`mongo` preset, `elasticsearch`, `rabbitmq`) declare
 3. Writes the resulting variables into the project's `.env`
 4. Runs `site_init.exec` inside the container (mongo preset) to create per-site databases
 
-This means installing the preset (or dropping the YAML) once is enough — every project that needs the service gets wired up automatically on `lerd env` (which `lerd init` and `lerd setup` both call).
+This means installing the preset (or dropping the YAML) once is enough, every project that needs the service gets wired up automatically on `lerd env` (which `lerd init` and `lerd setup` both call).
 
 ---
 
 ## Next steps
 
-- [Services reference](../usage/services.md) — full YAML schema, dependency rules, custom command flags, RustFS / Mailpit / Soketi / stripe-mock built-in details
-- [Configuration](../reference/configuration.md) — embedding services directly in `.lerd.yaml` so they ship with the repo
-- [AI Integration (MCP)](../features/mcp.md) — manage services from your AI assistant
+- [Services reference](../usage/services.md): full YAML schema, dependency rules, custom command flags, RustFS / Mailpit / Soketi / stripe-mock built-in details
+- [Configuration](../reference/configuration.md): embedding services directly in `.lerd.yaml` so they ship with the repo
+- [AI Integration (MCP)](../features/mcp.md): manage services from your AI assistant

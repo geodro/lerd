@@ -7,7 +7,7 @@ You've already run `lerd install` once on this machine. If not, see [Installatio
 :::
 
 ::: tip Drive it from your AI assistant
-Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool — `project_new`, `site_link`, `env_setup`, `db_create`, `secure`, `worker_start`, etc. See [AI Integration](../features/mcp.md).
+Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool: `project_new`, `site_link`, `env_setup`, `db_create`, `secure`, `worker_start`, etc. See [AI Integration](../features/mcp.md).
 :::
 
 ---
@@ -36,7 +36,7 @@ git clone git@github.com:you/myapp.git
 
 :::
 
-The `laravel new` installer walks you through starter kit, auth, and database choices interactively. `lerd new` is the framework-agnostic alternative — it runs the bare `composer create-project` so you skip the installer's prompts.
+The `laravel new` installer walks you through starter kit, auth, and database choices interactively. `lerd new` is the framework-agnostic alternative: it runs the bare `composer create-project` so you skip the installer's prompts.
 
 ---
 
@@ -47,7 +47,7 @@ cd myapp
 lerd link
 ```
 
-`lerd link` registers `myapp` and assigns it `http://myapp.test` automatically. No `/etc/hosts` edits — DNS is handled by the lerd dnsmasq container.
+`lerd link` registers `myapp` and assigns it `http://myapp.test` automatically. No `/etc/hosts` edits, DNS is handled by the lerd dnsmasq container.
 
 ::: info Already parked?
 If `~/Lerd` was registered with `lerd park ~/Lerd` earlier, every subdirectory under it is auto-linked. You can skip `lerd link` entirely.
@@ -64,7 +64,7 @@ lerd init
 ```
 
 ```
-? PHP version: 8.4
+? PHP version: 8.5
 ? Node version (leave blank to skip): 22
 ? Enable HTTPS? Yes
 ? Database: MySQL (lerd-mysql)
@@ -78,7 +78,7 @@ machine: SQLite, the built-in MySQL and PostgreSQL, plus any preset
 alternates you've installed (e.g. `MySQL 5.7 (lerd-mysql-5-7)`,
 `MariaDB 11 (lerd-mariadb-11)`, `MongoDB (lerd-mongo)`). Pick the version
 that matches production. The **Services** multi-select hides admin UIs like
-phpMyAdmin / pgAdmin / Mongo Express — those are global developer tools, not
+phpMyAdmin / pgAdmin / Mongo Express; those are global developer tools, not
 project services, so they don't belong in `.lerd.yaml`.
 
 The wizard writes everything to `.lerd.yaml` in the project root. Services
@@ -92,7 +92,7 @@ services:
   - redis
 ```
 
-Commit that file — on any other machine, `lerd link` reads it, installs the
+Commit that file; on any other machine, `lerd link` reads it, installs the
 referenced preset locally if it isn't already, and restores the same setup
 without re-running the wizard.
 
@@ -146,7 +146,7 @@ You should see `myapp` listed as `active`, the configured services running, and 
 | Command | What it did |
 |---|---|
 | `lerd link` | Registered `myapp.test` with nginx + dnsmasq |
-| `lerd init` | Wrote `.lerd.yaml` with PHP 8.4, Node 22, MySQL, Redis, Mailpit, queue, schedule |
+| `lerd init` | Wrote `.lerd.yaml` with PHP 8.5, Node 22, MySQL, Redis, Mailpit, queue, schedule |
 | `lerd env` (via setup) | Injected `DB_HOST=lerd-mysql`, `REDIS_HOST=lerd-redis`, `MAIL_HOST=lerd-mailpit` into `.env` |
 | `lerd db:create` (via env) | Created `myapp` and `myapp_testing` databases |
 | `lerd secure` (via setup) | Issued an mkcert cert, switched the vhost to HTTPS, set `APP_URL=https://myapp.test` |
@@ -166,9 +166,9 @@ lerd worker start reverb
 
 ## Next steps
 
-- [Frameworks & Workers](../usage/frameworks.md) — add Horizon, Pulse, or other custom workers
-- [Database](../usage/database.md) — `lerd db:import`, `lerd db:shell`, switching engines
-- [Services](../usage/services.md) — start Meilisearch, RustFS (S3), Postgres, custom services
-- [Browser Testing](../usage/browser-testing.md) — run Laravel Dusk with Selenium, no local Chrome needed
-- [HTTPS](../features/https.md) — wildcard certs for git worktrees
-- [AI Integration (MCP)](../features/mcp.md) — drive lerd from Claude Code, Cursor, etc.
+- [Frameworks & Workers](../usage/frameworks.md): add Horizon, Pulse, or other custom workers
+- [Database](../usage/database.md): `lerd db:import`, `lerd db:shell`, switching engines
+- [Services](../usage/services.md): start Meilisearch, RustFS (S3), Postgres, custom services
+- [Browser Testing](../usage/browser-testing.md): run Laravel Dusk with Selenium, no local Chrome needed
+- [HTTPS](../features/https.md): wildcard certs for git worktrees
+- [AI Integration (MCP)](../features/mcp.md): drive lerd from Claude Code, Cursor, etc.

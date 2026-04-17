@@ -39,6 +39,7 @@ func quadletImage(unit string) string {
 // builds or pulls any that are missing, using the parallel spinner UI.
 func ensureImages() {
 	units := append(coreUnits(), installedServiceUnits()...)
+	units = append(units, installedCustomContainerUnits()...)
 	var jobs []BuildJob
 	seen := map[string]bool{}
 
@@ -85,6 +86,25 @@ func ensureImages() {
 			jobs = append(jobs, BuildJob{
 				Label: "PHP " + v,
 				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(v, false, w) },
+			})
+
+		case strings.HasPrefix(img, "lerd-custom-") && strings.HasSuffix(img, ":local"):
+			// Rebuild custom container from the site's Containerfile.
+			siteName := strings.TrimSuffix(strings.TrimPrefix(img, "lerd-custom-"), ":local")
+			sn := siteName
+			jobs = append(jobs, BuildJob{
+				Label: "Custom: " + sn,
+				Run: func(w io.Writer) error {
+					site, err := config.FindSite(sn)
+					if err != nil {
+						return err
+					}
+					proj, err := config.LoadProjectConfig(site.Path)
+					if err != nil {
+						return err
+					}
+					return podman.BuildCustomImageTo(sn, site.Path, proj.Container, w)
+				},
 			})
 
 		default:
@@ -178,6 +198,30 @@ func coreUnits() []string {
 		}
 		short := strings.ReplaceAll(v, ".", "")
 		units = append(units, "lerd-php"+short+"-fpm")
+	}
+	return units
+}
+
+// installedCustomContainerUnits returns units for per-project custom containers
+// that have a unit file installed (plist on macOS, quadlet on Linux).
+// These are started alongside FPM and services.
+func installedCustomContainerUnits() []string {
+	var units []string
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+	for _, site := range reg.Sites {
+		if !site.IsCustomContainer() || site.Paused {
+			continue
+		}
+		unitName := podman.CustomContainerName(site.Name)
+		// Use the platform-aware check (plist on macOS, .container quadlet on Linux)
+		// rather than podman.QuadletInstalled which only checks for .container files
+		// and always returns false on macOS where plists are used instead.
+		if services.Mgr.ContainerUnitInstalled(unitName) {
+			units = append(units, unitName)
+		}
 	}
 	return units
 }
@@ -378,6 +422,12 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if err := nginx.EnsureLerdVhost(); err != nil {
 		fmt.Printf("  WARN: lerd vhost: %v\n", err)
 	}
+	// The lerd-nginx quadlet bind-mounts RunDir so the lerd.localhost vhost
+	// can reach lerd-ui over a unix socket. The directory must exist before
+	// the container starts or podman will create it root-owned.
+	if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+		fmt.Printf("  WARN: run dir: %v\n", err)
+	}
 
 	// Refresh dnsmasq upstream config from the current system DNS before lerd-dns starts.
 	// This ensures the config reflects any DNS changes (new servers added, DHCP change)
@@ -403,9 +453,11 @@ func runStart(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Phase 1: start all infrastructure (containers, FPM, UI, watcher) before workers.
-	// Workers exec into FPM containers, so the containers must be up first.
+	// Phase 1: start all infrastructure (containers, FPM, custom containers,
+	// UI, watcher) before workers. Workers exec into containers, so they must
+	// be up first.
 	serviceUnits := append(coreUnits(), installedServiceUnits()...)
+	serviceUnits = append(serviceUnits, installedCustomContainerUnits()...)
 	serviceUnits = append(serviceUnits, "lerd-ui", "lerd-watcher")
 
 	// Phase 2: worker units that depend on running containers.
@@ -619,15 +671,33 @@ func restoreSiteInfrastructure() {
 			continue
 		}
 
-		// Restore FPM quadlet for this site's PHP version.
-		phpVer := s.PHPVersion
-		if phpVer == "" {
-			cfg, _ := config.LoadGlobal()
-			phpVer = cfg.PHP.DefaultVersion
+		// Restore custom container plist/quadlet for custom container sites.
+		// On macOS the plist lives in ~/Library/LaunchAgents; on Linux it is a
+		// systemd quadlet. After a reinstall the unit file may be gone even though
+		// the site is still registered in sites.yaml and .lerd.yaml is on disk.
+		if s.IsCustomContainer() {
+			unitName := podman.CustomContainerName(s.Name)
+			if !services.Mgr.ContainerUnitInstalled(unitName) {
+				proj, _ := config.LoadProjectConfig(s.Path)
+				if proj != nil && proj.Container != nil {
+					if err := podman.WriteCustomContainerQuadlet(s.Name, s.Path, s.ContainerPort); err != nil {
+						fmt.Printf("[WARN] restoring custom container unit for %s: %v\n", s.Name, err)
+					}
+				}
+			}
 		}
-		if phpVer != "" && !seenPHP[phpVer] {
-			seenPHP[phpVer] = true
-			ensureFPMQuadlet(phpVer) //nolint:errcheck
+
+		// Restore FPM quadlet for this site's PHP version (PHP sites only).
+		if !s.IsCustomContainer() {
+			phpVer := s.PHPVersion
+			if phpVer == "" {
+				cfg, _ := config.LoadGlobal()
+				phpVer = cfg.PHP.DefaultVersion
+			}
+			if phpVer != "" && !seenPHP[phpVer] {
+				seenPHP[phpVer] = true
+				ensureFPMQuadlet(phpVer) //nolint:errcheck
+			}
 		}
 
 		// Read .lerd.yaml for service and worker info.
@@ -758,6 +828,9 @@ func registeredFrameworkWorkerUnits() []string {
 	}
 	out := make([]string, 0)
 	for _, s := range reg.Sites {
+		if s.Ignored || s.Paused {
+			continue
+		}
 		proj, err := config.LoadProjectConfig(s.Path)
 		if err != nil || proj == nil {
 			continue
@@ -816,10 +889,12 @@ func RunQuit() error { return runQuit(nil, nil) }
 
 func runStop(_ *cobra.Command, _ []string) error {
 	units := append(coreUnits(), allInstalledServiceUnits()...)
+	units = append(units, installedCustomContainerUnits()...)
 	units = append(units, registeredQueueUnits()...)
 	units = append(units, registeredStripeUnits()...)
 	units = append(units, registeredScheduleUnits()...)
 	units = append(units, registeredReverbUnits()...)
+	units = append(units, registeredFrameworkWorkerUnits()...)
 	// Stop scheduled-worker timers explicitly. Stopping the sibling
 	// oneshot .service is a no-op (it isn't running between firings),
 	// so without this the timer keeps dispatching after `lerd stop`.
@@ -852,7 +927,7 @@ func runQuit(_ *cobra.Command, _ []string) error {
 	}
 
 	// Stop process units.
-	for _, unit := range []string{"lerd-ui", "lerd-watcher"} {
+	for _, unit := range []string{"lerd-ui", "lerd-watcher", "lerd-tray"} {
 		fmt.Printf("  --> %s ... ", unit)
 		if err := podman.StopUnit(unit); err != nil {
 			fmt.Printf("WARN (%v)\n", err)
@@ -860,10 +935,8 @@ func runQuit(_ *cobra.Command, _ []string) error {
 			fmt.Println("OK")
 		}
 	}
-
-	// Kill the tray.
+	// Also kill any directly-launched tray instance not managed by launchd/systemd.
 	killTray()
-	fmt.Println("  --> lerd-tray ... OK")
 
 	return nil
 }

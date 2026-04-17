@@ -34,7 +34,7 @@ On systems using systemd-resolved, check that the DNS configuration was applied:
 
 ```bash
 resolvectl status
-# Look for your default interface — it should show 127.0.0.1:5300 as DNS server
+# Look for your default interface, it should show 127.0.0.1:5300 as DNS server
 # and ~test as a routing domain
 ```
 :::
@@ -68,7 +68,7 @@ lerd php:rebuild
 ::: details `podman exec` fails with "chdir: No such file or directory"
 This happens when your project is outside your home directory (e.g. `/var/www/`, `/opt/projects/`). The PHP-FPM and nginx containers only mount `$HOME` by default.
 
-Lerd handles this automatically — when you `lerd link`, `lerd park`, or run any exec command (`lerd php`, `composer`, `laravel new`) from an outside path, lerd adds the volume mount and restarts the affected containers.
+Lerd handles this automatically: when you `lerd link`, `lerd park`, or run any exec command (`lerd php`, `composer`, `laravel new`) from an outside path, lerd adds the volume mount and restarts the affected containers.
 
 If you see this error on an older lerd version, update to the latest and re-link the site:
 
@@ -105,14 +105,14 @@ The watcher monitors parked directories, site config files, git worktrees, and D
 ```bash
 lerd status                            # shows watcher running/stopped
 systemctl --user start lerd-watcher   # start it from the terminal
-# or use the Start button in the UI → System → Watcher
+# or use the Start button in the UI under System > Watcher
 ```
 
 To see what the watcher is doing:
 
 ```bash
 journalctl --user -u lerd-watcher -f
-# or open the live log stream in the UI → System → Watcher
+# or open the live log stream in the UI under System > Watcher
 ```
 
 For verbose output (DEBUG level), set `LERD_DEBUG=1` in the service environment:
@@ -137,7 +137,7 @@ After installing the package, run `lerd install` again to register the CA.
 :::
 
 ::: details PHP image build is slow on first run
-lerd normally pulls a pre-built base image from ghcr.io and finishes in ~30 seconds. If you see it fall back to a local build instead, the most common cause is being logged into ghcr.io with expired or unrelated credentials — the registry rejects the authenticated request even though the image is public.
+lerd normally pulls a pre-built base image from ghcr.io and finishes in ~30 seconds. If you see it fall back to a local build instead, the most common cause is being logged into ghcr.io with expired or unrelated credentials; the registry rejects the authenticated request even though the image is public.
 
 lerd handles this automatically since v1.3.4 by always pulling anonymously. If you are on an older version, running `podman logout ghcr.io` before the build will fix it.
 :::
@@ -145,13 +145,13 @@ lerd handles this automatically since v1.3.4 by always pulling anonymously. If y
 ::: details Nginx fails to start (missing certificates)
 `lerd start` automatically detects SSL vhosts that reference missing certificate files and repairs them before starting nginx:
 
-- **Registered sites** — the site is switched back to HTTP and the vhost is regenerated. The registry is updated (`Secured = false`).
-- **Orphan SSL vhosts** — configs left behind by unlinked sites with missing certs are removed.
+- **Registered sites**: the site is switched back to HTTP and the vhost is regenerated. The registry is updated (`Secured = false`).
+- **Orphan SSL vhosts**: configs left behind by unlinked sites with missing certs are removed.
 
 Repaired items are printed as warnings during startup:
 
 ```
-  WARN: missing TLS certificate for myapp.test — switched to HTTP
+  WARN: missing TLS certificate for myapp.test, switched to HTTP
 ```
 
 To re-enable HTTPS after the automatic repair, run `lerd secure <name>`.
@@ -168,7 +168,7 @@ journalctl --user -u lerd-nginx -n 30 --no-pager
 
 ```
 Port conflicts detected:
-  WARN: port 80 (nginx HTTP) already in use — may fail to start (check: ss -tlnp sport = :80)
+  WARN: port 80 (nginx HTTP) already in use, may fail to start (check: ss -tlnp sport = :80)
 ```
 
 Common culprits are Apache, another nginx instance, or a previously running lerd that wasn't stopped cleanly. Find and stop the conflicting process:
@@ -190,7 +190,7 @@ lerd status   # shows all active workers and services
 :::
 
 ::: details Workers failing or crash-looping
-Check `lerd status` — the Workers section lists all active, restarting, or failed workers. In the web UI, failing workers show a pulsing red toggle and a **!** on their log tab.
+Check `lerd status`, the Workers section lists all active, restarting, or failed workers. In the web UI, failing workers show a pulsing red toggle and a **!** on their log tab.
 
 To inspect the error:
 
@@ -199,9 +199,9 @@ journalctl --user -u lerd-queue-my-app -f    # or lerd-horizon-my-app, lerd-sche
 ```
 
 Common causes:
-- Missing Redis when `QUEUE_CONNECTION=redis` — start it with `lerd service start redis`
-- Missing dependencies after a fresh clone — run `lerd setup` to install them
-- Bad `.env` values — run `lerd env` to reset service connection settings
+- Missing Redis when `QUEUE_CONNECTION=redis`, start it with `lerd service start redis`
+- Missing dependencies after a fresh clone, run `lerd setup` to install them
+- Bad `.env` values, run `lerd env` to reset service connection settings
 
 When you unlink a site, crash-looping workers are automatically detected and stopped.
 :::

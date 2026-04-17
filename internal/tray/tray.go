@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -414,5 +415,9 @@ func handleQuit(item *systray.MenuItem, cancel context.CancelFunc) {
 }
 
 func openURL(url string) {
-	_ = exec.Command("xdg-open", url).Start()
+	cmd := "open"
+	if runtime.GOOS == "linux" {
+		cmd = "xdg-open"
+	}
+	_ = exec.Command(cmd, url).Start()
 }

@@ -11,6 +11,64 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.15.1] — 2026-04-16
+
+### Fixed
+
+- **`lerd.localhost` 504 on rootless Linux**. The dashboard vhost reverse-proxied to `host.containers.internal:7073`, which on rootless podman setups where netavark resolves that name to `169.254.1.2` but doesn't wire up a bridge alias or DNAT for it routed packets into a dead end, and the proxy hop timed out after 60 seconds. `lerd-ui` now also binds a unix domain socket at `~/.local/share/lerd/run/lerd-ui.sock`, the `lerd-nginx` quadlet bind-mounts that path read-write, and the Linux vhost `proxy_pass`es through `http://unix:...` instead of TCP. Unix sockets depend on filesystem access, not container networking, so the dashboard no longer breaks when your netavark/pasta/rootless stack shifts between versions or your host changes networks. macOS keeps the TCP path via `host.containers.internal:7073` because unix sockets don't traverse the podman-machine virtio-fs boundary as functional sockets, and gvproxy reliably forwards that upstream there.
+- **Xdebug times out silently on rootless Linux** (same class of bug as #186). The 1.13.1 fix replaced a hardcoded `169.254.1.2` with a dynamic `getent hosts host.containers.internal` probe but still trusted whatever netavark returned without checking it actually routed. On setups where netavark gives the same 169.254.1.2 back, the fix is a no-op and Xdebug fails with `Time-out connecting to debugging client` exactly as before. `DetectHostGatewayIP` now runs a real reachability probe: from inside `lerd-nginx`, TCP-connect to lerd-ui:7073 for each candidate (getent's answer, the host's primary LAN IP, slirp4netns's `10.0.2.2`) and use the first that opens. If nothing works, fall back to the legacy constant and surface the failure in `lerd doctor` under a new `[Container → Host connectivity]` section so users get a concrete diagnosis instead of silent retries.
+- **Xdebug breaks when the laptop changes networks**. A probe at `lerd start` pins a LAN IP into `/etc/hosts`, which goes stale the moment you move from home wifi to a coffee shop or rotate DHCP. New `lerd-watcher` goroutine reprobes the host gateway on LAN change and rewrites the shared `/etc/hosts` in place, so PHP-FPM containers pick up the new address on the next `getaddrinfo` call without a container restart. Steady-state cost is near zero: a single `net.Dial("udp4", "1.1.1.1:80")` routing-table lookup per 30 s tick (never sends a packet, just reads the kernel's source IP for the default route). The expensive probe only runs when the primary LAN IP actually changes. Matters most on macOS where each `podman exec` through gvproxy costs 300 ms to 1 s, so a naive probe-every-tick design would burn 1-3 % of a core continuously on battery.
+- **Podman auto-creates a directory at missing bind-mount source paths**. When the FPM container starts before an ini file has been written, podman satisfies the `Volume=` clause by creating the source as a directory, and the next write against that path either silently no-ops (`EnsureUserIni` returned early on the `os.Stat` success without checking `IsDir`) or fails with `is a directory` (`WriteXdebugIni`, the inline hosts-file pre-create). Fix: `EnsureXdebugIni` and `WriteXdebugIni` detect a stale directory and remove it before writing; `EnsureUserIni` got the same self-heal; the inline hosts pre-create was extracted into `ensureFPMHostsFile` which normalises stale-directory, missing, and regular-file states into "regular file present"; `WriteContainerHosts` and `writeBrowserHosts` now `MkdirAll` their parent instead of assuming the data dir already exists. Scanned every `Volume=` source on the embedded FPM, nginx, and service quadlets to confirm these three file sources were the remaining ones needing pre-creation (directory-typed mounts like `data/*` and `conf.d` are safe because podman creating them is the right behaviour).
+- **Dashboard shows containers as still running after `lerd stop`**. The in-process `AfterUnitChange` hook refreshed `podman.Cache` before broadcasting, but the `/api/internal/notify` endpoint that CLI and MCP processes use to signal unit lifecycle changes only invalidated the `siteinfo` cache and published events without refreshing the container cache. Site/FPM running flags read from `podman.Cache`, so after `lerd stop` the browser kept reporting everything as up until the 15-60 s background poller next ticked. The notify handler now also calls `podman.Cache.PollNow()` in a goroutine so state flips within a second of the CLI exiting while the handler still returns under the 500 ms POST timeout.
+
+---
+
+## [1.15.0] — 2026-04-16
+
+### Added
+
+- **Per-project custom container support** (#198). Non-PHP sites (Node.js, Python, Go, Ruby, etc.) can define a `Containerfile.lerd` and a `container:` section in `.lerd.yaml`. Lerd builds a dedicated image, runs it as a named container, and nginx reverse-proxies to it. Full lifecycle: `lerd link` builds and starts, `lerd unlink` stops and cleans up (prompts to remove the image), `lerd secure`/`lerd unsecure` toggle HTTPS, `lerd pause`/`lerd unpause` stop and start the container, `lerd restart` restarts without rebuilding, `lerd rebuild` forces a fresh image build. Workers defined in `custom_workers` exec into the container. Services are reachable by name (`lerd-mysql`, `lerd-redis`, etc.) on the shared Podman network.
+- **`lerd restart` command**. Restarts the container for any site type: the per-project custom container for custom sites, or the shared PHP-FPM container for PHP sites. Also available as `site_restart` MCP tool and in the dashboard (restart icon in the site header).
+- **`lerd rebuild` command**. Rebuilds the custom container image from the Containerfile and restarts the container. Also available as `site_rebuild` MCP tool and `POST /api/sites/{domain}/rebuild` in the dashboard.
+- **`lerd init` custom container wizard**. When no PHP project is detected (no `composer.json`, no framework) and a `Containerfile.lerd` exists, the wizard switches to custom container mode and asks for the container port, containerfile path, HTTPS, and services.
+- **Containerfile MD5 caching**. `lerd link` skips the image build when the Containerfile hasn't changed since the last build. The hash is stored in `~/.local/share/lerd/container-hashes/`. `lerd rebuild` always forces a fresh build.
+- **Dashboard: custom container UI**. Container icon (cube) in the sidebar, base image badge (e.g. `node:22-alpine :3000`) instead of the PHP dropdown, "Container" logs tab, restart button, worker toggles for `custom_workers`, running/stopped status reflecting the custom container.
+- **`site_restart` and `site_rebuild` MCP tools**. Skill content updated with custom container architecture, `.lerd.yaml` reference including `container` and `custom_workers` fields, setup workflow, and env var configuration guidance.
+
+### Fixed
+
+- **Watcher overwriting custom container sites**. The site file watcher and `siteinfo.enrichVersions` no longer re-detect PHP/Node versions for custom container sites, preventing the empty values from being overwritten with defaults.
+- **Parked watcher re-registering custom containers**. `RegisterProject` now skips sites already registered as custom containers.
+- **Service auto-stop ignoring `.lerd.yaml`**. `CountSitesUsingService` and `sitesUsingService` now check `.lerd.yaml` services list in addition to `.env` scanning, preventing auto-stop of services used only by custom container sites.
+- **Domain change producing 502**. `RegenerateSiteVhost` now uses custom container vhost templates for custom sites instead of PHP templates.
+- **`lerd install`/`lerd update` overwriting custom vhosts**. The vhost regeneration during install now branches for custom container sites.
+- **`lerd start`/`lerd stop` trying to start/stop workers for ignored sites**. `registeredFrameworkWorkerUnits` now skips ignored and paused sites.
+- **`lerd pause`/`lerd unpause` not stopping/starting custom containers**. Pause now stops the custom container, unpause starts it and restores the proxy vhost.
+
+---
+
+## [1.14.1] — 2026-04-16
+
+### Fixed
+
+- **Node version dropdown missing from site rows in the dashboard**. The 1.14.0 `node_managed_by_lerd` gate was implemented as an outer `<template x-if>` wrapping two inner templates (empty-list placeholder and populated `<select>`). Alpine.js's `x-if` directive only renders a single child element, so the outer template silently rendered nothing and the Node dropdown disappeared for every site, even on machines where lerd manages Node. Flattened into two sibling templates that each include the `node_managed_by_lerd` condition inline, matching the existing PHP dropdown pattern.
+
+---
+
+## [1.14.0] — 2026-04-16
+
+### Added
+
+- **Node version management** (#191). Lerd now detects whether Node is managed by the system (distro package, nvm, fnm, mise, asdf, volta) or by lerd itself, and adapts the UI and init wizard accordingly. On machines where Node is system-managed, the dashboard shows a "system" badge next to the Node.js sidebar section, hides the per-site Node version dropdown, and the `lerd init` wizard omits the Node version input (an existing `node_version` in `.lerd.yaml` is preserved). The status API gains `node_managed_by_lerd`. Also fixes a UI regression where installing Node from the dashboard could emit a spurious "unknown version" error.
+- **Decoupled `lerd db:*` commands** (#192). `lerd db:import`, `db:export`, `db:create`, and `db:shell` now work in any project type (NestJS, Next.js, Go, Rails, etc.) without requiring a linked site or PHP-style `.env`. Resolution chain (first match wins): `--service` flag, `.lerd.yaml db:` block, framework detect rules, then generic `.env` inference (`DB_CONNECTION` / `DB_TYPE` / `TYPEORM_CONNECTION` / `DATABASE_URL` / `DB_PORT`). Credentials from `.env` are intentionally ignored, because lerd always connects via `podman exec` using the container's fixed admin credentials (`postgres/lerd` or `root/lerd`), so a mismatched `DB_USERNAME=root` against a pgsql container no longer fails with `role "root" does not exist`. `db:shell` now checks whether the target database exists and prompts to create it before opening the shell, instead of dumping a raw psql error.
+
+### Changed
+
+- **Skip `.env` backup when lerd has already written the file** (#193). `lerd env` used to unconditionally copy `.env` to `.env.before_lerd` on first run, which could overwrite a legitimate user backup if lerd had previously rewritten the file. The backup is now skipped when lerd has already written `.env` in this project, so `.env.before_lerd` always reflects the user's pre-lerd state.
+- **Tray improvements** (#194). The tray "Open Dashboard" entry now opens the dashboard in the default browser, the update prompt wording is clearer, and "Quit" now stops the full lerd-ui + daemon stack instead of just dismissing the tray.
+
+---
+
 ## [1.13.1] — 2026-04-14
 
 ### Fixed

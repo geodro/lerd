@@ -3,6 +3,7 @@ package nginx
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -458,6 +459,86 @@ func TestRepairVhosts_preservesIgnoredSiteVhost(t *testing.T) {
 
 // ── EnsureDefaultVhost ────────────────────────────────────────────────────────
 
+// ── GenerateCustomVhost ──────────────────────────────────────────────────────
+
+func TestGenerateCustomVhost_createsConfFile(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatalf("GenerateCustomVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test.conf"))
+	if !strings.Contains(content, "server_name nestapp.test") {
+		t.Errorf("expected server_name in:\n%s", content)
+	}
+	if !strings.Contains(content, "proxy_pass http://$backend:3000") {
+		t.Errorf("expected proxy_pass with port 3000 in:\n%s", content)
+	}
+	if !strings.Contains(content, "lerd-custom-nestapp") {
+		t.Errorf("expected custom container name in:\n%s", content)
+	}
+	if strings.Contains(content, "fastcgi_pass") {
+		t.Error("custom vhost should not contain fastcgi_pass")
+	}
+}
+
+func TestGenerateCustomVhost_multiDomain(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test", "api.test"}, ContainerPort: 3000}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test.conf"))
+	if !strings.Contains(content, "server_name nestapp.test *.nestapp.test api.test *.api.test") {
+		t.Errorf("expected all domains with wildcards in:\n%s", content)
+	}
+}
+
+func TestGenerateCustomVhost_websocketHeaders(t *testing.T) {
+	setupConfD(t)
+	site := config.Site{Name: "app", Domains: []string{"app.test"}, ContainerPort: 8080}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	confD := filepath.Join(os.Getenv("XDG_DATA_HOME"), "lerd", "nginx", "conf.d")
+	content := readConf(t, filepath.Join(confD, "app.test.conf"))
+	if !strings.Contains(content, "proxy_set_header Upgrade") {
+		t.Error("expected WebSocket upgrade header")
+	}
+	if !strings.Contains(content, "proxy_http_version 1.1") {
+		t.Error("expected HTTP/1.1 for WebSocket support")
+	}
+}
+
+// ── GenerateCustomSSLVhost ───────────────────────────────────────────────────
+
+func TestGenerateCustomSSLVhost_createsSSLConfFile(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomSSLVhost(site); err != nil {
+		t.Fatalf("GenerateCustomSSLVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test-ssl.conf"))
+	if !strings.Contains(content, "listen 443 ssl") {
+		t.Errorf("expected 443 ssl in:\n%s", content)
+	}
+	if !strings.Contains(content, "ssl_certificate /etc/nginx/certs/nestapp.test.crt") {
+		t.Errorf("expected ssl_certificate in:\n%s", content)
+	}
+	if !strings.Contains(content, "proxy_pass http://$backend:3000") {
+		t.Errorf("expected proxy_pass in:\n%s", content)
+	}
+	if !strings.Contains(content, "lerd-custom-nestapp") {
+		t.Errorf("expected custom container name in:\n%s", content)
+	}
+	if !strings.Contains(content, "return 302 https://") {
+		t.Errorf("expected HTTP redirect in:\n%s", content)
+	}
+	if strings.Contains(content, "fastcgi_pass") {
+		t.Error("custom SSL vhost should not contain fastcgi_pass")
+	}
+}
+
 func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	confD := setupConfD(t)
 	if err := EnsureDefaultVhost(); err != nil {
@@ -477,5 +558,59 @@ func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	errorPage := filepath.Join(os.Getenv("XDG_DATA_HOME"), "lerd", "error-pages", "404.html")
 	if _, err := os.Stat(errorPage); err != nil {
 		t.Errorf("expected error page at %s", errorPage)
+	}
+}
+
+func TestEnsureLerdVhost_linuxProxiesUnixSocket(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("Linux uses the unix socket vhost; macOS uses TCP via host.containers.internal")
+	}
+	confD := setupConfD(t)
+	if err := EnsureLerdVhost(); err != nil {
+		t.Fatalf("EnsureLerdVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
+
+	// On Linux the vhost MUST proxy via the unix socket. host.containers.internal
+	// is the failure mode the fix removes; if a future refactor reintroduces
+	// it on Linux, this test catches the regression.
+	want := "proxy_pass http://unix:" + config.UISocketPath()
+	if !strings.Contains(content, want) {
+		t.Errorf("expected %q in vhost, got:\n%s", want, content)
+	}
+	if strings.Contains(content, "host.containers.internal") {
+		t.Errorf("vhost still references host.containers.internal on Linux:\n%s", content)
+	}
+
+	// /api/* must remain closed — the dashboard JS hits :7073 directly.
+	if !strings.Contains(content, "return 444") {
+		t.Errorf("expected catch-all 'return 444' in:\n%s", content)
+	}
+}
+
+func TestEnsureLerdVhost_darwinProxiesHostContainersInternal(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS uses TCP via host.containers.internal because unix sockets don't traverse the podman-machine virtio-fs boundary as functional sockets")
+	}
+	confD := setupConfD(t)
+	if err := EnsureLerdVhost(); err != nil {
+		t.Fatalf("EnsureLerdVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
+
+	// On macOS the vhost MUST proxy via TCP to host.containers.internal:7073
+	// and MUST inject the X-Lerd-Trust header so lerd-ui's gate sees the
+	// proxied request as loopback (it arrives via the bridge, not 127.0.0.1).
+	if !strings.Contains(content, "proxy_pass http://host.containers.internal:7073") {
+		t.Errorf("expected host.containers.internal proxy_pass in macOS vhost:\n%s", content)
+	}
+	if !strings.Contains(content, "X-Lerd-Trust") {
+		t.Errorf("macOS vhost must inject X-Lerd-Trust header:\n%s", content)
+	}
+	if strings.Contains(content, "unix:") {
+		t.Errorf("macOS vhost must not use a unix socket (won't traverse the VM boundary):\n%s", content)
+	}
+	if !strings.Contains(content, "return 444") {
+		t.Errorf("expected catch-all 'return 444' in:\n%s", content)
 	}
 }

@@ -122,6 +122,13 @@ func regenNginxVhost(siteName, sitePath string) {
 	if err != nil {
 		return
 	}
+
+	// Custom container sites handle proxying through the main container
+	// template, so the PHP-specific vhost regeneration is not needed.
+	if site.IsCustomContainer() {
+		return
+	}
+
 	phpVer := site.PHPVersion
 	if detected, detErr := phpDet.DetectVersion(sitePath); detErr == nil && detected != "" {
 		phpVer = detected

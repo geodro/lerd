@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -59,21 +60,22 @@ var iconMaskable192PNG []byte
 //go:embed icons/icon-maskable-512.png
 var iconMaskable512PNG []byte
 
-// listenAddr is the address lerd-ui binds to. lerd-ui ALWAYS listens on
-// 0.0.0.0:7073 because:
+// listenAddr is the TCP address lerd-ui binds to. It listens on 0.0.0.0:7073
+// so browsers can hit it directly and LAN clients (gated by the remote-control
+// middleware) can reach it when lan:expose is on. The gate — not the bind
+// address — is the security boundary.
 //
-//  1. The remote-control middleware (withRemoteControlGate) is the actual
-//     security boundary — it returns 403 on every non-loopback request
-//     when cfg.UI.PasswordHash is empty, and gates with HTTP Basic auth
-//     when set. The gate already enforces "loopback only" semantics
-//     regardless of where the TCP connection arrives.
-//  2. The lerd.localhost nginx vhost reverse-proxies static assets back
-//     to lerd-ui via host.containers.internal:7073 — that path goes
-//     through the podman bridge gateway, NOT loopback, so binding
-//     127.0.0.1 here would break the vhost.
-//
-// In short: the bind address is not the security boundary; the gate is.
+// lerd-ui ALSO listens on a unix socket at config.UISocketPath() for the
+// lerd.localhost nginx vhost. Bind-mounting a socket into lerd-nginx is more
+// reliable than reaching the host over TCP via host.containers.internal,
+// which depends on netavark / pasta / rootless routing wiring up 169.254.1.2
+// (something that differs across podman versions and breaks silently).
 const listenAddr = "0.0.0.0:7073"
+
+// ctxKeyUnixSocket marks HTTP requests that arrived over the unix socket
+// listener. These are treated as loopback by isLoopbackRequest since only
+// processes with filesystem access to the socket can connect.
+type ctxKeyUnixSocket struct{}
 
 var knownServices = siteinfo.KnownServices
 
@@ -173,21 +175,21 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/ws", handleWS)
 	mux.HandleFunc("/api/lan-qr/", withCORS(handleLANQR))
 
-	// Cross-process notifier: the CLI and MCP processes run outside
-	// lerd-ui and can't publish to the in-process eventbus. They POST
-	// here after any unit lifecycle change so lerd-ui invalidates its
-	// snapshot cache and pushes a fresh broadcast to every browser.
-	// Loopback-only because anything that wouldn't go through the gate
-	// has no business triggering an invalidation.
+	// Cross-process notifier for CLI/MCP. Loopback-only. PollNow in a
+	// goroutine so the handler returns under the CLI's 500 ms POST
+	// timeout while the cache refresh drives the next WS broadcast.
 	mux.HandleFunc("/api/internal/notify", func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackRequest(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		siteinfo.InvalidateUnitCache()
-		eventbus.Default.Publish(eventbus.KindSites)
-		eventbus.Default.Publish(eventbus.KindServices)
-		eventbus.Default.Publish(eventbus.KindStatus)
+		go func() {
+			podman.Cache.PollNow()
+			siteinfo.InvalidateUnitCache()
+			eventbus.Default.Publish(eventbus.KindSites)
+			eventbus.Default.Publish(eventbus.KindServices)
+			eventbus.Default.Publish(eventbus.KindStatus)
+		}()
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -267,8 +269,45 @@ func Start(currentVersion string) error {
 		w.Write(indexHTML) //nolint:errcheck
 	})
 
+	handler := withRemoteControlGate(mux)
+
+	// Unix socket listener for the lerd.localhost nginx vhost. Linux only:
+	// on macOS, lerd-nginx runs inside the podman-machine VM and unix
+	// sockets don't traverse virtio-fs as functional sockets, so the
+	// vhost falls back to TCP via host.containers.internal there.
+	// Errors are non-fatal — direct http://localhost:7073 access still
+	// works even if the socket can't be created.
+	if runtime.GOOS != "darwin" {
+		if err := os.MkdirAll(config.RunDir(), 0755); err != nil {
+			fmt.Printf("[WARN] creating %s: %v — lerd.localhost vhost will not work\n", config.RunDir(), err)
+		} else {
+			sockPath := config.UISocketPath()
+			_ = os.Remove(sockPath)
+			unixLn, err := net.Listen("unix", sockPath)
+			if err != nil {
+				fmt.Printf("[WARN] binding %s: %v — lerd.localhost vhost will not work\n", sockPath, err)
+			} else {
+				if err := os.Chmod(sockPath, 0660); err != nil {
+					fmt.Printf("[WARN] chmod %s: %v\n", sockPath, err)
+				}
+				unixSrv := &http.Server{
+					Handler: handler,
+					ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
+						return context.WithValue(ctx, ctxKeyUnixSocket{}, true)
+					},
+				}
+				go func() {
+					fmt.Printf("Lerd UI listening on unix:%s\n", sockPath)
+					if err := unixSrv.Serve(unixLn); err != nil && err != http.ErrServerClosed {
+						fmt.Printf("[WARN] unix socket server exited: %v\n", err)
+					}
+				}()
+			}
+		}
+	}
+
 	fmt.Printf("Lerd UI listening on http://%s\n", listenAddr)
-	return http.ListenAndServe(listenAddr, withRemoteControlGate(mux))
+	return http.ListenAndServe(listenAddr, handler)
 }
 
 var allowedCORSOrigins = map[string]bool{
@@ -465,12 +504,13 @@ func mustJSON(v any) string {
 
 // StatusResponse is the response for GET /api/status.
 type StatusResponse struct {
-	DNS            DNSStatus    `json:"dns"`
-	Nginx          ServiceCheck `json:"nginx"`
-	PHPFPMs        []PHPStatus  `json:"php_fpms"`
-	PHPDefault     string       `json:"php_default"`
-	NodeDefault    string       `json:"node_default"`
-	WatcherRunning bool         `json:"watcher_running"`
+	DNS               DNSStatus    `json:"dns"`
+	Nginx             ServiceCheck `json:"nginx"`
+	PHPFPMs           []PHPStatus  `json:"php_fpms"`
+	PHPDefault        string       `json:"php_default"`
+	NodeDefault       string       `json:"node_default"`
+	NodeManagedByLerd bool         `json:"node_managed_by_lerd"`
+	WatcherRunning    bool         `json:"watcher_running"`
 }
 
 type DNSStatus struct {
@@ -519,13 +559,17 @@ func buildStatus() StatusResponse {
 		phpDefault = cfg.PHP.DefaultVersion
 		nodeDefault = cfg.Node.DefaultVersion
 	}
+	nodeShim := filepath.Join(config.BinDir(), "node")
+	_, nodeShimErr := os.Stat(nodeShim)
+	nodeManagedByLerd := nodeShimErr == nil
 	return StatusResponse{
-		DNS:            DNSStatus{OK: dnsOK, TLD: tld},
-		Nginx:          ServiceCheck{Running: nginxRunning},
-		PHPFPMs:        phpStatuses,
-		PHPDefault:     phpDefault,
-		NodeDefault:    nodeDefault,
-		WatcherRunning: watcherRunning,
+		DNS:               DNSStatus{OK: dnsOK, TLD: tld},
+		Nginx:             ServiceCheck{Running: nginxRunning},
+		PHPFPMs:           phpStatuses,
+		PHPDefault:        phpDefault,
+		NodeDefault:       nodeDefault,
+		NodeManagedByLerd: nodeManagedByLerd,
+		WatcherRunning:    watcherRunning,
 	}
 }
 
@@ -593,9 +637,12 @@ type SiteResponse struct {
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
-	Services    []string `json:"services,omitempty"`
-	LANPort     int      `json:"lan_port,omitempty"`
-	LANShareURL string   `json:"lan_share_url,omitempty"`
+	Services        []string `json:"services,omitempty"`
+	LANPort         int      `json:"lan_port,omitempty"`
+	LANShareURL     string   `json:"lan_share_url,omitempty"`
+	CustomContainer bool     `json:"custom_container,omitempty"`
+	ContainerPort   int      `json:"container_port,omitempty"`
+	ContainerImage  string   `json:"container_image,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -681,6 +728,9 @@ func buildSites() []SiteResponse {
 			Services:           e.Services,
 			LANPort:            e.LANPort,
 			LANShareURL:        cli.LANShareURL(e.LANPort),
+			CustomContainer:    e.ContainerPort > 0,
+			ContainerPort:      e.ContainerPort,
+			ContainerImage:     e.ContainerImage,
 		})
 	}
 	return sites
@@ -1340,7 +1390,8 @@ func countSitesUsingService(name string) int {
 	return config.CountSitesUsingService(name)
 }
 
-// sitesUsingService returns the domains of active sites whose .env references lerd-{name}.
+// sitesUsingService returns the domains of active sites that use the named service.
+// Checks both .lerd.yaml services list and .env file references.
 func sitesUsingService(name string) []string {
 	reg, err := config.LoadSites()
 	if err != nil {
@@ -1352,6 +1403,21 @@ func sitesUsingService(name string) []string {
 		if s.Ignored || s.Paused {
 			continue
 		}
+		// Check .lerd.yaml services list first.
+		if proj, pErr := config.LoadProjectConfig(s.Path); pErr == nil {
+			found := false
+			for _, svc := range proj.Services {
+				if svc.Name == name {
+					found = true
+					break
+				}
+			}
+			if found {
+				domains = append(domains, s.PrimaryDomain())
+				continue
+			}
+		}
+		// Fall back to .env scanning.
 		data, err := os.ReadFile(filepath.Join(s.Path, ".env"))
 		if err != nil {
 			continue
@@ -1530,6 +1596,10 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "writing .php-version: " + err.Error()})
 			return
 		}
+		if site.IsCustomContainer() {
+			writeJSON(w, SiteActionResponse{Error: "custom container sites do not use PHP versions"})
+			return
+		}
 		_ = config.SetProjectPHPVersion(site.Path, version)
 		site.PHPVersion = version
 		// Regenerate vhost with new PHP version
@@ -1572,6 +1642,20 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	case "unpause":
 		if err := cli.UnpauseSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "restart":
+		if err := cli.RestartSite(site.Name); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "rebuild":
+		if err := cli.RebuildSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
 			return
 		}
@@ -2034,11 +2118,14 @@ func handleInstallNodeVersion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	version := r.URL.Query().Get("version")
-	if version == "" || !validVersion.MatchString(version) {
+	var req struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Version == "" || !validVersion.MatchString(req.Version) {
 		writeJSON(w, map[string]any{"ok": false, "error": "invalid version"})
 		return
 	}
+	version := req.Version
 	major := strings.SplitN(version, ".", 2)[0]
 	fnmPath := config.BinDir() + "/fnm"
 	cmd := exec.Command(fnmPath, "install", major)

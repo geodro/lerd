@@ -104,8 +104,13 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 		command = command + " --port=" + port
 	}
 
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	var fpmUnit string
+	if site, _ := config.FindSite(siteName); site != nil && site.IsCustomContainer() {
+		fpmUnit = podman.CustomContainerName(siteName)
+	} else {
+		versionShort := strings.ReplaceAll(phpVersion, ".", "")
+		fpmUnit = "lerd-php" + versionShort + "-fpm"
+	}
 	unitName := "lerd-" + workerName + "-" + siteName
 
 	restart := w.Restart

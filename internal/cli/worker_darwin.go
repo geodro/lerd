@@ -24,13 +24,38 @@ func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, comman
 		fmt.Printf("[WARN] worker %s has schedule=%q which is not yet supported on macOS — skipping\n", unitName, schedule)
 		return false, nil
 	}
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	image := "lerd-php" + versionShort + "-fpm:local"
 
-	// Build a quadlet-style [Container] unit. On macOS, WriteContainerUnit
-	// converts this to a launchd plist running `podman run -d --restart=always`.
-	home, _ := os.UserHomeDir()
-	unit := fmt.Sprintf(`[Container]
+	// Custom container sites exec into their own container.
+	var unit string
+	if site, _ := config.FindSite(siteName); site != nil && site.IsCustomContainer() {
+		image := podman.CustomImageName(siteName)
+		home, _ := os.UserHomeDir()
+		unit = fmt.Sprintf(`[Container]
+Image=%s
+ContainerName=%s
+Network=lerd
+Volume=%s/.local/share/lerd/hosts:/etc/hosts:ro
+Volume=%s:%s:rw
+PodmanArgs=--security-opt=label=disable
+WorkingDir=%s
+Exec=%s
+
+[Service]
+Restart=%s
+`,
+			image,
+			unitName,
+			home,
+			sitePath, sitePath,
+			sitePath,
+			command,
+			restart,
+		)
+	} else {
+		versionShort := strings.ReplaceAll(phpVersion, ".", "")
+		image := "lerd-php" + versionShort + "-fpm:local"
+		home, _ := os.UserHomeDir()
+		unit = fmt.Sprintf(`[Container]
 Image=%s
 ContainerName=%s
 Network=lerd
@@ -45,16 +70,17 @@ Exec=%s
 [Service]
 Restart=%s
 `,
-		image,
-		unitName,
-		home,
-		sitePath, sitePath,
-		config.PHPConfFile(phpVersion),
-		config.PHPUserIniFile(phpVersion),
-		sitePath,
-		command,
-		restart,
-	)
+			image,
+			unitName,
+			home,
+			sitePath, sitePath,
+			config.PHPConfFile(phpVersion),
+			config.PHPUserIniFile(phpVersion),
+			sitePath,
+			command,
+			restart,
+		)
+	}
 
 	if err := services.Mgr.WriteContainerUnit(unitName, unit); err != nil {
 		return false, err
@@ -75,8 +101,13 @@ func workerLogHint(unitName string) string {
 // phase 2 of runStart so we don't saturate the Podman Machine SSH connection
 // before containers are ready.
 func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) {
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
+	var fpmUnit string
+	if site, _ := config.FindSite(siteName); site != nil && site.IsCustomContainer() {
+		fpmUnit = podman.CustomContainerName(siteName)
+	} else {
+		versionShort := strings.ReplaceAll(phpVersion, ".", "")
+		fpmUnit = "lerd-php" + versionShort + "-fpm"
+	}
 	unitName := "lerd-" + workerName + "-" + siteName
 	restart := w.Restart
 	if restart == "" {

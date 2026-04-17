@@ -19,7 +19,11 @@ func SecureSite(site config.Site) error {
 		return fmt.Errorf("issuing certificate: %w", err)
 	}
 
-	if err := nginx.GenerateSSLVhost(site, site.PHPVersion); err != nil {
+	if site.IsCustomContainer() {
+		if err := nginx.GenerateCustomSSLVhost(site); err != nil {
+			return fmt.Errorf("generating custom SSL vhost: %w", err)
+		}
+	} else if err := nginx.GenerateSSLVhost(site, site.PHPVersion); err != nil {
 		return fmt.Errorf("generating SSL vhost: %w", err)
 	}
 
@@ -51,7 +55,11 @@ func UnsecureSite(site config.Site) error {
 		return fmt.Errorf("removing SSL vhost: %w", err)
 	}
 
-	if err := nginx.GenerateVhost(site, site.PHPVersion); err != nil {
+	if site.IsCustomContainer() {
+		if err := nginx.GenerateCustomVhost(site); err != nil {
+			return fmt.Errorf("generating custom HTTP vhost: %w", err)
+		}
+	} else if err := nginx.GenerateVhost(site, site.PHPVersion); err != nil {
 		return fmt.Errorf("generating HTTP vhost: %w", err)
 	}
 

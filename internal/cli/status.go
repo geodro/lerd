@@ -104,6 +104,19 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Custom Containers
+	if customUnits := installedCustomContainerUnits(); len(customUnits) > 0 {
+		fmt.Println("\n[Custom Containers]")
+		for _, unit := range customUnits {
+			running, _ := podman.ContainerRunning(unit)
+			if running {
+				ok2(unit)
+			} else {
+				fail2(unit, "not running", serviceStartHint(unit))
+			}
+		}
+	}
+
 	// Watcher
 	fmt.Println("\n[Watcher]")
 	if services.Mgr.IsActive("lerd-watcher") {

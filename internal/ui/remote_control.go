@@ -408,19 +408,21 @@ func handleRemoteSetupGenerate(w http.ResponseWriter, r *http.Request) {
 }
 
 // isLoopbackRequest reports whether r should be treated as originating from
-// the local host. Two paths qualify:
+// the local host. Three paths qualify:
 //
-//  1. The TCP peer is a loopback IP (127.x, ::1). This catches direct visits
+//  1. The connection arrived over the unix socket listener. Only host
+//     processes with filesystem access to the socket can connect, so this
+//     is at least as trusted as TCP loopback. The lerd.localhost nginx
+//     vhost reaches lerd-ui via this path.
+//  2. The TCP peer is a loopback IP (127.x, ::1). This catches direct visits
 //     to http://localhost:7073 / http://127.0.0.1:7073.
-//  2. The request carries an X-Lerd-Trust header whose value matches the
-//     per-install token. lerd-nginx injects this header on the lerd.localhost
-//     vhost via `proxy_set_header X-Lerd-Trust <token>;`, which OVERWRITES
-//     any client-supplied value, so a LAN attacker cannot INJECT it. This
-//     path is needed because rootless podman bridge networking SNATs the
-//     source IP, so a legitimate proxy hop from lerd.localhost arrives with
-//     the bridge gateway's IP — indistinguishable from a LAN attacker
-//     hitting http://server-ip:7073 directly without the token.
+//  3. The request carries an X-Lerd-Trust header whose value matches the
+//     per-install token. Kept for backward compatibility with old vhosts
+//     that may still inject the header; new installs use the unix socket.
 func isLoopbackRequest(r *http.Request) bool {
+	if v, _ := r.Context().Value(ctxKeyUnixSocket{}).(bool); v {
+		return true
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/siteops"
 	"github.com/spf13/cobra"
 )
@@ -55,6 +56,20 @@ func UnlinkSite(name string) error {
 	}
 
 	fmt.Printf("Unlinked: %s (%s)\n", name, site.PrimaryDomain())
+
+	// Offer to remove the cached custom container image.
+	if site.IsCustomContainer() && podman.CustomImageExists(site.Name) {
+		if isInteractive() {
+			fmt.Print("Remove the container image? [y/N] ")
+			var answer string
+			fmt.Scanln(&answer) //nolint:errcheck
+			if answer != "" && (answer[0] == 'y' || answer[0] == 'Y') {
+				_ = podman.RemoveCustomImage(site.Name)
+				podman.RemoveContainerfileHash(site.Name)
+				fmt.Println("Image removed.")
+			}
+		}
+	}
 
 	autoStopUnusedServices()
 	autoStopUnusedFPMs()

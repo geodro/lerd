@@ -11,6 +11,7 @@ PublishPort=443:443
 Volume=%h/.local/share/lerd/nginx/nginx.conf:/etc/nginx/nginx.conf:ro,z
 Volume=%h/.local/share/lerd/nginx/conf.d:/etc/nginx/conf.d:ro,z
 Volume=%h/.local/share/lerd/certs/sites:/etc/nginx/certs:ro,z
+Volume=%h/.local/share/lerd/run:%h/.local/share/lerd/run:rw
 Volume=%h:%h:ro
 PodmanArgs=--security-opt=label=disable
 

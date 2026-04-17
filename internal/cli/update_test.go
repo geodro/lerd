@@ -293,9 +293,9 @@ func TestStripGitDescribe(t *testing.T) {
 		{"1.5.0-beta.1-3-g1a2b3c4", "1.5.0-beta.1"},
 	}
 	for _, c := range cases {
-		got := stripGitDescribe(c.in)
+		got := lerdUpdate.StripGitDescribe(c.in)
 		if got != c.want {
-			t.Errorf("stripGitDescribe(%q) = %q, want %q", c.in, got, c.want)
+			t.Errorf("StripGitDescribe(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

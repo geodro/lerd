@@ -175,10 +175,13 @@
             class="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50 last:border-0"
             :class="selectedSiteDomain===site.domain ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
             <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
-              <template x-if="site.has_favicon">
+              <template x-if="site.custom_container">
+                <svg class="w-4 h-4" :class="site.fpm_running ? 'text-violet-500' : 'text-gray-300 dark:text-gray-600'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+              </template>
+              <template x-if="!site.custom_container && site.has_favicon">
                 <img :src="apiBase + '/api/sites/' + site.domain + '/favicon'" class="w-4 h-4 rounded-sm object-contain" loading="lazy" @error="site.has_favicon = false">
               </template>
-              <template x-if="!site.has_favicon">
+              <template x-if="!site.custom_container && !site.has_favicon">
                 <span class="w-2 h-2 rounded-full" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
               </template>
             </span>
@@ -288,8 +291,11 @@
             </template>
           </button>
         </template>
-        <div class="px-3 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border">
+        <div class="px-3 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border flex items-center gap-2">
           <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Node.js</span>
+          <template x-if="systemStatus && !systemStatus.node_managed_by_lerd">
+            <span class="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded px-1.5 py-0.5">system</span>
+          </template>
         </div>
         <template x-for="v in nodeVersions" :key="'node-'+v">
           <button @click="selectSystem('node-'+v)"
@@ -371,7 +377,12 @@
             <button @click="selectSite(site)"
               class="w-full flex items-center gap-2.5 px-4 py-3.5 text-left transition-colors border-b border-gray-100 dark:border-lerd-border"
               :class="selectedSiteDomain===site.domain ? 'bg-lerd-red/5' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
-              <span class="w-2 h-2 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+              <template x-if="site.custom_container">
+                <svg class="w-4 h-4 shrink-0" :class="site.fpm_running ? 'text-violet-500' : 'text-gray-300 dark:text-gray-600'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+              </template>
+              <template x-if="!site.custom_container">
+                <span class="w-2 h-2 rounded-full shrink-0" :class="site.fpm_running ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
+              </template>
               <span class="flex-1 text-sm font-medium truncate" :class="selectedSiteDomain===site.domain ? 'text-lerd-red' : ''" x-text="site.domain"></span>
               <span x-show="site.queue_running || site.horizon_running" class="w-2 h-2 rounded-full shrink-0 bg-amber-400"></span>
               <span x-show="site.stripe_running" class="w-2 h-2 rounded-full shrink-0 bg-violet-400"></span>
@@ -473,8 +484,11 @@
               <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
           </template>
-          <div class="px-4 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border">
+          <div class="px-4 pt-2.5 pb-1 border-t border-gray-100 dark:border-lerd-border flex items-center gap-2">
             <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Node.js</span>
+            <template x-if="systemStatus && !systemStatus.node_managed_by_lerd">
+              <span class="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded px-1.5 py-0.5">system</span>
+            </template>
           </div>
           <template x-for="v in nodeVersions" :key="'mnode-'+v">
             <button @click="selectSystem('node-'+v)" class="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm text-left transition-colors border-b border-gray-100 dark:border-lerd-border" :class="selectedSystem==='node-'+v ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
@@ -601,6 +615,15 @@
                           <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>stopped
                         </span>
                       </template>
+                      <template x-if="!selectedSite.paused && !selectedSite.restartLoading">
+                        <button @click="restartSite(selectedSite)" title="Restart container"
+                          class="text-gray-400 hover:text-lerd-red transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        </button>
+                      </template>
+                      <template x-if="selectedSite.restartLoading">
+                        <svg class="animate-spin w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                      </template>
                       <template x-if="selectedSite.framework_label">
                         <span class="inline-flex items-center text-xs font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full" x-text="selectedSite.framework_label"></span>
                       </template>
@@ -680,10 +703,13 @@
 
                 <!-- Version selects + toggles row -->
                 <div class="flex items-center gap-4 overflow-x-auto">
-                  <template x-if="phpVersions.length === 0">
+                  <template x-if="selectedSite.custom_container">
+                    <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded px-2 py-1" x-text="(selectedSite.container_image || 'container') + ' :' + selectedSite.container_port"></span>
+                  </template>
+                  <template x-if="!selectedSite.custom_container && phpVersions.length === 0">
                     <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">PHP ...</span>
                   </template>
-                  <template x-if="phpVersions.length > 0">
+                  <template x-if="!selectedSite.custom_container && phpVersions.length > 0">
                     <select
                       x-model="selectedSite.php_version"
                       @change="setSiteVersion(selectedSite, 'php', selectedSite.php_version)"
@@ -696,10 +722,10 @@
                       </template>
                     </select>
                   </template>
-                  <template x-if="nodeVersions.length === 0">
+                  <template x-if="systemStatus && systemStatus.node_managed_by_lerd && nodeVersions.length === 0">
                     <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">Node ...</span>
                   </template>
-                  <template x-if="nodeVersions.length > 0">
+                  <template x-if="systemStatus && systemStatus.node_managed_by_lerd && nodeVersions.length > 0">
                     <select
                       x-model="selectedSite.node_version"
                       @change="setSiteVersion(selectedSite, 'node', selectedSite.node_version)"
@@ -874,7 +900,7 @@
                   <template x-if="selectedSite && selectedSite.has_app_logs">
                     <button @click="setSiteLogsTab('app')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='app' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">App Logs</button>
                   </template>
-                  <button @click="setSiteLogsTab('fpm')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='fpm' ? 'border-lerd-red text-lerd-red' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'">PHP-FPM</button>
+                  <button @click="setSiteLogsTab('fpm')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='fpm' ? 'border-lerd-red text-lerd-red' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.custom_container ? 'Container' : 'PHP-FPM'"></button>
                   <template x-if="selectedSite && (selectedSite.queue_running || selectedSite.queue_failing)">
                     <button @click="setSiteLogsTab('queue')" class="pb-2 mr-5 text-xs font-medium transition-colors border-b-2" :class="siteLogsTab==='queue' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : selectedSite.queue_failing ? 'border-transparent text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" x-text="selectedSite.queue_failing ? 'Queue !' : 'Queue'"></button>
                   </template>
@@ -1588,6 +1614,11 @@
                 <span class="font-semibold text-gray-900 dark:text-white text-base">Install Node.js version</span>
               </div>
               <div class="px-3 sm:px-5 py-4 space-y-4">
+                <template x-if="systemStatus && !systemStatus.node_managed_by_lerd">
+                  <div class="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-lg px-3 py-2.5">
+                    <span class="font-medium">Using system Node.js.</span> Installing a version here will switch to lerd-managed Node.js via fnm and override your system node.
+                  </div>
+                </template>
                 <p class="text-sm text-gray-500">Install a new Node.js version using fnm.</p>
                 <div class="flex items-center gap-2">
                   <input type="text" x-model="nodeInstall.version" @keydown.enter="installNodeVersion()" placeholder="e.g. 22"
@@ -2692,6 +2723,9 @@ function lerdApp() {
           e.conflicting_domains = s.conflicting_domains;
           e.php_version = s.php_version;
           e.node_version = s.node_version;
+          e.custom_container = s.custom_container;
+          e.container_port = s.container_port;
+          e.container_image = s.container_image;
           e.tls = s.tls;
           e.fpm_running = s.fpm_running;
           e.queue_running = s.queue_running;
@@ -3709,6 +3743,21 @@ function lerdApp() {
       window.open(url, '_blank', 'noopener');
     },
 
+    async restartSite(site) {
+      site.restartLoading = true;
+      try {
+        const res = await fetch(`/api/sites/${site.domain}/restart`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) {
+          alert('Restart failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Restart failed: ' + (e.message || 'Request failed'));
+      } finally {
+        site.restartLoading = false;
+      }
+    },
+
     async toggleTLS(site) {
       site.tlsLoading = true;
       site.tlsError = '';
@@ -3975,6 +4024,7 @@ function lerdApp() {
     },
 
     fpmContainer(site) {
+      if (site.custom_container) return 'lerd-custom-' + site.name;
       if (!site.php_version) return '';
       return 'lerd-php' + site.php_version.replace('.', '') + '-fpm';
     },

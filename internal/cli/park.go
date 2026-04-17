@@ -225,8 +225,15 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 
 	warnMissingExtensions(projectDir, name, phpVersion, cfg)
 
-	// Skip if already registered at this path.
-	if existing, err := config.FindSite(name); err == nil && existing != nil && existing.Path == projectDir {
+	// Skip if already registered at this path. Also skip if the site is a
+	// custom container — the user linked it explicitly with their own
+	// Containerfile and the parked watcher should not overwrite it.
+	if existing, err := config.FindSite(name); err == nil && existing != nil {
+		if existing.Path == projectDir {
+			return false, nil
+		}
+	}
+	if existing, err := config.FindSiteByPath(projectDir); err == nil && existing != nil && existing.IsCustomContainer() {
 		return false, nil
 	}
 
