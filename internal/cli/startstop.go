@@ -938,5 +938,7 @@ func runQuit(_ *cobra.Command, _ []string) error {
 	// Also kill any directly-launched tray instance not managed by launchd/systemd.
 	killTray()
 
+	stopPodmanMachine()
+
 	return nil
 }
