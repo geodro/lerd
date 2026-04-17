@@ -1,6 +1,6 @@
 # Start, Stop & Autostart
 
-Day-to-day lifecycle commands for the entire lerd stack — DNS, nginx, PHP-FPM containers, services, workers, the Web UI, the watcher, and the system tray.
+Day-to-day lifecycle commands for the entire lerd stack: DNS, nginx, PHP-FPM containers, services, workers, the Web UI, the watcher, and the system tray.
 
 ::: tip You don't need to run `lerd start` after installing
 `lerd install` already starts everything for you on first run: it boots `lerd-dns`, `lerd-nginx`, the `lerd-watcher`, and the system tray. Services like MySQL or Redis are started on demand the first time something needs them (`lerd service start`, `lerd init`, or `lerd env`). Reach for `lerd start` only after a `lerd stop`, a reboot without autostart enabled, or after you've manually killed containers.
@@ -12,11 +12,11 @@ Day-to-day lifecycle commands for the entire lerd stack — DNS, nginx, PHP-FPM 
 
 | Command | Stops | Starts |
 |---|---|---|
-| `lerd start` | — | DNS, nginx, watcher, tray, all PHP-FPM containers in use, services that were running before stop, queue / schedule / reverb / messenger workers, stripe listeners, Web UI |
-| `lerd stop` | All containers and workers above. Leaves the watcher and Web UI alone. | — |
-| `lerd quit` | Everything `lerd stop` does, **plus** the Web UI, watcher, and tray. | — |
+| `lerd start` | nothing | DNS, nginx, watcher, tray, all PHP-FPM containers in use, services that were running before stop, queue / schedule / reverb / messenger workers, stripe listeners, Web UI |
+| `lerd stop` | All containers and workers above. Leaves the watcher and Web UI alone. | nothing |
+| `lerd quit` | Everything `lerd stop` does, **plus** the Web UI, watcher, and tray. | nothing |
 
-`lerd stop` is the everyday "give my laptop back its CPU" command. `lerd quit` is a full shutdown — use it before a reinstall, a system reboot without autostart, or when you really want lerd out of the way.
+`lerd stop` is the everyday "give my laptop back its CPU" command. `lerd quit` is a full shutdown: use it before a reinstall, a system reboot without autostart, or when you really want lerd out of the way.
 
 ---
 
@@ -36,7 +36,7 @@ Walks the install in dependency order:
 6. Restores per-site workers (`lerd-queue-*`, `lerd-schedule-*`, `lerd-reverb-*`, `lerd-messenger-*`, custom workers) and stripe listeners (`lerd-stripe-*`) from the `workers` list saved in each site's `.lerd.yaml`.
 7. Starts the Web UI (`lerd-ui`) and the system tray.
 
-A live spinner shows the per-unit progress. If a single SSL vhost references a missing certificate file, lerd switches that site back to HTTP automatically and continues — one broken cert no longer blocks the whole nginx start.
+A live spinner shows the per-unit progress. If a single SSL vhost references a missing certificate file, lerd switches that site back to HTTP automatically and continues; one broken cert no longer blocks the whole nginx start.
 
 ::: info After a reinstall
 If you ran `lerd uninstall` and then reinstalled, worker units and service quadlets are recreated by `lerd start` from each site's `.lerd.yaml`. Sites with a committed `.lerd.yaml` come back fully wired up. Sites without one need their workers restarted manually.
@@ -50,12 +50,12 @@ If you ran `lerd uninstall` and then reinstalled, worker units and service quadl
 lerd stop
 ```
 
-Stops everything `lerd start` started **except** the Web UI, watcher, and tray — those keep running so the dashboard stays reachable to bring lerd back up.
+Stops everything `lerd start` started **except** the Web UI, watcher, and tray; those keep running so the dashboard stays reachable to bring lerd back up.
 
 A few important details:
 
 - **Manually paused services are remembered.** If you stopped Mailpit earlier with `lerd service stop mailpit`, then `lerd stop` + `lerd start` will not bring Mailpit back. The pause flag survives the cycle.
-- **Pinned services start anyway.** A `lerd service pin <name>` overrides auto-stop logic — pinned services are always started by `lerd start` regardless of which sites are active.
+- **Pinned services start anyway.** A `lerd service pin <name>` overrides auto-stop logic; pinned services are always started by `lerd start` regardless of which sites are active.
 - **Worker state is preserved.** Workers running before `lerd stop` are restarted by the next `lerd start`; workers you manually stopped stay stopped.
 
 ---
@@ -94,9 +94,9 @@ lerd autostart disable     # stop booting on login
 
 `lerd autostart enable` runs `systemctl --user enable` on the full set; `lerd autostart disable` runs the matching `disable`. The dashboard's enabled state is the canonical "is autostart on" indicator surfaced by the UI and tray.
 
-The same toggle also appears in the **System Tray** menu under **Autostart** — see [System Tray](../features/system-tray.md).
+The same toggle also appears in the **System Tray** menu under **Autostart**; see [System Tray](../features/system-tray.md).
 
-The tray unit (`lerd-tray.service`) is wired to `graphical-session.target` and so requires a desktop environment that reaches that target on login: GNOME, KDE Plasma, and any compositor launched through `uwsm` (Omarchy's Hyprland setup included). Bare Hyprland / Sway / i3 launched without `uwsm` won't autostart the tray — see [System Tray › Autostart](../features/system-tray.md#autostart) for the workaround. Every other lerd unit uses `default.target` and is unaffected.
+The tray unit (`lerd-tray.service`) is wired to `graphical-session.target` and so requires a desktop environment that reaches that target on login: GNOME, KDE Plasma, and any compositor launched through `uwsm` (Omarchy's Hyprland setup included). Bare Hyprland / Sway / i3 launched without `uwsm` won't autostart the tray; see [System Tray, Autostart](../features/system-tray.md#autostart) for the workaround. Every other lerd unit uses `default.target` and is unaffected.
 
 ---
 
@@ -108,7 +108,7 @@ The dashboard at `http://127.0.0.1:7073` has **Start** and **Stop** buttons in t
 - **Stop** is always visible while lerd is running. Clicking it calls `lerd stop`.
 - The tray's **Quit Lerd** menu item calls `lerd quit` (full shutdown including the UI).
 
-These map one-to-one to the CLI commands above — no special UI-only behaviour.
+These map one-to-one to the CLI commands above, no special UI-only behaviour.
 
 ---
 
@@ -126,10 +126,10 @@ Shows a live snapshot: DNS reachability, nginx, PHP-FPM containers, watcher, ser
 
 | Situation | Command |
 |---|---|
-| Just installed lerd | Nothing — `lerd install` already started everything |
+| Just installed lerd | Nothing, `lerd install` already started everything |
 | Coming back to your laptop after `lerd stop` | `lerd start` |
 | Reboot, autostart disabled | `lerd start` |
-| Reboot, autostart enabled | Nothing — happens automatically |
+| Reboot, autostart enabled | Nothing, happens automatically |
 | Free up CPU / RAM during a heavy build | `lerd stop` |
 | Full shutdown before a reinstall | `lerd quit` |
 | Verify everything's healthy | `lerd status` |

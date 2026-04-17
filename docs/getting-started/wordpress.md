@@ -7,7 +7,7 @@ You've already run `lerd install` once on this machine. If not, see [Installatio
 :::
 
 ::: tip Drive it from your AI assistant
-Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool — `site_link`, `db_create`, `secure`, etc. See [AI Integration](../features/mcp.md).
+Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool: `site_link`, `db_create`, `secure`, etc. See [AI Integration](../features/mcp.md).
 :::
 
 ---
@@ -38,7 +38,7 @@ lerd framework add wordpress --from-file ~/.config/lerd/frameworks/wordpress.yam
 ```
 
 ::: info Why no `.env`?
-WordPress stores configuration in `wp-config.php` as PHP constants, not in a `.env` file. The `fallback_file` / `fallback_format` settings tell lerd to read constants like `DB_HOST`, `WP_HOME`, and `WP_SITEURL` directly from `wp-config.php`. This means `lerd env` doesn't auto-inject database credentials the way it does for Laravel or Symfony — you'll wire them up by hand in step 5.
+WordPress stores configuration in `wp-config.php` as PHP constants, not in a `.env` file. The `fallback_file` / `fallback_format` settings tell lerd to read constants like `DB_HOST`, `WP_HOME`, and `WP_SITEURL` directly from `wp-config.php`. This means `lerd env` doesn't auto-inject database credentials the way it does for Laravel or Symfony; you'll wire them up by hand in step 5.
 :::
 
 ---
@@ -89,7 +89,7 @@ lerd init
 Saved .lerd.yaml
 ```
 
-Workers are not shown — the WordPress framework definition declares none.
+Workers are not shown; the WordPress framework definition declares none.
 
 ---
 
@@ -150,7 +150,7 @@ define( 'WP_HOME',    'https://myblog.test' );
 define( 'WP_SITEURL', 'https://myblog.test' );
 ```
 
-(Or update the same values in **Settings → General** from the WordPress admin.)
+(Or update the same values in **Settings > General** from the WordPress admin.)
 
 ---
 
@@ -189,8 +189,8 @@ lerd status
 
 ## Next steps
 
-- [Frameworks & Workers](../usage/frameworks.md) — extend `wordpress.yaml` to add log paths or custom workers (e.g. `wp cron event run`)
-- [Database](../usage/database.md) — `lerd db:import` to load a production dump, `lerd db:shell` for quick queries
-- [Services](../usage/services.md) — add a Mailpit service to capture outgoing mail in dev
-- [HTTPS](../features/https.md) — wildcard certs for multi-site or git worktrees
-- [AI Integration (MCP)](../features/mcp.md) — drive lerd from Claude Code, Cursor, Junie, etc.
+- [Frameworks & Workers](../usage/frameworks.md): extend `wordpress.yaml` to add log paths or custom workers (e.g. `wp cron event run`)
+- [Database](../usage/database.md): `lerd db:import` to load a production dump, `lerd db:shell` for quick queries
+- [Services](../usage/services.md): add a Mailpit service to capture outgoing mail in dev
+- [HTTPS](../features/https.md): wildcard certs for multi-site or git worktrees
+- [AI Integration (MCP)](../features/mcp.md): drive lerd from Claude Code, Cursor, Junie, etc.

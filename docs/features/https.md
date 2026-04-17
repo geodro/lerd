@@ -1,6 +1,6 @@
 # HTTPS / TLS
 
-Lerd uses [mkcert](https://github.com/FiloSottile/mkcert) — a locally-trusted CA that your browser will accept without warnings.
+Lerd uses [mkcert](https://github.com/FiloSottile/mkcert), a locally-trusted CA that your browser will accept without warnings.
 
 ```bash
 cd ~/Lerd/my-app
@@ -8,7 +8,7 @@ lerd secure
 # Issues a cert for my-app.test, regenerates the SSL vhost, reloads nginx
 # Updates APP_URL=https://my-app.test in .env if it exists
 # Updates secured: true in .lerd.yaml if it exists
-# Visit https://my-app.test — no certificate warning
+# Visit https://my-app.test with no certificate warning
 
 lerd unsecure
 # Removes the cert, switches back to HTTP vhost
@@ -16,7 +16,7 @@ lerd unsecure
 # Updates secured: false in .lerd.yaml if it exists
 ```
 
-HTTPS can also be enabled during `lerd init` or `lerd setup` — the wizard asks the question upfront and applies it as part of the configuration step.
+HTTPS can also be enabled during `lerd init` or `lerd setup`, the wizard asks the question upfront and applies it as part of the configuration step.
 
 Certificates are stored in `~/.local/share/lerd/certs/sites/`.
 
@@ -24,13 +24,13 @@ Certificates are stored in `~/.local/share/lerd/certs/sites/`.
 
 ## From the Web UI
 
-The Sites tab has an HTTPS toggle per site — clicking it runs `lerd secure` or `lerd unsecure` inline and updates the vhost without touching the terminal. If `.lerd.yaml` exists in the project, the `secured` field is updated there too so the state is preserved for future `lerd init` runs.
+The Sites tab has an HTTPS toggle per site; clicking it runs `lerd secure` or `lerd unsecure` inline and updates the vhost without touching the terminal. If `.lerd.yaml` exists in the project, the `secured` field is updated there too so the state is preserved for future `lerd init` runs.
 
 ---
 
 ## Git worktrees
 
-When a site has [git worktrees](git-worktrees.md), securing the parent automatically enables HTTPS for all its worktrees too. Lerd reuses the parent's wildcard certificate (`*.myapp.test`) — no extra `lerd secure` calls needed, and no per-worktree certificate is issued.
+When a site has [git worktrees](git-worktrees.md), securing the parent automatically enables HTTPS for all its worktrees too. Lerd reuses the parent's wildcard certificate (`*.myapp.test`), no extra `lerd secure` calls needed, and no per-worktree certificate is issued.
 
 Unsecuring the parent switches all worktree vhosts back to HTTP and updates their `.env` files accordingly.
 

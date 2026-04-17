@@ -1,6 +1,6 @@
 # Configuration
 
-## Global config — `~/.config/lerd/config.yaml`
+## Global config: `~/.config/lerd/config.yaml`
 
 Created automatically on first run with sensible defaults:
 
@@ -27,7 +27,7 @@ services:
 
 ---
 
-## Per-project config — `.lerd.yaml`
+## Per-project config: `.lerd.yaml`
 
 A portable, self-contained description of a project's local environment. Created by `lerd init` or written manually, committed to the repository, and applied automatically by `lerd link` and `lerd init`.
 
@@ -35,23 +35,23 @@ A portable, self-contained description of a project's local environment. Created
 
 | Field | Description |
 |---|---|
-| `php_version` | PHP version for this project — highest priority, overrides `.php-version` and `composer.json` |
-| `node_version` | Node version — highest priority, overrides `.nvmrc`, `.node-version`, and `package.json`; writes `.node-version` on apply if the file does not already exist |
-| `framework` | Framework name — overrides auto-detection |
-| `framework_def` | Full framework definition — embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
+| `php_version` | PHP version for this project (highest priority, overrides `.php-version` and `composer.json`) |
+| `node_version` | Node version (highest priority, overrides `.nvmrc`, `.node-version`, and `package.json`); writes `.node-version` on apply if the file does not already exist |
+| `framework` | Framework name (overrides auto-detection) |
+| `framework_def` | Full framework definition, embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
 | `secured` | When `true`, HTTPS is enabled on apply |
 | `domains` | Site hostnames without the TLD (e.g. `[myapp, api]`). The first entry is the primary; additional entries become aliases. Conflict-filtered domains stay in this list on disk but are not registered |
-| `app_url` | Override for `APP_URL` (or the framework's URL key) written to `.env`. Highest priority — beats the per-machine `sites.yaml` override and the default `<scheme>://<primary-domain>` generator. Use for custom path prefixes, ports, or unrelated hostnames you want shared across machines |
+| `app_url` | Override for `APP_URL` (or the framework's URL key) written to `.env`. Highest priority, it beats the per-machine `sites.yaml` override and the default `<scheme>://<primary-domain>` generator. Use for custom path prefixes, ports, or unrelated hostnames you want shared across machines |
 | `services` | Services to start on apply. Accepts built-in names, custom service names, or full inline definitions |
 | `workers` | Active worker names for the site (e.g. `queue`, `horizon`, `schedule`, `reverb`, `stripe`). Automatically kept in sync by start/stop commands. Used by `lerd start` to restore workers after reinstall |
-| `container` | Custom container config for non-PHP sites. When present, lerd builds a dedicated container from the project's Containerfile and nginx reverse-proxies to it. See below and [Custom Containers](../features/custom-containers.md) |
+| `container` | Custom container config for non-PHP sites. When present, lerd builds a dedicated container from the project's Containerfile and nginx reverse-proxies to it. See below and [Custom Containers](../usage/custom-containers.md) |
 | `custom_workers` | Custom worker definitions (name to config map). Works for both PHP and custom container sites. See below |
 | `db` | Database targeting for non-PHP projects: `service` (e.g. `mysql`, `postgres`) and `database` name |
 
 ### Basic example
 
 ```yaml
-php_version: "8.4"
+php_version: "8.5"
 node_version: "22"
 framework: laravel
 secured: true
@@ -90,7 +90,7 @@ When `container` is present, `php_version`, `framework`, and `node_version` are 
 | `containerfile` | no | `Containerfile.lerd` | Path to the Containerfile (relative to project root) |
 | `build_context` | no | `.` | Build context directory (relative to project root) |
 
-See [Custom Containers](../features/custom-containers.md) for the full guide.
+See [Custom Containers](../usage/custom-containers.md) for the full guide.
 
 ### Custom workers
 
@@ -123,10 +123,10 @@ Worker definitions stay in `custom_workers` permanently. The `workers` field (a 
 
 ### Inline custom service definitions
 
-Custom services can be defined directly in `.lerd.yaml` instead of (or in addition to) registering them with `lerd service add`. This makes the project fully self-contained — cloning it and running `lerd link` is enough to reproduce the environment.
+Custom services can be defined directly in `.lerd.yaml` instead of (or in addition to) registering them with `lerd service add`. This makes the project fully self-contained: cloning it and running `lerd link` is enough to reproduce the environment.
 
 ```yaml
-php_version: "8.4"
+php_version: "8.5"
 node_version: "22"
 framework: laravel
 secured: true
@@ -149,7 +149,7 @@ services:
           "db.getSiblingDB('{{site}}').createCollection('_init')"
 ```
 
-The inline definition schema is identical to a [custom service YAML file](../usage/services.md#yaml-schema). On apply, the service is registered to `~/.config/lerd/services/<name>.yaml` then started.
+The inline definition schema is identical to a [custom service YAML file](../usage/custom-services.md#yaml-schema). On apply, the service is registered to `~/.config/lerd/services/<name>.yaml` then started.
 
 If a service with that name already exists locally and the definitions differ, a diff is shown and you are asked whether to replace it:
 
@@ -169,7 +169,7 @@ Replace service/mongodb with the version from .lerd.yaml? (y/N)
 
 ### Custom frameworks
 
-When `lerd init` runs in a project that uses a custom framework (one added with `lerd framework add`), the full framework definition is embedded under `framework_def`. On a fresh machine the definition is restored automatically before linking — no manual `lerd framework add` step needed.
+When `lerd init` runs in a project that uses a custom framework (one added with `lerd framework add`), the full framework definition is embedded under `framework_def`. On a fresh machine the definition is restored automatically before linking, no manual `lerd framework add` step needed.
 
 ```yaml
 framework: wordpress
@@ -189,12 +189,12 @@ If a framework with that name already exists locally and differs from the embedd
 
 The config is applied whenever `lerd link` or `lerd init` runs in the project root:
 
-- **`lerd link`** — framework definition restored, `.node-version` written, PHP version applied, HTTPS toggled, services registered and started.
-- **`lerd init`** — installs PHP FPM if needed, then runs `lerd link` (which applies everything above). Re-runs the wizard if `--fresh` is passed.
+- **`lerd link`**: framework definition restored, `.node-version` written, PHP version applied, HTTPS toggled, services registered and started.
+- **`lerd init`**: installs PHP FPM if needed, then runs `lerd link` (which applies everything above). Re-runs the wizard if `--fresh` is passed.
 
 Commit `.lerd.yaml` to the repository. On a fresh machine, `lerd link` is sufficient to reproduce the full local environment.
 
-The Lerd watcher also monitors `.lerd.yaml` for changes. When you switch branches with a different config the PHP and Node versions are re-detected and applied automatically — no manual `lerd link` or `lerd init` needed. See [Automatic version switching](../features/project-setup.md#automatic-version-switching) for details.
+The Lerd watcher also monitors `.lerd.yaml` for changes. When you switch branches with a different config the PHP and Node versions are re-detected and applied automatically, no manual `lerd link` or `lerd init` needed. See [Automatic version switching](../features/project-setup.md#automatic-version-switching) for details.
 
 `lerd isolate`, the UI PHP version selector, and the MCP `site_php` tool all keep `php_version` in sync when this file exists.
 
