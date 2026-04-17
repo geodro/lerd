@@ -120,8 +120,10 @@ func (t *logTail) run(ctx context.Context, target LogTarget, ch chan<- string) {
 	var cmd *exec.Cmd
 	switch target.Kind {
 	case kindJournal:
-		cmd = exec.CommandContext(ctx, "journalctl", "--user", "-u", target.ID,
-			"-f", "--no-pager", "-n", "200", "--output=cat")
+		// Worker log tail — platform-specific because workers are systemd
+		// user units on Linux (journalctl) but podman containers on macOS
+		// (podman logs). The ID is the same on both platforms (lerd-<kind>-<site>).
+		cmd = workerLogCmd(ctx, target.ID)
 	case kindFile:
 		// -F follows by name, re-opening if the file is rotated, which is
 		// what Laravel-style loggers do when they roll daily. -n 200 gives
