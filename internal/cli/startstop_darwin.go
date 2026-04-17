@@ -40,6 +40,20 @@ func migrateExecWorkerPlists() {
 	}
 }
 
+// hostMemoryGiB reads host RAM in GiB via sysctl. Returns 0 on failure so
+// the caller falls back to the safe 4 GB default.
+func hostMemoryGiB() int {
+	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	if err != nil {
+		return 0
+	}
+	bytes, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || bytes <= 0 {
+		return 0
+	}
+	return int(bytes / (1024 * 1024 * 1024))
+}
+
 // ensurePodmanMachineRunning ensures a Podman Machine VM exists, is rootful,
 // and is running. If no machine exists it initialises one with --rootful.
 // If an existing machine is rootless it is stopped, switched, and restarted.
@@ -110,15 +124,14 @@ func ensurePodmanMachineRunning() {
 		needsRootful := !m.rootful
 		needsMemory := false
 
-		// Check whether the machine has at least 4 GB RAM. MySQL + PHP-FPM +
-		// Horizon together need it; machines initialised with the default 2 GB
-		// run out of memory and thrash swap, causing 800%+ host CPU usage.
+		// Target memory scales with host RAM so 8 GB MacBooks aren't squeezed.
 		// {{.Resources.Memory}} returns MiB directly (not bytes).
-		const minMemoryMiB = 4096
+		hostGiB := hostMemoryGiB()
+		targetMemoryMiB := recommendedVMMemoryMiB(hostGiB)
 		if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
 			"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
 			if memMiB, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memMiB > 0 {
-				if memMiB < minMemoryMiB {
+				if memMiB < targetMemoryMiB {
 					needsMemory = true
 				}
 			}
@@ -129,11 +142,11 @@ func ensurePodmanMachineRunning() {
 				var reason string
 				switch {
 				case needsRootful && needsMemory:
-					reason = "enable rootful mode and increase memory to 4 GB"
+					reason = fmt.Sprintf("enable rootful mode and increase memory to %d MB", targetMemoryMiB)
 				case needsRootful:
 					reason = "enable rootful mode"
 				default:
-					reason = "increase memory to 4 GB"
+					reason = fmt.Sprintf("increase memory to %d MB", targetMemoryMiB)
 				}
 				fmt.Printf("  --> Stopping Podman Machine to %s ...\n", reason)
 				stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
@@ -151,9 +164,14 @@ func ensurePodmanMachineRunning() {
 				}
 			}
 			if needsMemory {
-				fmt.Printf("  --> Setting Podman Machine memory to %d MB (recommended minimum) ...\n", minMemoryMiB)
+				if hostGiB > 0 && hostGiB <= 8 {
+					fmt.Printf("  --> Host has %d GB RAM; setting Podman Machine to %d MB (tight but workable) ...\n", hostGiB, targetMemoryMiB)
+					fmt.Println("       If sites slow down under load, run: podman machine set --memory 4096")
+				} else {
+					fmt.Printf("  --> Setting Podman Machine memory to %d MB ...\n", targetMemoryMiB)
+				}
 				setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
-					"--memory", strconv.Itoa(minMemoryMiB), m.name)
+					"--memory", strconv.FormatInt(targetMemoryMiB, 10), m.name)
 				setCmd.Stdout = os.Stdout
 				setCmd.Stderr = os.Stderr
 				if err := setCmd.Run(); err != nil {
