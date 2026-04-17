@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runtime"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,6 +24,7 @@ const (
 	settingsLANExpose settingsKind = iota
 	settingsAutostart
 	settingsXdebug
+	settingsWorkerMode
 )
 
 func (m *Model) settingsRows() []settingsRow {
@@ -40,6 +42,22 @@ func (m *Model) settingsRows() []settingsRow {
 		label: "Autostart lerd on login",
 		on:    lerdSystemd.IsAutostartEnabled(),
 	})
+
+	// Worker runtime mode: macOS only. On Linux workers always run via
+	// podman exec under systemd so the setting is meaningless there and
+	// is hidden from the UI.
+	if runtime.GOOS == "darwin" {
+		containerMode := cfg != nil && cfg.WorkerExecMode() == config.WorkerExecModeContainer
+		label := "Workers in container mode (one container per worker)"
+		if !containerMode {
+			label = "Workers in exec mode (lower memory, shared FPM container)"
+		}
+		rows = append(rows, settingsRow{
+			kind:  settingsWorkerMode,
+			label: label,
+			on:    containerMode,
+		})
+	}
 
 	if versions, err := phpPkg.ListInstalled(); err == nil {
 		for _, v := range versions {
@@ -84,6 +102,16 @@ func (m *Model) settingsToggle(rows []settingsRow) tea.Cmd {
 		}
 		m.setStatus("xdebug "+verb+" PHP "+row.phpVersion+"…", 5*time.Second)
 		return runLerd("", "xdebug", verb, row.phpVersion)
+	case settingsWorkerMode:
+		// Toggle between exec (off) and container (on). Mirrors
+		// `lerd workers mode <value>`. Does not stop running workers —
+		// caller should restart them for the change to take effect.
+		target := config.WorkerExecModeContainer
+		if row.on {
+			target = config.WorkerExecModeExec
+		}
+		m.setStatus("switching worker mode to "+target+"…", 5*time.Second)
+		return runLerd("", "workers", "mode", target)
 	}
 	return nil
 }

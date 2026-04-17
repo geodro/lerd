@@ -139,6 +139,7 @@ func main() {
 	root.AddCommand(cli.NewDomainCmd())
 	root.AddCommand(cli.NewFrameworkCmd())
 	root.AddCommand(cli.NewWorkerCmd())
+	root.AddCommand(cli.NewWorkersCmd())
 	root.AddCommand(cli.NewNewCmd())
 	root.AddCommand(cli.NewSetupCmd())
 	root.AddCommand(cli.NewMinioMigrateCmd())

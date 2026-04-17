@@ -117,6 +117,7 @@ export default defineConfig({
             { text: 'Framework Workers', link: '/usage/framework-workers' },
             { text: 'Framework Definitions', link: '/usage/framework-definitions' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
+            { text: 'Worker Runtime (macOS)', link: '/usage/worker-runtime' },
             { text: 'Browser Testing', link: '/usage/browser-testing' },
           ],
         },
