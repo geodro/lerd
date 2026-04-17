@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/xdebugops"
 	"github.com/spf13/cobra"
 )
 
@@ -24,14 +24,22 @@ func NewXdebugCmd() *cobra.Command {
 }
 
 func newXdebugOnCmd() *cobra.Command {
-	return &cobra.Command{
+	var mode string
+	cmd := &cobra.Command{
 		Use:   "on [version]",
 		Short: "Enable Xdebug for a PHP version (rebuilds the FPM image)",
+		Long:  "Enable Xdebug for a PHP version. Use --mode to pick a non-default mode, e.g. --mode coverage for code coverage, or --mode debug,coverage to combine.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runXdebugToggle(args, true)
+			normalised, err := podman.NormaliseXdebugMode(mode)
+			if err != nil {
+				return err
+			}
+			return runXdebugToggle(args, true, normalised)
 		},
 	}
+	cmd.Flags().StringVar(&mode, "mode", "debug", "xdebug.mode value (debug, coverage, develop, profile, trace, gcstats, or a comma-separated combo)")
+	return cmd
 }
 
 func newXdebugOffCmd() *cobra.Command {
@@ -40,7 +48,7 @@ func newXdebugOffCmd() *cobra.Command {
 		Short: "Disable Xdebug for a PHP version (rebuilds the FPM image)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return runXdebugToggle(args, false)
+			return runXdebugToggle(args, false, "")
 		},
 	}
 }
@@ -72,55 +80,44 @@ func xdebugVersion(args []string) (string, error) {
 	return v, nil
 }
 
-func runXdebugToggle(args []string, enable bool) error {
+func runXdebugToggle(args []string, enable bool, mode string) error {
 	version, err := xdebugVersion(args)
 	if err != nil {
 		return err
 	}
 
-	cfg, err := config.LoadGlobal()
+	applyMode := ""
+	if enable {
+		applyMode = mode
+	}
+
+	res, err := xdebugops.Apply(version, applyMode)
 	if err != nil {
 		return err
 	}
 
-	// No-op if already in the desired state.
-	if cfg.IsXdebugEnabled(version) == enable {
+	if res.NoChange {
 		state := "disabled"
-		if enable {
-			state = "enabled"
+		if res.Enabled {
+			state = fmt.Sprintf("enabled (mode=%s)", res.Mode)
 		}
 		fmt.Printf("Xdebug is already %s for PHP %s\n", state, version)
 		return nil
 	}
 
-	cfg.SetXdebug(version, enable)
-	if err := config.SaveGlobal(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	if err := podman.WriteXdebugIni(version, enable); err != nil {
-		return fmt.Errorf("writing xdebug ini: %w", err)
-	}
-
-	// Update quadlet (adds volume mount if not already present) + restart.
-	if err := podman.WriteFPMQuadlet(version); err != nil {
-		fmt.Printf("[WARN] updating quadlet: %v\n", err)
-	}
-
-	short := strings.ReplaceAll(version, ".", "")
-	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
-		fmt.Printf("[WARN] restart %s: %v\n", unit, err)
+	if res.RestartErr != nil {
+		unit := xdebugops.FPMUnit(version)
+		fmt.Printf("[WARN] restart %s: %v\n", unit, res.RestartErr)
 		fmt.Printf("Run: systemctl --user restart %s\n", unit)
-	} else {
+	} else if res.Restarted {
 		fmt.Printf("FPM container restarted.\n")
 	}
 
-	state := "disabled"
-	if enable {
-		state = "enabled"
+	if res.Enabled {
+		fmt.Printf("Xdebug enabled for PHP %s (mode=%s, port 9003, host.containers.internal)\n", version, res.Mode)
+	} else {
+		fmt.Printf("Xdebug disabled for PHP %s\n", version)
 	}
-	fmt.Printf("Xdebug %s for PHP %s (port 9003, host.containers.internal)\n", state, version)
 	return nil
 }
 
@@ -140,14 +137,17 @@ func runXdebugStatus(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	fmt.Printf("%-10s %s\n", "Version", "Xdebug")
-	fmt.Printf("%-10s %s\n", "─────────", "──────")
+	fmt.Printf("%-10s %-10s %s\n", "Version", "Xdebug", "Mode")
+	fmt.Printf("%-10s %-10s %s\n", "─────────", "──────────", "────")
 	for _, v := range versions {
-		status := "\033[33mdisabled\033[0m"
-		if cfg.IsXdebugEnabled(v) {
-			status = "\033[32menabled\033[0m"
+		state := "disabled"
+		color := "\033[33m"
+		mode := cfg.GetXdebugMode(v)
+		if mode != "" {
+			state = "enabled"
+			color = "\033[32m"
 		}
-		fmt.Printf("%-10s %s\n", v, status)
+		fmt.Printf("%-10s %s%-10s\033[0m %s\n", v, color, state, mode)
 	}
 	return nil
 }

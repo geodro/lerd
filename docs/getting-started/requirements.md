@@ -50,3 +50,21 @@ The released binary is fully static with no runtime dependencies. You do not nee
 - **Xcode Command Line Tools**: required by Homebrew (`xcode-select --install` if missing)
 
 DNS, the local CA (mkcert), and nginx are all set up by `lerd install`. No system-level resolver configuration is needed; macOS picks up `.test` lookups from `/etc/resolver/test` which lerd writes for you.
+
+### Podman Machine memory
+
+On first start `lerd` sizes the Podman Machine VM based on your host RAM so 8 GB MacBooks aren't squeezed while larger machines get headroom for heavier workloads.
+
+| Host RAM | Podman Machine memory |
+|----------|-----------------------|
+| ≤ 8 GB   | 3 GB                  |
+| 9-31 GB  | 4 GB                  |
+| ≥ 32 GB  | 6 GB                  |
+
+The memory value is a ceiling, not a reservation: the VM only uses what your containers actually request. If sites slow down under load on an 8 GB host, bump the VM manually:
+
+```bash
+podman machine stop
+podman machine set --memory 4096
+podman machine start
+```

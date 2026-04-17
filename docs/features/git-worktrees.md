@@ -36,11 +36,17 @@ When a worktree vhost is first created, Lerd sets up three things in the checkou
 
 | Resource | Behaviour |
 |---|---|
-| `vendor/` | Symlinked from the main repo (shares Composer packages) |
-| `node_modules/` | Symlinked from the main repo (shares npm packages) |
+| `vendor/` | Copied from the main repo using reflinks where the filesystem supports them (btrfs, xfs-reflink, APFS), then reconciled against the worktree's own `composer.lock` via `composer install` |
+| `node_modules/` | Copied from the main repo (reflink where supported), then reconciled against the worktree's own lockfile via the matching package manager (pnpm / yarn / bun / npm, auto-detected from `pnpm-lock.yaml`, `yarn.lock`, `bun.lock*`, or `package-lock.json`) |
 | `.env` | Copied from the main repo with `APP_URL` rewritten to `http://<branch>.<site>.test` |
 
-If any of these already exist in the worktree they are left untouched.
+If `vendor/` or `node_modules/` already exist as real directories they are left untouched. Legacy symlinks left by earlier lerd versions are replaced with real copies.
+
+On reflink-capable filesystems the initial copy is near-instant and consumes no extra disk until a file is modified. On ext4 it falls back to a plain copy, which typically takes a few seconds per vendor tree. The subsequent `composer install` plus the JS install is a quick verification pass when the worktree branch shares the same lockfile as main, and installs only the differences when the branch has changed dependencies. If the detected package manager isn't on `PATH` (e.g. `pnpm-lock.yaml` but no pnpm installed) the JS step is skipped with a warning so the rest of the worktree is still usable.
+
+::: info Why not symlink?
+Earlier versions of lerd symlinked `vendor/` to save disk. PHP resolves `__DIR__` through symlinks to the real filesystem path, so Composer's `ClassLoader` would initialise against the main repo directory and silently load stale classes from there. Real copies avoid the problem while still being cheap on modern filesystems.
+:::
 
 ---
 

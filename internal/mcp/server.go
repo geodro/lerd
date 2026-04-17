@@ -26,6 +26,7 @@ import (
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
+	"github.com/geodro/lerd/internal/xdebugops"
 )
 
 const protocolVersion = "2024-11-05"
@@ -667,6 +668,10 @@ func toolList() []mcpTool {
 					"version": {
 						Type:        "string",
 						Description: "PHP version (e.g. \"8.4\"). Defaults to the project or global default.",
+					},
+					"mode": {
+						Type:        "string",
+						Description: "xdebug.mode value. Defaults to \"debug\". Accepts debug, coverage, develop, profile, trace, gcstats, or a comma-separated combo like \"debug,coverage\".",
 					},
 				},
 			},
@@ -3676,40 +3681,35 @@ func execXdebugToggle(args map[string]any, enable bool) (any, *rpcError) {
 		version = cfg.PHP.DefaultVersion
 	}
 
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return toolErr("loading config: " + err.Error()), nil
-	}
-
-	state := "disabled"
+	applyMode := ""
 	if enable {
-		state = "enabled"
+		applyMode = strArg(args, "mode")
+		if applyMode == "" {
+			applyMode = "debug"
+		}
 	}
 
-	if cfg.IsXdebugEnabled(version) == enable {
-		return toolOK(fmt.Sprintf("Xdebug is already %s for PHP %s", state, version)), nil
+	res, err := xdebugops.Apply(version, applyMode)
+	if err != nil {
+		return toolErr(err.Error()), nil
 	}
 
-	cfg.SetXdebug(version, enable)
-	if err := config.SaveGlobal(cfg); err != nil {
-		return toolErr("saving config: " + err.Error()), nil
+	if res.NoChange {
+		if res.Enabled {
+			return toolOK(fmt.Sprintf("Xdebug is already enabled (mode=%s) for PHP %s", res.Mode, version)), nil
+		}
+		return toolOK(fmt.Sprintf("Xdebug is already disabled for PHP %s", version)), nil
 	}
 
-	if err := podman.WriteXdebugIni(version, enable); err != nil {
-		return toolErr("writing xdebug ini: " + err.Error()), nil
+	summary := fmt.Sprintf("Xdebug disabled for PHP %s", version)
+	if res.Enabled {
+		summary = fmt.Sprintf("Xdebug enabled for PHP %s (mode=%s, port 9003, host.containers.internal)", version, res.Mode)
 	}
-
-	if err := podman.WriteFPMQuadlet(version); err != nil {
-		return toolErr("updating FPM quadlet: " + err.Error()), nil
+	if res.RestartErr != nil {
+		unit := xdebugops.FPMUnit(version)
+		return toolOK(fmt.Sprintf("%s\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", summary, res.RestartErr, unit)), nil
 	}
-
-	short := strings.ReplaceAll(version, ".", "")
-	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
-		return toolOK(fmt.Sprintf("Xdebug %s for PHP %s\n[WARN] FPM restart failed: %v\nRun: systemctl --user restart %s", state, version, err, unit)), nil
-	}
-
-	return toolOK(fmt.Sprintf("Xdebug %s for PHP %s (port 9003, host.containers.internal)", state, version)), nil
+	return toolOK(summary), nil
 }
 
 func execXdebugStatus() (any, *rpcError) {
@@ -3729,10 +3729,12 @@ func execXdebugStatus() (any, *rpcError) {
 	type entry struct {
 		Version string `json:"version"`
 		Enabled bool   `json:"enabled"`
+		Mode    string `json:"mode,omitempty"`
 	}
 	result := make([]entry, 0, len(versions))
 	for _, v := range versions {
-		result = append(result, entry{Version: v, Enabled: cfg.IsXdebugEnabled(v)})
+		mode := cfg.GetXdebugMode(v)
+		result = append(result, entry{Version: v, Enabled: mode != "", Mode: mode})
 	}
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return toolOK(string(data)), nil
@@ -4554,7 +4556,7 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 	if err := podman.WriteFPMQuadlet(version); err != nil {
 		return toolErr("writing FPM quadlet: " + err.Error()), nil
 	}
-	_ = podman.WriteXdebugIni(version, false) // non-fatal if version not yet built
+	_ = podman.EnsureXdebugIni(version) // non-fatal if version not yet built
 
 	// Update the site registry.
 	site.PHPVersion = version

@@ -79,7 +79,8 @@ The middle panel lists individual system components: DNS, Nginx, Watcher, each i
 
 Selecting an item opens its detail panel:
 
-- **PHP-FPM cards**: show which sites use the version, Xdebug toggle, custom extension list, and a live FPM log stream. For versions with no active sites, a manual Start/Stop button is shown.
+- **PHP-FPM cards**: show which sites use the version, Xdebug toggle with an inline mode selector (debug, coverage, debug-plus-coverage, develop, profile, trace, gcstats, visible when Xdebug is on), custom extension list, and a live FPM log stream. For versions with no active sites, a manual Start/Stop button is shown.
+- **Site Xdebug chip**: every site detail shows a small Xdebug chip in the services row, purple with the active mode when on, gray with `off` when disabled. Clicking the chip jumps to that PHP version's FPM card so you can flip the state without leaving the site.
 - **Node.js cards**: show which sites use the version, with a remove button. The **Install Node.js version** entry has an inline form; enter a version number (e.g. `22`) and click **Install**, equivalent to `lerd node:install <version>`.
 - **Watcher card**: shows whether `lerd-watcher` is running; a Start button appears when stopped. Streams live watcher logs (DNS repair events, fsnotify errors, worktree timeouts).
 - **Autostart card**: enable or disable automatic start of all services at login.

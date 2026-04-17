@@ -102,6 +102,50 @@ func TestXdebug_IndependentVersions(t *testing.T) {
 	}
 }
 
+func TestXdebug_ModeRoundtrip(t *testing.T) {
+	cfg := &GlobalConfig{}
+
+	cfg.SetXdebugMode("8.3", "coverage")
+	if cfg.GetXdebugMode("8.3") != "coverage" {
+		t.Errorf("GetXdebugMode = %q, want %q", cfg.GetXdebugMode("8.3"), "coverage")
+	}
+	if !cfg.IsXdebugEnabled("8.3") {
+		t.Error("IsXdebugEnabled should be true when a mode is set")
+	}
+
+	cfg.SetXdebugMode("8.3", "debug,coverage")
+	if cfg.GetXdebugMode("8.3") != "debug,coverage" {
+		t.Errorf("GetXdebugMode = %q, want combo", cfg.GetXdebugMode("8.3"))
+	}
+
+	cfg.SetXdebugMode("8.3", "")
+	if cfg.IsXdebugEnabled("8.3") {
+		t.Error("empty mode should disable xdebug")
+	}
+}
+
+// Legacy configs (lerd <= 1.15.1) only wrote xdebug_enabled. GetXdebugMode
+// must fall back to "debug" for those entries so upgrade keeps working.
+func TestXdebug_LegacyEnabledFallsBackToDebug(t *testing.T) {
+	cfg := &GlobalConfig{}
+	cfg.PHP.XdebugEnabled = map[string]bool{"8.3": true}
+
+	if got := cfg.GetXdebugMode("8.3"); got != "debug" {
+		t.Errorf("legacy xdebug_enabled → GetXdebugMode = %q, want %q", got, "debug")
+	}
+	if !cfg.IsXdebugEnabled("8.3") {
+		t.Error("IsXdebugEnabled should honour legacy flag")
+	}
+}
+
+func TestXdebug_SetXdebugDefaultsToDebugMode(t *testing.T) {
+	cfg := &GlobalConfig{}
+	cfg.SetXdebug("8.3", true)
+	if got := cfg.GetXdebugMode("8.3"); got != "debug" {
+		t.Errorf("SetXdebug(true) → mode = %q, want %q", got, "debug")
+	}
+}
+
 // ── Extensions ────────────────────────────────────────────────────────────────
 
 func TestExtensions_AddRemoveGet(t *testing.T) {

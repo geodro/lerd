@@ -7,7 +7,7 @@
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
 | `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; warns about port conflicts and builds or pulls any missing images first |
 | `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
-| `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray |
+| `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray; on macOS also stops the Podman Machine VM |
 | `lerd update` | Check for updates and update after confirmation |
 | `lerd update --beta` | Update to the latest pre-release build |
 | `lerd update --rollback` | Revert to the previously installed version |
@@ -22,6 +22,7 @@
 | `lerd which` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
 | `lerd about` | Show version, build info, and project URL |
 | `lerd man [page]` | Browse the built-in documentation in the terminal; pass a page name to jump directly (e.g. `lerd man sites`) |
+| `lerd tui` | Open a btop-style terminal dashboard with live site / service / worker status, per-site detail pane, inline domain and version editing, shell drop-in, log tailing, filter + sort, and global settings |
 | `lerd check` | Validate `.lerd.yaml` syntax, services, and PHP version before setup |
 | `lerd doctor` | Full environment diagnostic: podman, systemd, DNS, ports, PHP images, config validity |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
@@ -100,9 +101,9 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images (pulls pre-built base by default; `--local` builds from source) |
 | `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io for the given (or all supported) versions; `--local` builds from source instead |
-| `lerd xdebug on [version]` | Enable Xdebug for a PHP version |
+| `lerd xdebug on [version] [--mode MODE]` | Enable Xdebug for a PHP version. `--mode` defaults to `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage` |
 | `lerd xdebug off [version]` | Disable Xdebug |
-| `lerd xdebug status` | Show Xdebug enabled/disabled for all installed PHP versions |
+| `lerd xdebug status` | Show Xdebug enabled/disabled state and active mode for all installed PHP versions |
 | `lerd php:ext add <ext> [version]` | Add a custom PHP extension and rebuild the FPM image |
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions for a PHP version |

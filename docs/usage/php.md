@@ -9,9 +9,9 @@
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images; `--local` builds from source instead of pulling a base |
 | `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io; `--local` builds from source instead |
-| `lerd xdebug on [version]` | Enable Xdebug for a PHP version (rebuilds the FPM image and restarts the container) |
-| `lerd xdebug off [version]` | Disable Xdebug (rebuilds without Xdebug and restarts) |
-| `lerd xdebug status` | Show Xdebug enabled/disabled for all installed PHP versions |
+| `lerd xdebug on [version] [--mode MODE]` | Enable Xdebug for a PHP version with the given mode (default `debug`) and restart the FPM container |
+| `lerd xdebug off [version]` | Disable Xdebug and restart the FPM container |
+| `lerd xdebug status` | Show Xdebug enabled/disabled state and active mode for all installed PHP versions |
 | `lerd php:ext add <ext> [version]` | Add a custom PHP extension to the FPM image and rebuild |
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions configured for a PHP version |
@@ -118,7 +118,7 @@ systemctl --user stop   lerd-php84-fpm
 ::: details Xdebug configuration values
 Xdebug is configured with:
 
-- `xdebug.mode=debug`
+- `xdebug.mode=<mode>` (defaults to `debug`, configurable per PHP version)
 - `xdebug.start_with_request=yes`
 - `xdebug.client_host=host.containers.internal` (reaches your host IDE from the container)
 - `xdebug.client_port=9003`
@@ -127,6 +127,20 @@ Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configu
 
 `host.containers.internal` is resolved via a real reachability probe: when lerd writes the shared hosts file it tries each candidate IP (netavark's `host.containers.internal` entry, the host's primary LAN IP, slirp4netns's `10.0.2.2`) by opening a TCP connection to lerd-ui on port 7073 from inside lerd-nginx, and writes the first one that succeeds. If none succeed, `lerd doctor` reports the failure so you get a real diagnosis instead of Xdebug silently timing out with `Time-out connecting to debugging client`.
 :::
+
+### Picking a mode
+
+Xdebug supports several modes: `debug` (step debugging, the default), `coverage` (code coverage collection), `develop`, `profile`, `trace`, `gcstats`, and `off`. Pick one with `--mode`:
+
+```bash
+lerd xdebug on --mode coverage        # code coverage for phpunit / pest
+lerd xdebug on --mode debug,coverage  # both at once
+lerd xdebug on 8.4 --mode trace       # explicit version
+```
+
+When combined with PCOV this matters in one direction: if your test runner's `phpunit.xml` prefers PCOV it still wins for coverage, but once you enable Xdebug in `coverage` mode your runner can fall back to Xdebug when PCOV isn't available or is disabled (`pcov.enabled = 0` in `lerd php:ini`). Running Xdebug in `coverage` mode carries the usual runtime cost, so only switch while you actually need coverage.
+
+Re-run `lerd xdebug on --mode <new>` at any time to swap modes without going through `off` first.
 
 ---
 

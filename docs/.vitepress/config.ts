@@ -135,6 +135,7 @@ export default defineConfig({
           text: 'UI & AI',
           items: [
             { text: 'Web UI', link: '/features/web-ui' },
+            { text: 'Terminal Dashboard', link: '/features/tui' },
             { text: 'System Tray', link: '/features/system-tray' },
             { text: 'AI Integration (MCP)', link: '/features/mcp' },
           ],
