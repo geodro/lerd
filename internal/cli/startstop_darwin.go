@@ -171,7 +171,7 @@ func ensurePodmanMachineRunning() {
 					fmt.Printf("  --> Setting Podman Machine memory to %d MB ...\n", targetMemoryMiB)
 				}
 				setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
-					"--memory", strconv.Itoa(targetMemoryMiB), m.name)
+					"--memory", strconv.FormatInt(targetMemoryMiB, 10), m.name)
 				setCmd.Stdout = os.Stdout
 				setCmd.Stderr = os.Stderr
 				if err := setCmd.Run(); err != nil {

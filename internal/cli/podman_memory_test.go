@@ -6,7 +6,7 @@ func TestRecommendedVMMemoryMiB(t *testing.T) {
 	cases := []struct {
 		name string
 		host int
-		want int
+		want int64
 	}{
 		{"detection failed", 0, 4096},
 		{"negative invalid", -1, 4096},
