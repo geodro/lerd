@@ -105,6 +105,7 @@ export default defineConfig({
           text: 'Features',
           items: [
             { text: 'Web UI', link: '/features/web-ui' },
+            { text: 'Terminal Dashboard', link: '/features/tui' },
             { text: 'System Tray', link: '/features/system-tray' },
             { text: 'HTTPS / TLS', link: '/features/https' },
             { text: 'Git Worktrees', link: '/features/git-worktrees' },

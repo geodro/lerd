@@ -11,6 +11,21 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`lerd tui` — terminal dashboard**. A btop-style, full-screen dashboard for sites, services, and workers, with near parity to the [Web UI](/features/web-ui) and [System Tray](/features/system-tray). Built on the same bubbletea / lipgloss stack already used for `lerd man` and the same `siteinfo` / `podman.Cache` / eventbus plumbing that drives `lerd-ui`, so both surfaces see identical live state.
+  - **Layout**: Sites + Services stacked in the left column, a full-height Site detail pane on the right, and a toggleable log tail below (`l`). Header shows DNS / nginx / FPM status plus an `update: vX.Y.Z` banner when a newer release is cached.
+  - **Site detail**: primary domain header, internal name, disk path, full domains list (add with `a`, rename with `e`, remove with `x`), services-used with live state, workers (toggle with `space`), git worktrees, HTTPS toggle, LAN share toggle (shows `http://<lan-ip>:<port>` when on), PHP and Node version pickers (open with `space`, commit with `enter`, backed by `lerd isolate` / `lerd isolate:node`).
+  - **Services pane** includes site-owned workers (`queue-<site>`, `schedule-<site>`, `horizon-<site>`, `reverb-<site>`, custom framework workers), routed through `lerd queue start/stop`, `lerd worker start/stop <name>`, etc. `t` opens an interactive shell in the focused container (FPM or custom for sites, the service container for services, the owning site's FPM for workers).
+  - **Filter + sort**: `/` to filter sites / services by name (sites also match domains and framework label), `o` to cycle sort (sites: name · status · framework; services: name · status · usage). `v` hides the services pane.
+  - **Log sources**: `[` / `]` cycle through FPM / custom container, every worker journal (`journalctl --user -u lerd-<kind>-<site>`), and every file matched by the framework's `fw.Logs` globs (Laravel: `storage/logs/*.log`). Logs pane takes at least half the window and has a right-edge scrollbar.
+  - **In-pane overlays**: `S` swaps the detail pane for global Settings (LAN expose, autostart on login, Xdebug per PHP version) and moves focus into it; `?` swaps it for a scrollable Keybindings reference. `esc` returns to Site detail.
+  - Updates live by subscribing to the in-process eventbus and re-querying every 2 s so changes made from another terminal surface within a couple of seconds.
+
+---
+
 ## [1.15.1] — 2026-04-16
 
 ### Fixed
