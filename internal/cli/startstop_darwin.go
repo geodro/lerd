@@ -210,6 +210,32 @@ func ensurePodmanMachineRunning() {
 	fmt.Println(" timed out (proceeding anyway)")
 }
 
+// stopPodmanMachine stops the running Podman Machine VM. Called by runQuit so
+// the VM is cleanly shut down when the user quits Lerd entirely.
+func stopPodmanMachine() {
+	out, err := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[1] != "true" {
+			continue
+		}
+		name := strings.TrimSuffix(fields[0], "*")
+		fmt.Printf("  --> Stopping Podman Machine (%s) ...\n", name)
+		cmd := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("  WARN: podman machine stop: %v\n", err)
+		}
+	}
+}
+
 // batchStopContainers stops all running lerd-* containers in two podman calls
 // (stop then rm) so the Podman Machine socket isn't flooded by N individual
 // stop requests from RunParallel. After this returns the individual Stop()

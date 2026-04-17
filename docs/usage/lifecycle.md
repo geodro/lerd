@@ -72,8 +72,9 @@ The full off-switch:
 2. Stops `lerd-ui` (Web UI).
 3. Stops `lerd-watcher`.
 4. Kills the system tray process.
+5. **macOS only:** stops the Podman Machine VM.
 
-After `lerd quit` there are no lerd processes left running. This is the right command before a reinstall, a system reboot, or before pulling a major update.
+After `lerd quit` there are no lerd processes left running. On macOS the Podman Machine VM is also shut down, so `lerd start` will bring it back up on the next run. This is the right command before a reinstall, a system reboot, or before pulling a major update.
 
 The system tray's **Quit Lerd** menu item calls `lerd quit`.
 

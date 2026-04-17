@@ -7,7 +7,7 @@
 | `lerd install` | One-time setup: directories, network, binaries, DNS, nginx, watcher |
 | `lerd start` | Start DNS, nginx, PHP-FPM containers, and all installed services; warns about port conflicts and builds or pulls any missing images first |
 | `lerd stop` | Stop DNS, nginx, PHP-FPM containers, and all running services |
-| `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray |
+| `lerd quit` | Stop all Lerd processes and containers including the UI, watcher, and tray; on macOS also stops the Podman Machine VM |
 | `lerd update` | Check for updates and update after confirmation |
 | `lerd update --beta` | Update to the latest pre-release build |
 | `lerd update --rollback` | Revert to the previously installed version |
