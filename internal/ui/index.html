@@ -2003,9 +2003,9 @@
 
                 <div class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-lerd-card/50 rounded px-3 py-2 border border-gray-200 dark:border-lerd-border">
                   <span class="font-medium text-gray-700 dark:text-gray-300">Note:</span>
-                  Changing the mode updates the setting immediately but does not reshape workers already running.
-                  Restart them with <span class="font-mono">lerd stop &amp;&amp; lerd start</span> or per-worker commands
-                  to apply the new shape.
+                  Changing the mode stops every active worker in its old shape, cleans up the on-disk artifacts,
+                  and restarts it in the new shape. Other lerd services (FPM, nginx, DNS, built-in services)
+                  aren't touched.
                 </div>
               </div>
             </div>

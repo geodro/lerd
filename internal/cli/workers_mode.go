@@ -38,9 +38,9 @@ func newWorkersModeCmd() *cobra.Command {
 No argument prints the current value. The setting is ignored on Linux
 which always uses exec-mode workers under systemd.
 
-After changing the mode, restart running workers with 'lerd stop && lerd start'
-(or re-trigger them per-site) so the new shape takes effect. New workers
-started after the change pick up the new mode automatically.`,
+Changing the mode on macOS stops each active worker in its old shape,
+cleans up the stale on-disk artifacts, and restarts it in the new shape.
+No manual 'lerd stop && lerd start' needed.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			mode, show, err := workersModeFromArgs(args)
@@ -64,7 +64,7 @@ started after the change pick up the new mode automatically.`,
 			}
 			fmt.Printf("Worker mode set to %s (was %s).\n", mode, prev)
 			if runtime.GOOS == "darwin" {
-				fmt.Println("Run `lerd stop && lerd start` to re-shape running workers, or restart them per-site.")
+				fmt.Println("Active workers have been restarted in the new shape.")
 			} else {
 				fmt.Println("Note: Linux always uses the exec runtime. This setting only applies on macOS.")
 			}
@@ -87,17 +87,24 @@ func workersModeFromArgs(args []string) (mode string, show bool, err error) {
 		args[0], config.WorkerExecModeExec, config.WorkerExecModeContainer)
 }
 
-// applyWorkersMode writes newMode to global config. Safe to call with the
-// same value as the current one (idempotent). No attempt is made to migrate
-// running workers — the command surfaces a message advising the user to
-// re-trigger them so the operation stays predictable and reversible.
+// applyWorkersMode writes newMode to global config, then (on macOS, if
+// the mode actually changed) stops every active worker in its old shape,
+// removes stale on-disk artifacts, and restarts each in the new shape.
+// On Linux it's a pure config write since workers always use exec under
+// systemd. Idempotent for same-value writes.
 func applyWorkersMode(newMode string) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
+	prev := cfg.WorkerExecMode()
 	cfg.Workers.ExecMode = newMode
-	return config.SaveGlobal(cfg)
+	if err := config.SaveGlobal(cfg); err != nil {
+		return err
+	}
+	// migrateWorkersOnModeChange is a no-op on Linux (build-tag linked).
+	// On macOS it executes the stop → clean → restart dance per worker.
+	return migrateWorkersOnModeChange(prev, newMode)
 }
 
 func printWorkersMode(cfg *config.GlobalConfig) error {

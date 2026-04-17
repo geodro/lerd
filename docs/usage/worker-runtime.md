@@ -41,14 +41,11 @@ Open `lerd tui`, press `S` for Settings, move the cursor onto the worker mode ro
 
 ## Applying the change
 
-The setting changes the shape for *newly-started* workers. Existing workers keep their current shape until they restart. To apply the new mode immediately, restart lerd:
+On macOS, toggling the mode runs a scoped migration automatically: every active worker is stopped in its old shape, the stale on-disk artifacts (quadlet, service unit, guard script, pid file, leftover container) are cleaned up, and the worker restarts in the new shape. Other lerd surfaces (FPM, nginx, DNS, built-in services) are untouched, so the operation is fast and localised.
 
-```sh
-lerd stop
-lerd start
-```
+If a single worker fails to restart (e.g. the framework definition is missing), a warning is printed and the migration continues with the rest. Re-running `lerd stop && lerd start` always recovers.
 
-…or restart workers on a per-site basis with `lerd queue stop && lerd queue start`, `lerd horizon stop && lerd horizon start`, etc.
+On Linux the setting is informational, so no migration runs there.
 
 ## Which to choose
 
