@@ -14,7 +14,7 @@ Day-to-day lifecycle commands for the entire lerd stack: DNS, nginx, PHP-FPM con
 |---|---|---|
 | `lerd start` | nothing | DNS, nginx, watcher, tray, all PHP-FPM containers in use, services that were running before stop, queue / schedule / reverb / messenger workers, stripe listeners, Web UI |
 | `lerd stop` | All containers and workers above. Leaves the watcher and Web UI alone. | nothing |
-| `lerd quit` | Everything `lerd stop` does, **plus** the Web UI, watcher, and tray. | nothing |
+| `lerd quit` | Everything `lerd stop` does, **plus** the Web UI, watcher, and tray. macOS: also stops the Podman Machine VM. | nothing |
 
 `lerd stop` is the everyday "give my laptop back its CPU" command. `lerd quit` is a full shutdown: use it before a reinstall, a system reboot without autostart, or when you really want lerd out of the way.
 

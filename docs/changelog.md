@@ -15,6 +15,8 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`lerd quit` stops the Podman Machine VM on macOS**. After all containers, workers, the Web UI, watcher, and tray are shut down, `lerd quit` now calls `podman machine stop` on any running machine. `lerd start` already starts the machine, so quit and start are now fully symmetric. No change on Linux where Podman runs natively without a VM.
+
 - **`lerd tui` — terminal dashboard**. A btop-style, full-screen dashboard for sites, services, and workers, with near parity to the [Web UI](/features/web-ui) and [System Tray](/features/system-tray). Built on the same bubbletea / lipgloss stack already used for `lerd man` and the same `siteinfo` / `podman.Cache` / eventbus plumbing that drives `lerd-ui`, so both surfaces see identical live state.
   - **Layout**: Sites + Services stacked in the left column, a full-height Site detail pane on the right, and a toggleable log tail below (`l`). Header shows DNS / nginx / FPM status plus an `update: vX.Y.Z` banner when a newer release is cached.
   - **Site detail**: primary domain header, internal name, disk path, full domains list (add with `a`, rename with `e`, remove with `x`), services-used with live state, workers (toggle with `space`), git worktrees, HTTPS toggle, LAN share toggle (shows `http://<lan-ip>:<port>` when on), PHP and Node version pickers (open with `space`, commit with `enter`, backed by `lerd isolate` / `lerd isolate:node`).
