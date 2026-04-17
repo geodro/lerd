@@ -37,6 +37,7 @@ import (
 	"github.com/geodro/lerd/internal/siteops"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
+	"github.com/geodro/lerd/internal/xdebugops"
 )
 
 //go:embed index.html
@@ -525,6 +526,7 @@ type PHPStatus struct {
 	Version       string `json:"version"`
 	Running       bool   `json:"running"`
 	XdebugEnabled bool   `json:"xdebug_enabled"`
+	XdebugMode    string `json:"xdebug_mode,omitempty"`
 }
 
 func handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -548,8 +550,11 @@ func buildStatus() StatusResponse {
 	for _, v := range versions {
 		short := strings.ReplaceAll(v, ".", "")
 		running := podman.Cache.Running("lerd-php" + short + "-fpm")
-		xdebugEnabled := cfg != nil && cfg.IsXdebugEnabled(v)
-		phpStatuses = append(phpStatuses, PHPStatus{Version: v, Running: running, XdebugEnabled: xdebugEnabled})
+		xdebugMode := ""
+		if cfg != nil {
+			xdebugMode = cfg.GetXdebugMode(v)
+		}
+		phpStatuses = append(phpStatuses, PHPStatus{Version: v, Running: running, XdebugEnabled: xdebugMode != "", XdebugMode: xdebugMode})
 	}
 
 	phpDefault := ""
@@ -2384,7 +2389,7 @@ func appleScriptStr(s string) string {
 }
 
 func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
-	// path: /api/xdebug/{version}/on or /api/xdebug/{version}/off
+	// path: /api/xdebug/{version}/on[?mode=MODE] or /api/xdebug/{version}/off
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/xdebug/"), "/")
 	if len(parts) != 2 || r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -2395,42 +2400,24 @@ func handleXdebugAction(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	enable := action == "on"
 
-	cfg, err := config.LoadGlobal()
+	applyMode := ""
+	if action == "on" {
+		applyMode = r.URL.Query().Get("mode")
+		if applyMode == "" {
+			applyMode = "debug"
+		}
+	}
+
+	res, err := xdebugops.Apply(version, applyMode)
 	if err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-
-	if cfg.IsXdebugEnabled(version) == enable {
-		writeJSON(w, map[string]any{"ok": true, "xdebug_enabled": enable})
-		return
+	if res.RestartErr != nil {
+		fmt.Printf("[WARN] restart %s: %v\n", xdebugops.FPMUnit(version), res.RestartErr)
 	}
-
-	cfg.SetXdebug(version, enable)
-	if err := config.SaveGlobal(cfg); err != nil {
-		writeJSON(w, map[string]any{"ok": false, "error": "saving config: " + err.Error()})
-		return
-	}
-
-	if err := podman.WriteXdebugIni(version, enable); err != nil {
-		writeJSON(w, map[string]any{"ok": false, "error": "writing xdebug ini: " + err.Error()})
-		return
-	}
-
-	// Update quadlet (adds volume mount if not already present).
-	if err := podman.WriteFPMQuadlet(version); err != nil {
-		fmt.Printf("[WARN] updating quadlet for PHP %s: %v\n", version, err)
-	}
-
-	short := strings.ReplaceAll(version, ".", "")
-	unit := "lerd-php" + short + "-fpm"
-	if err := podman.RestartUnit(unit); err != nil {
-		fmt.Printf("[WARN] restart %s: %v\n", unit, err)
-	}
-
-	writeJSON(w, map[string]any{"ok": true, "xdebug_enabled": enable})
+	writeJSON(w, map[string]any{"ok": true, "xdebug_enabled": res.Enabled, "xdebug_mode": res.Mode})
 }
 
 func handleScheduleLogs(w http.ResponseWriter, r *http.Request) {

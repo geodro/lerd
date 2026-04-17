@@ -100,9 +100,9 @@ See [Remote / LAN Development](/usage/remote-development) for the full walkthrou
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images (pulls pre-built base by default; `--local` builds from source) |
 | `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io for the given (or all supported) versions; `--local` builds from source instead |
-| `lerd xdebug on [version]` | Enable Xdebug for a PHP version |
+| `lerd xdebug on [version] [--mode MODE]` | Enable Xdebug for a PHP version. `--mode` defaults to `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage` |
 | `lerd xdebug off [version]` | Disable Xdebug |
-| `lerd xdebug status` | Show Xdebug enabled/disabled for all installed PHP versions |
+| `lerd xdebug status` | Show Xdebug enabled/disabled state and active mode for all installed PHP versions |
 | `lerd php:ext add <ext> [version]` | Add a custom PHP extension and rebuild the FPM image |
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions for a PHP version |

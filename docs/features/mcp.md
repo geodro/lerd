@@ -90,9 +90,9 @@ Once the MCP server is connected, your AI assistant has access to:
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |
 | `unsecure` | Disable HTTPS for a site |
-| `xdebug_on` | Enable Xdebug for a PHP version and restart the FPM container |
+| `xdebug_on` | Enable Xdebug for a PHP version and restart the FPM container. Optional `mode` (default `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage`) |
 | `xdebug_off` | Disable Xdebug for a PHP version |
-| `xdebug_status` | Show Xdebug enabled/disabled state for all PHP versions |
+| `xdebug_status` | Show Xdebug enabled/disabled state and active `mode` for all PHP versions |
 | `service_start` | Start a built-in or custom service; if the service has `depends_on`, dependencies start first and dependent services start after |
 | `service_stop` | Stop a built-in or custom service; cascade-stops any custom services that depend on it first |
 | `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, …); supports `depends_on` for service dependencies |
@@ -183,7 +183,11 @@ AI:  → site_link()
 You: enable xdebug so I can step through a failing job
 AI:  → xdebug_status()
      → xdebug_on(version: "8.4")
-     ✓  Xdebug enabled for PHP 8.4 (port 9003)
+     ✓  Xdebug enabled for PHP 8.4 (mode=debug, port 9003)
+
+You: turn on xdebug coverage so I can run phpunit --coverage
+AI:  → xdebug_on(version: "8.4", mode: "coverage")
+     ✓  Xdebug enabled for PHP 8.4 (mode=coverage, port 9003)
 
 You: the app is throwing 500s — check the logs
 AI:  → logs(target: "8.4", lines: 50)
