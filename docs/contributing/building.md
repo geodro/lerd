@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The tray binary requires CGO and `libayatana-appindicator`. See [System Tray — Build requirements](../features/system-tray.md#build-requirements) for per-distro package names.
+The tray binary requires CGO and `libayatana-appindicator`. See [System Tray: Build requirements](../features/system-tray.md#build-requirements) for per-distro package names.
 
 Go is required to build from source. The released binary has no runtime dependencies.
 

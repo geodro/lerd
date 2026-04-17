@@ -22,21 +22,21 @@ lerd init
 
 ```
 → Configuring site...
-? PHP version: 8.4
+? PHP version: 8.5
 ? Node version (leave blank to skip): 22
 ? Enable HTTPS? No
 ? Database: mysql
 ? Services: [mysql, redis]
 ? Workers to auto-start: [queue, schedule]
 Saved .lerd.yaml
-Linked: my-app -> my-app.test (PHP 8.4, Node 22, Framework: laravel)
+Linked: my-app -> my-app.test (PHP 8.5, Node 22, Framework: laravel)
 ```
 
-The answers are saved to `.lerd.yaml` in the project root and applied immediately — the site is linked, HTTPS is enabled if requested, the database is created, and the chosen services are started.
+The answers are saved to `.lerd.yaml` in the project root and applied immediately: the site is linked, HTTPS is enabled if requested, the database is created, and the chosen services are started.
 
-The services list includes both built-in services and any custom services already registered with `lerd service add`. The workers step pre-selects workers based on the framework and detected packages — Horizon is shown automatically when `laravel/horizon` is in `composer.json`, replacing the generic queue option.
+The services list includes both built-in services and any custom services already registered with `lerd service add`. The workers step pre-selects workers based on the framework and detected packages; Horizon is shown automatically when `laravel/horizon` is in `composer.json`, replacing the generic queue option.
 
-**Commit `.lerd.yaml` to your repo.** On any future machine, running `lerd link` (or `lerd init` again) reads the saved file and restores the full configuration non-interactively — no prompts.
+**Commit `.lerd.yaml` to your repo.** On any future machine, running `lerd link` (or `lerd init` again) reads the saved file and restores the full configuration non-interactively, no prompts.
 
 | Flag | Description |
 |---|---|
@@ -72,7 +72,7 @@ After the wizard, a checkbox list appears with all available steps pre-selected 
   ◉ lerd open
 ```
 
-The `lerd secure` step is omitted entirely when HTTPS was already enabled in the init wizard — there is nothing left to do.
+The `lerd secure` step is omitted entirely when HTTPS was already enabled in the init wizard, because there is nothing left to do.
 
 On a machine where `.lerd.yaml` already exists the wizard is skipped and the saved configuration is applied silently before the step selector appears.
 
@@ -84,13 +84,13 @@ See [Configuration](../reference/configuration.md#per-project-config-lerdyaml) f
 
 ## Automatic version switching
 
-When the Lerd watcher is running it monitors `.lerd.yaml`, `.php-version`, `.node-version`, and `.nvmrc` in every linked site directory. If any of these files change — for example after a `git checkout` to a branch with a different `.lerd.yaml` — Lerd automatically:
+When the Lerd watcher is running it monitors `.lerd.yaml`, `.php-version`, `.node-version`, and `.nvmrc` in every linked site directory. If any of these files change, for example after a `git checkout` to a branch with a different `.lerd.yaml`, Lerd automatically:
 
 1. Re-detects the PHP and Node versions for the site.
 2. Updates the site registry.
 3. Regenerates the nginx vhost (when the PHP version changed) and reloads nginx.
 
-No hooks or per-project setup needed — it works for every linked site out of the box.
+No hooks or per-project setup needed; it works for every linked site out of the box.
 
 ---
 
@@ -110,7 +110,7 @@ No hooks or per-project setup needed — it works for every linked site out of t
 | `queue:start` | - [x] on | only if `QUEUE_CONNECTION=redis` is set in `.env` or `.env.example` |
 | `lerd open` | - [x] on | always |
 
-The asset build step detects the right command from `package.json` — it looks for `build`, `production`, or `prod` scripts in priority order.
+The asset build step detects the right command from `package.json`; it looks for `build`, `production`, or `prod` scripts in priority order.
 
 ---
 

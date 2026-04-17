@@ -97,6 +97,7 @@ func main() {
 	root.AddCommand(cli.NewNpxCmd())
 	root.AddCommand(cli.NewServiceCmd())
 	root.AddCommand(cli.NewStatusCmd())
+	root.AddCommand(cli.NewTuiCmd())
 	root.AddCommand(cli.NewWhichCmd())
 	root.AddCommand(cli.NewCheckCmd())
 	root.AddCommand(cli.NewAboutCmd())

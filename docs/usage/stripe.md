@@ -61,7 +61,7 @@ If you run `lerd secure` or `lerd unsecure` while the listener is active, Lerd a
 journalctl --user -u lerd-stripe-myapp -f
 ```
 
-Logs are also available live in the **web UI** — see [Web UI](#web-ui) below.
+Logs are also available live in the **web UI**, see [Web UI](#web-ui) below.
 
 ### Options
 

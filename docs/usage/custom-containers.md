@@ -48,7 +48,7 @@ lerd link
 
 Lerd builds the image, creates a dedicated container, and configures nginx to reverse-proxy to it.
 
-> **Important:** `lerd link` must be called **after** both files exist. Calling it without the `container:` section in `.lerd.yaml` registers the project as a PHP-FPM site instead. If that happened, run `lerd unlink` first, then set up the files and link again. If you haven't written `.lerd.yaml` yet, run `lerd init` instead of writing it by hand — it detects the `Containerfile.lerd` and runs the custom container wizard for you.
+> **Important:** `lerd link` must be called **after** both files exist. Calling it without the `container:` section in `.lerd.yaml` registers the project as a PHP-FPM site instead. If that happened, run `lerd unlink` first, then set up the files and link again. If you haven't written `.lerd.yaml` yet, run `lerd init` instead of writing it by hand, it detects the `Containerfile.lerd` and runs the custom container wizard for you.
 
 ## Configuration
 
@@ -103,7 +103,7 @@ Use polling instead:
 |------|-------------|
 | nodemon | `--legacy-watch` |
 | Vite | `--watch` (already polls) or set `server.watch.usePolling: true` in `vite.config` |
-| NestJS | `nest start --watch` uses nodemon — add `--legacy-watch` via `nodemon.json`: `{"legacyWatch": true}` |
+| NestJS | `nest start --watch` uses nodemon, add `--legacy-watch` via `nodemon.json`: `{"legacyWatch": true}` |
 | webpack | `watchOptions: { poll: 1000 }` in webpack config |
 
 Example `package.json`:
