@@ -3,15 +3,15 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	colTitle    = lipgloss.Color("205")
-	colDim      = lipgloss.Color("243")
-	colDivider  = lipgloss.Color("237")
-	colRunning  = lipgloss.Color("42")
-	colStopped  = lipgloss.Color("243")
-	colFailing  = lipgloss.Color("203")
-	colPaused   = lipgloss.Color("214")
-	colAccent   = lipgloss.Color("147")
-	colSelected = lipgloss.Color("205")
+	colTitle    = lipgloss.Color("#FF2D20") // lerd red
+	colDim      = lipgloss.Color("#6b7280") // gray-500
+	colDivider  = lipgloss.Color("#374151") // gray-700
+	colRunning  = lipgloss.Color("#10b981") // emerald-500
+	colStopped  = lipgloss.Color("#6b7280") // gray-500
+	colFailing  = lipgloss.Color("#ef4444") // red-500
+	colPaused   = lipgloss.Color("#f59e0b") // amber-400
+	colAccent   = lipgloss.Color("#a78bfa") // violet-400
+	colSelected = lipgloss.Color("#FF2D20") // lerd red
 )
 
 var (

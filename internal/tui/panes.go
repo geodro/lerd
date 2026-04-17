@@ -10,6 +10,11 @@ import (
 	"github.com/geodro/lerd/internal/siteinfo"
 )
 
+// narrowWidth is the terminal width below which the TUI switches from the
+// two-column layout (sites+services | detail) to a single-column layout
+// where only the focused pane fills the full width.
+const narrowWidth = 100
+
 // View implements tea.Model.
 func (m *Model) View() string {
 	if m.width < 60 || m.height < 12 {
@@ -49,43 +54,70 @@ func (m *Model) View() string {
 		topH = 6
 	}
 
-	// Left column stacks sites on top of services; right column is the
-	// site detail (full topH). When services is hidden, sites takes the
-	// whole left column.
-	leftW := m.width * 2 / 5
-	if leftW < 36 {
-		leftW = 36
-	}
-	if leftW > m.width-30 {
-		leftW = m.width - 30
-	}
-	rightW := m.width - leftW
+	var top string
+	if m.width < narrowWidth {
+		// Narrow: stack list on top, detail below — both always visible.
+		// Give the list 40% of the body height, detail gets the rest.
+		listH := topH * 2 / 5
+		if listH < 6 {
+			listH = 6
+		}
+		if listH > topH-6 {
+			listH = topH - 6
+		}
+		detailH := topH - listH
 
-	var left string
-	if m.hideServices {
-		left = m.renderSites(leftW, topH)
+		switch {
+		case m.focus == paneServices:
+			// Services focused: take the full height, hide detail.
+			top = m.renderServices(m.width, topH)
+		case m.detailMode == detailHelp || m.detailMode == detailSettings:
+			// Help / settings: take full height so content isn't cramped.
+			top = m.renderDetailInline(m.width, topH, true)
+		default:
+			list := m.renderSites(m.width, listH)
+			detail := m.renderDetailInline(m.width, detailH, m.focus == paneDetail)
+			top = lipgloss.JoinVertical(lipgloss.Left, list, detail)
+		}
 	} else {
-		svcNeeded := len(m.snap.Services) + 3
-		if svcNeeded < 6 {
-			svcNeeded = 6
+		// Wide: left column stacks sites on top of services; right column is
+		// the site detail (full topH). When services is hidden, sites takes
+		// the whole left column.
+		leftW := m.width * 2 / 5
+		if leftW < 36 {
+			leftW = 36
 		}
-		svcH := svcNeeded
-		if lim := topH / 2; svcH > lim {
-			svcH = lim
+		if leftW > m.width-30 {
+			leftW = m.width - 30
 		}
-		if svcH > topH-6 {
-			svcH = topH - 6
+		rightW := m.width - leftW
+
+		var left string
+		if m.hideServices {
+			left = m.renderSites(leftW, topH)
+		} else {
+			svcNeeded := len(m.snap.Services) + 3
+			if svcNeeded < 6 {
+				svcNeeded = 6
+			}
+			svcH := svcNeeded
+			if lim := topH / 2; svcH > lim {
+				svcH = lim
+			}
+			if svcH > topH-6 {
+				svcH = topH - 6
+			}
+			if svcH < 4 {
+				svcH = 4
+			}
+			siteH := topH - svcH
+			sites := m.renderSites(leftW, siteH)
+			services := m.renderServices(leftW, svcH)
+			left = lipgloss.JoinVertical(lipgloss.Left, sites, services)
 		}
-		if svcH < 4 {
-			svcH = 4
-		}
-		siteH := topH - svcH
-		sites := m.renderSites(leftW, siteH)
-		services := m.renderServices(leftW, svcH)
-		left = lipgloss.JoinVertical(lipgloss.Left, sites, services)
+		detail := m.renderDetailInline(rightW, topH, m.focus == paneDetail)
+		top = lipgloss.JoinHorizontal(lipgloss.Top, left, detail)
 	}
-	detail := m.renderDetailInline(rightW, topH, m.focus == paneDetail)
-	top := lipgloss.JoinHorizontal(lipgloss.Top, left, detail)
 
 	sections := []string{header, top}
 	if m.showLogs {
@@ -134,6 +166,17 @@ func (m *Model) renderHeader() string {
 func (m *Model) renderFooter() string {
 	if m.filterActive {
 		return helpStyle.Render("  filter: type to match · enter apply · esc clear")
+	}
+	if m.width < narrowWidth {
+		keys := []string{
+			"tab panes",
+			"↑↓ nav",
+			"space toggle",
+			"l logs",
+			"v services",
+			"q quit",
+		}
+		return helpStyle.Render("  " + strings.Join(keys, "   "))
 	}
 	keys := []string{
 		"tab panes",
@@ -188,19 +231,32 @@ func (m *Model) renderSites(w, h int) string {
 		availRows = 1
 	}
 
+	contentW := innerW - 1
+	if contentW < 10 {
+		contentW = innerW
+	}
+
+	var rowData []string
 	switch {
 	case total == 0:
-		lines = append(lines, padToWidth(dimStyle.Render("no linked sites"), innerW))
+		rowData = []string{padToWidth(dimStyle.Render("no linked sites"), contentW)}
 	case len(sites) == 0:
-		lines = append(lines, padToWidth(dimStyle.Render("no sites match filter"), innerW))
+		rowData = []string{padToWidth(dimStyle.Render("no sites match filter"), contentW)}
 	default:
-		rows := make([]string, 0, len(sites))
 		for i, s := range sites {
-			row := renderSiteRow(i == m.siteCursor && m.focus == paneSites, s, innerW)
-			rows = append(rows, padToWidth(clipLine(row, innerW), innerW))
+			row := renderSiteRow(i == m.siteCursor && m.focus == paneSites, s, contentW)
+			rowData = append(rowData, padToWidth(clipLine(row, contentW), contentW))
 		}
-		visible := viewport(rows, m.siteCursor, availRows, &m.siteScroll)
-		lines = append(lines, visible...)
+	}
+
+	visible := viewport(rowData, m.siteCursor, availRows, &m.siteScroll)
+	bar := renderScrollbar(availRows, len(rowData), m.siteScroll, len(visible))
+	for i := 0; i < availRows; i++ {
+		row := ""
+		if i < len(visible) {
+			row = visible[i]
+		}
+		lines = append(lines, padToWidth(row, contentW)+bar[i])
 	}
 	for len(lines) < innerH {
 		lines = append(lines, spaces(innerW))
@@ -316,19 +372,32 @@ func (m *Model) renderServices(w, h int) string {
 		availRows = 1
 	}
 
+	contentW := innerW - 1
+	if contentW < 10 {
+		contentW = innerW
+	}
+
+	var rowData []string
 	switch {
 	case total == 0:
-		lines = append(lines, padToWidth(dimStyle.Render("no services configured"), innerW))
+		rowData = []string{padToWidth(dimStyle.Render("no services configured"), contentW)}
 	case len(services) == 0:
-		lines = append(lines, padToWidth(dimStyle.Render("no services match filter"), innerW))
+		rowData = []string{padToWidth(dimStyle.Render("no services match filter"), contentW)}
 	default:
-		rows := make([]string, 0, len(services))
 		for i, s := range services {
-			row := renderServiceRow(i == m.svcCursor && m.focus == paneServices, s, innerW)
-			rows = append(rows, padToWidth(clipLine(row, innerW), innerW))
+			row := renderServiceRow(i == m.svcCursor && m.focus == paneServices, s, contentW)
+			rowData = append(rowData, padToWidth(clipLine(row, contentW), contentW))
 		}
-		visible := viewport(rows, m.svcCursor, availRows, &m.svcScroll)
-		lines = append(lines, visible...)
+	}
+
+	visible := viewport(rowData, m.svcCursor, availRows, &m.svcScroll)
+	bar := renderScrollbar(availRows, len(rowData), m.svcScroll, len(visible))
+	for i := 0; i < availRows; i++ {
+		row := ""
+		if i < len(visible) {
+			row = visible[i]
+		}
+		lines = append(lines, padToWidth(row, contentW)+bar[i])
 	}
 	for len(lines) < innerH {
 		lines = append(lines, spaces(innerW))
@@ -407,6 +476,9 @@ func (m *Model) renderLogs(w, h int) string {
 	if n := len(m.currentLogTargets()); n > 1 {
 		title += fmt.Sprintf("   [%d/%d · [ ] to switch]", m.logCursor+1, n)
 	}
+	if m.logScroll > 0 {
+		title += dimStyle.Render(fmt.Sprintf("   ↑%d  } to tail", m.logScroll))
+	}
 
 	availRows := innerH - 1
 	if availRows < 1 {
@@ -425,13 +497,26 @@ func (m *Model) renderLogs(w, h int) string {
 		contentW = innerW
 	}
 
+	// Clamp logScroll so it can't scroll past the beginning.
+	if m.logScroll > total-availRows {
+		m.logScroll = max(0, total-availRows)
+	}
+
 	var visible []string
 	start := 0
 	if total > 0 {
-		if total > availRows {
-			start = total - availRows
+		end := total - m.logScroll
+		if end < availRows {
+			end = availRows
 		}
-		visible = all[start:]
+		if end > total {
+			end = total
+		}
+		start = end - availRows
+		if start < 0 {
+			start = 0
+		}
+		visible = all[start:end]
 	}
 
 	body := make([]string, 0, availRows)
