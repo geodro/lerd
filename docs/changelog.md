@@ -11,11 +11,9 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased]
+## [1.16.0] — 2026-04-17
 
 ### Added
-
-- **`lerd quit` stops the Podman Machine VM on macOS**. After all containers, workers, the Web UI, watcher, and tray are shut down, `lerd quit` now calls `podman machine stop` on any running machine. `lerd start` already starts the machine, so quit and start are now fully symmetric. No change on Linux where Podman runs natively without a VM.
 
 - **`lerd tui` — terminal dashboard**. A btop-style, full-screen dashboard for sites, services, and workers, with near parity to the [Web UI](/features/web-ui) and [System Tray](/features/system-tray). Built on the same bubbletea / lipgloss stack already used for `lerd man` and the same `siteinfo` / `podman.Cache` / eventbus plumbing that drives `lerd-ui`, so both surfaces see identical live state.
   - **Layout**: Sites + Services stacked in the left column, a full-height Site detail pane on the right, and a toggleable log tail below (`l`). Header shows DNS / nginx / FPM status plus an `update: vX.Y.Z` banner when a newer release is cached.
@@ -25,6 +23,18 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Log sources**: `[` / `]` cycle through FPM / custom container, every worker journal (`journalctl --user -u lerd-<kind>-<site>`), and every file matched by the framework's `fw.Logs` globs (Laravel: `storage/logs/*.log`). Logs pane takes at least half the window and has a right-edge scrollbar.
   - **In-pane overlays**: `S` swaps the detail pane for global Settings (LAN expose, autostart on login, Xdebug per PHP version) and moves focus into it; `?` swaps it for a scrollable Keybindings reference. `esc` returns to Site detail.
   - Updates live by subscribing to the in-process eventbus and re-querying every 2 s so changes made from another terminal surface within a couple of seconds.
+
+- **Selectable Xdebug mode per PHP version** (#205). `lerd xdebug on` now accepts `--mode` (`debug`, `coverage`, `profile`, `trace`, `develop`, `gcstats`, or comma combos like `debug,coverage`); previously mode was hardcoded to `debug`. The dashboard gains a mode dropdown next to the Xdebug toggle and a clickable Xdebug chip on each site row. The MCP `xdebug_on` tool accepts a `mode` argument. Toggle orchestration (validate → persist → write ini → restart FPM) is extracted into a new `xdebugops` package; the three surfaces (CLI, UI, MCP) are now thin wrappers. Legacy configs with no saved mode resolve to `debug` so existing setups are unaffected.
+
+- **Adaptive Podman Machine memory on macOS** (#206). The VM memory target now scales with host RAM instead of a fixed 4 GB floor: 3 GB on machines with ≤8 GB, 4 GB on 9–31 GB, 6 GB on 32 GB+. Detection uses `sysctl hw.memsize`; falls back to 4 GB when detection fails. On 8 GB MacBooks lerd prints a note with the manual override command (`podman machine set --memory 4096`) so the tradeoff is visible.
+
+- **`lerd quit` stops the Podman Machine VM on macOS**. After all containers, workers, the Web UI, watcher, and tray are shut down, `lerd quit` calls `podman machine stop` on any running machine. `lerd start` already starts the machine, so quit and start are now fully symmetric. No change on Linux where Podman runs natively without a VM.
+
+### Fixed
+
+- **Worker log tabs stuck on "connecting..." in the dashboard** (#210). Two separate bugs combined. First, silent units (no output until an event fires) never triggered the first body write, so Go's `http.ResponseWriter` never sent the HTTP 200 + `text/event-stream` headers and the browser's `EventSource` stayed in `CONNECTING`. Fixed by flushing a `: connected` SSE comment immediately after writing headers. Second, switching tabs opened a new `EventSource` without closing the previous one; after a few clicks all six browser HTTP/1.1 connections were consumed and new streams queued indefinitely. Fixed by closing every non-active worker log stream before opening the new one.
+
+- **Git worktrees running stale code from the main checkout** (#209). `vendor/` and `node_modules/` in a new worktree were symlinks back to the main repo. PHP resolves `__DIR__` through symlinks, so `vendor/autoload.php` reported the main repo path and Composer's `ClassLoader` loaded every class from `main`'s source tree, silently ignoring any diverged `app/` or `src/` files in the worktree. The symlinks are now replaced with real copies seeded from the main repo using reflink-aware helpers (`cp -a --reflink=auto` on Linux btrfs/xfs, `cp -Rc` on macOS APFS, plain Go walk elsewhere), followed by `composer install` and `npm ci` to reconcile against the worktree's own lockfiles.
 
 ---
 
