@@ -127,7 +127,7 @@ func FinishLink(site config.Site, phpVersion string) error {
 		}
 	}
 
-	_ = podman.WriteXdebugIni(phpVersion, false)
+	_ = podman.EnsureXdebugIni(phpVersion)
 	if err := podman.WriteFPMQuadlet(phpVersion); err == nil {
 		_ = podman.DaemonReloadFn()
 	}

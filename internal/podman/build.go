@@ -342,23 +342,71 @@ func buildCustomExtBlock(exts []string) string {
 	return sb.String()
 }
 
+// validXdebugModes lists the xdebug.mode tokens accepted by NormaliseXdebugMode.
+// Comma-separated combinations of these are allowed (e.g. "debug,coverage");
+// "off" is only valid on its own.
+var validXdebugModes = map[string]bool{
+	"off":      true,
+	"develop":  true,
+	"coverage": true,
+	"debug":    true,
+	"gcstats":  true,
+	"profile":  true,
+	"trace":    true,
+}
+
+// NormaliseXdebugMode validates and canonicalises a user-supplied xdebug.mode
+// value. Whitespace is trimmed, duplicates are dropped, and the result is a
+// comma-separated string ready to be written into the ini file. An empty input
+// returns "debug" so callers can use it as the default when enabling xdebug
+// without an explicit mode.
+func NormaliseXdebugMode(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "debug", nil
+	}
+	parts := strings.Split(raw, ",")
+	seen := map[string]bool{}
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !validXdebugModes[p] {
+			return "", fmt.Errorf("invalid xdebug mode %q (accepted: debug, coverage, develop, profile, trace, gcstats, off)", p)
+		}
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return "debug", nil
+	}
+	if len(out) > 1 && seen["off"] {
+		return "", fmt.Errorf("xdebug mode %q cannot combine 'off' with other modes", raw)
+	}
+	return strings.Join(out, ","), nil
+}
+
 // WriteXdebugIni writes the per-version xdebug ini to the host config dir.
 // The file is volume-mounted into the FPM container at /usr/local/etc/php/conf.d/99-xdebug.ini.
-func WriteXdebugIni(version string, enabled bool) error {
+// An empty mode writes xdebug.mode=off (extension loaded but inactive); any other value
+// is emitted as-is, so callers can pass "debug", "coverage", "debug,coverage", etc.
+func WriteXdebugIni(version, mode string) error {
 	path := config.PHPConfFile(version)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	// Podman auto-creates a directory at the bind-mount source when the file is missing
-	// at container start time. Remove it so os.WriteFile can create the real file.
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		if err := os.Remove(path); err != nil {
 			return fmt.Errorf("removing stale xdebug ini directory: %w", err)
 		}
 	}
-	mode := "off"
-	if enabled {
-		mode = "debug"
+	if mode == "" {
+		mode = "off"
 	}
 	content := fmt.Sprintf("[xdebug]\nxdebug.mode=%s\nxdebug.start_with_request=yes\nxdebug.client_host=host.containers.internal\nxdebug.client_port=9003\n", mode)
 	return os.WriteFile(path, []byte(content), 0644)
@@ -414,7 +462,7 @@ func EnsureXdebugIni(version string) error {
 	if cfgErr != nil {
 		return cfgErr
 	}
-	return WriteXdebugIni(version, cfg.IsXdebugEnabled(version))
+	return WriteXdebugIni(version, cfg.GetXdebugMode(version))
 }
 
 // WriteFPMQuadlet writes the systemd quadlet for a PHP-FPM version and reloads the

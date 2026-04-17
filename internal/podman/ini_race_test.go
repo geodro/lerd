@@ -140,7 +140,7 @@ func TestWriteXdebugIni_healsStaleDirectoryDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteXdebugIni("8.4", true); err != nil {
+	if err := WriteXdebugIni("8.4", "debug"); err != nil {
 		t.Fatalf("WriteXdebugIni: %v", err)
 	}
 	info, err := os.Stat(path)
@@ -153,6 +153,66 @@ func TestWriteXdebugIni_healsStaleDirectoryDirectly(t *testing.T) {
 	body, _ := os.ReadFile(path)
 	if !strings.Contains(string(body), "xdebug.mode=debug") {
 		t.Errorf("expected xdebug.mode=debug, got:\n%s", body)
+	}
+}
+
+func TestWriteXdebugIni_writesRequestedMode(t *testing.T) {
+	// Users enabling coverage or a combo mode need the ini to reflect
+	// exactly what they asked for, not the hardcoded "debug" that the
+	// legacy bool signature produced.
+	setupConfigHome(t)
+
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"coverage", "xdebug.mode=coverage"},
+		{"debug,coverage", "xdebug.mode=debug,coverage"},
+		{"", "xdebug.mode=off"},
+	}
+	for _, c := range cases {
+		if err := WriteXdebugIni("8.4", c.in); err != nil {
+			t.Fatalf("WriteXdebugIni(%q): %v", c.in, err)
+		}
+		body, _ := os.ReadFile(config.PHPConfFile("8.4"))
+		if !strings.Contains(string(body), c.want) {
+			t.Errorf("WriteXdebugIni(%q): missing %q in:\n%s", c.in, c.want, body)
+		}
+	}
+}
+
+// ── NormaliseXdebugMode ──────────────────────────────────────────────────────
+
+func TestNormaliseXdebugMode(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"", "debug", false},
+		{"debug", "debug", false},
+		{"coverage", "coverage", false},
+		{"  debug , coverage ", "debug,coverage", false},
+		{"debug,debug", "debug", false},
+		{"off", "off", false},
+		{"nonsense", "", true},
+		{"debug,off", "", true},
+	}
+	for _, c := range cases {
+		got, err := NormaliseXdebugMode(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("NormaliseXdebugMode(%q): expected error, got %q", c.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("NormaliseXdebugMode(%q): unexpected error: %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("NormaliseXdebugMode(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

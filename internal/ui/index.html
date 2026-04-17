@@ -640,9 +640,9 @@
                         <span class="text-violet-500 dark:text-violet-400 shrink-0">git:(<span x-text="selectedSite.branch"></span>)</span>
                       </template>
                     </div>
-                    <template x-if="(selectedSite.services || []).length > 0">
+                    <template x-if="(selectedSite.services || []).length > 0 || (!selectedSite.custom_container && selectedSite.php_version)">
                       <div class="flex items-center flex-wrap gap-1.5 mt-2">
-                        <template x-for="svcName in selectedSite.services" :key="'svcb-'+svcName">
+                        <template x-for="svcName in (selectedSite.services || [])" :key="'svcb-'+svcName">
                           <button @click="jumpToService(svcName)"
                             :title="'Open ' + svcName + ' service'"
                             class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors"
@@ -652,6 +652,19 @@
                             <span class="w-1.5 h-1.5 rounded-full"
                               :class="serviceByName(svcName) && serviceByName(svcName).status === 'active' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
                             <span x-text="serviceByName(svcName) ? serviceLabel(serviceByName(svcName)) : svcName"></span>
+                          </button>
+                        </template>
+                        <template x-if="!selectedSite.custom_container && selectedSite.php_version">
+                          <button
+                            @click="setTab('system'); selectSystem('php-' + selectedSite.php_version)"
+                            :title="(xdebugEnabled[selectedSite.php_version] ? 'Xdebug ' + (xdebugMode[selectedSite.php_version] || 'debug') : 'Xdebug off') + ' — click to manage'"
+                            class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors"
+                            :class="xdebugEnabled[selectedSite.php_version]
+                              ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                              : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-lerd-border text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10'">
+                            <span class="w-1.5 h-1.5 rounded-full" :class="xdebugEnabled[selectedSite.php_version] ? 'bg-purple-500' : 'bg-gray-400 dark:bg-gray-600'"></span>
+                            <span>Xdebug</span>
+                            <span class="opacity-70" x-text="xdebugEnabled[selectedSite.php_version] ? (xdebugMode[selectedSite.php_version] || 'debug') : 'off'"></span>
                           </button>
                         </template>
                       </div>
@@ -1492,9 +1505,22 @@
                 <div class="flex items-center justify-between">
                   <div>
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Xdebug</p>
-                    <p class="text-xs text-gray-400 mt-0.5">Restarts FPM on toggle</p>
+                    <p class="text-xs text-gray-400 mt-0.5">Restarts FPM on change</p>
                   </div>
                   <div class="flex items-center gap-2">
+                    <select x-show="xdebugEnabled[selectedPHPVersion]"
+                      @change="setXdebugMode(selectedPHPVersion, $event.target.value)"
+                      :value="xdebugMode[selectedPHPVersion] || 'debug'"
+                      class="text-xs bg-white dark:bg-lerd-muted border border-gray-200 dark:border-lerd-border rounded px-1.5 py-0.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      title="Xdebug mode">
+                      <option value="debug">debug</option>
+                      <option value="coverage">coverage</option>
+                      <option value="debug,coverage">debug,coverage</option>
+                      <option value="develop">develop</option>
+                      <option value="profile">profile</option>
+                      <option value="trace">trace</option>
+                      <option value="gcstats">gcstats</option>
+                    </select>
                     <button type="button" @click.prevent="toggleXdebug(selectedPHPVersion)"
                       class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 focus:outline-none"
                       :class="xdebugEnabled[selectedPHPVersion] ? 'bg-purple-500' : 'bg-gray-300 dark:bg-lerd-muted'"
@@ -2132,6 +2158,7 @@ function lerdApp() {
     autostartEnabled: false,
     autostartLoading: false,
     xdebugEnabled: {},
+    xdebugMode: {},
     xdebugLoading: {},
     selectedSystem: null,
     phpRemoveLoading: {},
@@ -4298,12 +4325,15 @@ function lerdApp() {
       if (!data || typeof data !== 'object') return;
       this.systemStatus = data;
       const next = { ...this.xdebugEnabled };
+      const nextMode = { ...this.xdebugMode };
       (data.php_fpms || []).forEach(fpm => {
         if (!this.xdebugLoading[fpm.version]) {
           next[fpm.version] = fpm.xdebug_enabled;
+          nextMode[fpm.version] = fpm.xdebug_mode || '';
         }
       });
       this.xdebugEnabled = next;
+      this.xdebugMode = nextMode;
     },
 
     async loadSettings() {
@@ -4317,14 +4347,38 @@ function lerdApp() {
     async toggleXdebug(version) {
       const current = !!this.xdebugEnabled[version];
       const action = current ? 'off' : 'on';
+      const nextMode = current ? '' : (this.xdebugMode[version] || 'debug');
       this.xdebugEnabled = { ...this.xdebugEnabled, [version]: !current };
+      this.xdebugMode = { ...this.xdebugMode, [version]: nextMode };
       this.xdebugLoading = { ...this.xdebugLoading, [version]: true };
       try {
-        const res = await fetch(`/api/xdebug/${version}/${action}`, { method: 'POST' });
+        const url = action === 'on'
+          ? `/api/xdebug/${version}/on?mode=${encodeURIComponent(nextMode)}`
+          : `/api/xdebug/${version}/off`;
+        const res = await fetch(url, { method: 'POST' });
         const data = await res.json();
-        if (!data.ok) this.xdebugEnabled = { ...this.xdebugEnabled, [version]: current };
+        if (!data.ok) {
+          this.xdebugEnabled = { ...this.xdebugEnabled, [version]: current };
+          this.xdebugMode = { ...this.xdebugMode, [version]: current ? (this.xdebugMode[version] || '') : '' };
+        }
       } catch (_) {
         this.xdebugEnabled = { ...this.xdebugEnabled, [version]: current };
+      } finally {
+        this.xdebugLoading = { ...this.xdebugLoading, [version]: false };
+      }
+    },
+
+    async setXdebugMode(version, mode) {
+      const previous = this.xdebugMode[version] || 'debug';
+      if (mode === previous) return;
+      this.xdebugMode = { ...this.xdebugMode, [version]: mode };
+      this.xdebugLoading = { ...this.xdebugLoading, [version]: true };
+      try {
+        const res = await fetch(`/api/xdebug/${version}/on?mode=${encodeURIComponent(mode)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) this.xdebugMode = { ...this.xdebugMode, [version]: previous };
+      } catch (_) {
+        this.xdebugMode = { ...this.xdebugMode, [version]: previous };
       } finally {
         this.xdebugLoading = { ...this.xdebugLoading, [version]: false };
       }

@@ -629,7 +629,9 @@ Enable or disable HTTPS for a site using a locally-trusted mkcert certificate. B
 ### ` + bt + `xdebug_on` + bt + ` / ` + bt + `xdebug_off` + bt + ` / ` + bt + `xdebug_status` + bt + `
 Toggle Xdebug for a PHP version (restarts the FPM container). Optional ` + bt + `version` + bt + ` argument — defaults to the project or global PHP version. Xdebug listens on port ` + bt + `9003` + bt + ` at ` + bt + `host.containers.internal` + bt + `.
 
-` + bt + `xdebug_status` + bt + ` returns the enabled/disabled state for all installed PHP versions.
+` + bt + `xdebug_on` + bt + ` accepts an optional ` + bt + `mode` + bt + ` argument (default ` + bt + `debug` + bt + `). Valid values: ` + bt + `debug` + bt + `, ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or a comma-separated combo such as ` + bt + `debug,coverage` + bt + `. Use ` + bt + `coverage` + bt + ` for ` + bt + `phpunit --coverage` + bt + ` / ` + bt + `pest --coverage` + bt + ` when PCOV isn't available or is disabled. Calling ` + bt + `xdebug_on` + bt + ` with a different mode on an already-enabled version swaps modes without needing ` + bt + `xdebug_off` + bt + ` first.
+
+` + bt + `xdebug_status` + bt + ` returns the enabled/disabled state and the active ` + bt + `mode` + bt + ` for all installed PHP versions.
 
 ### ` + bt + `queue_start` + bt + ` / ` + bt + `queue_stop` + bt + `
 Start or stop a queue worker for a site. Available for any framework that defines a ` + bt + `queue` + bt + ` worker (Laravel has it built-in). Runs the framework-defined command in the FPM container as a systemd service.
@@ -871,10 +873,17 @@ secure(site: "myapp")
 
 **Enable Xdebug for a debugging session:**
 ` + "```" + `
-xdebug_status()              // check current state
-xdebug_on(version: "8.4")   // enable and restart FPM
+xdebug_status()                                 // check current state and mode
+xdebug_on(version: "8.4")                       // default mode=debug, restarts FPM
 // ... debug ...
-xdebug_off(version: "8.4")  // disable when done (Xdebug adds overhead)
+xdebug_off(version: "8.4")                      // disable when done (Xdebug adds overhead)
+` + "```" + `
+
+**Enable Xdebug coverage mode for phpunit/pest:**
+` + "```" + `
+xdebug_on(version: "8.4", mode: "coverage")     // swap mode without xdebug_off first
+vendor_run(name: "pest", args: ["--coverage"])
+xdebug_off(version: "8.4")
 ` + "```" + `
 
 **Run migrations after schema changes:**
@@ -1166,9 +1175,9 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
 | ` + bt + `secure` + bt + ` | Enable HTTPS for a site (mkcert) — updates APP_URL automatically |
 | ` + bt + `unsecure` + bt + ` | Disable HTTPS for a site |
-| ` + bt + `xdebug_on` + bt + ` | Enable Xdebug for a PHP version (port 9003) |
+| ` + bt + `xdebug_on` + bt + ` | Enable Xdebug for a PHP version (port 9003); optional ` + bt + `mode` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
 | ` + bt + `xdebug_off` + bt + ` | Disable Xdebug for a PHP version |
-| ` + bt + `xdebug_status` + bt + ` | Show Xdebug state for all PHP versions |
+| ` + bt + `xdebug_status` + bt + ` | Show Xdebug state and active mode for all PHP versions |
 | ` + bt + `service_start` + bt + ` | Start a built-in or custom service |
 | ` + bt + `service_stop` + bt + ` | Stop a service |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |

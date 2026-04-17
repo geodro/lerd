@@ -297,10 +297,7 @@ func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 	}
 	_ = podman.StoreFPMHash()
 
-	// Ensure the xdebug ini exists (mode=off by default).
-	if _, err := os.Stat(config.PHPConfFile(phpVersion)); os.IsNotExist(err) {
-		_ = podman.WriteXdebugIni(phpVersion, false)
-	}
+	_ = podman.EnsureXdebugIni(phpVersion)
 
 	if err := podman.WriteFPMQuadlet(phpVersion); err != nil {
 		return err

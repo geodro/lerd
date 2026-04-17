@@ -20,6 +20,7 @@ type GlobalConfig struct {
 	PHP struct {
 		DefaultVersion string              `yaml:"default_version" mapstructure:"default_version"`
 		XdebugEnabled  map[string]bool     `yaml:"xdebug_enabled"  mapstructure:"xdebug_enabled"`
+		XdebugMode     map[string]string   `yaml:"xdebug_mode,omitempty" mapstructure:"xdebug_mode"`
 		Extensions     map[string][]string `yaml:"extensions"      mapstructure:"extensions"`
 	} `yaml:"php" mapstructure:"php"`
 	Node struct {
@@ -211,19 +212,50 @@ func migrateStaleServiceImages(cfg *GlobalConfig) {
 
 // IsXdebugEnabled returns true if Xdebug is enabled for the given PHP version.
 func (c *GlobalConfig) IsXdebugEnabled(version string) bool {
-	return c.PHP.XdebugEnabled[version]
+	return c.GetXdebugMode(version) != ""
 }
 
-// SetXdebug enables or disables Xdebug for the given PHP version.
+// GetXdebugMode returns the configured Xdebug mode for version, or "" when
+// disabled. Entries in the legacy xdebug_enabled map (no explicit mode) are
+// treated as mode "debug" so configs written by older lerd builds keep the
+// same behaviour they had before per-mode support existed.
+func (c *GlobalConfig) GetXdebugMode(version string) string {
+	if m, ok := c.PHP.XdebugMode[version]; ok && m != "" {
+		return m
+	}
+	if c.PHP.XdebugEnabled[version] {
+		return "debug"
+	}
+	return ""
+}
+
+// SetXdebug enables (mode "debug") or disables Xdebug for version. Use
+// SetXdebugMode directly when a non-default mode is wanted.
 func (c *GlobalConfig) SetXdebug(version string, enabled bool) {
+	if !enabled {
+		c.SetXdebugMode(version, "")
+		return
+	}
+	c.SetXdebugMode(version, "debug")
+}
+
+// SetXdebugMode sets the Xdebug mode for version. Empty mode disables Xdebug.
+// Both the modern xdebug_mode map and the legacy xdebug_enabled map are kept
+// in sync so downgrades don't silently flip state.
+func (c *GlobalConfig) SetXdebugMode(version, mode string) {
 	if c.PHP.XdebugEnabled == nil {
 		c.PHP.XdebugEnabled = map[string]bool{}
 	}
-	if !enabled {
+	if c.PHP.XdebugMode == nil {
+		c.PHP.XdebugMode = map[string]string{}
+	}
+	if mode == "" {
 		delete(c.PHP.XdebugEnabled, version)
+		delete(c.PHP.XdebugMode, version)
 		return
 	}
 	c.PHP.XdebugEnabled[version] = true
+	c.PHP.XdebugMode[version] = mode
 }
 
 // GetExtensions returns the custom extensions configured for the given PHP version.
