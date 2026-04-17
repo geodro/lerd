@@ -35,6 +35,6 @@ features:
     title: Built-in services
     details: MySQL, Redis, PostgreSQL, Meilisearch, RustFS, and Mailpit. One command to start, shared across all your projects.
   - icon: 🖥️
-    title: Web UI & system tray
-    details: Browser dashboard with live logs, per-site controls, and one-click toggles. Plus a system tray applet for at-a-glance status.
+    title: Web UI, terminal dashboard & tray
+    details: Browser dashboard, btop-style terminal dashboard (`lerd tui`), and a system tray applet. Pick whichever fits your workflow.
 ---
