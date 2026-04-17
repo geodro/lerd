@@ -242,3 +242,103 @@ func TestRewriteAppURL_missingFile(t *testing.T) {
 		t.Error("expected error for missing file")
 	}
 }
+
+// EnsureWorktreeDeps copies vendor/ and node_modules/ from the main repo
+// rather than symlinking, because PHP resolves __DIR__ through symlinks
+// and Composer's ClassLoader otherwise initialises against the main
+// checkout instead of the worktree.
+func TestEnsureWorktreeDeps_copiesInsteadOfSymlinking(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
+
+	main := filepath.Join(home, "main")
+	wt := filepath.Join(home, "wt")
+	for _, d := range []string{main, wt} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(main, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(main, "vendor", "autoload.php"), []byte("<?php"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(main, ".env"), []byte("APP_URL=http://main.test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	EnsureWorktreeDeps(main, wt, "branch.main.test", false)
+
+	info, err := os.Lstat(filepath.Join(wt, "vendor"))
+	if err != nil {
+		t.Fatalf("vendor missing in worktree: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("vendor should be a real directory, not a symlink")
+	}
+	if !info.IsDir() {
+		t.Fatal("vendor should be a directory")
+	}
+	if _, err := os.Stat(filepath.Join(wt, "vendor", "autoload.php")); err != nil {
+		t.Errorf("vendor/autoload.php not copied: %v", err)
+	}
+}
+
+// EnsureWorktreeDeps replaces a legacy symlink left by an older lerd
+// version with a real copy.
+func TestEnsureWorktreeDeps_migratesLegacySymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
+
+	main := filepath.Join(home, "main")
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(filepath.Join(main, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(main, "vendor", "autoload.php"), []byte("<?php"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(main, "vendor"), filepath.Join(wt, "vendor")); err != nil {
+		t.Fatal(err)
+	}
+
+	EnsureWorktreeDeps(main, wt, "branch.main.test", false)
+
+	info, err := os.Lstat(filepath.Join(wt, "vendor"))
+	if err != nil {
+		t.Fatalf("vendor missing: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("legacy symlink should have been replaced with a real copy")
+	}
+}
+
+// When main has no vendor/ yet, EnsureWorktreeDeps must not create an
+// empty directory in the worktree; it should simply do nothing for that
+// tree.
+func TestEnsureWorktreeDeps_mainMissingVendor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
+
+	main := filepath.Join(home, "main")
+	wt := filepath.Join(home, "wt")
+	for _, d := range []string{main, wt} {
+		_ = os.MkdirAll(d, 0o755)
+	}
+
+	EnsureWorktreeDeps(main, wt, "branch.main.test", false)
+
+	if _, err := os.Lstat(filepath.Join(wt, "vendor")); err == nil {
+		t.Error("vendor should not be created when main has none")
+	}
+}
