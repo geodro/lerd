@@ -36,5 +36,5 @@ features:
     details: MySQL, Redis, PostgreSQL, Meilisearch, RustFS, and Mailpit. One command to start, shared across all your projects.
   - icon: 🖥️
     title: Web UI, terminal dashboard & tray
-    details: Browser dashboard with live logs and one-click toggles, a btop-style terminal dashboard (`lerd tui`) for tmux / SSH workflows, and a system tray applet for at-a-glance status.
+    details: Browser dashboard, btop-style terminal dashboard (`lerd tui`), and a system tray applet. Pick whichever fits your workflow.
 ---
