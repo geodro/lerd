@@ -11,6 +11,9 @@ export default defineConfig({
 
   sitemap: {
     hostname: SITE_URL,
+    transformItems(items) {
+      return items.map(item => ({ ...item, url: `lerd/${item.url}` }))
+    },
   },
 
   head: [
