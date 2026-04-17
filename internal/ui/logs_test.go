@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"context"
+	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestServiceRecentLogs_unknownUnit(t *testing.T) {
@@ -30,5 +34,36 @@ func TestIsContainerUnit_dns(t *testing.T) {
 		if !isContainerUnit("lerd-dns") {
 			t.Error("expected isContainerUnit to return true for lerd-dns on linux")
 		}
+	}
+}
+
+// streamUnitLogs must send the response headers and an initial SSE comment
+// before running the log-following subprocess; otherwise silent units leave
+// the browser's EventSource stuck in CONNECTING and the UI sticks on
+// "connecting...".
+func TestStreamUnitLogs_flushesHeadersBeforeStreaming(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req := httptest.NewRequest("GET", "/api/schedule/nonexistent/logs", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		streamUnitLogs(rec, req, "lerd-nonexistent-unit-xyz")
+		close(done)
+	}()
+	<-done
+
+	if ct := rec.Result().Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, ": connected") {
+		n := len(body)
+		if n > 40 {
+			n = 40
+		}
+		t.Errorf("body should start with initial SSE comment, got: %q", body[:n])
 	}
 }

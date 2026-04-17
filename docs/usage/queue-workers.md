@@ -29,7 +29,7 @@ If `laravel/horizon` is present in `composer.json`, lerd detects it automaticall
 | `lerd horizon start` | Same as `horizon:start` (subcommand form) |
 | `lerd horizon stop` | Same as `horizon:stop` (subcommand form) |
 
-Horizon manages its own worker pools via `config/horizon.php` and does not accept `--queue`, `--tries`, or `--timeout` flags — those are configured in the Horizon config file instead.
+Horizon manages its own worker pools via `config/horizon.php` and does not accept `--queue`, `--tries`, or `--timeout` flags. Those are configured in the Horizon config file instead.
 
 The systemd unit is named `lerd-horizon-{sitename}`. Logs:
 ```bash
@@ -46,7 +46,7 @@ Use this for any other framework-defined worker:
 | `lerd worker stop <name>` | Stop a named worker |
 | `lerd worker list` | List all workers defined for this project's framework |
 
-Example — start the Symfony Messenger consumer:
+Example, start the Symfony Messenger consumer:
 ```bash
 lerd worker start messenger
 # Systemd unit: lerd-messenger-myapp.service
@@ -94,7 +94,7 @@ lerd queue:start --queue=emails,default --tries=5 --timeout=120
 Every start/stop command (`queue:start`, `queue:stop`, `horizon:start`, `schedule:start`, `reverb:start`, `stripe:listen`, `worker start`, etc.) automatically updates the `workers` list in `.lerd.yaml` when the file exists. This means:
 
 - Cloning a project and running `lerd link` or `lerd setup` restores all workers.
-- After an uninstall/reinstall cycle, `lerd start` reads `.lerd.yaml` and recreates missing worker units automatically — no need to re-run each start command manually.
+- After an uninstall/reinstall cycle, `lerd start` reads `.lerd.yaml` and recreates missing worker units automatically, no need to re-run each start command manually.
 
 The `workers` field is maintained automatically. You do not need to edit it by hand.
 
@@ -105,7 +105,7 @@ The `workers` field is maintained automatically. You do not need to edit it by h
 The lerd watcher daemon monitors `.env`, `composer.json`, `composer.lock`, and `.php-version` for every registered site. When any of those files change it:
 
 - Signals `php artisan queue:restart` inside the PHP-FPM container (debounced to 2 seconds)
-- If `.php-version` changed: updates the site registry and regenerates the nginx vhost automatically — no manual reload needed
+- If `.php-version` changed: updates the site registry and regenerates the nginx vhost automatically, no manual reload needed
 
 This ensures queue workers and nginx stay in sync after deploys or PHP version changes without manual intervention.
 

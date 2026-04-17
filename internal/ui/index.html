@@ -3035,6 +3035,18 @@ function lerdApp() {
       this.siteLogsTab = tab;
       const site = this.selectedSite;
       if (!site) return;
+
+      // Close every other worker log stream before opening the new one.
+      // Browsers cap HTTP/1.1 at 6 concurrent connections per origin;
+      // leaving previous tabs' EventSources open makes new ones queue in
+      // CONNECTING state and the UI sticks on "connecting...".
+      if (tab !== 'queue') this.closeSiteQueueLogs();
+      if (tab !== 'horizon') this.closeSiteHorizonLogs();
+      if (tab !== 'stripe') this.closeSiteStripeLogs();
+      if (tab !== 'schedule') this.closeSiteScheduleLogs();
+      if (tab !== 'reverb') this.closeSiteReverbLogs();
+      if (!tab.startsWith('worker:')) this.closeSiteWorkerLogs();
+
       if (tab === 'queue') this.openSiteQueueLogs(site);
       if (tab === 'horizon') this.openSiteHorizonLogs(site);
       if (tab === 'stripe') this.openSiteStripeLogs(site);

@@ -38,6 +38,13 @@ func streamUnitLogs(w http.ResponseWriter, r *http.Request, unit string) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Flush an SSE comment so the response headers go out immediately and
+	// the browser's EventSource fires onopen. Without this a silent unit
+	// (schedule between cron ticks, reverb before any WebSocket client
+	// connects) leaves the UI stuck on "connecting...".
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
 	cursor := r.Header.Get("Last-Event-ID")
 	args := []string{"--user", "-u", unit, "-f", "--no-pager", "--output=json"}
 	if cursor != "" {

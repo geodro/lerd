@@ -7,13 +7,13 @@
 | `lerd node:install <version>` | Install a Node.js version globally via fnm |
 | `lerd node:uninstall <version>` | Uninstall a Node.js version via fnm |
 | `lerd node:use <version>` | Set the global default Node.js version |
-| `lerd isolate:node <version>` | Pin Node version for cwd — writes `.node-version`, runs `fnm install` |
+| `lerd isolate:node <version>` | Pin Node version for cwd: writes `.node-version`, runs `fnm install` |
 
 ---
 
 ## Usage
 
-`lerd install` places shims for `node`, `npm`, and `npx` in `~/.local/share/lerd/bin/`, which is added to your `PATH`. You use them exactly as you normally would — lerd picks the right version automatically:
+`lerd install` places shims for `node`, `npm`, and `npx` in `~/.local/share/lerd/bin/`, which is added to your `PATH`. You use them exactly as you normally would, lerd picks the right version automatically:
 
 ```bash
 node --version
@@ -25,10 +25,10 @@ npx tsc --init
 
 ## Version resolution
 
-1. `.lerd.yaml` — `node_version` field (explicit lerd override, highest priority)
+1. `.lerd.yaml`: `node_version` field (explicit lerd override, highest priority)
 2. `.nvmrc` in the project root
 3. `.node-version` in the project root
-4. `package.json` — `engines.node` field
+4. `package.json`: `engines.node` field
 5. Global default in `~/.config/lerd/config.yaml`
 
 To pin a project to a specific version:
@@ -55,7 +55,7 @@ lerd node:install 22
 lerd node:use 22
 ```
 
-Version numbers are normalised to the major only — `22.11.0` and `22.14.1` are both treated as `22`, so only one entry per major appears in the UI and CLI.
+Version numbers are normalised to the major only, so `22.11.0` and `22.14.1` are both treated as `22`, and only one entry per major appears in the UI and CLI.
 
 ---
 

@@ -117,19 +117,36 @@ func readCheckoutPath(wtDir string) string {
 }
 
 // EnsureWorktreeDeps sets up a worktree checkout with the dependencies it needs:
-//   - vendor/ and node_modules/ are symlinked from the main repo
+//   - vendor/ and node_modules/ are seeded from the main repo via a reflink
+//     copy (near-instant on btrfs, xfs-reflink, APFS; plain copy on ext4),
+//     then reconciled against the worktree's own lockfiles via
+//     composer install / npm ci.
 //   - .env is copied from the main repo with APP_URL rewritten to http(s)://<worktreeDomain>
+//
+// Copying (rather than symlinking) is required because PHP resolves __DIR__
+// through symlinks, which would make Composer's ClassLoader initialise
+// against the main repo directory and silently load stale classes from
+// there.
 func EnsureWorktreeDeps(mainRepoPath, worktreePath, worktreeDomain string, secured bool) {
 	for _, dir := range []string{"vendor", "node_modules"} {
 		dst := filepath.Join(worktreePath, dir)
-		if _, err := os.Lstat(dst); err == nil {
-			continue // already exists or is already a symlink
+		if info, err := os.Lstat(dst); err == nil {
+			if info.Mode()&os.ModeSymlink == 0 {
+				continue // real dir already exists, leave it
+			}
+			_ = os.Remove(dst) // legacy symlink from older lerd, replace it
 		}
 		src := filepath.Join(mainRepoPath, dir)
 		if _, err := os.Stat(src); err != nil {
-			continue // main repo doesn't have it either
+			continue
 		}
-		_ = os.Symlink(src, dst)
+		if err := CopyTree(src, dst); err != nil {
+			_, _ = os.Stderr.WriteString("[WARN] copy " + dir + " into worktree: " + err.Error() + "\n")
+		}
+	}
+
+	if err := InstallDependencies(worktreePath); err != nil {
+		_, _ = os.Stderr.WriteString("[WARN] worktree dependency install: " + err.Error() + "\n")
 	}
 
 	// .env: copy from main repo and set APP_URL to the worktree domain.

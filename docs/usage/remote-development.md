@@ -1,52 +1,10 @@
 # Remote / LAN Development
 
-## LAN sharing (per-site) {#lan-sharing-per-site}
-
-The quickest way to let another device on the same network reach one of your sites — no DNS setup, no external tools, no internet access required:
-
-```bash
-cd ~/Projects/myapp
-lerd lan:share
-```
-
-```
-Sharing myapp at http://192.168.1.42:9100
-Other devices on the network can use that URL directly — no DNS setup needed.
-
-█████████████████████████████████
-█ ▄▄▄▄▄ █▀▄ █▄█ ▀▀ ▄█ ▄▄▄▄▄ █
-...
-Run 'lerd lan:unshare' to stop.
-```
-
-What it does:
-
-- Assigns a stable port to the site (starting at 9100, incremented to avoid conflicts) and saves it in `sites.yaml`.
-- Starts a host-level reverse proxy inside the lerd daemon (`lerd-ui`) listening on `0.0.0.0:<port>`.
-- Rewrites the `Host` header on every request so nginx routes to the correct vhost.
-- Rewrites absolute URLs (`https://myapp.test/...` → `http://192.168.1.42:9100/...`) in HTML, CSS, and JS response bodies so assets and redirects work from the client device without a `.test` DNS resolver.
-- Prints a QR code you can scan to open the site on a phone.
-
-The port is reused across restarts. Stop sharing with `lerd lan:unshare`.
-
-The dashboard shows the LAN URL next to the HTTPS toggle for each site. Hovering the URL shows a QR code inline.
-
-### When to use LAN sharing vs full LAN exposure
-
-| | `lerd lan:share` | `lerd lan:expose` |
-|---|---|---|
-| Scope | One site at a time | All sites at once |
-| Client DNS setup | Not required — plain `IP:port` | Required (forward `.test` to lerd dnsmasq) |
-| Client cert trust | Not required | Required for HTTPS sites |
-| External tools | None | None |
-| Persists across restarts | Yes (port saved in `sites.yaml`) | Yes (`lan.exposed` in `config.yaml`) |
-| Use case | Quick demo to someone on the same wifi | Full remote dev setup (laptop + server) |
-
----
+Lerd supports two remote workflows: per-site LAN sharing (quick demos to someone on the same wifi) via [`lerd lan:share`](lan-sharing.md), and full LAN exposure where a laptop browses `https://myapp.test` against a remote lerd server. This page covers the full setup.
 
 ## Full LAN exposure (all sites, DNS-based)
 
-Lerd is designed to run on the machine you're developing from — install it, link a project, browse `myapp.test`, done. But there's a common variant of that workflow worth documenting: **the lerd server is a different machine from the one you're typing on**. Typical case: you have a beefier Linux box (desktop, NAS, mini PC) running the containers, and a laptop you carry around for editing.
+Lerd is designed to run on the machine you're developing from: install it, link a project, browse `myapp.test`, done. But there's a common variant of that workflow worth documenting: **the lerd server is a different machine from the one you're typing on**. Typical case: you have a beefier Linux box (desktop, NAS, mini PC) running the containers, and a laptop you carry around for editing.
 
 This page walks through the full setup so the laptop can browse `https://myapp.test` against a remote server with no per-site `/etc/hosts` maintenance and no certificate warnings.
 
@@ -56,14 +14,14 @@ This page walks through the full setup so the laptop can browse `https://myapp.t
 ┌──────────── Laptop ────────────┐         ┌──────────── Server ────────────┐
 │                                │         │                                │
 │  Editor (VSCode Remote / etc.) │ ──ssh── │  ~/Projects/myapp              │
-│  Browser → http(s)://myapp.test│ ──HTTP→ │  nginx :80 / :443              │
-│  Resolver → forward .test ────────────→  │  lerd-dns :5300 (LAN)          │
+│  Browser to http(s)://myapp.test│ HTTP→  │  nginx :80 / :443              │
+│  Resolver forwards .test ────────────→   │  lerd-dns :5300 (LAN)          │
 │  mkcert root CA (trusted) ──────────────→│  cert issued by mkcert         │
 │                                │         │                                │
 └────────────────────────────────┘         └────────────────────────────────┘
 ```
 
-The server runs lerd normally — containers, watcher, dnsmasq, nginx, certs. The laptop forwards `.test` queries to the server's dnsmasq and trusts the server's mkcert root CA. After that, every site you create on the server is reachable from the laptop with no laptop-side action.
+The server runs lerd normally: containers, watcher, dnsmasq, nginx, certs. The laptop forwards `.test` queries to the server's dnsmasq and trusts the server's mkcert root CA. After that, every site you create on the server is reachable from the laptop with no laptop-side action.
 
 ## Server-side setup
 
@@ -116,7 +74,7 @@ sudo firewall-cmd --reload
 
 ### 4. Expose lerd to the LAN
 
-By default lerd binds nginx to `127.0.0.1` — sites are invisible to the network, safe for untrusted wifi (cafés, conference networks, hotels). Flip that with the unified LAN exposure switch:
+By default lerd binds nginx to `127.0.0.1`, so sites are invisible to the network, safe for untrusted wifi (cafés, conference networks, hotels). Flip that with the unified LAN exposure switch:
 
 ```bash
 lerd lan:expose
@@ -124,16 +82,16 @@ lerd lan:expose
 
 This single command:
 
-- Rewrites the `lerd-nginx` quadlet so its `PublishPort=` bindings drop the `127.0.0.1:` prefix (port 80 / 443 become reachable from other devices on the LAN). **Service containers stay on `127.0.0.1` in both modes** — Laravel apps reach them through the internal podman bridge using container DNS names (`DB_HOST=lerd-mysql`, etc.), so there's no reason to expose mysql/postgres/redis/meilisearch/rustfs/mailpit ports to the network. If you need TablePlus or another tool from a second machine, use SSH port forwarding instead.
+- Rewrites the `lerd-nginx` quadlet so its `PublishPort=` bindings drop the `127.0.0.1:` prefix (port 80 / 443 become reachable from other devices on the LAN). **Service containers stay on `127.0.0.1` in both modes**; Laravel apps reach them through the internal podman bridge using container DNS names (`DB_HOST=lerd-mysql`, etc.), so there's no reason to expose mysql/postgres/redis/meilisearch/rustfs/mailpit ports to the network. If you need TablePlus or another tool from a second machine, use SSH port forwarding instead.
 - Restarts `lerd-nginx` so the new bind takes effect.
-- Updates the dnsmasq config so `.test` queries return the server's auto-detected LAN IP instead of `127.0.0.1`, and starts the userspace `lerd-dns-forwarder.service` that bridges `LAN-IP:5300 → 127.0.0.1:5300` (rootless pasta cannot accept LAN-side traffic on its own).
+- Updates the dnsmasq config so `.test` queries return the server's auto-detected LAN IP instead of `127.0.0.1`, and starts the userspace `lerd-dns-forwarder.service` that bridges `LAN-IP:5300` to `127.0.0.1:5300` (rootless pasta cannot accept LAN-side traffic on its own).
 - Persists `lan.exposed: true` in `~/.config/lerd/config.yaml` so reboots and reinstalls restore the exposed state.
 
 Reverse with `lerd lan:unexpose` (also revokes any outstanding remote-setup code). Inspect the current state with `lerd lan:status`.
 
-You can do the same thing from the dashboard: in **Lerd settings → LAN exposure**, click **Expose to LAN** and watch the per-step progress stream live.
+You can do the same thing from the dashboard: in **Lerd settings > LAN exposure**, click **Expose to LAN** and watch the per-step progress stream live.
 
-The dashboard at port 7073 is gated independently. By default it returns 403 to LAN clients even when `lan:expose` is on — set HTTP Basic auth credentials with `lerd remote-control on` (or via the **Remote dashboard access** card in the dashboard) to grant LAN access. The two switches are independent: you can have sites LAN-reachable without exposing the dashboard, or vice versa.
+The dashboard at port 7073 is gated independently. By default it returns 403 to LAN clients even when `lan:expose` is on; set HTTP Basic auth credentials with `lerd remote-control on` (or via the **Remote dashboard access** card in the dashboard) to grant LAN access. The two switches are independent: you can have sites LAN-reachable without exposing the dashboard, or vice versa.
 
 ### 5. Generate a one-time setup code
 
@@ -151,11 +109,11 @@ Ensuring lerd is exposed on the LAN...
   • Rewriting container quadlets
   • Restarting lerd-nginx
   • Detecting primary LAN IP
-  • Updating dnsmasq config (.test → 192.168.1.42)
+  • Updating dnsmasq config (.test to 192.168.1.42)
   • Restarting lerd-dns
   • Installing lerd-dns-forwarder.service
   • Starting lerd-dns-forwarder
-  • Done — lerd is reachable on 192.168.1.42
+  • Done, lerd is reachable on 192.168.1.42
 
   Code: aB3xY9zQ
   Expires in: 15m0s
@@ -181,13 +139,13 @@ curl -sSL 'http://192.168.1.42:7073/api/remote-setup?code=aB3xY9zQ' | bash
 The endpoint generates a self-contained bash script tailored to the calling client and pipes it into `bash`. The script:
 
 1. Installs `mkcert` if missing (apt / dnf / pacman / brew)
-2. Decodes the embedded lerd root CA (public only — the private key never leaves the server) into `$(mkcert -CAROOT)/rootCA.pem`
+2. Decodes the embedded lerd root CA (public only, the private key never leaves the server) into `$(mkcert -CAROOT)/rootCA.pem`
 3. Runs `mkcert -install` to register the CA in the system trust store
 4. Detects your local resolver and writes the appropriate dnsmasq dropin:
-   - **NetworkManager dnsmasq plugin** (most desktop Linux distros) → `/etc/NetworkManager/dnsmasq.d/lerd.conf`
-   - **Standalone dnsmasq** → `/etc/dnsmasq.d/lerd.conf`
-   - **macOS** → `/etc/resolver/test` (per-domain resolver, native macOS feature)
-   - **systemd-resolved alone** → unsupported (it can't forward to a non-standard port); the script tells you to install dnsmasq locally
+   - **NetworkManager dnsmasq plugin** (most desktop Linux distros): `/etc/NetworkManager/dnsmasq.d/lerd.conf`
+   - **Standalone dnsmasq**: `/etc/dnsmasq.d/lerd.conf`
+   - **macOS**: `/etc/resolver/test` (per-domain resolver, native macOS feature)
+   - **systemd-resolved alone**: unsupported (it can't forward to a non-standard port); the script tells you to install dnsmasq locally
 5. Restarts the resolver and prints a verification block
 
 The script will prompt for `sudo` when it needs to write system files. Re-running is idempotent.
@@ -233,12 +191,12 @@ You skipped step 4 (`lerd lan:expose`) on the server, so the dnsmasq config is s
 
 ### `.test` stopped resolving after the server moved networks
 
-The bootstrap script writes the lerd server's LAN IP into the resolver dropin (NetworkManager dnsmasq config, systemd-resolved DNS=, dnsmasq.d, or `/etc/resolver/test`). If the server's LAN IP later changes — DHCP renew, new wifi, dock change, reboot on a different network — that hardcoded IP becomes stale and lookups fail or time out.
+The bootstrap script writes the lerd server's LAN IP into the resolver dropin (NetworkManager dnsmasq config, systemd-resolved DNS=, dnsmasq.d, or `/etc/resolver/test`). If the server's LAN IP later changes (DHCP renew, new wifi, dock change, reboot on a different network) that hardcoded IP becomes stale and lookups fail or time out.
 
 There's no automatic recovery (the server doesn't push updates and the remote machine doesn't poll). To fix it, **re-bootstrap**:
 
 1. On the server, run `lerd remote-setup` again. It auto-detects the new LAN IP and prints a fresh curl one-liner.
-2. On the remote machine, run the new curl one-liner. It overwrites the resolver dropin in place — no need to revert anything first.
+2. On the remote machine, run the new curl one-liner. It overwrites the resolver dropin in place, no need to revert anything first.
 
 If you move between networks regularly, consider giving the server a stable hostname via Tailscale, a router DHCP reservation, or a local DNS entry, and using that instead of an IP. That's outside lerd's scope but eliminates the re-bootstrap step.
 
@@ -250,7 +208,7 @@ The endpoint refuses requests from non-RFC-1918 source IPs as a defense-in-depth
 
 Generate a new one: `lerd remote-setup --ttl 1h` for a longer window.
 
-### `loginctl enable-linger` didn't help — services still die at logout
+### `loginctl enable-linger` didn't help, services still die at logout
 
 ```bash
 loginctl show-user $(whoami) | grep Linger
@@ -261,7 +219,7 @@ If linger is on but services still exit, make sure you're starting them under th
 
 ### Vite / HMR doesn't work from the laptop
 
-Vite and similar dev servers default to binding `localhost` only. Add `--host 0.0.0.0` to your dev script or set `server.host = '0.0.0.0'` in `vite.config.js`. The HMR websocket also needs to point at the right hostname — set `server.hmr.host = 'myapp.test'` so the laptop reaches the right backend.
+Vite and similar dev servers default to binding `localhost` only. Add `--host 0.0.0.0` to your dev script or set `server.host = '0.0.0.0'` in `vite.config.js`. The HMR websocket also needs to point at the right hostname; set `server.hmr.host = 'myapp.test'` so the laptop reaches the right backend.
 
 ## Manual setup (no API)
 
@@ -320,22 +278,22 @@ port 5300
 EOF
 ```
 
-The macOS resolver picks `/etc/resolver/<tld>` files up automatically — no service restart needed.
+The macOS resolver picks `/etc/resolver/<tld>` files up automatically, no service restart needed.
 
 ## Dashboard remote access
 
 The dashboard at port 7073 is gated by **two independent flags**:
 
-| `cfg.LAN.Exposed` | `cfg.UI.PasswordHash` | LAN client → :7073 |
+| `cfg.LAN.Exposed` | `cfg.UI.PasswordHash` | LAN client to :7073 |
 |---|---|---|
-| off (default)    | empty (default) | 403 — LAN exposure off                                       |
-| off              | set             | 403 — LAN exposure off (credentials are inert)              |
-| on               | empty           | 403 — no credentials configured                              |
+| off (default)    | empty (default) | 403, LAN exposure off                                       |
+| off              | set             | 403, LAN exposure off (credentials are inert)              |
+| on               | empty           | 403, no credentials configured                              |
 | on               | set             | HTTP Basic auth required                                     |
 
-Loopback (`127.0.0.1`, `::1`) always bypasses both checks — you can never lock yourself out of your own machine. The `/api/remote-setup` endpoint is independent of the gate (it has its own token + IP + brute-force protection) so laptop bootstrap still works before you set credentials.
+Loopback (`127.0.0.1`, `::1`) always bypasses both checks, you can never lock yourself out of your own machine. The `/api/remote-setup` endpoint is independent of the gate (it has its own token + IP + brute-force protection) so laptop bootstrap still works before you set credentials.
 
-`cfg.LAN.Exposed` is the **top-level** flag — even with valid credentials, LAN clients get 403 if `lan:expose` is off. This makes `lan:unexpose` a complete kill switch: stale credentials from a prior expose session can't survive it.
+`cfg.LAN.Exposed` is the **top-level** flag: even with valid credentials, LAN clients get 403 if `lan:expose` is off. This makes `lan:unexpose` a complete kill switch: stale credentials from a prior expose session can't survive it.
 
 To open the dashboard up to LAN clients you need both flags on:
 
@@ -359,13 +317,13 @@ lerd lan:unexpose        # flip nginx back to 127.0.0.1, stop forwarder
 
 Check the current state with `lerd remote-control status` and `lerd lan:status`. Both can be run from a loopback shell at any time, even if you've forgotten the password.
 
-The browser handles the Basic auth prompt natively the first time the user visits `http://<server-ip>:7073` — they're prompted once and the credentials are cached for the session. There is no separate UI login screen.
+The browser handles the Basic auth prompt natively the first time the user visits `http://<server-ip>:7073`; they're prompted once and the credentials are cached for the session. There is no separate UI login screen.
 
 `lerd remote-control on` refuses to run when `lan:expose` is off, since dashboard credentials are meaningless while the dashboard is loopback-only.
 
 ## Security caveats
 
-- **Coffee shop wifi: leave `lan:expose` off.** That's the default and it binds nginx to `127.0.0.1` only — sites are invisible to other devices on the network. Service containers (mysql, postgres, redis, mailpit, etc.) are *always* loopback-only regardless of `lan:expose`, so even with the LAN flag on, your dev databases are not network-reachable. Only run `lerd lan:expose` on networks you trust.
+- **Coffee shop wifi: leave `lan:expose` off.** That's the default and it binds nginx to `127.0.0.1` only, so sites are invisible to other devices on the network. Service containers (mysql, postgres, redis, mailpit, etc.) are *always* loopback-only regardless of `lan:expose`, so even with the LAN flag on, your dev databases are not network-reachable. Only run `lerd lan:expose` on networks you trust.
 - **`lerd lan:expose` makes your dnsmasq an open recursive resolver for anyone on the LAN.** Lock down with firewall rules to your subnet, not 0.0.0.0/0.
 - **The mkcert root CA has authority over any HTTPS site on the trusting machine.** Only install the CA on devices you own. Treat the private key (which never leaves the server) as a high-value secret.
 - **The `/api/remote-setup` endpoint hands out the public CA to anyone who can pass the source-IP and code checks.** Don't share active codes.

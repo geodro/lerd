@@ -26,6 +26,7 @@ If you're a PHP developer on Linux and want frictionless local development — a
 - 🐘 **Per-project PHP version** (8.1–8.5), switch with one click
 - 📦 **Node.js isolation** per project (Node 22, 24)
 - 🖥️ **Built-in Web UI** - 3-pane dashboard to manage sites, services, and logs from a browser
+- 🖥️ **Terminal dashboard** (`lerd tui`) - btop-style TUI with live status, site detail pane, inline domain and version editing, shell drop-in, log tailing, and filter/sort — the same operations surface as the web UI, for tmux and SSH workflows
 - 🗄️ **One-click services**: MySQL, PostgreSQL, Redis, Meilisearch, RustFS, Mailpit, Stripe Mock, Reverb and more
 - 📋 **Live logs** for PHP-FPM, Queue, Schedule, Reverb, per site
 - 🔒 **Rootless & daemonless** - Podman-native, no Docker required
@@ -63,6 +64,7 @@ AI:  → site_link()
 | Podman-native      | ✅   | ❌   | ❌    | ❌           |
 | Rootless           | ✅   | ❌   | ❌    | ✅           |
 | Web UI             | ✅   | ❌   | ❌    | ✅           |
+| Terminal dashboard | ✅   | ❌   | ❌    | ❌           |
 | Linux              | ✅   | ✅   | ✅    | ❌           |
 | macOS              | ✅   | ✅   | ✅    | ✅           |
 | MCP server         | ✅   | ❌   | ❌    | ❌           |

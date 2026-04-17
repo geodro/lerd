@@ -5,7 +5,7 @@
 | Command | Description |
 |---|---|
 | `lerd use <version>` | Set the global PHP version and build the FPM image if needed |
-| `lerd isolate <version>` | Pin PHP version for cwd — writes `.php-version` and updates `.lerd.yaml` if it exists, then re-links |
+| `lerd isolate <version>` | Pin PHP version for cwd: writes `.php-version` and updates `.lerd.yaml` if it exists, then re-links |
 | `lerd php:list` | List all installed PHP-FPM versions |
 | `lerd php:rebuild [--local]` | Force-rebuild all installed PHP-FPM images; `--local` builds from source instead of pulling a base |
 | `lerd fetch [version...] [--local]` | Pull pre-built PHP FPM base images from ghcr.io; `--local` builds from source instead |
@@ -23,21 +23,21 @@ If no version is given, the version is resolved from the current directory (`.ph
 
 ## Usage
 
-`lerd install` places shims for `php` and `composer` in `~/.local/share/lerd/bin/`, which is added to your `PATH`. You use them exactly as you normally would — lerd routes them through the correct PHP-FPM container version automatically:
+`lerd install` places shims for `php` and `composer` in `~/.local/share/lerd/bin/`, which is added to your `PATH`. You use them exactly as you normally would, lerd routes them through the correct PHP-FPM container version automatically:
 
 ```bash
 php artisan migrate
 composer install
 ```
 
-Because the `php` shim runs inside the PHP-FPM container, `php artisan`, `lerd artisan`, and the MCP `artisan` tool are all equivalent — they all execute inside the same container with the same PHP version and extensions. Use whichever form you prefer.
+Because the `php` shim runs inside the PHP-FPM container, `php artisan`, `lerd artisan`, and the MCP `artisan` tool are all equivalent; they all execute inside the same container with the same PHP version and extensions. Use whichever form you prefer.
 
 ### Shortcuts and `vendor/bin` fallback
 
 For common workflows there are a few built-in shortcuts:
 
-- `lerd a [args...]` — short alias for `lerd artisan` (also `lerd console`)
-- `lerd test [args...]` — runs `lerd artisan test`
+- `lerd a [args...]`: short alias for `lerd artisan` (also `lerd console`)
+- `lerd test [args...]`: runs `lerd artisan test`
 
 In addition, any composer-installed binary in the project's `vendor/bin` directory is callable directly as `lerd <name>`. For example, with the usual Laravel dev tooling installed:
 
@@ -48,7 +48,7 @@ lerd phpstan analyse
 lerd rector process
 ```
 
-These run inside the project's PHP-FPM container with the project's working directory mounted, so configuration files (`pest.xml`, `pint.json`, `phpstan.neon`, etc.) are picked up automatically. Real lerd commands always take precedence — if you have a `vendor/bin/composer`, `lerd composer` still resolves to the built-in command.
+These run inside the project's PHP-FPM container with the project's working directory mounted, so configuration files (`pest.xml`, `pint.json`, `phpstan.neon`, etc.) are picked up automatically. Real lerd commands always take precedence; if you have a `vendor/bin/composer`, `lerd composer` still resolves to the built-in command.
 
 The MCP integration exposes the same surface through two tools, `vendor_bins` (list available binaries) and `vendor_run` (execute one), so AI assistants can discover and run project tooling without per-project configuration.
 
@@ -58,34 +58,34 @@ The MCP integration exposes the same surface through two tools, `vendor_bins` (l
 
 When serving a request, Lerd picks the PHP version for a project in this order:
 
-1. `.lerd.yaml` in the project root — `php_version` field (explicit lerd override)
+1. `.lerd.yaml` in the project root: `php_version` field (explicit lerd override)
 2. `.php-version` file in the project root (plain text, e.g. `8.2`)
-3. `composer.json` — `require.php` constraint, resolved to the best installed version (e.g. `^8.3` with PHP 8.3 and 8.4 installed → `8.4`)
+3. `composer.json`: `require.php` constraint, resolved to the best installed version (e.g. `^8.4` with PHP 8.4 and 8.5 installed resolves to `8.5`)
 4. Global default in `~/.config/lerd/config.yaml`
 
-When `.php-version` changes on disk, the lerd watcher automatically updates the site registry and regenerates the nginx vhost — no manual reload needed.
+When `.php-version` changes on disk, the lerd watcher automatically updates the site registry and regenerates the nginx vhost, no manual reload needed.
 
 To pin a project permanently:
 
 ```bash
 cd ~/Lerd/my-app
-lerd isolate 8.4
+lerd isolate 8.5
 ```
 
-This writes `.php-version: 8.4` (so CLI `php`, asdf, and other tools see the right version) and, when `.lerd.yaml` already exists in the project, also updates its `php_version` field to keep lerd's priority-1 override in sync. The site is re-linked automatically so nginx picks up the new version immediately.
+This writes `.php-version: 8.5` (so CLI `php`, asdf, and other tools see the right version) and, when `.lerd.yaml` already exists in the project, also updates its `php_version` field to keep lerd's priority-1 override in sync. The site is re-linked automatically so nginx picks up the new version immediately.
 
-The UI PHP version selector and the MCP `site_php` tool follow the same rules — they always write both files when applicable.
+The UI PHP version selector and the MCP `site_php` tool follow the same rules; they always write both files when applicable.
 
 The composer constraint is matched against all installed PHP versions using full semver rules (`^`, `~`, `>=`, `<`, `||`, `*`). The highest installed version that satisfies the constraint wins. If no installed version matches, the literal minimum from the constraint is used (and the FPM will be built on first use).
 
 ::: tip Overriding a `composer.json` constraint
-If `composer.json` requires `^8.3` but you need to run the project on a specific version, `lerd isolate 8.4` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.4` alone won't help — that only sets the global fallback, which loses to the composer constraint.
+If `composer.json` requires `^8.3` but you need to run the project on a specific version, `lerd isolate 8.5` is the right tool. It writes `.php-version` which takes priority over the composer constraint. Running `lerd use 8.5` alone won't help; that only sets the global fallback, which loses to the composer constraint.
 :::
 
 To change the global default (applies to all projects that don't have a per-project pin):
 
 ```bash
-lerd use 8.4
+lerd use 8.5
 ```
 
 ---
@@ -94,22 +94,22 @@ lerd use 8.4
 
 Lerd automatically manages which PHP-FPM containers are running based on which versions are actually needed by your sites.
 
-**`lerd start`** — only starts FPM containers for versions referenced by at least one site (active or paused). Unused versions are left stopped.
+**`lerd start`**: only starts FPM containers for versions referenced by at least one site (active or paused). Unused versions are left stopped.
 
-**Auto-stop** — when you unlink a site, lerd checks every installed PHP version. If no remaining active (non-ignored, non-paused) site uses a version, its FPM container is stopped. The version itself stays installed — the container is just not running.
+**Auto-stop**: when you unlink a site, lerd checks every installed PHP version. If no remaining active (non-ignored, non-paused) site uses a version, its FPM container is stopped. The version itself stays installed; the container is just not running.
 
-**Paused sites count** — a site that is paused still counts as using its PHP version, so that version's FPM container is not stopped. When the site is resumed, FPM is guaranteed to be running.
+**Paused sites count**: a site that is paused still counts as using its PHP version, so that version's FPM container is not stopped. When the site is resumed, FPM is guaranteed to be running.
 
-**Auto-start** — FPM is started automatically when you link a site (`lerd link`, `lerd park`, `lerd isolate`) or change the global default (`lerd use`). When unpausing a site, lerd also ensures the required FPM container is running before restoring the nginx vhost.
+**Auto-start**: FPM is started automatically when you link a site (`lerd link`, `lerd park`, `lerd isolate`) or change the global default (`lerd use`). When unpausing a site, lerd also ensures the required FPM container is running before restoring the nginx vhost.
 
-**Manual control** — unused PHP versions (no active sites) can be started and stopped manually from the dashboard (System → PHP → Start / Stop). From the CLI:
+**Manual control**: unused PHP versions (no active sites) can be started and stopped manually from the dashboard (System > PHP > Start / Stop). From the CLI:
 
 ```bash
 systemctl --user start  lerd-php84-fpm
 systemctl --user stop   lerd-php84-fpm
 ```
 
-**`lerd status`** — stopped FPM containers for unused versions are reported as a warning, not an error.
+**`lerd status`**: stopped FPM containers for unused versions are reported as a warning, not an error.
 
 ---
 
@@ -123,7 +123,7 @@ Xdebug is configured with:
 - `xdebug.client_host=host.containers.internal` (reaches your host IDE from the container)
 - `xdebug.client_port=9003`
 
-Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings → PHP → Debug → Debug port** to `9003`.
+Set your IDE to listen on port `9003`. In VS Code, the default PHP Debug configuration works without changes. In PhpStorm, set **Settings > PHP > Debug > Debug port** to `9003`.
 
 `host.containers.internal` is resolved via a real reachability probe: when lerd writes the shared hosts file it tries each candidate IP (netavark's `host.containers.internal` entry, the host's primary LAN IP, slirp4netns's `10.0.2.2`) by opening a TCP connection to lerd-ui on port 7073 from inside lerd-nginx, and writes the first one that succeeds. If none succeed, `lerd doctor` reports the failure so you get a real diagnosis instead of Xdebug silently timing out with `Time-out connecting to debugging client`.
 :::
@@ -146,7 +146,7 @@ Re-run `lerd xdebug on --mode <new>` at any time to swap modes without going thr
 
 ## Pre-built images
 
-lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top — bringing first-time build time from ~5 minutes down to ~30 seconds.
+lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top, bringing first-time build time from ~5 minutes down to ~30 seconds.
 
 The base image tag is derived from the embedded Containerfile, so lerd always pulls the exact image that matches the version of lerd you have installed. If the pull fails (no internet, image not yet published) lerd falls back to a full local build transparently.
 
@@ -158,7 +158,7 @@ To build entirely from source instead:
 
 ```bash
 lerd fetch --local
-lerd fetch --local 8.4
+lerd fetch --local 8.5
 lerd php:rebuild --local
 ```
 
@@ -213,7 +213,7 @@ The PHP version is resolved the same way as every other lerd command (`.php-vers
 
 If the container is not running, lerd prints the `systemctl` command needed to start it rather than silently failing.
 
-If the site is paused, any services referenced in `.env` (MySQL, Redis, etc.) are started automatically before the shell opens — the site itself stays paused.
+If the site is paused, any services referenced in `.env` (MySQL, Redis, etc.) are started automatically before the shell opens; the site itself stays paused.
 
 ---
 
