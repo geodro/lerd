@@ -71,6 +71,72 @@ func TestCopyTreeNative_PreservesInnerSymlinks(t *testing.T) {
 	}
 }
 
+func TestJSPackageManager_DetectsLockfile(t *testing.T) {
+	cases := []struct {
+		name     string
+		lockfile string
+		wantBin  string
+		wantArg0 string
+	}{
+		{"pnpm", "pnpm-lock.yaml", "pnpm", "install"},
+		{"yarn", "yarn.lock", "yarn", "install"},
+		{"bun-binary", "bun.lockb", "bun", "install"},
+		{"bun-text", "bun.lock", "bun", "install"},
+		{"npm-lockfile", "package-lock.json", "npm", "ci"},
+		{"npm-shrinkwrap", "npm-shrinkwrap.json", "npm", "ci"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, c.lockfile), []byte(""), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gotBin, gotArgs := jsPackageManager(dir)
+			if gotBin != c.wantBin {
+				t.Errorf("binary: got %q want %q", gotBin, c.wantBin)
+			}
+			if len(gotArgs) == 0 || gotArgs[0] != c.wantArg0 {
+				t.Errorf("first arg: got %v want %q", gotArgs, c.wantArg0)
+			}
+		})
+	}
+}
+
+func TestJSPackageManager_DefaultsToNpmInstallWithoutLockfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin, args := jsPackageManager(dir)
+	if bin != "npm" {
+		t.Errorf("binary: got %q want npm", bin)
+	}
+	if len(args) == 0 || args[0] != "install" {
+		t.Errorf("first arg: got %v want install", args)
+	}
+}
+
+func TestJSPackageManager_PnpmBeatsOtherLockfiles(t *testing.T) {
+	// Defensive: if a repo somehow has both pnpm-lock.yaml and
+	// package-lock.json, the pnpm lockfile is the modern one — prefer it.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, lf := range []string{"pnpm-lock.yaml", "package-lock.json"} {
+		if err := os.WriteFile(filepath.Join(dir, lf), []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin, _ := jsPackageManager(dir)
+	if bin != "pnpm" {
+		t.Errorf("expected pnpm to win over npm lockfile, got %q", bin)
+	}
+}
+
 func TestCopyTree_CP(t *testing.T) {
 	// Covers the cp fast path end-to-end when the host supports it.
 	src := t.TempDir()

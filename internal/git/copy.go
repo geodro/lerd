@@ -83,10 +83,14 @@ func copyFileWithMode(src, dst string, mode os.FileMode) error {
 	return nil
 }
 
-// InstallDependencies runs composer install and npm ci in projectPath so
-// vendor/ and node_modules/ match that checkout's own lockfiles. Uses the
-// lerd composer and npm shims from BinDir so the commands route through
-// the project's PHP-FPM container and the correct Node version.
+// InstallDependencies runs composer install and the JS package manager
+// matching whatever lockfile the project ships so vendor/ and node_modules/
+// match that checkout's own lockfiles. composer goes through the lerd
+// shim (which routes into the project's PHP-FPM container); JS tooling
+// goes through whichever of pnpm/yarn/bun/npm is on PATH, preferring the
+// npm shim from BinDir when the project uses npm so the fnm Node version
+// is picked up.
+//
 // Errors are aggregated and returned; callers should log them rather than
 // treat them as fatal since the worktree is still usable with the copied
 // trees from main.
@@ -101,17 +105,57 @@ func InstallDependencies(projectPath string) error {
 	}
 
 	if hasFile(projectPath, "package.json") {
-		npm := filepath.Join(config.BinDir(), "npm")
-		cmd := "install"
-		if hasFile(projectPath, "package-lock.json") || hasFile(projectPath, "npm-shrinkwrap.json") {
-			cmd = "ci"
-		}
-		if err := runIn(projectPath, npm, cmd, "--no-progress"); err != nil {
-			errs = append(errs, fmt.Errorf("npm %s: %w", cmd, err))
+		if err := runJSInstall(projectPath); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// jsPackageManager returns the name and install args for the package
+// manager a project uses, picked from the presence of lockfiles.
+// Preference order mirrors each manager's lockfile being definitive:
+// pnpm-lock.yaml ▸ yarn.lock ▸ bun.lock(b) ▸ npm lockfile ▸ npm as fallback.
+func jsPackageManager(projectPath string) (name string, args []string) {
+	switch {
+	case hasFile(projectPath, "pnpm-lock.yaml"):
+		return "pnpm", []string{"install", "--frozen-lockfile"}
+	case hasFile(projectPath, "yarn.lock"):
+		// --immutable covers both yarn classic (v1) and berry (v2+); v1
+		// doesn't understand it but falls back to default install, which
+		// is what we want if the lockfile is already present.
+		return "yarn", []string{"install", "--immutable"}
+	case hasFile(projectPath, "bun.lockb"), hasFile(projectPath, "bun.lock"):
+		return "bun", []string{"install", "--frozen-lockfile"}
+	case hasFile(projectPath, "package-lock.json"), hasFile(projectPath, "npm-shrinkwrap.json"):
+		return "npm", []string{"ci", "--no-progress"}
+	default:
+		return "npm", []string{"install", "--no-progress"}
+	}
+}
+
+// runJSInstall resolves the chosen package manager's binary and runs the
+// install. For npm we use the lerd shim from BinDir so fnm's current Node
+// version wins; other managers go through PATH since lerd doesn't shim
+// them. Missing binary is logged and returned so the caller aggregates it
+// with other setup errors.
+func runJSInstall(projectPath string) error {
+	name, args := jsPackageManager(projectPath)
+
+	var bin string
+	if name == "npm" {
+		bin = filepath.Join(config.BinDir(), "npm")
+	} else if p, err := exec.LookPath(name); err == nil {
+		bin = p
+	} else {
+		return fmt.Errorf("%s (lockfile present) not found on PATH — install it to hydrate node_modules", name)
+	}
+
+	if err := runIn(projectPath, bin, args...); err != nil {
+		return fmt.Errorf("%s %s: %w", name, args[0], err)
+	}
+	return nil
 }
 
 func hasFile(dir, name string) bool {
