@@ -15,7 +15,7 @@ lerd service start selenium
 
 This starts a `selenium/standalone-chromium` container with:
 - **WebDriver** on port 4444
-- **noVNC dashboard** on port 7900 — open `http://localhost:7900` to watch tests run in the browser
+- **noVNC dashboard** on port 7900: open `http://localhost:7900` to watch tests run in the browser
 
 The container automatically resolves `.test` domains to the nginx container so Chromium can load your sites over HTTP and HTTPS.
 
@@ -38,7 +38,7 @@ When `lerd env` detects `laravel/dusk` in `composer.json` and the Selenium prese
 - Patches `tests/DuskTestCase.php` to skip starting a local ChromeDriver when `DUSK_DRIVER_URL` is set
 - Adds `--ignore-certificate-errors` to Chrome options so Chromium accepts lerd's mkcert certificates
 
-These changes are compatible with Sail and other environments — when `DUSK_DRIVER_URL` is not set, the default local ChromeDriver behaviour kicks in as usual.
+These changes are compatible with Sail and other environments; when `DUSK_DRIVER_URL` is not set, the default local ChromeDriver behaviour kicks in as usual.
 
 ### 4. Run tests
 
@@ -86,6 +86,6 @@ lerd service remove selenium    # uninstall
 
 The Selenium preset works with any browser testing framework that supports remote WebDriver, not just Laravel Dusk. For example:
 
-- **Symfony Panther** — set `PANTHER_EXTERNAL_BASE_URI` and `PANTHER_CHROME_DRIVER_BINARY` or use the remote WebDriver directly
-- **Pest with Dusk plugin** — same setup as Laravel Dusk above
-- **PHPUnit + php-webdriver** — connect to `http://lerd-selenium:4444` with `RemoteWebDriver::create()`
+- **Symfony Panther**: set `PANTHER_EXTERNAL_BASE_URI` and `PANTHER_CHROME_DRIVER_BINARY` or use the remote WebDriver directly
+- **Pest with Dusk plugin**: same setup as Laravel Dusk above
+- **PHPUnit + php-webdriver**: connect to `http://lerd-selenium:4444` with `RemoteWebDriver::create()`

@@ -4,7 +4,7 @@
 
 | Command | Description |
 |---|---|
-| `lerd init` | Interactive wizard — choose PHP version, HTTPS, and services, then save `.lerd.yaml` and apply |
+| `lerd init` | Interactive wizard: choose PHP version, HTTPS, and services, then save `.lerd.yaml` and apply |
 | `lerd init --fresh` | Re-run the wizard with existing `.lerd.yaml` values as defaults |
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
@@ -16,8 +16,8 @@
 | `lerd sites` | Table view of all registered sites |
 | `lerd open [name]` | Open the site in the default browser |
 | `lerd share [name]` | Expose the site publicly via ngrok or Expose (auto-detected) |
-| `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS — updates `APP_URL` in `.env` |
-| `lerd unsecure [name]` | Remove TLS and switch back to HTTP — updates `APP_URL` in `.env` |
+| `lerd secure [name]` | Issue a mkcert TLS cert and enable HTTPS, updates `APP_URL` in `.env` |
+| `lerd unsecure [name]` | Remove TLS and switch back to HTTP, updates `APP_URL` in `.env` |
 | `lerd pause [name]` | Pause a site: stop its workers and replace the vhost with a landing page |
 | `lerd unpause [name]` | Resume a paused site: restore its vhost and restart previously running workers |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings |
@@ -26,7 +26,7 @@
 
 ## Project initialisation
 
-`lerd init` runs an interactive wizard, writes the answers to `.lerd.yaml` in the project root, and then applies the configuration — linking the site, enabling HTTPS if requested, picking a database, and starting any required services.
+`lerd init` runs an interactive wizard, writes the answers to `.lerd.yaml` in the project root, and then applies the configuration: linking the site, enabling HTTPS if requested, picking a database, and starting any required services.
 
 ```bash
 cd ~/Projects/my-app
@@ -34,7 +34,7 @@ lerd init
 ```
 
 ```
-? PHP version: 8.4
+? PHP version: 8.5
 ? Node version (leave blank to skip):
 ? Enable HTTPS? No
 ? Database:
@@ -47,31 +47,31 @@ lerd init
   ◯ rustfs
   ◯ mailpit
 Saved .lerd.yaml
-Linked: my-app -> my-app.test (PHP 8.4, Node 22, Framework: laravel)
+Linked: my-app -> my-app.test (PHP 8.5, Node 22, Framework: laravel)
 ```
 
 Wizard defaults are populated intelligently on first run:
 
-- **PHP version** — from the site registry if already linked, otherwise from `.php-version`, `composer.json`, or the global default
-- **Enable HTTPS** — pre-checked if the site is already secured
-- **Database** — pre-selected from any database already in `.lerd.yaml`, otherwise from `DB_CONNECTION` in `.env` (or `.env.example` for a fresh clone), falling back to SQLite (Laravel's default for new projects)
-- **Services** — pre-checked based on what's detected in the project's `.env` file (only non-database services here — the database is its own step)
+- **PHP version**: from the site registry if already linked, otherwise from `.php-version`, `composer.json`, or the global default
+- **Enable HTTPS**: pre-checked if the site is already secured
+- **Database**: pre-selected from any database already in `.lerd.yaml`, otherwise from `DB_CONNECTION` in `.env` (or `.env.example` for a fresh clone), falling back to SQLite (Laravel's default for new projects)
+- **Services**: pre-checked based on what's detected in the project's `.env` file (only non-database services here, since the database is its own step)
 
 The Database step is a single choice rather than a multi-select, so picking MySQL automatically deselects SQLite and vice-versa. After the wizard completes, `lerd env` runs automatically to write your choices to `.env`:
 
-- **MySQL / PostgreSQL** — `DB_CONNECTION` and the related `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` keys are rewritten to point at `lerd-mysql` / `lerd-postgres`, the service is started if it isn't already, and the project database (plus a `_testing` variant) is created.
-- **SQLite** — `DB_CONNECTION=sqlite` and `DB_DATABASE=database/database.sqlite` are written to `.env`, and the `database/database.sqlite` file is created if it doesn't exist. No service is started.
+- **MySQL / PostgreSQL**: `DB_CONNECTION` and the related `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` keys are rewritten to point at `lerd-mysql` / `lerd-postgres`, the service is started if it isn't already, and the project database (plus a `_testing` variant) is created.
+- **SQLite**: `DB_CONNECTION=sqlite` and `DB_DATABASE=database/database.sqlite` are written to `.env`, and the `database/database.sqlite` file is created if it doesn't exist. No service is started.
 
 The choice is authoritative: if `.env` already had `DB_CONNECTION=mysql` from a previous setup and you switch to SQLite (or vice versa) in the wizard, lerd skips the auto-detection of the old database and applies your new pick instead.
 
-The same prompt also appears when you run `lerd env` directly on a project whose `.env` says SQLite and whose `.lerd.yaml` doesn't yet have a database picked — for example, after cloning a project that wasn't created with `lerd init`. The prompt is skipped automatically when stdin isn't a TTY (e.g. `lerd setup --all` in CI), and for frameworks with explicit env service rules (`fw.env.services` in the YAML — Symfony, WordPress, etc.) since those don't use Laravel's `DB_CONNECTION` convention.
+The same prompt also appears when you run `lerd env` directly on a project whose `.env` says SQLite and whose `.lerd.yaml` doesn't yet have a database picked, for example, after cloning a project that wasn't created with `lerd init`. The prompt is skipped automatically when stdin isn't a TTY (e.g. `lerd setup --all` in CI), and for frameworks with explicit env service rules (`fw.env.services` in the YAML, like Symfony, WordPress, etc.) since those don't use Laravel's `DB_CONNECTION` convention.
 
-Persistence is one-way: lerd reads the source of truth from `.lerd.yaml` and writes only to `.env`. `.env.example` is never modified — it's only used as a template when `.env` doesn't exist yet.
+Persistence is one-way: lerd reads the source of truth from `.lerd.yaml` and writes only to `.env`. `.env.example` is never modified; it's only used as a template when `.env` doesn't exist yet.
 
 The resulting `.lerd.yaml` is intended to be committed to the repository. On a new machine or after a reinstall, running `lerd init` again reads the saved file and restores the full configuration without any prompts.
 
 ```bash
-# On a fresh machine — no wizard, config applied directly
+# On a fresh machine, no wizard, config applied directly
 git clone ...
 cd my-app
 lerd init
@@ -90,12 +90,12 @@ lerd init --fresh
 For Node.js, Python, Go, or any other non-PHP runtime, lerd builds a dedicated container image per project and has nginx reverse-proxy to it. The workflow differs from PHP sites:
 
 1. Create a `Containerfile.lerd` in the project root that defines the runtime and start command.
-2. Run `lerd init` — it detects the non-PHP project (no `composer.json`) and switches to custom container mode, asking for the port, HTTPS, and services. It writes `.lerd.yaml` for you. Alternatively write `.lerd.yaml` manually with a `container: {port: N}` section.
-3. Run `lerd link` — it builds the image, starts the container as `lerd-custom-<sitename>`, and generates the nginx vhost.
+2. Run `lerd init`; it detects the non-PHP project (no `composer.json`) and switches to custom container mode, asking for the port, HTTPS, and services. It writes `.lerd.yaml` for you. Alternatively write `.lerd.yaml` manually with a `container: {port: N}` section.
+3. Run `lerd link`; it builds the image, starts the container as `lerd-custom-<sitename>`, and generates the nginx vhost.
 
 > **Important:** calling `lerd link` without the container config registers the project as a PHP-FPM site (wrong). If that happened, run `lerd unlink` first, set up the files, then `lerd link` again.
 
-See [Custom Containers](../features/custom-containers.md) for the full configuration reference.
+See [Custom Containers](custom-containers.md) for the full configuration reference.
 
 ---
 
@@ -114,15 +114,15 @@ The containers are restarted once to pick up the new mount. Subsequent commands 
 
 ## Domain naming
 
-Directories with real TLDs are automatically normalised — dots are replaced with dashes and the TLD is stripped before appending `.test`.
+Directories with real TLDs are automatically normalised: dots are replaced with dashes and the TLD is stripped before appending `.test`.
 
-For example: `admin.example.com` → `admin-example.test`
+For example: `admin.example.com` becomes `admin-example.test`
 
 ---
 
 ## Multiple domains
 
-A site can respond to multiple domains. The argument to `lerd link` is the domain name without the `.test` TLD — it is appended automatically from the global config.
+A site can respond to multiple domains. The argument to `lerd link` is the domain name without the `.test` TLD; it is appended automatically from the global config.
 
 ```bash
 lerd link myapp                # links as myapp.test
@@ -148,7 +148,7 @@ domains:
   - admin
 ```
 
-You can also manage domains from the web UI — click the pencil icon next to the domain in the site header to open the domain management modal.
+You can also manage domains from the web UI: click the pencil icon next to the domain in the site header to open the domain management modal.
 
 When a site is secured with HTTPS, the certificate is automatically reissued to cover all domains.
 
@@ -162,28 +162,28 @@ A domain may only be claimed by one site at a time. When `lerd link`, the watche
 
 ```
 $ lerd link
-  [WARN] domain "shared.test" already used by site "owner-app" — skipped
-Linked: clone-app -> clone-app.test (PHP 8.4, Node 22, Framework: laravel)
+  [WARN] domain "shared.test" already used by site "owner-app", skipped
+Linked: clone-app -> clone-app.test (PHP 8.5, Node 22, Framework: laravel)
 ```
 
 The site still gets registered with whatever domains survived the filter. If every requested domain is conflicted, lerd falls back to a freshly generated `<dirname>.<tld>` (with a numeric suffix to avoid name collisions).
 
-`.lerd.yaml` is **never modified** when this happens — the original `domains:` list stays on disk so the conflict is visible to the UI and the entry self-heals on the next link if you remove the owning site. The web UI surfaces filtered domains in two places:
+`.lerd.yaml` is **never modified** when this happens; the original `domains:` list stays on disk so the conflict is visible to the UI and the entry self-heals on the next link if you remove the owning site. The web UI surfaces filtered domains in two places:
 
 - The site detail header's domain pill shows an amber ⚠️ when one or more declared domains are filtered (`+N more` count includes them). Hovering reveals each conflicted entry with the owning site name.
-- The Manage Domains modal lists conflicted entries at the top with a warning icon, the domain struck-through, a `used by <site>` pill, and a small trash button. Clicking the trash removes the entry from `.lerd.yaml` only — the registry, vhost, and certs are untouched.
+- The Manage Domains modal lists conflicted entries at the top with a warning icon, the domain struck-through, a `used by <site>` pill, and a small trash button. Clicking the trash removes the entry from `.lerd.yaml` only; the registry, vhost, and certs are untouched.
 
-The conflict check is **strict**: a domain is reserved regardless of TLS scheme. Two sites cannot share the same domain even if one runs HTTPS and the other HTTP — DNS and browser caches don't reliably disambiguate by scheme, and the resulting setup is fragile.
+The conflict check is **strict**: a domain is reserved regardless of TLS scheme. Two sites cannot share the same domain even if one runs HTTPS and the other HTTP; DNS and browser caches don't reliably disambiguate by scheme, and the resulting setup is fragile.
 
 ---
 
 ## Custom `APP_URL`
 
-By default `lerd env` writes `APP_URL=<scheme>://<primary-domain>` to the project's `.env` on every run. If you need to override that — for example to add a path prefix, point at a staging hostname, or pin a specific protocol — set `app_url` in `.lerd.yaml` (committed, shared across machines) or in the per-machine site entry in `~/.local/share/lerd/sites.yaml`. The precedence chain is:
+By default `lerd env` writes `APP_URL=<scheme>://<primary-domain>` to the project's `.env` on every run. If you need to override that (for example to add a path prefix, point at a staging hostname, or pin a specific protocol), set `app_url` in `.lerd.yaml` (committed, shared across machines) or in the per-machine site entry in `~/.local/share/lerd/sites.yaml`. The precedence chain is:
 
-1. `.lerd.yaml` `app_url` — committed to the repo, takes effect on every machine.
-2. `sites.yaml` `app_url` — per-machine override, useful when only one developer needs a different URL.
-3. The default generator (`<scheme>://<primary-domain>`) — used when neither override is set.
+1. `.lerd.yaml` `app_url`: committed to the repo, takes effect on every machine.
+2. `sites.yaml` `app_url`: per-machine override, useful when only one developer needs a different URL.
+3. The default generator (`<scheme>://<primary-domain>`): used when neither override is set.
 
 ```yaml
 # .lerd.yaml
@@ -200,11 +200,11 @@ app_url: http://myapp.test/api
 
 The `lerd init` wizard includes a workers step that lets you select which workers to auto-start when linking. Available workers depend on the framework and what's installed:
 
-- **queue** — shown when the framework defines a queue worker (replaced by horizon when `laravel/horizon` is installed)
-- **horizon** — shown only when `laravel/horizon` is in `composer.json`
-- **schedule** — the task scheduler
-- **reverb** — shown only when `laravel/reverb` is installed or `BROADCAST_CONNECTION=reverb` is in `.env`
-- **custom workers** — any additional workers defined in the framework definition
+- **queue**: shown when the framework defines a queue worker (replaced by horizon when `laravel/horizon` is installed)
+- **horizon**: shown only when `laravel/horizon` is in `composer.json`
+- **schedule**: the task scheduler
+- **reverb**: shown only when `laravel/reverb` is installed or `BROADCAST_CONNECTION=reverb` is in `.env`
+- **custom workers**: any additional workers defined in the framework definition
 
 Selected workers are saved to `.lerd.yaml`:
 
@@ -230,8 +230,8 @@ Toggling workers from the CLI (`lerd queue:start`, `lerd schedule:stop`, etc.) o
 
 When a directory is parked or linked and another site is already registered with the same name:
 
-- **Same path** — treated as a re-link of the same site. The existing registration is updated and the TLS state is preserved.
-- **Different path** — the new site is registered with a numeric suffix (`myapp-2`, `myapp-3`, …) so both sites can coexist.
+- **Same path**: treated as a re-link of the same site. The existing registration is updated and the TLS state is preserved.
+- **Different path**: the new site is registered with a numeric suffix (`myapp-2`, `myapp-3`, etc.) so both sites can coexist.
 
 ---
 
@@ -245,13 +245,13 @@ You can link a new site directly from the dashboard by clicking the **+** button
 
 When you visit a `.test` domain that isn't linked to any site over **HTTP**, lerd shows a branded "Site Not Found" page with a link to the dashboard and a retry button. This replaces the browser's generic connection error.
 
-For **HTTPS** the catch-all uses `ssl_reject_handshake on;` — the browser sees a clean `ERR_SSL_UNRECOGNIZED_NAME_ALERT` connection error rather than a landing page. This is unavoidable: lerd cannot pre-issue a certificate covering arbitrary `*.test` hostnames because browsers (Chrome especially) reject TLD-level wildcard certificates with `ERR_CERT_COMMON_NAME_INVALID`. If you're hitting this on a domain you used to have linked, the fix is browser-side (clear site data / unregister the service worker), not server-side.
+For **HTTPS** the catch-all uses `ssl_reject_handshake on;`, so the browser sees a clean `ERR_SSL_UNRECOGNIZED_NAME_ALERT` connection error rather than a landing page. This is unavoidable: lerd cannot pre-issue a certificate covering arbitrary `*.test` hostnames because browsers (Chrome especially) reject TLD-level wildcard certificates with `ERR_CERT_COMMON_NAME_INVALID`. If you're hitting this on a domain you used to have linked, the fix is browser-side (clear site data / unregister the service worker), not server-side.
 
 ---
 
 ## Unlink behaviour
 
-When you unlink a site that lives inside a parked directory, the vhost is removed but the registry entry is kept and marked as *ignored* — the watcher will not re-register it on its next scan. Running `lerd link` in that directory clears the ignored flag and restores the site.
+When you unlink a site that lives inside a parked directory, the vhost is removed but the registry entry is kept and marked as *ignored*; the watcher will not re-register it on its next scan. Running `lerd link` in that directory clears the ignored flag and restores the site.
 
 ---
 
@@ -269,7 +269,7 @@ When a site is paused:
 - All running workers for that site are stopped (queue, schedule, reverb, stripe, and any custom workers)
 - The nginx vhost is replaced with a minimal landing page that shows a **Resume** button
 - Services no longer needed by any other active site are auto-stopped
-- The paused state is persisted — the site stays paused across `lerd start` / `lerd stop` cycles
+- The paused state is persisted, so the site stays paused across `lerd start` / `lerd stop` cycles
 
 The landing page's **Resume** button calls the lerd dashboard API directly, so you can unpause from the browser without opening a terminal.
 
@@ -292,13 +292,13 @@ You can run `php artisan`, `composer`, `lerd db:export`, and other exec-based co
 
 ```
 $ php artisan migrate
-[lerd] site "my-project" is paused — starting required services...
+[lerd] site "my-project" is paused, starting required services...
   Starting mysql...
 
    INFO  Nothing to migrate.
 ```
 
-On subsequent commands the services are already running, so no notice is printed. The site stays paused — the nginx vhost remains as the landing page and workers are not restarted.
+On subsequent commands the services are already running, so no notice is printed. The site stays paused; the nginx vhost remains as the landing page and workers are not restarted.
 
 Commands that benefit from this auto-start:
 

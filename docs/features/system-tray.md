@@ -7,7 +7,7 @@ lerd tray              # launch (detaches from terminal automatically)
 lerd tray --mono=false # use the red colour icon instead of monochrome white
 ```
 
-The tray detaches from the terminal immediately — your shell prompt returns straight away.
+The tray detaches from the terminal immediately, your shell prompt returns straight away.
 
 ---
 
@@ -26,8 +26,8 @@ Stop Lerd            ← toggles between Start / Stop Lerd
   🔴 redis           ← click to start
 ─────────────────
 ── PHP ──
-  ✔ 8.4              ← current default (click to switch)
-  8.3
+  ✔ 8.5              ← current default (click to switch)
+  8.4
 ─────────────────
 Autostart at login: ✔ On   ← click to toggle (enables/disables every lerd unit)
 ⬆ Update to v0.8.3         ← shown when an update is cached; click to open terminal
@@ -48,7 +48,7 @@ The tray follows the global `lerd autostart` toggle: when autostart is on (the d
 
 The tray is also started automatically by `lerd start` if it isn't already running.
 
-The unit is wired to `graphical-session.target`, which is reached automatically by GNOME, KDE Plasma, and any Wayland compositor launched through `uwsm` (including Omarchy's Hyprland setup). On bare Hyprland / Sway / i3 launched without `uwsm`, `graphical-session.target` is never started, so the tray will not autostart — either run the compositor under `uwsm` or replace `WantedBy=graphical-session.target` with `WantedBy=default.target` in `~/.config/systemd/user/lerd-tray.service`.
+The unit is wired to `graphical-session.target`, which is reached automatically by GNOME, KDE Plasma, and any Wayland compositor launched through `uwsm` (including Omarchy's Hyprland setup). On bare Hyprland / Sway / i3 launched without `uwsm`, `graphical-session.target` is never started, so the tray will not autostart. Either run the compositor under `uwsm` or replace `WantedBy=graphical-session.target` with `WantedBy=default.target` in `~/.config/systemd/user/lerd-tray.service`.
 
 ---
 
@@ -61,7 +61,7 @@ The tray uses the **StatusNotifierItem (SNI) / AppIndicator** protocol (DBus-bas
 | KDE Plasma | Works out of the box |
 | GNOME | Requires the [AppIndicator and KStatusNotifierItem Support](https://extensions.gnome.org/extension/615/appindicator-support/) extension |
 | Sway / Hyprland with waybar | Works with `"tray"` module in waybar config |
-| i3 with i3bar | Requires [snixembed](https://git.sr.ht/~yerlan/snixembed) to bridge SNI → XEmbed |
+| i3 with i3bar | Requires [snixembed](https://git.sr.ht/~yerlan/snixembed) to bridge SNI to XEmbed |
 | XFCE / LXQt | Works out of the box |
 
 ---
@@ -89,5 +89,5 @@ sudo dnf install libayatana-appindicator-gtk3
 For headless / CI builds without the tray:
 
 ```bash
-make build-nogui   # produces ./build/lerd-nogui — lerd tray returns an error
+make build-nogui   # produces ./build/lerd-nogui (lerd tray returns an error)
 ```

@@ -1,6 +1,6 @@
 # AI Integration (MCP)
 
-Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, letting AI assistants (Claude Code, Cursor, JetBrains Junie, and any other MCP-compatible tool) manage your dev environment directly — run migrations, start services, toggle queue workers, and inspect logs without leaving the chat.
+Lerd ships a [Model Context Protocol](https://modelcontextprotocol.io/) server, letting AI assistants (Claude Code, Cursor, JetBrains Junie, and any other MCP-compatible tool) manage your dev environment directly: run migrations, start services, toggle queue workers, and inspect logs without leaving the chat.
 
 ---
 
@@ -16,9 +16,9 @@ Run once after installing lerd:
 lerd mcp:enable-global
 ```
 
-This registers the lerd MCP server at **user scope** — available in every Claude Code session, regardless of which directory you open. It also updates Cursor, Windsurf, and JetBrains Junie global configs.
+This registers the lerd MCP server at **user scope**, available in every Claude Code session, regardless of which directory you open. It also updates Cursor, Windsurf, and JetBrains Junie global configs.
 
-When running globally, the server uses the **directory Claude is opened in** as the site context. No further configuration is needed — just open your AI assistant in a project directory and lerd tools work immediately.
+When running globally, the server uses the **directory Claude is opened in** as the site context. No further configuration is needed: just open your AI assistant in a project directory and lerd tools work immediately.
 
 > **During `lerd install`:** If Claude Code is detected, you'll be prompted to run this automatically.
 
@@ -45,7 +45,7 @@ This writes seven files into the project directory:
 
 The config includes a `LERD_SITE_PATH` environment variable pointing to the project root, which takes precedence over the cwd fallback.
 
-The command **merges** into existing configs — other MCP servers (e.g. `laravel-boost`, `herd`) are left untouched. Re-running it is safe.
+The command **merges** into existing configs; other MCP servers (e.g. `laravel-boost`, `herd`) are left untouched. Re-running it is safe.
 
 To target a different directory:
 
@@ -59,7 +59,7 @@ Tools like `artisan`, `composer`, `env_setup`, `env_check`, `db_export`, `db_imp
 
 1. Explicit `path` argument (highest priority)
 2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
-3. Current working directory — the directory Claude was opened in (global sessions)
+3. Current working directory, the directory Claude was opened in (global sessions)
 
 ---
 
@@ -73,20 +73,20 @@ Once the MCP server is connected, your AI assistant has access to:
 | `runtime_versions` | List installed PHP and Node.js versions with configured defaults |
 | `php_list` | List all PHP versions installed by lerd, marking the global default |
 | `php_ext_list` | List custom PHP extensions configured for a PHP version |
-| `php_ext_add` | Add a custom PHP extension — rebuilds the FPM image and restarts the container |
-| `php_ext_remove` | Remove a custom PHP extension — rebuilds the FPM image and restarts the container |
-| `artisan` | Run `php artisan` in the PHP-FPM container — migrations, generators, seeders, cache, tinker (Laravel only) |
-| `console` | Run the framework's console command (e.g. `php bin/console` for Symfony) — shown for non-Laravel frameworks that define a `console` field |
-| `composer` | Run `composer` in the PHP-FPM container — install, require, dump-autoload, etc. |
+| `php_ext_add` | Add a custom PHP extension (rebuilds the FPM image and restarts the container) |
+| `php_ext_remove` | Remove a custom PHP extension (rebuilds the FPM image and restarts the container) |
+| `artisan` | Run `php artisan` in the PHP-FPM container: migrations, generators, seeders, cache, tinker (Laravel only) |
+| `console` | Run the framework's console command (e.g. `php bin/console` for Symfony); shown for non-Laravel frameworks that define a `console` field |
+| `composer` | Run `composer` in the PHP-FPM container: install, require, dump-autoload, etc. |
 | `node_install` | Install a Node.js version via fnm (e.g. `"20"`, `"lts"`) |
 | `node_uninstall` | Uninstall a Node.js version via fnm |
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
 | `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys (returns structured JSON) |
-| `site_link` | Register a directory as a lerd site — generates nginx vhost and `.test` domain |
+| `site_link` | Register a directory as a lerd site; generates nginx vhost and `.test` domain |
 | `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |
 | `site_domain_add` | Add an additional domain to a site (without TLD) |
 | `site_domain_remove` | Remove a domain from a site (cannot remove last) |
-| `park` | Register a parent directory — scans subdirectories and auto-registers any PHP projects as sites |
+| `park` | Register a parent directory; scans subdirectories and auto-registers any PHP projects as sites |
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |
 | `unsecure` | Disable HTTPS for a site |
@@ -95,7 +95,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `xdebug_status` | Show Xdebug enabled/disabled state for all PHP versions |
 | `service_start` | Start a built-in or custom service; if the service has `depends_on`, dependencies start first and dependent services start after |
 | `service_stop` | Stop a built-in or custom service; cascade-stops any custom services that depend on it first |
-| `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, …); supports `depends_on` for service dependencies |
+| `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, etc.); supports `depends_on` for service dependencies |
 | `service_remove` | Stop and deregister a custom service |
 | `service_expose` | Add or remove an extra published port on a built-in service (persisted, auto-restarts if running) |
 | `service_env` | Return the recommended `.env` connection variables for a built-in or custom service |
@@ -116,8 +116,8 @@ Once the MCP server is connected, your AI assistant has access to:
 | `framework_list` | List all framework definitions including their workers |
 | `framework_add` | Add or update a framework definition; use `name: "laravel"` to add custom workers to Laravel |
 | `framework_remove` | Remove a user-defined framework; for `laravel` removes only custom worker additions |
-| `site_php` | Change the PHP version for a registered site — writes `.php-version`, updates registry, regenerates nginx vhost |
-| `site_node` | Change the Node.js version for a registered site — writes `.node-version`, installs via fnm if needed |
+| `site_php` | Change the PHP version for a registered site: writes `.php-version`, updates registry, regenerates nginx vhost |
+| `site_node` | Change the Node.js version for a registered site: writes `.node-version`, installs via fnm if needed |
 | `site_pause` | Pause a site: stop workers and custom container, replace vhost with landing page |
 | `site_unpause` | Resume a paused site: start container, restore vhost, restart workers |
 | `site_restart` | Restart a site's container (custom container or PHP-FPM) |
@@ -125,17 +125,17 @@ Once the MCP server is connected, your AI assistant has access to:
 | `service_unpin` | Unpin a service so it can be auto-stopped when unused |
 | `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |
 | `stripe_listen_stop` | Stop the Stripe webhook listener |
-| `logs` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
-| `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher — use when a site isn't loading |
-| `doctor` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates — use when the user reports setup issues |
+| `logs` | Fetch container logs; defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
+| `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher; use when a site isn't loading |
+| `doctor` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates; use when the user reports setup issues |
 | `which` | Show the resolved PHP version, Node version, document root, and nginx config for the current site |
-| `check` | Validate `.lerd.yaml` as structured JSON: PHP version, services, framework — returns valid/errors/warnings with per-field status |
+| `check` | Validate `.lerd.yaml` as structured JSON (PHP version, services, framework); returns valid/errors/warnings with per-field status |
 
 ---
 
 ## Example interactions
 
-The `path` argument is omitted from most calls — the server resolves it from the directory Claude was opened in (global sessions) or from `LERD_SITE_PATH` (project-scoped sessions).
+The `path` argument is omitted from most calls; the server resolves it from the directory Claude was opened in (global sessions) or from `LERD_SITE_PATH` (project-scoped sessions).
 
 ```
 You: create a new Laravel project and get it running
@@ -169,7 +169,7 @@ AI:  → service_add(name: "phpmyadmin", image: "docker.io/phpmyadmin:latest", p
 
 You: what PHP and Node versions are installed?
 AI:  → runtime_versions()
-     { "php": { "installed": ["8.3", "8.4"], "default_version": "8.4" },
+     { "php": { "installed": ["8.4", "8.5"], "default_version": "8.5" },
        "node": { "installed": ["v20.11.0", "v18.20.4"], "default_version": "20" } }
 
 You: set up the project I just cloned
@@ -182,10 +182,10 @@ AI:  → site_link()
 
 You: enable xdebug so I can step through a failing job
 AI:  → xdebug_status()
-     → xdebug_on(version: "8.4")
-     ✓  Xdebug enabled for PHP 8.4 (port 9003)
+     → xdebug_on(version: "8.5")
+     ✓  Xdebug enabled for PHP 8.5 (port 9003)
 
-You: the app is throwing 500s — check the logs
-AI:  → logs(target: "8.4", lines: 50)
+You: the app is throwing 500s, check the logs
+AI:  → logs(target: "8.5", lines: 50)
      PHP Fatal error: Class "App\Jobs\ProcessOrder" not found ...
 ```

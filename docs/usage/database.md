@@ -1,6 +1,6 @@
 # Database
 
-Database commands work with any project type — Laravel, Symfony, NestJS, Next.js, or any other framework. lerd automatically detects which database service to use through a resolution chain described below.
+Database commands work with any project type: Laravel, Symfony, NestJS, Next.js, or any other framework. lerd automatically detects which database service to use through a resolution chain described below.
 
 ## Commands
 
@@ -29,11 +29,11 @@ Database commands work with any project type — Laravel, Symfony, NestJS, Next.
 
 Every db command resolves which service to target and which database to use through the following chain (first match wins):
 
-1. **`--service` flag** — explicit override, e.g. `lerd db:shell --service postgres`
-2. **`.lerd.yaml` `db:` block** — declared in the project root, works even on unlinked sites
-3. **Framework definition** — lerd detects the framework and uses its service detection rules against the framework's env file (e.g. `.env.local` for Symfony)
-4. **`.env` key inference** — reads `DB_CONNECTION`, `DB_TYPE`, `TYPEORM_CONNECTION`, `DATABASE_URL`, or `DB_PORT` from `.env`
-5. **Error** — with instructions listing all options above
+1. **`--service` flag**: explicit override, e.g. `lerd db:shell --service postgres`
+2. **`.lerd.yaml` `db:` block**: declared in the project root, works even on unlinked sites
+3. **Framework definition**: lerd detects the framework and uses its service detection rules against the framework's env file (e.g. `.env.local` for Symfony)
+4. **`.env` key inference**: reads `DB_CONNECTION`, `DB_TYPE`, `TYPEORM_CONNECTION`, `DATABASE_URL`, or `DB_PORT` from `.env`
+5. **Error**: with instructions listing all options above
 
 The `--database` flag overrides the database name at any resolution level.
 
@@ -53,11 +53,11 @@ When falling back to `.env` inference, lerd checks the following keys in order t
 
 | Key | Frameworks |
 |---|---|
-| `DB_CONNECTION` | Laravel (`mysql`, `pgsql`, …) |
-| `DB_TYPE` | TypeORM / NestJS (`postgres`, `mysql`, …) |
+| `DB_CONNECTION` | Laravel (`mysql`, `pgsql`, etc.) |
+| `DB_TYPE` | TypeORM / NestJS (`postgres`, `mysql`, etc.) |
 | `TYPEORM_CONNECTION` | TypeORM CLI |
-| `DATABASE_URL` | Prisma, Drizzle, Symfony, Next.js (`postgresql://…`, `mysql://…`) |
-| `DB_PORT` | Last resort — `5432` → postgres, `3306`/`3307` → mysql |
+| `DATABASE_URL` | Prisma, Drizzle, Symfony, Next.js (`postgresql://...`, `mysql://...`) |
+| `DB_PORT` | Last resort: `5432` for postgres, `3306`/`3307` for mysql |
 
 The database name is resolved from `DB_DATABASE`, `TYPEORM_DATABASE`, or the path component of `DATABASE_URL` (Prisma's `?schema=public` suffix is stripped automatically).
 
@@ -81,7 +81,7 @@ The database for a Laravel project is configured through `.lerd.yaml` and applie
 
 | Choice | Service | `.env` keys written |
 |---|---|---|
-| `sqlite` | none — local file | `DB_CONNECTION=sqlite`, `DB_DATABASE=database/database.sqlite` |
+| `sqlite` | none (local file) | `DB_CONNECTION=sqlite`, `DB_DATABASE=database/database.sqlite` |
 | `mysql` | `lerd-mysql` (Podman) | `DB_CONNECTION=mysql`, `DB_HOST=lerd-mysql`, `DB_PORT=3306`, `DB_DATABASE=<project>`, `DB_USERNAME=root`, `DB_PASSWORD=lerd` |
 | `postgres` | `lerd-postgres` (Podman) | `DB_CONNECTION=pgsql`, `DB_HOST=lerd-postgres`, `DB_PORT=5432`, `DB_DATABASE=<project>`, `DB_USERNAME=postgres`, `DB_PASSWORD=lerd` |
 
@@ -98,13 +98,13 @@ You can change the choice at any time by editing the `services:` list in `.lerd.
 For projects without a lerd framework definition (NestJS, Next.js, Go, etc.), db commands work without any lerd-specific configuration if the project's `.env` uses a recognised key:
 
 ```bash
-# NestJS / TypeORM — DB_TYPE is sufficient
+# NestJS / TypeORM, DB_TYPE is sufficient
 lerd db:shell
 
-# Next.js / Prisma — DATABASE_URL is sufficient
+# Next.js / Prisma, DATABASE_URL is sufficient
 lerd db:shell
 
-# No .env at all — use --service
+# No .env at all, use --service
 lerd db:shell --service postgres --database myapp
 
 # Or declare it once in .lerd.yaml

@@ -7,7 +7,7 @@ You've already run `lerd install` once on this machine. If not, see [Installatio
 :::
 
 ::: tip Drive it from your AI assistant
-Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool — `project_new`, `site_link`, `env_setup`, `db_create`, `secure`, `worker_start`, etc. See [AI Integration](../features/mcp.md).
+Run `lerd mcp:enable-global` once and your AI assistant (Claude Code, Junie, Windsurf) can call every command below as an MCP tool: `project_new`, `site_link`, `env_setup`, `db_create`, `secure`, `worker_start`, etc. See [AI Integration](../features/mcp.md).
 :::
 
 ---
@@ -137,7 +137,7 @@ lerd init
 ```
 
 ```
-? PHP version: 8.4
+? PHP version: 8.5
 ? Node version (leave blank to skip): 22
 ? Enable HTTPS? Yes
 ? Database: mysql
@@ -169,7 +169,7 @@ lerd setup
   ◉ lerd open
 ```
 
-The "Run migrations", "Clear cache", and "Load fixtures" steps come from the `setup:` block in your `symfony.yaml`. Lerd surfaces them automatically and respects the `check:` rules — fixtures only appears if `doctrine/doctrine-fixtures-bundle` is installed.
+The "Run migrations", "Clear cache", and "Load fixtures" steps come from the `setup:` block in your `symfony.yaml`. Lerd surfaces them automatically and respects the `check:` rules; fixtures only appears if `doctrine/doctrine-fixtures-bundle` is installed.
 
 When it finishes, `https://myapp.test` opens in your browser and `lerd-messenger-myapp` is running as a systemd user service.
 
@@ -186,7 +186,7 @@ lerd status
 journalctl --user -u lerd-messenger-myapp -f
 ```
 
-App logs (anything in `var/log/*.log`) show up in the [Web UI](../features/web-ui.md) **App Logs** tab — add a `logs:` block to `symfony.yaml` to customise paths or parsing.
+App logs (anything in `var/log/*.log`) show up in the [Web UI](../features/web-ui.md) **App Logs** tab; add a `logs:` block to `symfony.yaml` to customise paths or parsing.
 
 ---
 
@@ -206,8 +206,8 @@ App logs (anything in `var/log/*.log`) show up in the [Web UI](../features/web-u
 
 ## Next steps
 
-- [Frameworks & Workers](../usage/frameworks.md) — add custom workers, customise log paths, define more setup steps
-- [Database](../usage/database.md) — `lerd db:import`, `lerd db:shell`, switching to Postgres
-- [Services](../usage/services.md) — start Meilisearch, RustFS (S3), custom services
-- [HTTPS](../features/https.md) — how `lerd secure` works under the hood
-- [AI Integration (MCP)](../features/mcp.md) — drive lerd from Claude Code, Cursor, Junie, etc.
+- [Frameworks & Workers](../usage/frameworks.md): add custom workers, customise log paths, define more setup steps
+- [Database](../usage/database.md): `lerd db:import`, `lerd db:shell`, switching to Postgres
+- [Services](../usage/services.md): start Meilisearch, RustFS (S3), custom services
+- [HTTPS](../features/https.md): how `lerd secure` works under the hood
+- [AI Integration (MCP)](../features/mcp.md): drive lerd from Claude Code, Cursor, Junie, etc.
