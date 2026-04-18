@@ -180,6 +180,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	}
 	tplCtx := siteTemplateCtx{
 		site:   dbName,
+		bucket: s3BucketName(dbName),
 		domain: site.PrimaryDomain(),
 		scheme: scheme,
 	}
@@ -262,9 +263,11 @@ func runEnv(_ *cobra.Command, _ []string) error {
 				continue
 			}
 			if svc == "rustfs" {
-				// Honour existing AWS_BUCKET from .env; fall back to project slug.
-				bucketName := strings.TrimSpace(envMap["AWS_BUCKET"])
-				if bucketName == "" || bucketName == "lerd" {
+				// Always sanitise through s3BucketName: rustfs/S3 reject underscores,
+				// uppercase, etc. A historical invalid value in .env (from an older
+				// lerd, a Sail import, or manual edit) gets auto-healed on this run.
+				bucketName := s3BucketName(envMap["AWS_BUCKET"])
+				if bucketName == "lerd" {
 					bucketName = s3BucketName(dbName)
 				}
 				updates["AWS_BUCKET"] = bucketName
@@ -350,11 +353,11 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			}
 
 			if svc == "rustfs" {
-				// Honour an existing AWS_BUCKET in .env (set manually or by a
-				// previous lerd env run) so we create/target the right bucket.
-				// Fall back to deriving the name from the project slug.
-				bucketName := strings.TrimSpace(envMap["AWS_BUCKET"])
-				if bucketName == "" || bucketName == "lerd" {
+				// Always sanitise through s3BucketName: rustfs/S3 reject underscores,
+				// uppercase, etc. A historical invalid value in .env (from an older
+				// lerd, a Sail import, or manual edit) gets auto-healed on this run.
+				bucketName := s3BucketName(envMap["AWS_BUCKET"])
+				if bucketName == "lerd" {
 					bucketName = s3BucketName(dbName)
 				}
 				updates["AWS_BUCKET"] = bucketName
@@ -855,16 +858,20 @@ func artisanIn(dir string, args ...string) error {
 // siteTemplateCtx holds the values available to {{…}} placeholders in
 // framework env var templates.
 type siteTemplateCtx struct {
-	site   string // database / handle name
+	site   string // database / handle name (underscored)
+	bucket string // S3-safe bucket name (lowercase, hyphens)
 	domain string // primary domain (e.g. myapp.test)
 	scheme string // "http" or "https"
 }
 
-// applySiteHandle replaces {{site}}, {{site_testing}}, {{domain}}, {{scheme}},
-// and service version placeholders (e.g. {{mysql_version}}, {{postgres_version}}) in s.
+// applySiteHandle replaces {{site}}, {{site_testing}}, {{bucket}}, {{domain}},
+// {{scheme}}, and service version placeholders (e.g. {{mysql_version}}) in s.
 func applySiteHandle(s string, ctx siteTemplateCtx) string {
 	s = strings.ReplaceAll(s, "{{site}}", ctx.site)
 	s = strings.ReplaceAll(s, "{{site_testing}}", ctx.site+"_testing")
+	if ctx.bucket != "" {
+		s = strings.ReplaceAll(s, "{{bucket}}", ctx.bucket)
+	}
 	if ctx.domain != "" {
 		s = strings.ReplaceAll(s, "{{domain}}", ctx.domain)
 	}
