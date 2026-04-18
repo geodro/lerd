@@ -805,8 +805,12 @@ func autoStopUnusedServices() {
 	for _, name := range candidates {
 		if config.CountSitesUsingService(name) == 0 && !config.ServiceIsManuallyStarted(name) && !config.ServiceIsPinned(name) {
 			unit := "lerd-" + name
-			status, _ := podman.UnitStatus(unit)
-			if status == "active" || status == "activating" {
+			running, _ := podman.ContainerRunning(unit)
+			if !running {
+				status, _ := podman.UnitStatus(unit)
+				running = status == "active" || status == "activating"
+			}
+			if running {
 				StopServiceAndDependents(name)
 			}
 		}
