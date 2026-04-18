@@ -220,6 +220,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/watcher/start", withCORS(handleWatcherStart))
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
+	mux.HandleFunc("/api/settings/worker-mode", withCORS(handleSettingsWorkerMode))
 	mux.HandleFunc("/api/xdebug/", withCORS(publishAfter(handleXdebugAction, eventbus.KindStatus)))
 	mux.HandleFunc("/api/lerd/start", withCORS(handleLerdStart))
 	mux.HandleFunc("/api/lerd/stop", withCORS(handleLerdStop))
@@ -2238,13 +2239,51 @@ func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
 
 // SettingsResponse is the response for GET /api/settings.
 type SettingsResponse struct {
-	AutostartOnLogin bool `json:"autostart_on_login"`
+	AutostartOnLogin  bool   `json:"autostart_on_login"`
+	WorkerExecMode    string `json:"worker_exec_mode"`
+	WorkerModeApplies bool   `json:"worker_mode_applies"` // true on macOS only
 }
 
 func handleSettings(w http.ResponseWriter, _ *http.Request) {
+	cfg, _ := config.LoadGlobal()
+	mode := config.WorkerExecModeExec
+	if cfg != nil {
+		mode = cfg.WorkerExecMode()
+	}
 	writeJSON(w, SettingsResponse{
-		AutostartOnLogin: lerdSystemd.IsAutostartEnabled(),
+		AutostartOnLogin:  lerdSystemd.IsAutostartEnabled(),
+		WorkerExecMode:    mode,
+		WorkerModeApplies: runtime.GOOS == "darwin",
 	})
+}
+
+func handleSettingsWorkerMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Mode != config.WorkerExecModeExec && body.Mode != config.WorkerExecModeContainer {
+		writeJSON(w, map[string]any{"ok": false, "error": "unknown mode"})
+		return
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	cfg.Workers.ExecMode = body.Mode
+	if err := config.SaveGlobal(cfg); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "worker_exec_mode": body.Mode})
 }
 
 func handleSettingsAutostart(w http.ResponseWriter, r *http.Request) {

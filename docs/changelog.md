@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Worker runtime mode on macOS** (`lerd workers mode <exec|container>`). macOS now runs framework workers (queue, schedule, horizon, reverb, custom) via a pid-file-guarded `podman exec` into the shared FPM container by default (`exec` mode), matching the memory profile of the Linux systemd path. Each worker adds near-zero RAM compared to the previous per-worker-container model, which could push a site's queue + schedule + horizon + reverb footprint past a gigabyte before any actual work. Users who prefer the previous 1:1 supervisor boundary can opt back in with `lerd workers mode container`. Setting is also surfaced in the TUI settings overlay (`S`) and via `GET/POST /api/settings/worker-mode` in `lerd-ui`. The dedup guard prevents duplicate workers when the podman-machine SSH bridge hiccups: if a previous `podman exec` is still alive, launchd's relaunch exits cleanly and waits for the real process to exit. Docs: [/usage/worker-runtime](/usage/worker-runtime). No change on Linux, which always uses the exec path under systemd.
+
+---
+
 ## [1.16.0] — 2026-04-17
 
 ### Added

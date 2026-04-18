@@ -234,3 +234,47 @@ func TestMigrateStaleServiceImages_KeepsCustom(t *testing.T) {
 		t.Errorf("custom postgres image was overwritten: got %q", got)
 	}
 }
+
+// ── Workers.ExecMode ──────────────────────────────────────────────────────────
+
+func TestWorkerExecMode_Defaults(t *testing.T) {
+	cfg := defaultConfig()
+	if got := cfg.WorkerExecMode(); got != WorkerExecModeExec {
+		t.Errorf("default WorkerExecMode: got %q, want %q", got, WorkerExecModeExec)
+	}
+}
+
+func TestWorkerExecMode_RespectsContainer(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Workers.ExecMode = WorkerExecModeContainer
+	if got := cfg.WorkerExecMode(); got != WorkerExecModeContainer {
+		t.Errorf("container override not respected: got %q", got)
+	}
+}
+
+func TestWorkerExecMode_NormalizesUnknownValue(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Workers.ExecMode = "garbage"
+	if got := cfg.WorkerExecMode(); got != WorkerExecModeExec {
+		t.Errorf("unknown value should normalize to exec, got %q", got)
+	}
+}
+
+func TestWorkerExecMode_RoundTripsThroughYAML(t *testing.T) {
+	setConfigDir(t)
+	cfg, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	cfg.Workers.ExecMode = WorkerExecModeContainer
+	if err := SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal: %v", err)
+	}
+	reloaded, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.WorkerExecMode(); got != WorkerExecModeContainer {
+		t.Errorf("after round trip: got %q, want %q", got, WorkerExecModeContainer)
+	}
+}

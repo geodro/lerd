@@ -78,8 +78,43 @@ type GlobalConfig struct {
 		Username     string `yaml:"username,omitempty" mapstructure:"username"`
 		PasswordHash string `yaml:"password_hash,omitempty" mapstructure:"password_hash"`
 	} `yaml:"ui,omitempty" mapstructure:"ui"`
+	Workers struct {
+		// ExecMode controls how framework workers (queue, schedule, horizon,
+		// reverb, custom) are launched on macOS. "exec" (default) wraps a
+		// single `podman exec` per worker in a dedup guard and lets launchd
+		// supervise that process, matching Linux's lower-memory behaviour.
+		// "container" runs each worker as its own detached container, which
+		// costs more memory per worker but makes the podman supervisor
+		// boundary 1:1 and sidesteps the SSH-bridge hiccups that can
+		// otherwise produce phantom or duplicate workers.
+		//
+		// The field is ignored on Linux, which always runs workers as
+		// `podman exec` into the shared FPM container (systemd is a
+		// dependable supervisor there). Use WorkerExecMode() to read the
+		// effective value.
+		ExecMode string `yaml:"exec_mode,omitempty" mapstructure:"exec_mode"`
+	} `yaml:"workers,omitempty" mapstructure:"workers"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
+}
+
+// Worker exec-mode constants. `exec` is the default on every platform;
+// `container` is available as an opt-in on macOS for users who prefer the
+// reliability of per-worker containers over the memory savings of
+// podman-exec into the shared FPM container.
+const (
+	WorkerExecModeExec      = "exec"
+	WorkerExecModeContainer = "container"
+)
+
+// WorkerExecMode returns the effective worker exec mode for the current
+// platform. Invalid or empty configured values normalise to "exec".
+func (c *GlobalConfig) WorkerExecMode() string {
+	switch c.Workers.ExecMode {
+	case WorkerExecModeContainer:
+		return WorkerExecModeContainer
+	}
+	return WorkerExecModeExec
 }
 
 func defaultConfig() *GlobalConfig {

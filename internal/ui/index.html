@@ -323,6 +323,12 @@
           <span class="w-2 h-2 rounded-full shrink-0" :class="autostartEnabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
           <span class="font-medium">Autostart</span>
         </button>
+        <button x-show="workerModeApplies" @click="selectSystem('workermode')"
+          class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border"
+          :class="selectedSystem==='workermode' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="workerExecMode === 'container' ? 'bg-sky-500' : 'bg-emerald-500'"></span>
+          <span class="font-medium">Worker runtime</span>
+        </button>
         <button @click="selectSystem('lerd')"
           class="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border"
           :class="selectedSystem==='lerd' ? 'bg-lerd-red/10 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
@@ -506,6 +512,11 @@
           <button @click="selectSystem('autostart')" class="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border" :class="selectedSystem==='autostart' ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
             <span class="w-2 h-2 rounded-full shrink-0" :class="autostartEnabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
             <span class="font-medium flex-1">Autostart</span>
+            <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+          <button x-show="workerModeApplies" @click="selectSystem('workermode')" class="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border" :class="selectedSystem==='workermode' ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
+            <span class="w-2 h-2 rounded-full shrink-0" :class="workerExecMode === 'container' ? 'bg-sky-500' : 'bg-emerald-500'"></span>
+            <span class="font-medium flex-1">Worker runtime</span>
             <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </button>
           <button @click="selectSystem('lerd')" class="w-full flex items-center gap-2.5 px-4 py-3.5 text-sm text-left transition-colors border-t border-gray-100 dark:border-lerd-border" :class="selectedSystem==='lerd' ? 'bg-lerd-red/5 text-lerd-red' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'">
@@ -1941,6 +1952,65 @@
             </div>
           </template>
 
+          <!-- Worker runtime (macOS) -->
+          <template x-if="selectedSystem === 'workermode' && workerModeApplies">
+            <div class="flex-1 overflow-y-auto">
+              <div class="flex flex-wrap items-center justify-between gap-y-2 px-3 sm:px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+                <span class="font-semibold text-gray-900 dark:text-white text-base">Worker runtime</span>
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                  :class="workerExecMode === 'container' ? 'bg-sky-100 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400' : 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500'">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="workerExecMode === 'container' ? 'bg-sky-500' : 'bg-emerald-500'"></span>
+                  <span x-text="workerExecMode === 'container' ? 'Container mode' : 'Exec mode'"></span>
+                </span>
+              </div>
+              <div class="px-3 sm:px-5 py-4 space-y-4">
+                <div>
+                  <p class="text-sm text-gray-600 dark:text-gray-400">
+                    Controls how framework workers (queue, schedule, horizon, reverb, custom) are launched on macOS.
+                    The default is <span class="font-mono text-xs">exec</span> mode for lower memory.
+                  </p>
+                </div>
+
+                <label class="flex items-start gap-3 p-3 rounded border border-gray-200 dark:border-lerd-border cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors"
+                  :class="workerExecMode === 'exec' ? 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-500/[0.03]' : ''">
+                  <input type="radio" name="workermode" value="exec" :checked="workerExecMode === 'exec'"
+                    @change="setWorkerMode('exec')" :disabled="workerModeLoading"
+                    class="mt-1 h-4 w-4 text-lerd-red focus:ring-lerd-red">
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 dark:text-gray-200">Exec (recommended)</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      One <span class="font-mono">podman exec</span> per worker into the shared FPM container,
+                      supervised by launchd with a pid-file dedup guard. Near-zero memory overhead per worker.
+                      Matches the Linux profile.
+                    </p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-3 rounded border border-gray-200 dark:border-lerd-border cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors"
+                  :class="workerExecMode === 'container' ? 'border-sky-300 dark:border-sky-500/40 bg-sky-50/40 dark:bg-sky-500/[0.03]' : ''">
+                  <input type="radio" name="workermode" value="container" :checked="workerExecMode === 'container'"
+                    @change="setWorkerMode('container')" :disabled="workerModeLoading"
+                    class="mt-1 h-4 w-4 text-lerd-red focus:ring-lerd-red">
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 dark:text-gray-200">Container</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      One detached container per worker, spawned from the FPM image. Higher memory
+                      (especially for Horizon which supervises its own pool), but 1:1 supervisor
+                      boundary with podman's own restart policy.
+                    </p>
+                  </div>
+                </label>
+
+                <div class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-lerd-card/50 rounded px-3 py-2 border border-gray-200 dark:border-lerd-border">
+                  <span class="font-medium text-gray-700 dark:text-gray-300">Note:</span>
+                  Changing the mode stops every active worker in its old shape, cleans up the on-disk artifacts,
+                  and restarts it in the new shape. Other lerd services (FPM, nginx, DNS, built-in services)
+                  aren't touched.
+                </div>
+              </div>
+            </div>
+          </template>
+
         </div><!-- end system detail -->
 
       </div><!-- end detail content -->
@@ -2157,6 +2227,12 @@ function lerdApp() {
     nodeInstall: { version: '', installing: false, error: '', done: false },
     autostartEnabled: false,
     autostartLoading: false,
+    // Worker runtime mode (macOS only). Mirrors cfg.Workers.ExecMode on the
+    // backend: "exec" (default, lower memory) or "container". Hidden in
+    // the UI when workerModeApplies is false.
+    workerExecMode: 'exec',
+    workerModeApplies: false,
+    workerModeLoading: false,
     xdebugEnabled: {},
     xdebugMode: {},
     xdebugLoading: {},
@@ -4341,7 +4417,36 @@ function lerdApp() {
         const res = await fetch('/api/settings');
         const data = await res.json();
         this.autostartEnabled = data.autostart_on_login || false;
+        this.workerExecMode = data.worker_exec_mode || 'exec';
+        this.workerModeApplies = !!data.worker_mode_applies;
       } catch (_) {}
+    },
+
+    // setWorkerMode persists the user's worker-mode choice. The server
+    // only updates the setting; running workers keep their current shape
+    // until the user restarts them (a hint is shown in the UI). We
+    // optimistically flip the local state and roll back on server error
+    // so the radio doesn't linger on the wrong choice.
+    async setWorkerMode(mode) {
+      if (mode === this.workerExecMode) return;
+      const prev = this.workerExecMode;
+      this.workerExecMode = mode;
+      this.workerModeLoading = true;
+      try {
+        const res = await fetch('/api/settings/worker-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          this.workerExecMode = prev;
+        }
+      } catch (_) {
+        this.workerExecMode = prev;
+      } finally {
+        this.workerModeLoading = false;
+      }
     },
 
     async toggleXdebug(version) {
