@@ -503,6 +503,31 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	// stopped — `lerd update` running install via re-exec must not flip
 	// disabled units back on.
 	if autostartOn {
+		// Build/pull any images that are still missing — catches PHP FPM builds
+		// that failed earlier (e.g. transient network error) and ensures service
+		// images are available before containers are started.
+		ensureImages()
+
+		// Start installed PHP FPM containers whose images are now available.
+		if fpmVersions, _ := phpDet.ListInstalled(); len(fpmVersions) > 0 {
+			var fpmJobs []BuildJob
+			for _, v := range fpmVersions {
+				ver := v
+				short := strings.ReplaceAll(ver, ".", "")
+				if podman.RunSilent("image", "exists", "lerd-php"+short+"-fpm:local") != nil {
+					continue // image still missing, skip
+				}
+				unit := "lerd-php" + short + "-fpm"
+				fpmJobs = append(fpmJobs, BuildJob{
+					Label: "php" + short + "-fpm",
+					Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+				})
+			}
+			if len(fpmJobs) > 0 {
+				RunParallel(fpmJobs) //nolint:errcheck
+			}
+		}
+
 		startRestoredServices()
 	}
 

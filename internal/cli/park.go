@@ -292,16 +292,18 @@ func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
 	unitName := "lerd-php" + versionShort + "-fpm"
 
+	// Write the unit file first so the version is registered in lerd status even
+	// if the image build fails — lerd start will rebuild the image on the next run.
+	if err := podman.WriteFPMQuadlet(phpVersion); err != nil {
+		return err
+	}
+
 	if err := podman.BuildFPMImageTo(phpVersion, false, w); err != nil {
 		return fmt.Errorf("building FPM image for PHP %s: %w", phpVersion, err)
 	}
 	_ = podman.StoreFPMHash()
 
 	_ = podman.EnsureXdebugIni(phpVersion)
-
-	if err := podman.WriteFPMQuadlet(phpVersion); err != nil {
-		return err
-	}
 
 	return podman.StartUnit(unitName)
 }
