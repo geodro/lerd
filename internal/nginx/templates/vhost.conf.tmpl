@@ -30,10 +30,18 @@ server {
         fastcgi_buffers 16 16k;
         fastcgi_buffer_size 32k;
         include fastcgi_params;
-        fastcgi_param SERVER_NAME $host;
+        fastcgi_param HTTP_HOST $real_forwarded_host;
+        fastcgi_param SERVER_NAME $real_forwarded_host;
+        fastcgi_param HTTP_X_FORWARDED_HOST $real_forwarded_host;
+        fastcgi_param HTTP_X_FORWARDED_PROTO $real_forwarded_proto;
+        fastcgi_param HTTP_X_FORWARDED_PORT $server_port;
+        fastcgi_param HTTP_X_REAL_IP $remote_addr;
+        fastcgi_param HTTP_X_FORWARDED_FOR $remote_addr;
     }
 
     location ~ /\.ht {
         deny all;
     }
+
+    include /etc/nginx/custom.d/{{.Domain}}.conf*;
 }

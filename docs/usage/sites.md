@@ -335,3 +335,5 @@ Lerd automatically creates a subdomain for each `git worktree` checkout. See [Gi
 | `lerd share --serveo` | Force serveo.net (SSH, no signup) |
 
 A local reverse proxy rewrites the `Host` header to the site's domain so nginx routes to the correct vhost. Response `Location` headers and HTML/CSS/JS/JSON body references to the local domain are also rewritten to the public tunnel URL, so redirects and asset links work correctly in the browser.
+
+When the tunnel forwards an `X-Forwarded-Host` header (the public hostname the visitor actually typed), lerd's generated vhosts propagate it into `HTTP_HOST`, `SERVER_NAME`, and the `HTTP_X_FORWARDED_*` family, so PHP apps that build absolute URLs from `$_SERVER` or Laravel's `url()` helper return the public URL instead of the local `.test` one. See [Nginx Overrides](./nginx-overrides.md#forwarded-headers-and-tunneling) for the full mapping, and for how to drop per-site snippets under `~/.local/share/lerd/nginx/custom.d/` without losing them on the next `lerd update`.

@@ -574,6 +574,165 @@ func TestEnsureLerdVhost_linuxProxiesUnixSocket(t *testing.T) {
 	}
 }
 
+// ── Forwarded headers & custom.d include hook ────────────────────────────────
+
+func TestEnsureForwardedConf_writesMapBlocks(t *testing.T) {
+	confD := setupConfD(t)
+	if err := EnsureForwardedConf(); err != nil {
+		t.Fatalf("EnsureForwardedConf: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "_forwarded.conf"))
+	if !strings.Contains(content, "map $http_x_forwarded_host $real_forwarded_host") {
+		t.Errorf("expected real_forwarded_host map, got:\n%s", content)
+	}
+	if !strings.Contains(content, "map $http_x_forwarded_proto $real_forwarded_proto") {
+		t.Errorf("expected real_forwarded_proto map, got:\n%s", content)
+	}
+}
+
+func TestEnsureCustomD_createsDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := EnsureCustomD(); err != nil {
+		t.Fatalf("EnsureCustomD: %v", err)
+	}
+	customD := filepath.Join(tmp, "lerd", "nginx", "custom.d")
+	info, err := os.Stat(customD)
+	if err != nil {
+		t.Fatalf("expected custom.d dir at %s: %v", customD, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("expected %s to be a directory", customD)
+	}
+}
+
+func TestGenerateVhost_includesForwardedFastcgiParams(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "fwd", Domains: []string{"fwd.test"}, Path: "/srv/fwd"}
+	if err := GenerateVhost(site, "8.3"); err != nil {
+		t.Fatalf("GenerateVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "fwd.test.conf"))
+	wants := []string{
+		"fastcgi_param HTTP_HOST $real_forwarded_host",
+		"fastcgi_param SERVER_NAME $real_forwarded_host",
+		"fastcgi_param HTTP_X_FORWARDED_HOST $real_forwarded_host",
+		"fastcgi_param HTTP_X_FORWARDED_PROTO $real_forwarded_proto",
+		"fastcgi_param HTTP_X_FORWARDED_PORT $server_port",
+		"fastcgi_param HTTP_X_REAL_IP $remote_addr",
+		"fastcgi_param HTTP_X_FORWARDED_FOR $remote_addr",
+	}
+	for _, w := range wants {
+		if !strings.Contains(content, w) {
+			t.Errorf("vhost missing %q in:\n%s", w, content)
+		}
+	}
+}
+
+func TestGenerateSSLVhost_includesForwardedFastcgiParams(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "fwd", Domains: []string{"fwd.test"}, Path: "/srv/fwd"}
+	if err := GenerateSSLVhost(site, "8.3"); err != nil {
+		t.Fatalf("GenerateSSLVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "fwd.test-ssl.conf"))
+	if !strings.Contains(content, "fastcgi_param HTTP_X_FORWARDED_PROTO $real_forwarded_proto") {
+		t.Errorf("SSL vhost missing X-Forwarded-Proto fastcgi_param in:\n%s", content)
+	}
+	if !strings.Contains(content, "fastcgi_param HTTPS on") {
+		t.Errorf("SSL vhost must keep HTTPS flag in:\n%s", content)
+	}
+}
+
+func TestGenerateVhost_includesCustomDHook(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "fwd", Domains: []string{"fwd.test"}, Path: "/srv/fwd"}
+	if err := GenerateVhost(site, "8.3"); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "fwd.test.conf"))
+	if !strings.Contains(content, "include /etc/nginx/custom.d/fwd.test.conf*;") {
+		t.Errorf("expected custom.d include hook with trailing * for missing-file tolerance, got:\n%s", content)
+	}
+}
+
+func TestGenerateSSLVhost_includesCustomDHook(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "fwd", Domains: []string{"fwd.test"}, Path: "/srv/fwd"}
+	if err := GenerateSSLVhost(site, "8.3"); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "fwd.test-ssl.conf"))
+	if !strings.Contains(content, "include /etc/nginx/custom.d/fwd.test.conf*;") {
+		t.Errorf("expected custom.d include hook in SSL vhost, got:\n%s", content)
+	}
+}
+
+func TestGenerateCustomVhost_includesCustomDHookAndForwardedHost(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test.conf"))
+	if !strings.Contains(content, "proxy_set_header Host $real_forwarded_host") {
+		t.Errorf("custom vhost should forward Host via $real_forwarded_host, got:\n%s", content)
+	}
+	if !strings.Contains(content, "proxy_set_header X-Forwarded-Proto $real_forwarded_proto") {
+		t.Errorf("custom vhost missing forwarded-proto header, got:\n%s", content)
+	}
+	if !strings.Contains(content, "include /etc/nginx/custom.d/nestapp.test.conf*;") {
+		t.Errorf("custom vhost missing custom.d include, got:\n%s", content)
+	}
+}
+
+func TestGenerateCustomSSLVhost_includesCustomDHookAndForwardedHost(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "nestapp", Domains: []string{"nestapp.test"}, ContainerPort: 3000}
+	if err := GenerateCustomSSLVhost(site); err != nil {
+		t.Fatal(err)
+	}
+	content := readConf(t, filepath.Join(confD, "nestapp.test-ssl.conf"))
+	if !strings.Contains(content, "proxy_set_header Host $real_forwarded_host") {
+		t.Errorf("custom SSL vhost should forward Host via $real_forwarded_host, got:\n%s", content)
+	}
+	if !strings.Contains(content, "include /etc/nginx/custom.d/nestapp.test.conf*;") {
+		t.Errorf("custom SSL vhost missing custom.d include, got:\n%s", content)
+	}
+}
+
+func TestEnsureNginxConfig_writesForwardedAndCustomD(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := EnsureNginxConfig(); err != nil {
+		t.Fatalf("EnsureNginxConfig: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "lerd", "nginx", "conf.d", "_forwarded.conf")); err != nil {
+		t.Errorf("expected _forwarded.conf to be written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "lerd", "nginx", "custom.d")); err != nil {
+		t.Errorf("expected custom.d dir to be created: %v", err)
+	}
+}
+
+func TestEnsureForwardedConf_rewrittenOnEachCall(t *testing.T) {
+	confD := setupConfD(t)
+	if err := EnsureForwardedConf(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(confD, "_forwarded.conf")
+	if err := os.WriteFile(path, []byte("tampered"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureForwardedConf(); err != nil {
+		t.Fatalf("second EnsureForwardedConf: %v", err)
+	}
+	content := readConf(t, path)
+	if strings.Contains(content, "tampered") {
+		t.Errorf("_forwarded.conf must be rewritten on every ensure call so new variables reach existing installs, got:\n%s", content)
+	}
+}
+
 func TestEnsureLerdVhost_darwinProxiesHostContainersInternal(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS uses TCP via host.containers.internal because unix sockets don't traverse the podman-machine virtio-fs boundary as functional sockets")

@@ -49,6 +49,10 @@ cat ~/.local/share/lerd/nginx/conf.d/my-app.test.conf   # check generated vhost
 ```
 :::
 
+::: details My custom nginx directive disappeared after an update
+Don't edit `~/.local/share/lerd/nginx/conf.d/*.conf` directly. Lerd regenerates those files on `lerd link`, `lerd secure`, `lerd site rebuild`, and every `lerd install` (which `lerd update` re-execs). Drop your snippet in `~/.local/share/lerd/nginx/custom.d/{domain}.conf` instead — the generated vhost ends with an `include` for that file, and lerd never writes into `custom.d/`. See [Nginx Overrides](./usage/nginx-overrides.md) for examples.
+:::
+
 ::: details PHP-FPM container not running
 Check the systemd unit status and logs:
 

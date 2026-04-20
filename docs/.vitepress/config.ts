@@ -99,6 +99,7 @@ export default defineConfig({
             { text: 'PHP', link: '/usage/php' },
             { text: 'Node', link: '/usage/node' },
             { text: 'Custom Containers', link: '/usage/custom-containers' },
+            { text: 'Nginx Overrides', link: '/usage/nginx-overrides' },
           ],
         },
         {

@@ -51,7 +51,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	step("Creating directories")
 	dirs := []string{
 		config.ConfigDir(), config.DataDir(), config.BinDir(),
-		config.NginxDir(), config.NginxConfD(), config.CertsDir(),
+		config.NginxDir(), config.NginxConfD(), config.NginxCustomD(), config.CertsDir(),
 		filepath.Join(config.CertsDir(), "sites"),
 		config.DnsmasqDir(), config.QuadletDir(), config.SystemdUserDir(),
 		config.DataSubDir("mysql"), config.DataSubDir("redis"),

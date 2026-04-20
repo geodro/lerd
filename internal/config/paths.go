@@ -46,6 +46,13 @@ func NginxConfD() string {
 	return filepath.Join(NginxDir(), "conf.d")
 }
 
+// NginxCustomD holds user-authored nginx snippets included at the end of
+// each per-site server block. Lerd never writes here, so edits survive
+// vhost regeneration and `lerd update`.
+func NginxCustomD() string {
+	return filepath.Join(NginxDir(), "custom.d")
+}
+
 // CertsDir returns the certs directory.
 func CertsDir() string {
 	return filepath.Join(DataDir(), "certs")

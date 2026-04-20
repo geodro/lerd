@@ -231,6 +231,19 @@ func TestGenerateCustomQuadlet_StopTimeout(t *testing.T) {
 	}
 }
 
+func TestNginxQuadletMountsCustomD(t *testing.T) {
+	// Per-site override files under ~/.local/share/lerd/nginx/custom.d must
+	// be bind-mounted into the container; without this the include directive
+	// in the vhost templates resolves to nothing and user edits are silent.
+	content, err := GetQuadletTemplate("lerd-nginx.container")
+	if err != nil {
+		t.Fatalf("GetQuadletTemplate: %v", err)
+	}
+	if !strings.Contains(content, "%h/.local/share/lerd/nginx/custom.d:/etc/nginx/custom.d") {
+		t.Errorf("lerd-nginx.container missing custom.d volume mount:\n%s", content)
+	}
+}
+
 func TestSortPaths(t *testing.T) {
 	paths := []string{"/var/www/app", "/opt", "/var/www"}
 	sortPaths(paths)

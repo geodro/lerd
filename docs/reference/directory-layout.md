@@ -13,6 +13,7 @@
 ├── nginx/
 │   ├── nginx.conf
 │   ├── conf.d/                      # one .conf per site (auto-generated)
+│   ├── custom.d/                    # user overrides, preserved across updates
 │   └── logs/
 ├── certs/
 │   ├── ca/
