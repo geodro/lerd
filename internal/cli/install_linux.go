@@ -29,9 +29,13 @@ func downloadBinaries(w io.Writer) error {
 	// fnm
 	fnmPath := filepath.Join(binDir, "fnm")
 	if _, err := os.Stat(fnmPath); os.IsNotExist(err) {
-		fnmZip := filepath.Join(binDir, "fnm-linux.zip")
+		fnmAsset := "fnm-linux.zip"
+		if arch == "arm64" {
+			fnmAsset = "fnm-arm64.zip"
+		}
+		fnmZip := filepath.Join(binDir, fnmAsset)
 		if err := downloadFile(
-			"https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip",
+			"https://github.com/Schniz/fnm/releases/latest/download/"+fnmAsset,
 			fnmZip, 0644, w,
 		); err != nil {
 			return fmt.Errorf("fnm download: %w", err)
