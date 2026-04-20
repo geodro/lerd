@@ -263,9 +263,9 @@ var laravelFramework = &Framework{
 				Vars: []string{
 					"AWS_ACCESS_KEY_ID=lerd",
 					"AWS_SECRET_ACCESS_KEY=lerdpassword",
-					"AWS_BUCKET={{site}}",
+					"AWS_BUCKET={{bucket}}",
 					"AWS_ENDPOINT=http://lerd-rustfs:9000",
-					"AWS_URL=http://localhost:9000/{{site}}",
+					"AWS_URL=http://localhost:9000/{{bucket}}",
 					"AWS_USE_PATH_STYLE_ENDPOINT=true",
 				},
 			},

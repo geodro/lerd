@@ -98,6 +98,7 @@ env:
   # Template variables available in vars values:
   #   {{site}}              : project database / handle name (e.g. myapp)
   #   {{site_testing}}      : testing database name (e.g. myapp_testing)
+  #   {{bucket}}            : S3-safe bucket name (lowercase, hyphens; e.g. my-app)
   #   {{domain}}            : site's primary domain (e.g. myapp.test)
   #   {{scheme}}            : http or https depending on TLS status
   #   {{mysql_version}}     : running MySQL server version

@@ -157,6 +157,8 @@ func runUpdate(currentVersion string, beta bool) error {
 		return err
 	}
 
+	refreshGlobalMCPSkills()
+
 	// Offer MinIO → RustFS migration if legacy data directory exists and the
 	// minio container is still running (skip if already migrated to RustFS).
 	minioRunning, _ := podman.ContainerRunning("lerd-minio")
@@ -199,6 +201,44 @@ func runUpdate(currentVersion string, beta bool) error {
 
 	restartLerdUserServices()
 	return nil
+}
+
+// refreshGlobalMCPSkills re-writes the user-scope skill, rules, and guidelines
+// files when lerd MCP is registered globally, so the AI's description of
+// available tools stays aligned with the newly installed binary.
+func refreshGlobalMCPSkills() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	if !mcpEnabledGlobally(home) {
+		return
+	}
+	fmt.Println("\n==> Refreshing global MCP skills and guidelines")
+	if err := WriteGlobalAISkills(home, true); err != nil {
+		fmt.Fprintf(os.Stderr, "  warn: could not refresh global AI skills: %v\n", err)
+	}
+}
+
+// mcpEnabledGlobally reports whether the user opted into global MCP at some
+// point. Checks (a) Claude Code user-scope registration and (b) the lerd-owned
+// marker files written by mcp:enable-global. The marker check lets us detect
+// users who enabled globally without Claude Code (Cursor-only, Junie-only) and
+// users whose `claude` CLI is temporarily unavailable.
+func mcpEnabledGlobally(home string) bool {
+	if IsMCPGloballyRegistered() {
+		return true
+	}
+	markers := []string{
+		filepath.Join(home, ".claude", "skills", "lerd", "SKILL.md"),
+		filepath.Join(home, ".cursor", "rules", "lerd.mdc"),
+	}
+	for _, p := range markers {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // restartLerdUserServices restarts the long-running lerd user units so they

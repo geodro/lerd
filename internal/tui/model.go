@@ -68,6 +68,7 @@ type Model struct {
 	filterActive bool
 
 	detailCursor int // index into detail rows (workers + toggles)
+	detailScroll int // vertical scroll offset for the site detail view
 	settingsRow  int // index into settings rows
 	helpScroll   int // vertical scroll offset for the help view
 
@@ -86,6 +87,7 @@ type Model struct {
 	domainInputEditing string
 
 	showLogs     bool
+	logScroll    int // lines scrolled back from tail (0 = live tail)
 	hideServices bool
 	logTail      *logTail
 	logCursor    int // index into currentLogTargets() for the focused item
@@ -280,9 +282,18 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.actionShell()
 
 	case "v":
-		m.hideServices = !m.hideServices
-		if m.hideServices && m.focus == paneServices {
-			m.focus = paneSites
+		if m.width < narrowWidth {
+			// Narrow: v switches the top list between sites and services.
+			if m.focus == paneServices {
+				m.focus = paneSites
+			} else {
+				m.focus = paneServices
+			}
+		} else {
+			m.hideServices = !m.hideServices
+			if m.hideServices && m.focus == paneServices {
+				m.focus = paneSites
+			}
 		}
 		return m, nil
 
@@ -308,6 +319,21 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "]":
 		return m, m.cycleLogTarget(1)
+
+	case "{":
+		if m.showLogs {
+			m.logScroll += 10
+		}
+		return m, nil
+
+	case "}":
+		if m.showLogs {
+			m.logScroll -= 10
+			if m.logScroll < 0 {
+				m.logScroll = 0
+			}
+		}
+		return m, nil
 
 	case "s":
 		return m, m.actionStart()
@@ -516,12 +542,22 @@ func (m *Model) syncLogs() tea.Cmd {
 }
 
 // nextFocus returns the focus after moving `dir` steps (±1) through the
-// list of panes that are currently visible and usable. Skips services when
-// hidden and skips detail when no site is selected.
+// list of panes that are currently visible and usable. In narrow mode tab
+// cycles only between the active list pane and detail; use v to reach services.
 func (m *Model) nextFocus(dir int) focusPane {
-	panes := []focusPane{paneSites}
-	if !m.hideServices {
-		panes = append(panes, paneServices)
+	var panes []focusPane
+	if m.width < narrowWidth {
+		// In narrow mode, tab only moves between the current list pane and detail.
+		listPane := paneSites
+		if m.focus == paneServices {
+			listPane = paneServices
+		}
+		panes = []focusPane{listPane}
+	} else {
+		panes = []focusPane{paneSites}
+		if !m.hideServices {
+			panes = append(panes, paneServices)
+		}
 	}
 	if m.currentSite() != nil {
 		panes = append(panes, paneDetail)
@@ -610,6 +646,7 @@ func (m *Model) toggleLogs() tea.Cmd {
 	if m.showLogs {
 		m.logTail.Stop()
 		m.showLogs = false
+		m.logScroll = 0
 		return nil
 	}
 	targets := m.currentLogTargets()

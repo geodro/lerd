@@ -72,7 +72,7 @@ Additional UIs:
 
 RustFS is an S3-compatible object storage service (a drop-in replacement for MinIO). When `lerd env` detects it is needed (via `FILESYSTEM_DISK=s3` or `AWS_ENDPOINT` in `.env`), it automatically:
 
-1. Creates a bucket named after the site handle (e.g. `my_project`)
+1. Creates a bucket named after the site handle, sanitised to match the S3 naming rules (lowercase, digits, hyphens, dots only, max 63 chars). Underscores in the handle are rewritten as hyphens, so `admin_astrolov` becomes bucket `admin-astrolov`.
 2. Sets the bucket to **public access** (suitable for local development)
 3. Writes the correct `.env` values:
 
@@ -81,11 +81,13 @@ FILESYSTEM_DISK=s3
 AWS_ACCESS_KEY_ID=lerd
 AWS_SECRET_ACCESS_KEY=lerdpassword
 AWS_DEFAULT_REGION=us-east-1
-AWS_BUCKET=my_project
-AWS_URL=http://localhost:9000/my_project
+AWS_BUCKET=my-project
+AWS_URL=http://localhost:9000/my-project
 AWS_ENDPOINT=http://lerd-rustfs:9000
 AWS_USE_PATH_STYLE_ENDPOINT=true
 ```
+
+If a historical `AWS_BUCKET` value with underscores (or other S3-invalid characters) is present from an earlier lerd run or Sail import, `lerd env` will sanitise it in place on the next run.
 
 `AWS_URL` points to the public bucket URL (browser-reachable). `AWS_ENDPOINT` is the internal container address used by PHP.
 

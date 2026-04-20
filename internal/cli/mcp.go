@@ -154,10 +154,13 @@ The server uses the directory Claude is opened in as the site context —
 no LERD_SITE_PATH configuration needed.
 
 This command updates:
-  claude mcp add --scope user   Claude Code user-scope MCP registration
-  ~/.cursor/mcp.json            Cursor global MCP config
-  ~/.ai/mcp/mcp.json            Windsurf global MCP config
-  ~/.junie/mcp/mcp.json         JetBrains Junie global MCP config`,
+  claude mcp add --scope user      Claude Code user-scope MCP registration
+  ~/.cursor/mcp.json               Cursor global MCP config
+  ~/.ai/mcp/mcp.json               Windsurf global MCP config
+  ~/.junie/mcp/mcp.json            JetBrains Junie global MCP config
+  ~/.claude/skills/lerd/SKILL.md   Claude Code user-scope skill
+  ~/.cursor/rules/lerd.mdc         Cursor user-scope rules
+  ~/.junie/guidelines.md           JetBrains Junie user-scope guidelines`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return RunMCPEnableGlobal()
 		},
@@ -221,8 +224,50 @@ func RunMCPEnableGlobal() error {
 	}
 	fmt.Println("  updated ~/.junie/mcp/mcp.json")
 
+	if err := WriteGlobalAISkills(home, true); err != nil {
+		return err
+	}
+
 	fmt.Println("\nDone! Restart your AI assistant for changes to take effect.")
 	fmt.Println("lerd will use the directory you open Claude in as the site context.")
+	return nil
+}
+
+// WriteGlobalAISkills writes the user-scope skill, rules, and guidelines files
+// used by Claude Code, Cursor, and JetBrains Junie. It is called both from
+// mcp:enable-global and from lerd update so the docs the AI reads stay aligned
+// with the currently installed binary's tool set. When verbose is true each
+// written path is printed to stdout.
+func WriteGlobalAISkills(home string, verbose bool) error {
+	skillPath := filepath.Join(home, ".claude", "skills", "lerd", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
+		return fmt.Errorf("creating ~/.claude/skills/lerd: %w", err)
+	}
+	if err := os.WriteFile(skillPath, []byte(claudeSkillContent), 0644); err != nil {
+		return fmt.Errorf("writing %s: %w", skillPath, err)
+	}
+	if verbose {
+		fmt.Println("  wrote   ~/.claude/skills/lerd/SKILL.md")
+	}
+
+	cursorRulesPath := filepath.Join(home, ".cursor", "rules", "lerd.mdc")
+	if err := os.MkdirAll(filepath.Dir(cursorRulesPath), 0755); err != nil {
+		return fmt.Errorf("creating ~/.cursor/rules: %w", err)
+	}
+	if err := os.WriteFile(cursorRulesPath, []byte(cursorRulesContent), 0644); err != nil {
+		return fmt.Errorf("writing %s: %w", cursorRulesPath, err)
+	}
+	if verbose {
+		fmt.Println("  wrote   ~/.cursor/rules/lerd.mdc")
+	}
+
+	guidelinesPath := filepath.Join(home, ".junie", "guidelines.md")
+	if err := mergeJunieGuidelines(guidelinesPath, junieGuidelinesSection); err != nil {
+		return fmt.Errorf("writing %s: %w", guidelinesPath, err)
+	}
+	if verbose {
+		fmt.Println("  updated ~/.junie/guidelines.md")
+	}
 	return nil
 }
 

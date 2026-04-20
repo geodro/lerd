@@ -251,12 +251,15 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 	style := paneStyle(focused)
 	innerW, innerH := innerSize(style, w, h)
 
+	contentW := innerW - 1 // reserve 1 cell for scrollbar
+
 	var content []string
+	cursorLine := 0
 	switch m.detailMode {
 	case detailSettings:
-		content = settingsContentLines(m, focused, innerW)
+		content = settingsContentLines(m, focused, contentW)
 	case detailHelp:
-		all := helpContentLines(m, innerW)
+		all := helpContentLines(m, contentW)
 		if m.helpScroll > len(all)-1 {
 			m.helpScroll = max(0, len(all)-1)
 		}
@@ -265,22 +268,27 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 		site := m.currentSite()
 		if site == nil {
 			content = []string{
-				padToWidth(sectionStyle.Render("Site detail"), innerW),
-				padToWidth(dimStyle.Render("no site selected"), innerW),
+				padToWidth(sectionStyle.Render("Site detail"), contentW),
+				padToWidth(dimStyle.Render("no site selected"), contentW),
 			}
 		} else {
-			content = detailContentLines(m, site, focused, innerW)
+			content, cursorLine = detailContentLines(m, site, focused, contentW)
 		}
 	}
 
-	for len(content) < innerH {
-		content = append(content, spaces(innerW))
-	}
-	if len(content) > innerH {
-		content = content[:innerH]
+	visible := viewport(content, cursorLine, innerH, &m.detailScroll)
+	bar := renderScrollbar(innerH, len(content), m.detailScroll, len(visible))
+
+	lines := make([]string, 0, innerH)
+	for i := 0; i < innerH; i++ {
+		row := spaces(contentW)
+		if i < len(visible) {
+			row = visible[i]
+		}
+		lines = append(lines, padToWidth(row, contentW)+bar[i])
 	}
 
-	return style.Render(strings.Join(content, "\n"))
+	return style.Render(strings.Join(lines, "\n"))
 }
 
 // settingsContentLines builds the settings rows for the right-hand pane when
@@ -307,7 +315,9 @@ func settingsContentLines(m *Model, focused bool, innerW int) []string {
 	return out
 }
 
-func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, innerW int) []string {
+// detailContentLines returns the rendered lines for the site detail pane and
+// the line index of the currently selected row (for viewport scrolling).
+func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, innerW int) ([]string, int) {
 	rows := detailRows(site)
 	nav := navigableRows(rows)
 	navPos := func(i int) int {
@@ -320,7 +330,14 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 	}
 
 	var out []string
-	add := func(s string) { out = append(out, padToWidth(clipLine(s, innerW), innerW)) }
+	cursorLine := 0
+	add := func(s string, selected bool) {
+		if selected && len(out) > 0 {
+			cursorLine = len(out)
+		}
+		out = append(out, padToWidth(clipLine(s, innerW), innerW))
+	}
+	addPlain := func(s string) { add(s, false) }
 
 	// Lead with the primary domain (what users see in the browser). The
 	// internal registry name is still surfaced as the "name:" line below,
@@ -329,12 +346,12 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 	if header == "" {
 		header = site.Name
 	}
-	add(sectionStyle.Render(header))
+	addPlain(sectionStyle.Render(header))
 	if site.Name != header {
-		add(dimStyle.Render("  name: ") + site.Name)
+		addPlain(dimStyle.Render("  name: ") + site.Name)
 	}
 	if site.Path != "" {
-		add(dimStyle.Render("  path: ") + site.Path)
+		addPlain(dimStyle.Render("  path: ") + site.Path)
 	}
 
 	scheme := "http"
@@ -342,10 +359,10 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		scheme = "https"
 	}
 
-	add("")
-	add(sectionStyle.Render("Domains"))
+	addPlain("")
+	addPlain(sectionStyle.Render("Domains"))
 	if len(site.Domains) == 0 {
-		add(dimStyle.Render("  (no domain)"))
+		addPlain(dimStyle.Render("  (no domain)"))
 	}
 	for i, row := range rows {
 		if row.kind != kindDomain {
@@ -354,7 +371,7 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		selected := focused && navPos(i) == m.detailCursor
 		domain := row.domain
 		label := scheme + "://" + domain
-		add(renderDetailRow(selected, accentStyle.Render("⊙"), label, dimStyle.Render(domainRole(site, domain))))
+		add(renderDetailRow(selected, accentStyle.Render("⊙"), label, dimStyle.Render(domainRole(site, domain))), selected)
 	}
 	for i, row := range rows {
 		if row.kind != kindDomainAdd {
@@ -370,12 +387,12 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 			if m.domainInputEditing != "" {
 				label = "rename " + m.domainInputEditing + " → "
 			}
-			add(prefix + " " + accentStyle.Render("+") + " " + selectedStyle.Render(label) + m.domainInput + "▌")
+			add(prefix+" "+accentStyle.Render("+")+" "+selectedStyle.Render(label)+m.domainInput+"▌", selected)
 		} else {
-			add(prefix + " " + accentStyle.Render("+") + " " + dimStyle.Render("add domain (space or a)"))
+			add(prefix+" "+accentStyle.Render("+")+" "+dimStyle.Render("add domain (space or a)"), selected)
 		}
 	}
-	add("")
+	addPlain("")
 
 	php := site.PHPVersion
 	if php == "" && site.ContainerPort > 0 {
@@ -391,15 +408,15 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 	if site.Branch != "" {
 		info += dimStyle.Render("  git: ") + site.Branch
 	}
-	add(info)
-	add("")
+	addPlain(info)
+	addPlain("")
 	if len(site.Services) > 0 {
-		add(sectionStyle.Render("Services used"))
+		addPlain(sectionStyle.Render("Services used"))
 		states := m.serviceStatesByName()
 		for _, svc := range site.Services {
-			add(renderSiteServiceRow(svc, states[svc]))
+			addPlain(renderSiteServiceRow(svc, states[svc]))
 		}
-		add("")
+		addPlain("")
 	}
 
 	hasWorkers := false
@@ -410,7 +427,7 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		}
 	}
 	if hasWorkers {
-		add(sectionStyle.Render("Workers"))
+		addPlain(sectionStyle.Render("Workers"))
 		for i, row := range rows {
 			if row.kind != kindWorker {
 				continue
@@ -419,13 +436,13 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 			add(renderDetailRow(selected,
 				workerGlyphFor(site, row.workerName),
 				workerLabel(site, row.workerName),
-				workerStateText(site, row.workerName)))
+				workerStateText(site, row.workerName)), selected)
 		}
-		add("")
+		addPlain("")
 	}
 
 	if len(site.Worktrees) > 0 {
-		add(sectionStyle.Render("Worktrees"))
+		addPlain(sectionStyle.Render("Worktrees"))
 		for _, wt := range site.Worktrees {
 			line := "  " + accentStyle.Render(wt.Branch)
 			if wt.Domain != "" {
@@ -434,40 +451,40 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 			if wt.Path != "" {
 				line += "  " + dimStyle.Render(wt.Path)
 			}
-			add(line)
+			addPlain(line)
 		}
-		add("")
+		addPlain("")
 	}
 
-	add(sectionStyle.Render("Toggles"))
+	addPlain(sectionStyle.Render("Toggles"))
 	for i, row := range rows {
 		selected := focused && navPos(i) == m.detailCursor
 		switch row.kind {
 		case kindPHP:
 			add(renderDetailRow(selected,
-				accentStyle.Render("λ"), "PHP", dimStyle.Render(site.PHPVersion)))
+				accentStyle.Render("λ"), "PHP", dimStyle.Render(site.PHPVersion)), selected)
 			if selected && m.pickerKind == kindPHP {
 				for _, pl := range m.renderPickerRows(site.PHPVersion) {
-					add(pl)
+					addPlain(pl)
 				}
 			}
 		case kindNode:
 			add(renderDetailRow(selected,
-				accentStyle.Render("⬢"), "Node", dimStyle.Render(site.NodeVersion)))
+				accentStyle.Render("⬢"), "Node", dimStyle.Render(site.NodeVersion)), selected)
 			if selected && m.pickerKind == kindNode {
 				for _, pl := range m.renderPickerRows(site.NodeVersion) {
-					add(pl)
+					addPlain(pl)
 				}
 			}
 		case kindHTTPS:
 			add(renderDetailRow(selected,
-				onOffGlyph(site.Secured), "HTTPS", onOffText(site.Secured)))
+				onOffGlyph(site.Secured), "HTTPS", onOffText(site.Secured)), selected)
 		case kindLANShare:
 			add(renderDetailRow(selected,
-				onOffGlyph(site.LANPort > 0), "LAN share", lanShareText(site.LANPort)))
+				onOffGlyph(site.LANPort > 0), "LAN share", lanShareText(site.LANPort)), selected)
 		}
 	}
-	return out
+	return out, cursorLine
 }
 
 // renderPickerRows draws the inline version picker below a PHP or Node row.

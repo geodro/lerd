@@ -16,11 +16,19 @@ Run once after installing lerd:
 lerd mcp:enable-global
 ```
 
-This registers the lerd MCP server at **user scope**, available in every Claude Code session, regardless of which directory you open. It also updates Cursor, Windsurf, and JetBrains Junie global configs.
+This registers the lerd MCP server at **user scope**, available in every Claude Code session, regardless of which directory you open. It also updates Cursor, Windsurf, and JetBrains Junie global configs, and writes user-scope skill, rules, and guidelines files so the assistant knows what lerd tools are available and how to use them:
+
+| File | Purpose |
+|---|---|
+| `~/.claude/skills/lerd/SKILL.md` | Claude Code user-scope skill |
+| `~/.cursor/rules/lerd.mdc` | Cursor user-scope rules |
+| `~/.junie/guidelines.md` | JetBrains Junie user-scope guidelines (merged, not overwritten) |
 
 When running globally, the server uses the **directory Claude is opened in** as the site context. No further configuration is needed: just open your AI assistant in a project directory and lerd tools work immediately.
 
 > **During `lerd install`:** If Claude Code is detected, you'll be prompted to run this automatically.
+
+> **During `lerd update`:** When MCP is globally registered, the skill, rules, and guidelines files are automatically rewritten from the newly installed binary so they stay in sync with any added or renamed tools.
 
 ### Project-scoped registration
 
