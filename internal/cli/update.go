@@ -158,6 +158,7 @@ func runUpdate(currentVersion string, beta bool) error {
 	}
 
 	refreshGlobalMCPSkills()
+	refreshProjectMCPSkills()
 
 	// Offer MinIO → RustFS migration if legacy data directory exists and the
 	// minio container is still running (skip if already migrated to RustFS).
@@ -218,6 +219,93 @@ func refreshGlobalMCPSkills() {
 	if err := WriteGlobalAISkills(home, true); err != nil {
 		fmt.Fprintf(os.Stderr, "  warn: could not refresh global AI skills: %v\n", err)
 	}
+}
+
+// refreshProjectMCPSkills re-writes per-project AI artefacts for every opted-in
+// project (registered site or park subdir with a lerd marker). Projects whose
+// content already matches stay untouched.
+func refreshProjectMCPSkills() {
+	paths := gatherProjectPaths()
+	if len(paths) == 0 {
+		return
+	}
+
+	opted := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if ProjectHasLerdSkills(p) {
+			opted = append(opted, p)
+		}
+	}
+	if len(opted) == 0 {
+		return
+	}
+
+	fmt.Printf("\n==> Refreshing project MCP skills (%d project%s)\n", len(opted), pluralS(len(opted)))
+	for _, p := range opted {
+		if err := WriteProjectAISkills(p, false); err != nil {
+			fmt.Fprintf(os.Stderr, "  warn: %s: %v\n", p, err)
+			continue
+		}
+		fmt.Printf("  refreshed %s\n", p)
+	}
+}
+
+// gatherProjectPaths lists registered sites plus immediate subdirs of parks.
+// The park scan covers projects that were injected but never registered as
+// lerd sites (e.g. non-PHP projects the user added by hand).
+func gatherProjectPaths() []string {
+	seen := make(map[string]struct{})
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return
+		}
+		seen[abs] = struct{}{}
+	}
+
+	if reg, err := config.LoadSites(); err == nil {
+		for _, s := range reg.Sites {
+			add(s.Path)
+		}
+	}
+
+	if cfg, err := config.LoadGlobal(); err == nil {
+		for _, park := range cfg.ParkedDirectories {
+			if park == "" {
+				continue
+			}
+			parkAbs, err := filepath.Abs(park)
+			if err != nil {
+				continue
+			}
+			entries, err := os.ReadDir(parkAbs)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+					continue
+				}
+				add(filepath.Join(parkAbs, e.Name()))
+			}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	return out
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // mcpEnabledGlobally reports whether the user opted into global MCP at some

@@ -61,6 +61,8 @@ To target a different directory:
 lerd mcp:inject --path ~/Lerd/another-app
 ```
 
+> **During `lerd update`:** Projects that previously ran `mcp:inject` are detected automatically (by the presence of `.claude/skills/lerd/SKILL.md`, `.cursor/rules/lerd.mdc`, or the lerd marker in `.junie/guidelines.md`) and their per-project artefacts are refreshed in place. Directories whose content already matches the new binary stay untouched, so git status stays clean. Projects that never opted in are skipped.
+
 ### Path resolution
 
 Tools like `artisan`, `composer`, `env_setup`, `env_check`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
@@ -80,29 +82,21 @@ Once the MCP server is connected, your AI assistant has access to:
 | `sites` | List all registered lerd sites (name, domain, path, PHP/Node version, framework, worker status) |
 | `runtime_versions` | List installed PHP and Node.js versions with configured defaults |
 | `php_list` | List all PHP versions installed by lerd, marking the global default |
-| `php_ext_list` | List custom PHP extensions configured for a PHP version |
-| `php_ext_add` | Add a custom PHP extension (rebuilds the FPM image and restarts the container) |
-| `php_ext_remove` | Remove a custom PHP extension (rebuilds the FPM image and restarts the container) |
+| `php_ext` | Manage custom PHP extensions for a PHP version — `action`: `list` / `add` / `remove` (`add` and `remove` rebuild the FPM image and restart the container) |
 | `artisan` | Run `php artisan` in the PHP-FPM container: migrations, generators, seeders, cache, tinker (Laravel only) |
 | `console` | Run the framework's console command (e.g. `php bin/console` for Symfony); shown for non-Laravel frameworks that define a `console` field |
 | `composer` | Run `composer` in the PHP-FPM container: install, require, dump-autoload, etc. |
-| `node_install` | Install a Node.js version via fnm (e.g. `"20"`, `"lts"`) |
-| `node_uninstall` | Uninstall a Node.js version via fnm |
+| `node` | Install or uninstall a Node.js version via fnm — `action`: `install` / `uninstall` (e.g. `"20"`, `"lts"`) |
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB, sets APP_KEY and APP_URL |
 | `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys (returns structured JSON) |
 | `site_link` | Register a directory as a lerd site; generates nginx vhost and `.test` domain |
 | `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |
-| `site_domain_add` | Add an additional domain to a site (without TLD) |
-| `site_domain_remove` | Remove a domain from a site (cannot remove last) |
+| `site_domain` | Add or remove a site domain (without TLD) — `action`: `add` / `remove`; cannot remove last |
 | `park` | Register a parent directory; scans subdirectories and auto-registers any PHP projects as sites |
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
-| `secure` | Enable HTTPS for a site using a locally-trusted mkcert certificate |
-| `unsecure` | Disable HTTPS for a site |
-| `xdebug_on` | Enable Xdebug for a PHP version and restart the FPM container. Optional `mode` (default `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage`) |
-| `xdebug_off` | Disable Xdebug for a PHP version |
-| `xdebug_status` | Show Xdebug enabled/disabled state and active `mode` for all PHP versions |
-| `service_start` | Start a built-in or custom service; if the service has `depends_on`, dependencies start first and dependent services start after |
-| `service_stop` | Stop a built-in or custom service; cascade-stops any custom services that depend on it first |
+| `site_tls` | Enable or disable HTTPS for a site using a locally-trusted mkcert certificate — `action`: `enable` / `disable` |
+| `xdebug` | Manage Xdebug for a PHP version — `action`: `on` / `off` / `status`. `on` accepts optional `mode` (default `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage`); `status` reports state and active mode for all PHP versions |
+| `service_control` | Start, stop, pin, or unpin a built-in or custom service — `action`: `start` / `stop` / `pin` / `unpin`. Starting/stopping respects `depends_on` cascades; `pin` keeps a service running regardless of site activity |
 | `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, etc.); supports `depends_on` for service dependencies |
 | `service_remove` | Stop and deregister a custom service |
 | `service_expose` | Add or remove an extra published port on a built-in service (persisted, auto-restarts if running) |
@@ -110,29 +104,19 @@ Once the MCP server is connected, your AI assistant has access to:
 | `db_export` | Export a database to a SQL dump file (defaults to site DB from `.env`) |
 | `db_import` | Import a SQL dump file into the project database (reads connection from `.env`) |
 | `db_create` | Create a database and `_testing` variant for the project (infers name from `.env` or project dir) |
-| `queue_start` | Start the queue worker for a site (any framework with a `queue` worker) |
-| `queue_stop` | Stop the queue worker |
-| `horizon_start` | Start Laravel Horizon for a site (use instead of `queue_start` when `laravel/horizon` is installed) |
-| `horizon_stop` | Stop Laravel Horizon |
-| `reverb_start` | Start the Reverb WebSocket server for a site |
-| `reverb_stop` | Stop the Reverb server |
-| `schedule_start` | Start the task scheduler for a site |
-| `schedule_stop` | Stop the task scheduler |
-| `worker_start` | Start any named framework worker (e.g. `messenger`, `pulse`) |
-| `worker_stop` | Stop a named framework worker |
+| `queue` | Start or stop the queue worker for a site — `action`: `start` / `stop` (any framework with a `queue` worker) |
+| `horizon` | Start or stop Laravel Horizon for a site — `action`: `start` / `stop` (use instead of `queue` when `laravel/horizon` is installed) |
+| `reverb` | Start or stop the Reverb WebSocket server for a site — `action`: `start` / `stop` |
+| `schedule` | Start or stop the task scheduler for a site — `action`: `start` / `stop` |
+| `worker` | Start or stop any named framework worker (e.g. `messenger`, `pulse`) — `action`: `start` / `stop` |
 | `worker_list` | List all workers defined for a site's framework with running status |
 | `framework_list` | List all framework definitions including their workers |
 | `framework_add` | Add or update a framework definition; use `name: "laravel"` to add custom workers to Laravel |
 | `framework_remove` | Remove a user-defined framework; for `laravel` removes only custom worker additions |
 | `site_php` | Change the PHP version for a registered site: writes `.php-version`, updates registry, regenerates nginx vhost |
 | `site_node` | Change the Node.js version for a registered site: writes `.node-version`, installs via fnm if needed |
-| `site_pause` | Pause a site: stop workers and custom container, replace vhost with landing page |
-| `site_unpause` | Resume a paused site: start container, restore vhost, restart workers |
-| `site_restart` | Restart a site's container (custom container or PHP-FPM) |
-| `service_pin` | Pin a service so it is never auto-stopped even when no sites reference it |
-| `service_unpin` | Unpin a service so it can be auto-stopped when unused |
-| `stripe_listen` | Start a Stripe webhook listener for a site (reads `STRIPE_SECRET` from `.env`) |
-| `stripe_listen_stop` | Stop the Stripe webhook listener |
+| `site_control` | Pause, unpause, restart, or rebuild a site — `action`: `pause` / `unpause` / `restart` / `rebuild` (pause replaces vhost with landing page; rebuild only for custom containers) |
+| `stripe` | Start or stop a Stripe webhook listener for a site — `action`: `start` / `stop` (reads `STRIPE_SECRET` from `.env` on start) |
 | `logs` | Fetch container logs; defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher; use when a site isn't loading |
 | `doctor` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates; use when the user reports setup issues |
@@ -165,12 +149,12 @@ AI:  → composer(args: ["require", "laravel/sanctum"])
 
 You: add a MongoDB service
 AI:  → service_add(name: "mongodb", image: "docker.io/library/mongo:7", ports: ["27017:27017"], data_dir: "/data/db")
-     → service_start(name: "mongodb")
+     → service_control(action: "start", name: "mongodb")
      ✓  mongodb started
 
 You: add phpMyAdmin, it needs MySQL to be running
 AI:  → service_add(name: "phpmyadmin", image: "docker.io/phpmyadmin:latest", ports: ["8080:80"], depends_on: ["mysql"], dashboard: "http://localhost:8080")
-     → service_start(name: "phpmyadmin")
+     → service_control(action: "start", name: "phpmyadmin")
        # starts mysql first (dependency), then phpmyadmin
      ✓  mysql started
      ✓  phpmyadmin started
@@ -189,12 +173,12 @@ AI:  → site_link()
      ✓  whitewaters -> whitewaters.test ready
 
 You: enable xdebug so I can step through a failing job
-AI:  → xdebug_status()
-     → xdebug_on(version: "8.5")
+AI:  → xdebug(action: "status")
+     → xdebug(action: "on", version: "8.5")
      ✓  Xdebug enabled for PHP 8.5 (mode=debug, port 9003)
 
 You: turn on xdebug coverage so I can run phpunit --coverage
-AI:  → xdebug_on(version: "8.5", mode: "coverage")
+AI:  → xdebug(action: "on", version: "8.5", mode: "coverage")
      ✓  Xdebug enabled for PHP 8.5 (mode=coverage, port 9003)
 
 You: the app is throwing 500s, check the logs

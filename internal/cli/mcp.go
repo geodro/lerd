@@ -66,22 +66,35 @@ func runMCPInject(targetPath string) error {
 		return err
 	}
 
+	fmt.Printf("Injecting lerd MCP config into: %s\n\n", abs)
+	if err := WriteProjectAISkills(abs, true); err != nil {
+		return err
+	}
+	fmt.Println("\nDone! Restart your AI assistant to load the lerd MCP server.")
+	return nil
+}
+
+// WriteProjectAISkills writes the per-project AI artefacts for abs. MCP config
+// JSONs and .junie/guidelines.md preserve non-lerd entries; SKILL.md and
+// lerd.mdc are overwritten. verbose=true prints each written path.
+func WriteProjectAISkills(abs string, verbose bool) error {
 	lerdEntry := map[string]any{
 		"command": "lerd",
 		"args":    []string{"mcp"},
 		"env":     map[string]string{"LERD_SITE_PATH": abs},
 	}
 
-	fmt.Printf("Injecting lerd MCP config into: %s\n\n", abs)
+	log := func(msg string) {
+		if verbose {
+			fmt.Println(msg)
+		}
+	}
 
-	// .mcp.json — merge lerd into mcpServers
 	if err := mergeMCPServersJSON(filepath.Join(abs, ".mcp.json"), lerdEntry); err != nil {
 		return err
 	}
-	rel1 := ".mcp.json"
-	fmt.Printf("  updated %s\n", rel1)
+	log("  updated .mcp.json")
 
-	// .cursor/mcp.json — Cursor
 	cursorPath := filepath.Join(abs, ".cursor", "mcp.json")
 	if err := os.MkdirAll(filepath.Dir(cursorPath), 0755); err != nil {
 		return fmt.Errorf("creating .cursor: %w", err)
@@ -89,9 +102,8 @@ func runMCPInject(targetPath string) error {
 	if err := mergeMCPServersJSON(cursorPath, lerdEntry); err != nil {
 		return err
 	}
-	fmt.Printf("  updated .cursor/mcp.json\n")
+	log("  updated .cursor/mcp.json")
 
-	// .ai/mcp/mcp.json — same mcpServers format (Windsurf and others)
 	aiPath := filepath.Join(abs, ".ai", "mcp", "mcp.json")
 	if err := os.MkdirAll(filepath.Dir(aiPath), 0755); err != nil {
 		return fmt.Errorf("creating .ai/mcp: %w", err)
@@ -99,9 +111,8 @@ func runMCPInject(targetPath string) error {
 	if err := mergeMCPServersJSON(aiPath, lerdEntry); err != nil {
 		return err
 	}
-	fmt.Printf("  updated .ai/mcp/mcp.json\n")
+	log("  updated .ai/mcp/mcp.json")
 
-	// .junie/mcp/mcp.json — same mcpServers format
 	juniePath := filepath.Join(abs, ".junie", "mcp", "mcp.json")
 	if err := os.MkdirAll(filepath.Dir(juniePath), 0755); err != nil {
 		return fmt.Errorf("creating .junie/mcp: %w", err)
@@ -109,37 +120,62 @@ func runMCPInject(targetPath string) error {
 	if err := mergeMCPServersJSON(juniePath, lerdEntry); err != nil {
 		return err
 	}
-	fmt.Printf("  updated .junie/mcp/mcp.json\n")
+	log("  updated .junie/mcp/mcp.json")
 
-	// .claude/skills/lerd/SKILL.md — always overwrite (we own this file)
 	skillPath := filepath.Join(abs, ".claude", "skills", "lerd", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
 		return fmt.Errorf("creating .claude/skills/lerd: %w", err)
 	}
-	if err := os.WriteFile(skillPath, []byte(claudeSkillContent), 0644); err != nil {
+	if err := writeIfChanged(skillPath, []byte(claudeSkillContent)); err != nil {
 		return fmt.Errorf("writing SKILL.md: %w", err)
 	}
-	fmt.Printf("  wrote   .claude/skills/lerd/SKILL.md\n")
+	log("  wrote   .claude/skills/lerd/SKILL.md")
 
-	// .cursor/rules/lerd.mdc — Cursor rules file (always overwrite, we own it)
 	cursorRulesPath := filepath.Join(abs, ".cursor", "rules", "lerd.mdc")
 	if err := os.MkdirAll(filepath.Dir(cursorRulesPath), 0755); err != nil {
 		return fmt.Errorf("creating .cursor/rules: %w", err)
 	}
-	if err := os.WriteFile(cursorRulesPath, []byte(cursorRulesContent), 0644); err != nil {
+	if err := writeIfChanged(cursorRulesPath, []byte(cursorRulesContent)); err != nil {
 		return fmt.Errorf("writing lerd.mdc: %w", err)
 	}
-	fmt.Printf("  wrote   .cursor/rules/lerd.mdc\n")
+	log("  wrote   .cursor/rules/lerd.mdc")
 
-	// .junie/guidelines.md — merge our section (Junie's equivalent of Claude skills)
 	guidelinesPath := filepath.Join(abs, ".junie", "guidelines.md")
 	if err := mergeJunieGuidelines(guidelinesPath, junieGuidelinesSection); err != nil {
 		return fmt.Errorf("writing .junie/guidelines.md: %w", err)
 	}
-	fmt.Printf("  updated .junie/guidelines.md\n")
+	log("  updated .junie/guidelines.md")
 
-	fmt.Println("\nDone! Restart your AI assistant to load the lerd MCP server.")
 	return nil
+}
+
+// ProjectHasLerdSkills is the opt-in signal for project-scoped refresh: true
+// iff at least one lerd-owned marker file exists. Shared JSON configs are not
+// checked because they may contain unrelated MCP servers.
+func ProjectHasLerdSkills(abs string) bool {
+	if _, err := os.Stat(filepath.Join(abs, ".claude", "skills", "lerd", "SKILL.md")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(abs, ".cursor", "rules", "lerd.mdc")); err == nil {
+		return true
+	}
+	if data, err := os.ReadFile(filepath.Join(abs, ".junie", "guidelines.md")); err == nil {
+		if strings.Contains(string(data), "<!-- lerd:begin -->") {
+			return true
+		}
+	}
+	return false
+}
+
+// writeIfChanged only writes when content differs, so projects already current
+// stay untouched (clean git status across upgrades).
+func writeIfChanged(path string, content []byte) error {
+	if existing, err := os.ReadFile(path); err == nil {
+		if len(existing) == len(content) && string(existing) == string(content) {
+			return nil
+		}
+	}
+	return os.WriteFile(path, content, 0644)
 }
 
 // NewMCPEnableGlobalCmd returns the mcp:enable-global command.
@@ -362,7 +398,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment fo
 
 ## Path resolution
 
-Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `db_set` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain_add` + bt + `, ` + bt + `site_domain_remove` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `db_set` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
 1. Explicit ` + bt + `path` + bt + ` argument
 2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
 3. **Current working directory** — the directory Claude was opened in
@@ -393,22 +429,23 @@ List all registered lerd sites with domains, paths, PHP versions, Node versions,
 List all installed PHP and Node.js versions and the configured defaults. Call this to check what runtimes are available before running commands.
 
 ### ` + bt + `php_list` + bt + `
-List all PHP versions installed by lerd as JSON, with each version's ` + bt + `default` + bt + ` flag. Use this to confirm which versions are available before calling ` + bt + `site_php` + bt + `, ` + bt + `php_ext_add` + bt + `, or ` + bt + `xdebug_on` + bt + `.
+List all PHP versions installed by lerd as JSON, with each version's ` + bt + `default` + bt + ` flag. Use this to confirm which versions are available before calling ` + bt + `site_php` + bt + `, ` + bt + `php_ext` + bt + `, or ` + bt + `xdebug` + bt + `.
 
-### ` + bt + `php_ext_list` + bt + ` / ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + `
+### ` + bt + `php_ext` + bt + `
 Manage custom PHP extensions for a PHP version. Extensions are added on top of the bundled lerd FPM image. Adding or removing an extension rebuilds the image and restarts the FPM container (may take a minute).
 
-Optional ` + bt + `version` + bt + ` argument on all three — defaults to the project or global PHP version.
-
-` + bt + `php_ext_add` + bt + ` and ` + bt + `php_ext_remove` + bt + ` take ` + bt + `extension` + bt + ` (required).
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"list"` + bt + `, ` + bt + `"add"` + bt + `, or ` + bt + `"remove"` + bt + `
+- ` + bt + `version` + bt + ` (optional): defaults to the project or global PHP version
+- ` + bt + `extension` + bt + ` (required for ` + bt + `add` + bt + ` and ` + bt + `remove` + bt + `)
 
 Examples:
 ` + "```" + `
-php_ext_list()                              // list extensions for current project's PHP version
-php_ext_list(version: "8.4")               // list extensions for 8.4
-php_ext_add(extension: "imagick")          // add imagick to current project's PHP version
-php_ext_add(extension: "redis", version: "8.3")
-php_ext_remove(extension: "imagick")
+php_ext(action: "list")                                        // list extensions for current project's PHP version
+php_ext(action: "list", version: "8.4")                        // list extensions for 8.4
+php_ext(action: "add", extension: "imagick")                   // add imagick to current project's PHP version
+php_ext(action: "add", extension: "redis", version: "8.3")
+php_ext(action: "remove", extension: "imagick")
 ` + "```" + `
 
 ### ` + bt + `artisan` + bt + ` (Laravel only)
@@ -472,19 +509,32 @@ vendor_run(bin: "rector", args: ["process", "--dry-run"])
 
 Prefer ` + bt + `vendor_run` + bt + ` over ` + bt + `composer(args: ["exec", ...])` + bt + ` — it's faster, doesn't go through composer's plugin pipeline, and the same shortcut is available on the CLI as ` + bt + `lerd <bin>` + bt + ` (e.g. ` + bt + `lerd pest` + bt + `, ` + bt + `lerd pint` + bt + `).
 
-### ` + bt + `node_install` + bt + ` / ` + bt + `node_uninstall` + bt + `
-Install or uninstall a Node.js version via fnm. Accepts a version number or alias:
+### ` + bt + `node` + bt + `
+Install or uninstall a Node.js version via fnm. Accepts a version number or alias.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"install"` + bt + ` or ` + bt + `"uninstall"` + bt + `
+- ` + bt + `version` + bt + ` (required)
+
 ` + "```" + `
-node_install(version: "20")
-node_install(version: "20.11.0")
-node_install(version: "lts")
-node_uninstall(version: "18.20.0")
+node(action: "install", version: "20")
+node(action: "install", version: "20.11.0")
+node(action: "install", version: "lts")
+node(action: "uninstall", version: "18.20.0")
 ` + "```" + `
 
 After installing a version you can pin it to a project by writing a ` + bt + `.node-version` + bt + ` file in the project root (or run ` + bt + `lerd isolate:node <version>` + bt + ` from a terminal).
 
-### ` + bt + `service_start` + bt + ` / ` + bt + `service_stop` + bt + `
-Start or stop any service — built-in or custom. ` + bt + `service_stop` + bt + ` marks the service as **paused** — ` + bt + `lerd start` + bt + ` and autostart on login will skip it until you explicitly start it again.
+### ` + bt + `service_control` + bt + `
+Start, stop, pin, or unpin any service — built-in or custom.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + `, ` + bt + `"stop"` + bt + `, ` + bt + `"pin"` + bt + `, or ` + bt + `"unpin"` + bt + `
+- ` + bt + `name` + bt + ` (required): service name
+
+` + bt + `service_control(action: "stop", ...)` + bt + ` marks the service as **paused** — ` + bt + `lerd start` + bt + ` and autostart on login will skip it until you explicitly start it again.
+
+` + bt + `service_control(action: "pin", ...)` + bt + ` marks a service so it is **never auto-stopped**, even when no active sites reference it in their ` + bt + `.env` + bt + `. Starts the service if it isn't already running. Use this for services you want always available regardless of which site is active (e.g. a shared Redis or MySQL). ` + bt + `service_control(action: "unpin", ...)` + bt + ` removes the pin so the service can be auto-stopped when no sites use it.
 
 **Dependency cascade:** if a custom service has ` + bt + `depends_on` + bt + ` set, starting its dependency also starts it; stopping the dependency stops it first. Starting the custom service directly ensures its dependencies start first.
 
@@ -541,7 +591,7 @@ service_add(
   data_dir: "/data/db",
   env_vars: ["MONGODB_URL=mongodb://lerd-mongodb:27017"]
 )
-service_start(name: "mongodb")
+service_control(action: "start", name: "mongodb")
 ` + "```" + `
 
 Example — add phpMyAdmin depending on MySQL:
@@ -553,7 +603,7 @@ service_add(
   depends_on: ["mysql"],
   dashboard: "http://localhost:8080"
 )
-service_start(name: "phpmyadmin")   // starts mysql first, then phpmyadmin
+service_control(action: "start", name: "phpmyadmin")   // starts mysql first, then phpmyadmin
 ` + "```" + `
 
 ` + bt + `service_remove` + bt + ` stops and deregisters a custom service. Persistent data is NOT deleted.
@@ -574,12 +624,12 @@ service_preset_install(name: "phpmyadmin")           // adds phpmyadmin, mysql i
 service_preset_install(name: "mongo")                // install mongo first…
 service_preset_install(name: "mongo-express")        // …then mongo-express (gated otherwise)
 service_preset_install(name: "mysql", version: "8.4")
-service_start(name: "phpmyadmin")                    // mysql is started automatically
+service_control(action: "start", name: "phpmyadmin") // mysql is started automatically
 ` + "```" + `
 
 **Dependency gating:** installing a preset whose dependency is another *custom* service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) is rejected with a clear error until the dependency is installed first. Built-in deps (mysql, postgres) are auto-satisfied.
 
-Once installed, presets are normal custom services — manage them with ` + bt + `service_start` + bt + `, ` + bt + `service_stop` + bt + `, ` + bt + `service_remove` + bt + `, ` + bt + `service_expose` + bt + `, ` + bt + `service_pin` + bt + `.
+Once installed, presets are normal custom services — manage them with ` + bt + `service_control` + bt + `, ` + bt + `service_remove` + bt + `, and ` + bt + `service_expose` + bt + `.
 
 ### ` + bt + `service_env` + bt + `
 Return the recommended Laravel ` + bt + `.env` + bt + ` connection variables for a service — built-in or custom — as a key/value map. Use this when you need to inspect or manually apply connection settings without running ` + bt + `env_setup` + bt + `.
@@ -654,8 +704,9 @@ Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_
 
 ` + bt + `site_unlink` + bt + ` takes ` + bt + `path` + bt + ` (optional, same resolution as ` + bt + `site_link` + bt + `). Removes the site and all its domains. Project files are NOT deleted.
 
-### ` + bt + `site_domain_add` + bt + ` / ` + bt + `site_domain_remove` + bt + `
+### ` + bt + `site_domain` + bt + `
 Add or remove additional domains for a site. Each site can have multiple domains (all served by the same nginx vhost).
+- ` + bt + `action` + bt + ` (required): ` + bt + `"add"` + bt + ` or ` + bt + `"remove"` + bt + `
 - ` + bt + `path` + bt + ` (optional): project directory
 - ` + bt + `domain` + bt + ` (required): domain name without TLD (e.g. ` + bt + `"api"` + bt + ` becomes ` + bt + `api.test` + bt + `)
 
@@ -668,53 +719,76 @@ Cannot remove the last domain. When a site is secured, the TLS certificate is au
 
 Both take ` + bt + `path` + bt + ` (optional, defaults to LERD_SITE_PATH or cwd).
 
-### ` + bt + `secure` + bt + ` / ` + bt + `unsecure` + bt + `
-Enable or disable HTTPS for a site using a locally-trusted mkcert certificate. Both take ` + bt + `site` + bt + ` (site name). ` + bt + `APP_URL` + bt + ` in ` + bt + `.env` + bt + ` is updated automatically.
-
-### ` + bt + `xdebug_on` + bt + ` / ` + bt + `xdebug_off` + bt + ` / ` + bt + `xdebug_status` + bt + `
-Toggle Xdebug for a PHP version (restarts the FPM container). Optional ` + bt + `version` + bt + ` argument — defaults to the project or global PHP version. Xdebug listens on port ` + bt + `9003` + bt + ` at ` + bt + `host.containers.internal` + bt + `.
-
-` + bt + `xdebug_on` + bt + ` accepts an optional ` + bt + `mode` + bt + ` argument (default ` + bt + `debug` + bt + `). Valid values: ` + bt + `debug` + bt + `, ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or a comma-separated combo such as ` + bt + `debug,coverage` + bt + `. Use ` + bt + `coverage` + bt + ` for ` + bt + `phpunit --coverage` + bt + ` / ` + bt + `pest --coverage` + bt + ` when PCOV isn't available or is disabled. Calling ` + bt + `xdebug_on` + bt + ` with a different mode on an already-enabled version swaps modes without needing ` + bt + `xdebug_off` + bt + ` first.
-
-` + bt + `xdebug_status` + bt + ` returns the enabled/disabled state and the active ` + bt + `mode` + bt + ` for all installed PHP versions.
-
-### ` + bt + `queue_start` + bt + ` / ` + bt + `queue_stop` + bt + `
-Start or stop a queue worker for a site. Available for any framework that defines a ` + bt + `queue` + bt + ` worker (Laravel has it built-in). Runs the framework-defined command in the FPM container as a systemd service.
-
-> **Redis queues:** if the project's ` + bt + `.env` + bt + ` has ` + bt + `QUEUE_CONNECTION=redis` + bt + `, lerd will refuse to start the worker unless ` + bt + `lerd-redis` + bt + ` is running. Call ` + bt + `service_start(name: "redis")` + bt + ` first.
-
-Arguments for ` + bt + `queue_start` + bt + `:
-- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
-- ` + bt + `queue` + bt + ` (optional): queue name, default ` + bt + `"default"` + bt + `
-- ` + bt + `tries` + bt + ` (optional): max job attempts, default ` + bt + `3` + bt + `
-- ` + bt + `timeout` + bt + ` (optional): job timeout in seconds, default ` + bt + `60` + bt + `
-
-### ` + bt + `horizon_start` + bt + ` / ` + bt + `horizon_stop` + bt + `
-Start or stop Laravel Horizon for a site. Horizon is a queue manager that replaces ` + bt + `queue:work` + bt + ` — use ` + bt + `horizon_start` + bt + ` instead of ` + bt + `queue_start` + bt + ` for projects that have ` + bt + `laravel/horizon` + bt + ` in ` + bt + `composer.json` + bt + `. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool). Returns an error if ` + bt + `laravel/horizon` + bt + ` is not installed.
-
-> **Horizon vs queue worker:** The ` + bt + `sites` + bt + ` tool returns ` + bt + `has_horizon: true` + bt + ` when a site has Horizon installed. In that case prefer ` + bt + `horizon_start` + bt + ` over ` + bt + `queue_start` + bt + `.
-
-### ` + bt + `reverb_start` + bt + ` / ` + bt + `reverb_stop` + bt + `
-Start or stop the Reverb WebSocket server for a site. Available for any framework that defines a ` + bt + `reverb` + bt + ` worker. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
-
-### ` + bt + `schedule_start` + bt + ` / ` + bt + `schedule_stop` + bt + `
-Start or stop the task scheduler for a site. Available for any framework that defines a ` + bt + `schedule` + bt + ` worker. Takes ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
-
-### ` + bt + `worker_start` + bt + ` / ` + bt + `worker_stop` + bt + `
-Start or stop any named framework worker for a site. Use this for workers that don't have a dedicated shortcut (e.g. ` + bt + `messenger` + bt + ` for Symfony, ` + bt + `horizon` + bt + ` or ` + bt + `pulse` + bt + ` for Laravel). The worker command is taken from the framework definition.
+### ` + bt + `site_tls` + bt + `
+Enable or disable HTTPS for a site using a locally-trusted mkcert certificate. ` + bt + `APP_URL` + bt + ` in ` + bt + `.env` + bt + ` is updated automatically.
 
 Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"enable"` + bt + ` or ` + bt + `"disable"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name
+
+### ` + bt + `xdebug` + bt + `
+Toggle Xdebug for a PHP version (restarts the FPM container) or report its state. Xdebug listens on port ` + bt + `9003` + bt + ` at ` + bt + `host.containers.internal` + bt + `.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"on"` + bt + `, ` + bt + `"off"` + bt + `, or ` + bt + `"status"` + bt + `
+- ` + bt + `version` + bt + ` (optional): defaults to the project or global PHP version
+- ` + bt + `mode` + bt + ` (optional, only for ` + bt + `on` + bt + `): default ` + bt + `debug` + bt + `. Valid values: ` + bt + `debug` + bt + `, ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or a comma-separated combo such as ` + bt + `debug,coverage` + bt + `
+
+Use ` + bt + `coverage` + bt + ` for ` + bt + `phpunit --coverage` + bt + ` / ` + bt + `pest --coverage` + bt + ` when PCOV isn't available or is disabled. Calling ` + bt + `xdebug(action: "on", ...)` + bt + ` with a different mode on an already-enabled version swaps modes without needing ` + bt + `action: "off"` + bt + ` first.
+
+` + bt + `xdebug(action: "status")` + bt + ` returns the enabled/disabled state and the active ` + bt + `mode` + bt + ` for all installed PHP versions.
+
+### ` + bt + `queue` + bt + `
+Start or stop a queue worker for a site. Available for any framework that defines a ` + bt + `queue` + bt + ` worker (Laravel has it built-in). Runs the framework-defined command in the FPM container as a systemd service.
+
+> **Redis queues:** if the project's ` + bt + `.env` + bt + ` has ` + bt + `QUEUE_CONNECTION=redis` + bt + `, lerd will refuse to start the worker unless ` + bt + `lerd-redis` + bt + ` is running. Call ` + bt + `service_control(action: "start", name: "redis")` + bt + ` first.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `queue` + bt + ` (optional, ` + bt + `start` + bt + ` only): queue name, default ` + bt + `"default"` + bt + `
+- ` + bt + `tries` + bt + ` (optional, ` + bt + `start` + bt + ` only): max job attempts, default ` + bt + `3` + bt + `
+- ` + bt + `timeout` + bt + ` (optional, ` + bt + `start` + bt + ` only): job timeout in seconds, default ` + bt + `60` + bt + `
+
+### ` + bt + `horizon` + bt + `
+Start or stop Laravel Horizon for a site. Horizon is a queue manager that replaces ` + bt + `queue:work` + bt + ` — use ` + bt + `horizon` + bt + ` instead of ` + bt + `queue` + bt + ` for projects that have ` + bt + `laravel/horizon` + bt + ` in ` + bt + `composer.json` + bt + `. Returns an error on ` + bt + `action: "start"` + bt + ` if ` + bt + `laravel/horizon` + bt + ` is not installed.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+
+> **Horizon vs queue worker:** The ` + bt + `sites` + bt + ` tool returns ` + bt + `has_horizon: true` + bt + ` when a site has Horizon installed. In that case prefer ` + bt + `horizon` + bt + ` over ` + bt + `queue` + bt + `.
+
+### ` + bt + `reverb` + bt + `
+Start or stop the Reverb WebSocket server for a site. Available for any framework that defines a ` + bt + `reverb` + bt + ` worker.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+
+### ` + bt + `schedule` + bt + `
+Start or stop the task scheduler for a site. Available for any framework that defines a ` + bt + `schedule` + bt + ` worker.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+
+### ` + bt + `worker` + bt + `
+Start or stop any named framework worker for a site. Use this for workers that don't have a dedicated shortcut (e.g. ` + bt + `messenger` + bt + ` for Symfony, ` + bt + `pulse` + bt + ` for Laravel). The worker command is taken from the framework definition.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 - ` + bt + `worker` + bt + ` (required): worker name as defined in the framework (e.g. ` + bt + `"messenger"` + bt + `, ` + bt + `"horizon"` + bt + `)
 
 ### ` + bt + `worker_list` + bt + `
-List all workers defined for a site's framework, with their running status, command, unit name, and restart policy. Use this to discover available workers before calling ` + bt + `worker_start` + bt + `.
+List all workers defined for a site's framework, with their running status, command, unit name, and restart policy. Use this to discover available workers before calling ` + bt + `worker` + bt + `.
 
 Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 
 ### ` + bt + `worker_add` + bt + `
-Add or update a custom worker for a project. Saves to ` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + ` by default, or to the global framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) with ` + bt + `global: true` + bt + `. Does not auto-start — use ` + bt + `worker_start` + bt + ` afterwards.
+Add or update a custom worker for a project. Saves to ` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + ` by default, or to the global framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) with ` + bt + `global: true` + bt + `. Does not auto-start — use ` + bt + `worker(action: "start", ...)` + bt + ` afterwards.
 
 Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
@@ -799,39 +873,32 @@ Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes o
 ### ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + `
 Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required) and ` + bt + `version` + bt + ` (required).
 
-` + bt + `site_php` + bt + ` writes a ` + bt + `.php-version` + bt + ` pin file to the project root, updates the site registry, and regenerates the nginx vhost. The FPM container for the target PHP version must be running — start it with ` + bt + `service_start(name: "php<version>")` + bt + ` if needed.
+` + bt + `site_php` + bt + ` writes a ` + bt + `.php-version` + bt + ` pin file to the project root, updates the site registry, and regenerates the nginx vhost. The FPM container for the target PHP version must be running — start it with ` + bt + `service_control(action: "start", name: "php<version>")` + bt + ` if needed.
 
 ` + bt + `site_node` + bt + ` writes a ` + bt + `.node-version` + bt + ` pin file and installs the version via fnm if it isn't already installed. Run ` + bt + `npm install` + bt + ` inside the project if dependencies need rebuilding against the new version.
 
-### ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + `
-Pause or resume a site. Both take ` + bt + `site` + bt + ` (required, site name from ` + bt + `sites` + bt + ` tool).
+### ` + bt + `site_control` + bt + `
+Pause, unpause, restart, or rebuild a site.
 
-` + bt + `site_pause` + bt + ` stops all running workers for the site, stops the custom container (for custom container sites), and replaces its nginx vhost with a landing page that includes a **Resume** button. Services no longer needed by any active site are auto-stopped. The paused state is persisted.
-
-` + bt + `site_unpause` + bt + ` starts the custom container (if applicable), restores the nginx vhost, ensures required services are running, and restarts any workers that were running when the site was paused.
-
-Use this to free up resources for sites you're not actively working on without fully unlinking them.
-
-### ` + bt + `site_restart` + bt + `
-Restart the container for a site without rebuilding the image. Takes ` + bt + `site` + bt + ` (required). For custom container sites this restarts the dedicated container; for PHP sites it restarts the shared FPM container.
-
-### ` + bt + `site_rebuild` + bt + `
-Rebuild the custom container image from the Containerfile and restart the container. Takes ` + bt + `site` + bt + ` (required). Use after changing the Containerfile. ` + bt + `site_link` + bt + ` reuses the cached image; ` + bt + `site_rebuild` + bt + ` forces a fresh build. Only works for custom container sites.
-
-### ` + bt + `service_pin` + bt + ` / ` + bt + `service_unpin` + bt + `
-Pin or unpin a service. Both take ` + bt + `name` + bt + ` (required).
-
-` + bt + `service_pin` + bt + ` marks a service so it is **never auto-stopped**, even when no active sites reference it in their ` + bt + `.env` + bt + `. Starts the service if it isn't already running. Use this for services you want always available regardless of which site is active (e.g. a shared Redis or MySQL).
-
-` + bt + `service_unpin` + bt + ` removes the pin so the service can be auto-stopped when no sites use it.
-
-### ` + bt + `stripe_listen` + bt + ` / ` + bt + `stripe_listen_stop` + bt + `
-Start or stop a Stripe webhook listener for a site using the Stripe CLI container. Reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
-
-Arguments for ` + bt + `stripe_listen` + bt + `:
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"pause"` + bt + `, ` + bt + `"unpause"` + bt + `, ` + bt + `"restart"` + bt + `, or ` + bt + `"rebuild"` + bt + `
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
-- ` + bt + `api_key` + bt + ` (optional): Stripe secret key (defaults to ` + bt + `STRIPE_SECRET` + bt + ` in the site's ` + bt + `.env` + bt + `)
-- ` + bt + `webhook_path` + bt + ` (optional): webhook route path (default: ` + bt + `"/stripe/webhook"` + bt + `)
+
+- ` + bt + `pause` + bt + `: stops all running workers for the site, stops the custom container (for custom container sites), and replaces its nginx vhost with a landing page that includes a **Resume** button. Services no longer needed by any active site are auto-stopped. The paused state is persisted.
+- ` + bt + `unpause` + bt + `: starts the custom container (if applicable), restores the nginx vhost, ensures required services are running, and restarts any workers that were running when the site was paused.
+- ` + bt + `restart` + bt + `: restarts the container for a site without rebuilding the image. For custom container sites this restarts the dedicated container; for PHP sites it restarts the shared FPM container.
+- ` + bt + `rebuild` + bt + `: rebuilds the custom container image from the Containerfile and restarts the container. Use after changing the Containerfile. ` + bt + `site_link` + bt + ` reuses the cached image; ` + bt + `rebuild` + bt + ` forces a fresh build. Only works for custom container sites.
+
+Use ` + bt + `pause` + bt + ` / ` + bt + `unpause` + bt + ` to free up resources for sites you're not actively working on without fully unlinking them.
+
+### ` + bt + `stripe` + bt + `
+Start or stop a Stripe webhook listener for a site using the Stripe CLI container. On ` + bt + `start` + bt + ` it reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `api_key` + bt + ` (optional, ` + bt + `start` + bt + ` only): Stripe secret key (defaults to ` + bt + `STRIPE_SECRET` + bt + ` in the site's ` + bt + `.env` + bt + `)
+- ` + bt + `webhook_path` + bt + ` (optional, ` + bt + `start` + bt + ` only): webhook route path (default: ` + bt + `"/stripe/webhook"` + bt + `)
 
 ### ` + bt + `db_export` + bt + `
 Export a database to a SQL dump file. Works with any project type — service and database are auto-detected. Arguments:
@@ -913,22 +980,22 @@ artisan(args: ["migrate", "--seed"])
 
 **Enable HTTPS for a site:**
 ` + "```" + `
-secure(site: "myapp")
+site_tls(action: "enable", site: "myapp")
 ` + "```" + `
 
 **Enable Xdebug for a debugging session:**
 ` + "```" + `
-xdebug_status()                                 // check current state and mode
-xdebug_on(version: "8.4")                       // default mode=debug, restarts FPM
+xdebug(action: "status")                                      // check current state and mode
+xdebug(action: "on", version: "8.4")                          // default mode=debug, restarts FPM
 // ... debug ...
-xdebug_off(version: "8.4")                      // disable when done (Xdebug adds overhead)
+xdebug(action: "off", version: "8.4")                         // disable when done (Xdebug adds overhead)
 ` + "```" + `
 
 **Enable Xdebug coverage mode for phpunit/pest:**
 ` + "```" + `
-xdebug_on(version: "8.4", mode: "coverage")     // swap mode without xdebug_off first
+xdebug(action: "on", version: "8.4", mode: "coverage")        // swap mode without action: "off" first
 vendor_run(name: "pest", args: ["--coverage"])
-xdebug_off(version: "8.4")
+xdebug(action: "off", version: "8.4")
 ` + "```" + `
 
 **Run migrations after schema changes:**
@@ -938,8 +1005,8 @@ artisan(args: ["migrate"])
 
 **Install and configure a service:**
 ` + "```" + `
-service_start(name: "mysql")
-service_start(name: "redis")   // if needed
+service_control(action: "start", name: "mysql")
+service_control(action: "start", name: "redis")   // if needed
 composer(args: ["install"])
 artisan(args: ["key:generate"])
 artisan(args: ["migrate", "--seed"])
@@ -954,14 +1021,14 @@ artisan(args: ["migrate"])
 
 **Install a Node.js version and pin it to the project:**
 ` + "```" + `
-node_install(version: "20")
+node(action: "install", version: "20")
 // Then in a terminal: lerd isolate:node 20
 ` + "```" + `
 
 **Add a custom service (e.g. MongoDB):**
 ` + "```" + `
 service_add(name: "mongodb", image: "docker.io/library/mongo:7", ports: ["27017:27017"], data_dir: "/data/db")
-service_start(name: "mongodb")
+service_control(action: "start", name: "mongodb")
 ` + "```" + `
 
 **Back up the database before a risky migration:**
@@ -982,9 +1049,9 @@ db_create()   // creates myapp + myapp_testing based on .env DB_DATABASE
 
 **Check and manage PHP extensions:**
 ` + "```" + `
-php_list()                           // see installed PHP versions
-php_ext_list()                       // see custom extensions for current project's PHP version
-php_ext_add(extension: "imagick")    // install imagick (rebuilds FPM image)
+php_list()                                           // see installed PHP versions
+php_ext(action: "list")                              // see custom extensions for current project's PHP version
+php_ext(action: "add", extension: "imagick")         // install imagick (rebuilds FPM image)
 ` + "```" + `
 
 **Park a directory of projects:**
@@ -1005,22 +1072,22 @@ status()    // see which of DNS / nginx / PHP-FPM / watcher is down
 
 **Free up resources — pause sites you're not using:**
 ` + "```" + `
-sites()                          // see all sites
-site_pause(site: "old-project")  // stop workers + replace vhost with landing page
+sites()                                                  // see all sites
+site_control(action: "pause", site: "old-project")       // stop workers + replace vhost with landing page
 // ... later ...
-site_unpause(site: "old-project")  // restore and restart
+site_control(action: "unpause", site: "old-project")     // restore and restart
 ` + "```" + `
 
 **Restart a site's container (e.g. after changing Containerfile):**
 ` + "```" + `
-site_restart(site: "nestjs-app")  // restarts container (no rebuild)
-site_rebuild(site: "nestjs-app")  // rebuilds image from Containerfile + restarts
+site_control(action: "restart", site: "nestjs-app")      // restarts container (no rebuild)
+site_control(action: "rebuild", site: "nestjs-app")      // rebuilds image from Containerfile + restarts
 ` + "```" + `
 
 **Keep a service always running regardless of active site:**
 ` + "```" + `
-service_pin(name: "mysql")    // never auto-stopped
-service_pin(name: "redis")
+service_control(action: "pin", name: "mysql")    // never auto-stopped
+service_control(action: "pin", name: "redis")
 ` + "```" + `
 
 **User reports setup issues or something unexpected:**
@@ -1030,9 +1097,9 @@ doctor()    // full diagnostic: podman, systemd, DNS, ports, images, config
 
 **Start a framework worker (Symfony Messenger, Laravel Horizon, etc.):**
 ` + "```" + `
-worker_list(site: "myapp")            // see what workers are available and their status
-worker_start(site: "myapp", worker: "messenger")  // start by name
-worker_stop(site: "myapp", worker: "messenger")
+worker_list(site: "myapp")                                      // see what workers are available and their status
+worker(action: "start", site: "myapp", worker: "messenger")     // start by name
+worker(action: "stop", site: "myapp", worker: "messenger")
 ` + "```" + `
 
 **Add a custom worker to Laravel (e.g. Horizon):**
@@ -1040,7 +1107,7 @@ worker_stop(site: "myapp", worker: "messenger")
 framework_add(name: "laravel", workers: {
   "horizon": {"label": "Horizon", "command": "php artisan horizon", "restart": "always"}
 })
-worker_start(site: "myapp", worker: "horizon")
+worker(action: "start", site: "myapp", worker: "horizon")
 ` + "```" + `
 
 **Work with failed queue jobs:**
@@ -1104,8 +1171,8 @@ REDIS_PORT=6379
 ` + "```" + `
    Start the services first if they're not running:
 ` + "```" + `
-service_start(name: "mysql")
-service_start(name: "redis")
+service_control(action: "start", name: "mysql")
+service_control(action: "start", name: "redis")
 ` + "```" + `
 
 4. Link and verify:
@@ -1199,32 +1266,24 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `sites` + bt + ` | List all registered sites with framework and worker status — call this first |
 | ` + bt + `runtime_versions` + bt + ` | List installed PHP and Node.js versions with defaults |
 | ` + bt + `php_list` + bt + ` | List installed PHP versions, marking the global default |
-| ` + bt + `php_ext_list` + bt + ` | List custom PHP extensions for a PHP version |
-| ` + bt + `php_ext_add` + bt + ` | Add a custom PHP extension — rebuilds FPM image and restarts container |
-| ` + bt + `php_ext_remove` + bt + ` | Remove a custom PHP extension — rebuilds FPM image and restarts container |
+| ` + bt + `php_ext` + bt + ` | Manage custom PHP extensions — ` + bt + `action` + bt + `: ` + bt + `list` + bt + ` / ` + bt + `add` + bt + ` / ` + bt + `remove` + bt + `; ` + bt + `add` + bt + ` and ` + bt + `remove` + bt + ` rebuild FPM image and restart container |
 | ` + bt + `artisan` + bt + ` | Run ` + bt + `php artisan` + bt + ` inside the PHP-FPM container (Laravel only) |
 | ` + bt + `console` + bt + ` | Run the framework's console command (e.g. ` + bt + `php bin/console` + bt + ` for Symfony) — non-Laravel frameworks with a ` + bt + `console` + bt + ` field |
 | ` + bt + `composer` + bt + ` | Run ` + bt + `composer` + bt + ` inside the PHP-FPM container |
 | ` + bt + `vendor_bins` + bt + ` | List composer-installed binaries available in the project's ` + bt + `vendor/bin` + bt + ` directory |
 | ` + bt + `vendor_run` + bt + ` | Run a binary from ` + bt + `vendor/bin` + bt + ` (pest, phpunit, pint, phpstan, rector, …) inside the PHP-FPM container |
-| ` + bt + `node_install` + bt + ` | Install a Node.js version via fnm (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
-| ` + bt + `node_uninstall` + bt + ` | Uninstall a Node.js version via fnm |
+| ` + bt + `node` + bt + ` | Install or uninstall a Node.js version via fnm — ` + bt + `action` + bt + `: ` + bt + `install` + bt + ` / ` + bt + `uninstall` + bt + ` (e.g. ` + bt + `"20"` + bt + `, ` + bt + `"lts"` + bt + `) |
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + ` / ` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `; persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
 | ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` — returns structured JSON with per-key sync status |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site — **non-PHP projects** must have a Containerfile (default name ` + bt + `Containerfile.lerd` + bt + `; set ` + bt + `container.containerfile` + bt + ` for a different path, e.g. ` + bt + `Dockerfile` + bt + `) + ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: N}` + bt + ` written first, otherwise the site registers as PHP (wrong) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
-| ` + bt + `site_domain_add` + bt + ` | Add an additional domain to a site (without TLD) |
-| ` + bt + `site_domain_remove` + bt + ` | Remove a domain from a site (cannot remove last) |
+| ` + bt + `site_domain` + bt + ` | Add or remove a site domain (without TLD) — ` + bt + `action` + bt + `: ` + bt + `add` + bt + ` / ` + bt + `remove` + bt + `; cannot remove last |
 | ` + bt + `park` + bt + ` | Register a parent directory — auto-registers all PHP projects as sites |
 | ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
-| ` + bt + `secure` + bt + ` | Enable HTTPS for a site (mkcert) — updates APP_URL automatically |
-| ` + bt + `unsecure` + bt + ` | Disable HTTPS for a site |
-| ` + bt + `xdebug_on` + bt + ` | Enable Xdebug for a PHP version (port 9003); optional ` + bt + `mode` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
-| ` + bt + `xdebug_off` + bt + ` | Disable Xdebug for a PHP version |
-| ` + bt + `xdebug_status` + bt + ` | Show Xdebug state and active mode for all PHP versions |
-| ` + bt + `service_start` + bt + ` | Start a built-in or custom service |
-| ` + bt + `service_stop` + bt + ` | Stop a service |
+| ` + bt + `site_tls` + bt + ` | Enable or disable HTTPS for a site (mkcert) — ` + bt + `action` + bt + `: ` + bt + `enable` + bt + ` / ` + bt + `disable` + bt + `; updates APP_URL automatically |
+| ` + bt + `xdebug` + bt + ` | Manage Xdebug for a PHP version (port 9003) — ` + bt + `action` + bt + `: ` + bt + `on` + bt + ` / ` + bt + `off` + bt + ` / ` + bt + `status` + bt + `; optional ` + bt + `mode` + bt + ` on ` + bt + `on` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
+| ` + bt + `service_control` + bt + ` | Start, stop, pin, or unpin a built-in or custom service — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` / ` + bt + `pin` + bt + ` / ` + bt + `unpin` + bt + ` |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
 | ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, selenium, stripe-mock, …) with versions and install state |
 | ` + bt + `service_preset_install` + bt + ` | Install a bundled preset by name (` + bt + `version` + bt + ` for multi-version families); becomes a normal custom service |
@@ -1234,16 +1293,11 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file — auto-detects service and database; accepts optional ` + bt + `service` + bt + ` override |
 | ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database — auto-detects service and database; starts the service if needed |
 | ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant — auto-detects service and name; starts the service if needed |
-| ` + bt + `queue_start` + bt + ` | Start the queue worker for a site (any framework with a queue worker) |
-| ` + bt + `queue_stop` + bt + ` | Stop the queue worker |
-| ` + bt + `horizon_start` + bt + ` | Start Laravel Horizon for a site (use instead of queue_start when laravel/horizon is installed) |
-| ` + bt + `horizon_stop` + bt + ` | Stop Laravel Horizon |
-| ` + bt + `reverb_start` + bt + ` | Start the Reverb WebSocket server for a site |
-| ` + bt + `reverb_stop` + bt + ` | Stop the Reverb server |
-| ` + bt + `schedule_start` + bt + ` | Start the task scheduler for a site |
-| ` + bt + `schedule_stop` + bt + ` | Stop the task scheduler |
-| ` + bt + `worker_start` + bt + ` | Start any named framework worker (e.g. messenger, pulse) |
-| ` + bt + `worker_stop` + bt + ` | Stop a named framework worker |
+| ` + bt + `queue` + bt + ` | Start or stop the queue worker for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` (any framework with a queue worker) |
+| ` + bt + `horizon` + bt + ` | Start or stop Laravel Horizon for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` (use instead of ` + bt + `queue` + bt + ` when laravel/horizon is installed) |
+| ` + bt + `reverb` + bt + ` | Start or stop the Reverb WebSocket server for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
+| ` + bt + `schedule` + bt + ` | Start or stop the task scheduler for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
+| ` + bt + `worker` + bt + ` | Start or stop any named framework worker (e.g. messenger, pulse) — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
 | ` + bt + `worker_list` + bt + ` | List all workers defined for a site's framework with running status |
 | ` + bt + `worker_add` + bt + ` | Add a custom worker to a project or global framework overlay |
 | ` + bt + `worker_remove` + bt + ` | Remove a custom worker; stops it if running |
@@ -1253,14 +1307,8 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 | ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker and setup additions |
 | ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost |
 | ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed |
-| ` + bt + `site_pause` + bt + ` | Pause a site: stop workers and custom container, replace vhost with landing page |
-| ` + bt + `site_unpause` + bt + ` | Resume a paused site: start container, restore vhost, restart workers |
-| ` + bt + `site_restart` + bt + ` | Restart a site's container (custom container or PHP-FPM) |
-| ` + bt + `site_rebuild` + bt + ` | Rebuild custom container image from Containerfile and restart |
-| ` + bt + `service_pin` + bt + ` | Pin a service so it is never auto-stopped even when no sites reference it |
-| ` + bt + `service_unpin` + bt + ` | Unpin a service so it can be auto-stopped when unused |
-| ` + bt + `stripe_listen` + bt + ` | Start a Stripe webhook listener for a site |
-| ` + bt + `stripe_listen_stop` + bt + ` | Stop the Stripe webhook listener |
+| ` + bt + `site_control` + bt + ` | Pause, unpause, restart, or rebuild a site — ` + bt + `action` + bt + `: ` + bt + `pause` + bt + ` / ` + bt + `unpause` + bt + ` / ` + bt + `restart` + bt + ` / ` + bt + `rebuild` + bt + ` (pause replaces vhost with landing page; rebuild only for custom containers) |
+| ` + bt + `stripe` + bt + ` | Start or stop a Stripe webhook listener for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
 | ` + bt + `doctor` + bt + ` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates |
@@ -1273,29 +1321,29 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - ` + bt + `artisan` + bt + ` is Laravel-only; ` + bt + `console` + bt + ` is the equivalent for non-Laravel frameworks — both take ` + bt + `path` + bt + ` (absolute project root) and ` + bt + `args` + bt + ` (array)
 - ` + bt + `vendor_run` + bt + ` is the right way to invoke project tooling like pest, phpunit, pint, phpstan, rector — call ` + bt + `vendor_bins` + bt + ` first to discover what's installed, then ` + bt + `vendor_run(bin: "<name>", args: [...])` + bt + `; prefer it over ` + bt + `composer(args: ["exec", ...])` + bt + `
 - On a **fresh Laravel clone** (DB_CONNECTION=sqlite in ` + bt + `.env` + bt + `), call ` + bt + `db_set(database: "mysql"|"postgres"|"sqlite")` + bt + ` before ` + bt + `env_setup` + bt + ` to pick a database deliberately. ` + bt + `env_setup` + bt + ` on its own won't switch the database away from sqlite.
-- **Domain conflicts on link**: when ` + bt + `lerd link` + bt + ` (or the parked-directory watcher) tries to register a ` + bt + `.lerd.yaml` + bt + ` domain that another site already owns, the conflicting domain is filtered out and a ` + bt + `[WARN] domain "X" already used by site "Y" — skipped` + bt + ` line is printed. The site still gets registered with surviving domains, falling back to ` + bt + `<dirname>.<tld>` + bt + ` if everything was filtered. ` + bt + `.lerd.yaml` + bt + ` is not modified on disk so the conflict is visible in the UI and self-heals on the next link if the owning site is removed. The ` + bt + `site_link` + bt + ` and ` + bt + `site_domain_add` + bt + ` MCP tools, by contrast, hard-error on conflicts so you can react explicitly — read the error message for the owning site name.
+- **Domain conflicts on link**: when ` + bt + `lerd link` + bt + ` (or the parked-directory watcher) tries to register a ` + bt + `.lerd.yaml` + bt + ` domain that another site already owns, the conflicting domain is filtered out and a ` + bt + `[WARN] domain "X" already used by site "Y" — skipped` + bt + ` line is printed. The site still gets registered with surviving domains, falling back to ` + bt + `<dirname>.<tld>` + bt + ` if everything was filtered. ` + bt + `.lerd.yaml` + bt + ` is not modified on disk so the conflict is visible in the UI and self-heals on the next link if the owning site is removed. The ` + bt + `site_link` + bt + ` and ` + bt + `site_domain(action: "add", ...)` + bt + ` MCP tools, by contrast, hard-error on conflicts so you can react explicitly — read the error message for the owning site name.
 - **Custom APP_URL**: ` + bt + `env_setup` + bt + ` writes ` + bt + `<scheme>://<primary-domain>` + bt + ` by default. Override by setting ` + bt + `app_url` + bt + ` in ` + bt + `.lerd.yaml` + bt + ` (committed) or in the per-machine ` + bt + `sites.yaml` + bt + ` site entry. No MCP tool sets it — edit the YAML and re-run ` + bt + `env_setup` + bt + `.
 - ` + bt + `tinker` + bt + ` must use ` + bt + `--execute=<code>` + bt + ` for non-interactive use
 - Built-in service hosts follow the pattern ` + bt + `lerd-<name>` + bt + ` (e.g. ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `)
 - Default DB credentials: username ` + bt + `root` + bt + `, password ` + bt + `lerd` + bt + `
-- ` + bt + `service_stop` + bt + ` marks the service paused — ` + bt + `lerd start` + bt + ` skips it until explicitly started again
-- ` + bt + `queue_start` + bt + ` requires Redis to be running when ` + bt + `QUEUE_CONNECTION=redis` + bt + `; call ` + bt + `service_start(name: "redis")` + bt + ` first
-- If ` + bt + `sites` + bt + ` returns ` + bt + `has_horizon: true` + bt + ` for a site, use ` + bt + `horizon_start` + bt + ` / ` + bt + `horizon_stop` + bt + ` instead of ` + bt + `queue_start` + bt + ` / ` + bt + `queue_stop` + bt + ` — Horizon manages queues and they are mutually exclusive
-- Use ` + bt + `worker_list` + bt + ` first to discover what workers are available for a site before calling ` + bt + `worker_start` + bt + `
-- ` + bt + `worker_add` + bt + ` saves custom workers to ` + bt + `.lerd.yaml` + bt + ` by default (project-level, committed to git); use ` + bt + `global: true` + bt + ` to save to the user framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) for all projects of that framework; does not auto-start — call ` + bt + `worker_start` + bt + ` afterwards
+- ` + bt + `service_control(action: "stop", ...)` + bt + ` marks the service paused — ` + bt + `lerd start` + bt + ` skips it until explicitly started again
+- ` + bt + `queue(action: "start", ...)` + bt + ` requires Redis to be running when ` + bt + `QUEUE_CONNECTION=redis` + bt + `; call ` + bt + `service_control(action: "start", name: "redis")` + bt + ` first
+- If ` + bt + `sites` + bt + ` returns ` + bt + `has_horizon: true` + bt + ` for a site, use ` + bt + `horizon` + bt + ` instead of ` + bt + `queue` + bt + ` — Horizon manages queues and they are mutually exclusive
+- Use ` + bt + `worker_list` + bt + ` first to discover what workers are available for a site before calling ` + bt + `worker(action: "start", ...)` + bt + `
+- ` + bt + `worker_add` + bt + ` saves custom workers to ` + bt + `.lerd.yaml` + bt + ` by default (project-level, committed to git); use ` + bt + `global: true` + bt + ` to save to the user framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) for all projects of that framework; does not auto-start — call ` + bt + `worker(action: "start", ...)` + bt + ` afterwards
 - ` + bt + `worker_remove` + bt + ` stops a running worker before removing it from config; use ` + bt + `global: true` + bt + ` to target the framework overlay
 - Workers with ` + bt + `conflicts_with` + bt + ` automatically stop conflicting workers when started (e.g. a custom queue processor that conflicts with the default queue worker); conflicted workers are hidden from the UI while the conflicting worker runs
 - Worker unit names follow the pattern ` + bt + `lerd-<worker>-<site>` + bt + ` (e.g. ` + bt + `lerd-messenger-myapp` + bt + `, ` + bt + `lerd-horizon-myapp` + bt + `)
 - ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + ` change the PHP/Node version for a site; the FPM container for the new PHP version must be running after calling ` + bt + `site_php` + bt + `
-- ` + bt + `site_pause` + bt + ` / ` + bt + `site_unpause` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
-- **Custom container sites** (Node.js, Python, Go, etc.) — mandatory sequence: **(1)** write a Containerfile in the project root (default name ` + bt + `Containerfile.lerd` + bt + `; any name works if you set ` + bt + `container.containerfile` + bt + `); **(2)** write ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: <N>}` + bt + ` (plus optional ` + bt + `domains` + bt + `, ` + bt + `services` + bt + `, ` + bt + `secured` + bt + `) — there is no MCP tool for this; write the file directly or ask the user to run ` + bt + `lerd init` + bt + `; **(3)** configure the project's ` + bt + `.env` + bt + ` (or equivalent config) with service connection strings BEFORE linking — use ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, ` + bt + `lerd-postgres` + bt + ` as hostnames and start needed services with ` + bt + `service_start` + bt + `; **(4)** call ` + bt + `site_link` + bt + ` — the container starts immediately, so the env must already be correct. **Never call ` + bt + `site_link` + bt + ` before steps 1–3**: without ` + bt + `container:` + bt + ` config the site registers as PHP-FPM (wrong); if that happened, ` + bt + `site_unlink` + bt + ` first, write the files, then link again. Workers in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_restart` + bt + ` restarts without rebuilding. When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
-- ` + bt + `service_pin` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
+- ` + bt + `site_control(action: "pause")` + bt + ` / ` + bt + `site_control(action: "unpause")` + bt + ` free up resources for sites not in active use without unlinking them; paused state persists across restarts
+- **Custom container sites** (Node.js, Python, Go, etc.) — mandatory sequence: **(1)** write a Containerfile in the project root (default name ` + bt + `Containerfile.lerd` + bt + `; any name works if you set ` + bt + `container.containerfile` + bt + `); **(2)** write ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: <N>}` + bt + ` (plus optional ` + bt + `domains` + bt + `, ` + bt + `services` + bt + `, ` + bt + `secured` + bt + `) — there is no MCP tool for this; write the file directly or ask the user to run ` + bt + `lerd init` + bt + `; **(3)** configure the project's ` + bt + `.env` + bt + ` (or equivalent config) with service connection strings BEFORE linking — use ` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, ` + bt + `lerd-postgres` + bt + ` as hostnames and start needed services with ` + bt + `service_control(action: "start", ...)` + bt + `; **(4)** call ` + bt + `site_link` + bt + ` — the container starts immediately, so the env must already be correct. **Never call ` + bt + `site_link` + bt + ` before steps 1–3**: without ` + bt + `container:` + bt + ` config the site registers as PHP-FPM (wrong); if that happened, ` + bt + `site_unlink` + bt + ` first, write the files, then link again. Workers in ` + bt + `custom_workers` + bt + ` exec into the container. ` + bt + `site_control(action: "restart", ...)` + bt + ` restarts without rebuilding. When ` + bt + `container` + bt + ` is set, ` + bt + `php_version` + bt + ` and ` + bt + `framework` + bt + ` are ignored.
+- ` + bt + `service_control(action: "pin", ...)` + bt + ` keeps a service always running regardless of which sites are active; use for shared services like MySQL or Redis
 - ` + bt + `service_add` + bt + ` supports ` + bt + `depends_on` + bt + ` (array of service names): starting a dependency auto-starts the dependent service; stopping a dependency cascade-stops the dependent first; starting the dependent ensures dependencies start first
 - Prefer ` + bt + `service_preset_install` + bt + ` over hand-rolling ` + bt + `service_add` + bt + ` for anything in the bundled catalogue (` + bt + `phpmyadmin` + bt + `, ` + bt + `pgadmin` + bt + `, ` + bt + `mongo` + bt + `, ` + bt + `mongo-express` + bt + `, ` + bt + `selenium` + bt + `, ` + bt + `stripe-mock` + bt + `, ` + bt + `mysql` + bt + `, ` + bt + `mariadb` + bt + `, …) — presets ship sane defaults, dependency wiring, dashboards, and rendered config files; call ` + bt + `service_preset_list` + bt + ` first to see what's available; multi-version families take a ` + bt + `version` + bt + ` argument; presets whose dependency is another custom service (e.g. ` + bt + `mongo-express` + bt + ` on ` + bt + `mongo` + bt + `) require the dep installed first
 - ` + bt + `project_new` + bt + ` requires an absolute ` + bt + `path` + bt + ` and runs the framework's ` + bt + `create` + bt + ` command; follow it with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` to register and configure the new project
 - ` + bt + `framework_add` + bt + ` accepts ` + bt + `workers` + bt + ` (map) and ` + bt + `setup` + bt + ` (array) — both support an optional ` + bt + `check` + bt + ` field (` + bt + `{file}` + bt + ` or ` + bt + `{composer}` + bt + `) to conditionally show based on project deps; for Laravel, custom setup commands replace built-in storage:link/migrate/db:seed
 - Framework env vars support service version placeholders: ` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + ` — resolved from the running service image tag
-- ` + bt + `php_ext_add` + bt + ` / ` + bt + `php_ext_remove` + bt + ` rebuild the FPM image and restart the container — may take a minute; ` + bt + `version` + bt + ` defaults to the project or global PHP version
+- ` + bt + `php_ext(action: "add", ...)` + bt + ` / ` + bt + `php_ext(action: "remove", ...)` + bt + ` rebuild the FPM image and restart the container — may take a minute; ` + bt + `version` + bt + ` defaults to the project or global PHP version
 - ` + bt + `db_import` + bt + ` / ` + bt + `db_export` + bt + ` / ` + bt + `db_create` + bt + ` auto-detect service and database via: ` + bt + `service` + bt + ` arg → framework definition detect rules → ` + bt + `DB_CONNECTION` + bt + ` / ` + bt + `DB_TYPE` + bt + ` / ` + bt + `TYPEORM_CONNECTION` + bt + ` / ` + bt + `DATABASE_URL` + bt + ` / ` + bt + `DB_PORT` + bt + `; pass ` + bt + `service` + bt + ` explicitly for projects with no env config
 - ` + bt + `db_create` + bt + ` always creates both ` + bt + `<name>` + bt + ` and ` + bt + `<name>_testing` + bt + ` databases; safe to call if they already exist; starts the service automatically if not running
 - ` + bt + `park` + bt + ` auto-registers all PHP subdirectories as sites in one call; ` + bt + `unpark` + bt + ` removes them all — project files are NOT deleted
