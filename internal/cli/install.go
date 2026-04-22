@@ -577,6 +577,7 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		}
 
 		startRestoredServices()
+		startPerSiteContainers()
 	}
 
 	if wantLaravelInstaller {
@@ -610,6 +611,26 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
 	fmt.Println("  Terminal:  \033[96mlerd tui\033[0m")
 	return nil
+}
+
+// startPerSiteContainers starts units for per-site custom containers and
+// FrankenPHP runtimes. startRestoredServices only covers global services, so
+// without this, uninstall+reinstall leaves these quadlets stopped on disk.
+func startPerSiteContainers() {
+	units := installedCustomContainerUnits()
+	if len(units) == 0 {
+		return
+	}
+	jobs := make([]BuildJob, len(units))
+	for i, u := range units {
+		unit := u
+		label := strings.TrimPrefix(unit, "lerd-")
+		jobs[i] = BuildJob{
+			Label: label,
+			Run:   func(_ io.Writer) error { return podman.StartUnit(unit) },
+		}
+	}
+	RunParallel(jobs) //nolint:errcheck
 }
 
 // refreshUnreferencedCustomQuadlets rewrites quadlets for globally installed

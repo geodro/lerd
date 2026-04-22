@@ -105,7 +105,7 @@ func runUninstall(force bool) error {
 	ok()
 
 	step("Removing lerd Podman network")
-	_ = podman.RunSilent("network", "rm", "lerd")
+	_ = podman.RemoveNetwork("lerd")
 	ok()
 
 	step("Removing shell PATH entry")

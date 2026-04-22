@@ -755,7 +755,7 @@ func restoreSiteInfrastructure() {
 			if w == "stripe" {
 				base := siteURL(s.Path)
 				if base != "" {
-					StripeStartForSite(s.Name, s.Path, base) //nolint:errcheck
+					StripeRestoreUnit(s.Name, s.Path, base) //nolint:errcheck
 				}
 				continue
 			}

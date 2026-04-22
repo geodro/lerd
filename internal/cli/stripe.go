@@ -94,7 +94,10 @@ func newStripeListenStopCmd() *cobra.Command {
 	}
 }
 
-func stripeStartExplicit(siteName, apiKey, forwardTo string) error {
+// writeStripeUnit writes (and enables on first write) the lerd-stripe-<site>
+// service unit without starting it. Shared by the CLI path (starts right
+// after) and the install restore path (defers start to the worker phase).
+func writeStripeUnit(siteName, apiKey, forwardTo string) error {
 	unitName := "lerd-stripe-" + siteName
 	containerName := unitName
 
@@ -124,7 +127,14 @@ WantedBy=default.target
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
 	}
+	return nil
+}
 
+func stripeStartExplicit(siteName, apiKey, forwardTo string) error {
+	if err := writeStripeUnit(siteName, apiKey, forwardTo); err != nil {
+		return err
+	}
+	unitName := "lerd-stripe-" + siteName
 	if err := services.Mgr.Start(unitName); err != nil {
 		return fmt.Errorf("starting stripe listener: %w", err)
 	}
@@ -146,6 +156,17 @@ func StripeStartForSite(siteName, sitePath, siteBaseURL string) error {
 	}
 	_ = config.AddProjectWorker(sitePath, "stripe")
 	return nil
+}
+
+// StripeRestoreUnit writes the stripe listener unit without starting it.
+// Used by install's restore path so workers launch in phase order — FPM and
+// nginx come up first, then `startRestoredServices` starts every worker.
+func StripeRestoreUnit(siteName, sitePath, siteBaseURL string) error {
+	apiKey := envfile.ReadKey(filepath.Join(sitePath, ".env"), "STRIPE_SECRET")
+	if apiKey == "" {
+		return fmt.Errorf("STRIPE_SECRET not set in %s/.env", sitePath)
+	}
+	return writeStripeUnit(siteName, apiKey, siteBaseURL+"/stripe/webhook")
 }
 
 // StripeStopForSite stops and removes the Stripe listener for the named site.

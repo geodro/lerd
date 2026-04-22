@@ -3,7 +3,9 @@ package podman
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,10 +14,10 @@ import (
 // common defaults (fd00::, fd00:beef::, etc.).
 const LerdULAv6Subnet = "fd00:1e7d::/64"
 
-// ErrNetworkNeedsMigration is returned by EnsureNetwork when an existing lerd
-// network is missing the IPv6 subnet and must be recreated. Callers should
-// run MigrateNetworkToIPv6 (or equivalent) and then retry EnsureNetwork.
-var ErrNetworkNeedsMigration = errors.New("lerd network exists without IPv6, migration required")
+// ErrNetworkNeedsMigration is returned when the lerd network needs a destroy
+// + recreate: either it has no IPv6 subnet, or aardvark-dns's listen line
+// has drifted to v4-only. Callers should run MigrateNetworkToIPv6 and retry.
+var ErrNetworkNeedsMigration = errors.New("lerd network needs recreate to reach dual-stack (v4-only subnet, or drifted aardvark listen)")
 
 // NetworkGateway returns the gateway IP of the named Podman network.
 // Falls back to "127.0.0.1" if it cannot be determined. When the network has
@@ -58,8 +60,8 @@ func NetworkHasIPv6(name string) bool {
 }
 
 // EnsureNetwork creates the named podman network dual-stack if it doesn't
-// exist. Returns ErrNetworkNeedsMigration if it exists v4-only; the caller
-// should run MigrateNetworkToIPv6 and retry.
+// exist. Returns ErrNetworkNeedsMigration when the network exists but is
+// v4-only or has drifted aardvark state; caller should migrate and retry.
 func EnsureNetwork(name string) error {
 	out, err := Run("network", "ls", "--format={{.Name}}")
 	if err != nil {
@@ -68,10 +70,13 @@ func EnsureNetwork(name string) error {
 
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == name {
-			if NetworkHasIPv6(name) {
-				return nil
+			if !NetworkHasIPv6(name) {
+				return ErrNetworkNeedsMigration
 			}
-			return ErrNetworkNeedsMigration
+			if AardvarkNetworkDrifted(name) {
+				return ErrNetworkNeedsMigration
+			}
+			return nil
 		}
 	}
 
@@ -80,6 +85,59 @@ func EnsureNetwork(name string) error {
 		"--ipv6",
 		"--subnet", LerdULAv6Subnet,
 		name)
+}
+
+// aardvarkConfigPath returns the on-disk path to aardvark-dns's config file
+// for the named network. Prefers XDG_RUNTIME_DIR; falls back to the rootless
+// runtime dir convention /run/user/<uid>.
+func aardvarkConfigPath(name string) string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "containers/networks/aardvark-dns", name)
+	}
+	return fmt.Sprintf("/run/user/%d/containers/networks/aardvark-dns/%s", os.Getuid(), name)
+}
+
+// aardvarkListenHasV6 reports whether the first line of an aardvark-dns
+// config file contains a v6 address in its listen-ips field. First line
+// format: "<listen-ip>[,<listen-ip>...] <forwarder-ip>...".
+func aardvarkListenHasV6(firstLine string) bool {
+	fields := strings.Fields(firstLine)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, ip := range strings.Split(fields[0], ",") {
+		if strings.Contains(ip, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+// AardvarkNetworkDrifted returns true when the named network is dual-stack
+// but aardvark-dns's on-disk listen line is v4-only, which stalls every
+// lookup ~5s. Returns false when the config file is absent (fresh / macOS).
+func AardvarkNetworkDrifted(name string) bool {
+	if !NetworkHasIPv6(name) {
+		return false
+	}
+	data, err := os.ReadFile(aardvarkConfigPath(name))
+	if err != nil {
+		return false
+	}
+	firstLine := data
+	if i := strings.IndexByte(string(data), '\n'); i >= 0 {
+		firstLine = data[:i]
+	}
+	return !aardvarkListenHasV6(string(firstLine))
+}
+
+// RemoveNetwork force-removes the named podman network and wipes the stale
+// aardvark-dns runtime file; the file outlives `podman network rm` and its
+// listen-ips header would otherwise contaminate the next same-name network.
+func RemoveNetwork(name string) error {
+	err := RunSilent("network", "rm", "--force", name)
+	_ = os.Remove(aardvarkConfigPath(name))
+	return err
 }
 
 // MigrateNetworkToIPv6 stops and removes containers attached to the named
@@ -112,7 +170,7 @@ func MigrateNetworkToIPv6(name string) ([]string, error) {
 		_ = RunSilent("rm", "--force", c)
 	}
 
-	if err := RunSilent("network", "rm", "--force", name); err != nil {
+	if err := RemoveNetwork(name); err != nil {
 		return attached, fmt.Errorf("removing %s: %w", name, err)
 	}
 
