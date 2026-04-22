@@ -173,7 +173,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 			if site.Paused || site.Ignored {
 				continue
 			}
-			if site.IsCustomContainer() {
+			switch {
+			case site.IsCustomContainer():
 				if site.Secured {
 					if err := nginx.GenerateCustomSSLVhost(site); err != nil {
 						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
@@ -188,7 +189,22 @@ func runInstall(_ *cobra.Command, _ []string) error {
 						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
 					}
 				}
-			} else {
+			case site.IsFrankenPHP():
+				if site.Secured {
+					if err := nginx.GenerateFrankenPHPSSLVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+						continue
+					}
+					sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+					mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+					os.Remove(mainConf)          //nolint:errcheck
+					os.Rename(sslConf, mainConf) //nolint:errcheck
+				} else {
+					if err := nginx.GenerateFrankenPHPVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+					}
+				}
+			default:
 				phpVer := site.PHPVersion
 				if phpVer == "" && cfg != nil {
 					phpVer = cfg.PHP.DefaultVersion
@@ -597,8 +613,9 @@ func runInstall(_ *cobra.Command, _ []string) error {
 }
 
 // refreshUnreferencedCustomQuadlets rewrites quadlets for globally installed
-// custom services and per-site custom containers that the per-site walk would
-// otherwise skip, so the v4→v6 migration reaches every managed container.
+// custom services, per-site custom containers, and per-site FrankenPHP
+// containers that the earlier per-site walk would otherwise skip, so the v4→v6
+// migration and other quadlet-schema changes reach every managed container.
 func refreshUnreferencedCustomQuadlets(seenSvc map[string]bool, reg *config.SiteRegistry) {
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, svc := range customs {
@@ -613,11 +630,21 @@ func refreshUnreferencedCustomQuadlets(seenSvc map[string]bool, reg *config.Site
 		return
 	}
 	for _, s := range reg.Sites {
-		if s.Paused || s.Ignored || !s.IsCustomContainer() {
+		if s.Paused || s.Ignored {
 			continue
 		}
-		if err := podman.WriteCustomContainerQuadlet(s.Name, s.Path, s.ContainerPort); err != nil {
-			fmt.Printf("  WARN: refreshing %s quadlet: %v\n", podman.CustomContainerName(s.Name), err)
+		switch {
+		case s.IsCustomContainer():
+			if err := podman.WriteCustomContainerQuadlet(s.Name, s.Path, s.ContainerPort); err != nil {
+				fmt.Printf("  WARN: refreshing %s quadlet: %v\n", podman.CustomContainerName(s.Name), err)
+			}
+		case s.IsFrankenPHP():
+			fw, _ := config.GetFrameworkForDir(s.Framework, s.Path)
+			entrypoint := fw.FrankenPHPEntrypoint(s.RuntimeWorker)
+			env := fw.FrankenPHPEnv(s.RuntimeWorker)
+			if err := podman.WriteFrankenPHPQuadlet(s.Name, s.Path, s.PHPVersion, entrypoint, env); err != nil {
+				fmt.Printf("  WARN: refreshing %s quadlet: %v\n", podman.FrankenPHPContainerName(s.Name), err)
+			}
 		}
 	}
 }
