@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +50,7 @@ jobs:
           path: docs/.vitepress/dist
 
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -142,7 +142,7 @@ brews:
     homepage: "https://github.com/geodro/lerd"
     description: "Local Laravel development environment for Linux and macOS"
     license: "MIT"
-    skip_upload: false
+    skip_upload: auto
     dependencies:
       - name: podman
     install: |
