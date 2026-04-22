@@ -161,3 +161,18 @@ func TestExecEnvCheck_missingKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestToolList_underSizeCeiling guards against regrowth of the tools/list
+// manifest sent on every MCP session. Every byte above the ceiling is in
+// context for the whole session; raise the ceiling only with a justified
+// content addition, not by accreting description verbosity.
+func TestToolList_underSizeCeiling(t *testing.T) {
+	const ceiling = 17000
+	got, err := json.Marshal(toolList())
+	if err != nil {
+		t.Fatalf("marshal tool list: %v", err)
+	}
+	if len(got) > ceiling {
+		t.Errorf("toolList JSON is %d bytes, ceiling is %d — trim before raising", len(got), ceiling)
+	}
+}

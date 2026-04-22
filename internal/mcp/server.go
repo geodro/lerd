@@ -146,7 +146,7 @@ type mcpSchema struct {
 
 type mcpProp struct {
 	Type        string   `json:"type"`
-	Description string   `json:"description"`
+	Description string   `json:"description,omitempty"`
 	Enum        []string `json:"enum,omitempty"`
 }
 
@@ -249,19 +249,12 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_control",
-			Description: "Control a lerd service: start, stop, pin (never auto-stop), unpin.",
+			Description: "Service control. pin = never auto-stop.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "start, stop, pin, or unpin.",
-						Enum:        []string{"start", "stop", "pin", "unpin"},
-					},
-					"name": {
-						Type:        "string",
-						Description: "Service name (mysql, redis, postgres, meilisearch, rustfs, mailpit, or custom).",
-					},
+					"action": {Type: "string", Enum: []string{"start", "stop", "pin", "unpin"}},
+					"name":   {Type: "string", Description: "Built-in or custom service name."},
 				},
 				Required: []string{"action", "name"},
 			},
@@ -272,32 +265,19 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"target": {
-						Type:        "string",
-						Description: "nginx, service, PHP version (8.4), or site name. Defaults to current site's FPM.",
-					},
-					"lines": {
-						Type:        "integer",
-						Description: "Tail line count (default 50).",
-					},
+					"target": {Type: "string", Description: "nginx, service, PHP version, or site name. Defaults to current FPM."},
+					"lines":  {Type: "integer", Description: "Tail count (default 50)."},
 				},
-				Required: []string{},
 			},
 		},
 		{
 			Name:        "composer",
-			Description: "Run a Composer command in the project's PHP-FPM container.",
+			Description: "Run composer in the PHP-FPM container.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"args": {
-						Type:        "array",
-						Description: `Composer arguments, e.g. ["install"], ["require", "laravel/sanctum"].`,
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
+					"args": {Type: "array", Description: `e.g. ["install"] or ["require", "laravel/sanctum"].`},
 				},
 				Required: []string{"args"},
 			},
@@ -308,10 +288,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 				},
 			},
 		},
@@ -321,18 +298,9 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"bin": {
-						Type:        "string",
-						Description: "Binary name (pest, phpunit, pint, etc.).",
-					},
-					"args": {
-						Type:        "array",
-						Description: `Arguments to pass, e.g. ["--filter", "UserTest"].`,
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
+					"bin":  {Type: "string", Description: "Binary name (pest, phpunit, pint, …)."},
+					"args": {Type: "array", Description: "Arguments to pass."},
 				},
 				Required: []string{"bin"},
 			},
@@ -343,15 +311,8 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "install or uninstall.",
-						Enum:        []string{"install", "uninstall"},
-					},
-					"version": {
-						Type:        "string",
-						Description: "Node.js version or alias (e.g. 20, 20.11.0, lts).",
-					},
+					"action":  {Type: "string", Enum: []string{"install", "uninstall"}},
+					"version": {Type: "string", Description: "Version or alias (e.g. 20, 20.11.0, lts)."},
 				},
 				Required: []string{"action", "version"},
 			},
@@ -382,46 +343,19 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_add",
-			Description: "Register a custom OCI service (writes systemd quadlet). For bundled presets (mongo, phpmyadmin, mariadb, etc.) use service_preset_install.",
+			Description: "Register a custom OCI service (writes a systemd quadlet). Use service_preset_install for bundled presets.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: "Service slug (lowercase, hyphens; e.g. mongodb).",
-					},
-					"image": {
-						Type:        "string",
-						Description: "OCI image reference (e.g. docker.io/library/mongo:7).",
-					},
-					"ports": {
-						Type:        "array",
-						Description: `Port mappings host:container, e.g. ["27017:27017"].`,
-					},
-					"environment": {
-						Type:        "array",
-						Description: `Container env, ["KEY=VALUE", ...].`,
-					},
-					"env_vars": {
-						Type:        "array",
-						Description: `Project .env keys to inject, ["KEY=VALUE", ...].`,
-					},
-					"data_dir": {
-						Type:        "string",
-						Description: "Container path for persistent data (host dir auto-created).",
-					},
-					"description": {
-						Type:        "string",
-						Description: "Human-readable description.",
-					},
-					"dashboard": {
-						Type:        "string",
-						Description: "Web dashboard URL (optional).",
-					},
-					"depends_on": {
-						Type:        "array",
-						Description: `Services that must start first, e.g. ["mysql"].`,
-					},
+					"name":        {Type: "string", Description: "Service slug (lowercase, hyphens)."},
+					"image":       {Type: "string", Description: "OCI image reference."},
+					"ports":       {Type: "array", Description: `host:container mappings, e.g. ["27017:27017"].`},
+					"environment": {Type: "array", Description: `Container env ["KEY=VALUE", ...].`},
+					"env_vars":    {Type: "array", Description: `Project .env keys to inject ["KEY=VALUE", ...].`},
+					"data_dir":    {Type: "string", Description: "Container path for persistent data."},
+					"description": {Type: "string", Description: "Human-readable description."},
+					"dashboard":   {Type: "string", Description: "Web dashboard URL."},
+					"depends_on":  {Type: "array", Description: `Services that must start first, e.g. ["mysql"].`},
 				},
 				Required: []string{"name", "image"},
 			},
@@ -442,22 +376,13 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_expose",
-			Description: "Add or remove a published port on a built-in service. Persists to config; restarts if running.",
+			Description: "Add or remove a published port on a built-in service.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: "Built-in service (mysql, redis, postgres, meilisearch, rustfs, mailpit).",
-					},
-					"port": {
-						Type:        "string",
-						Description: `Port mapping "host:container", e.g. "13306:3306".`,
-					},
-					"remove": {
-						Type:        "boolean",
-						Description: "Set true to remove the mapping.",
-					},
+					"name":   {Type: "string", Description: "mysql, redis, postgres, meilisearch, rustfs, mailpit."},
+					"port":   {Type: "string", Description: `"host:container" (e.g. "13306:3306").`},
+					"remove": {Type: "boolean", Description: "Set true to remove the mapping."},
 				},
 				Required: []string{"name", "port"},
 			},
@@ -486,18 +411,12 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_preset_install",
-			Description: "Install a bundled preset. Multi-version presets (mysql, mariadb) need version. Preset dependencies (e.g. mongo for mongo-express) must be installed first. Call service_preset_list first.",
+			Description: "Install a bundled preset (call service_preset_list first). Multi-version presets need version. Install any preset-dependency first.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: "Preset name (e.g. phpmyadmin, mongo, mysql, mariadb).",
-					},
-					"version": {
-						Type:        "string",
-						Description: "Version for multi-version presets (e.g. 5.7, 11). Required when the preset has versions.",
-					},
+					"name":    {Type: "string", Description: "Preset name (from service_preset_list)."},
+					"version": {Type: "string", Description: "Required for multi-version presets (mysql, mariadb)."},
 				},
 				Required: []string{"name"},
 			},
@@ -508,28 +427,18 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 				},
 			},
 		},
 		{
 			Name:        "db_set",
-			Description: "Pick the project database (sqlite/mysql/postgres). Persists to .lerd.yaml, rewrites DB_ keys, starts service, creates DB + _testing. Exclusive. Call before env_setup on fresh clones.",
+			Description: "Pick the project database. Persists to .lerd.yaml, rewrites DB_ keys in .env, starts service, creates DB + _testing. Call before env_setup on fresh clones.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"database": {
-						Type:        "string",
-						Description: "Database choice.",
-						Enum:        []string{"sqlite", "mysql", "postgres"},
-					},
+					"path":     {Type: "string", Description: "Project root."},
+					"database": {Type: "string", Enum: []string{"sqlite", "mysql", "postgres"}},
 				},
 				Required: []string{"database"},
 			},
@@ -540,27 +449,18 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 				},
 			},
 		},
 		{
 			Name:        "site_link",
-			Description: "Register a directory as a lerd site (nginx vhost + <name>.test). Non-PHP sites need .lerd.yaml with container.port and a Containerfile first; see the lerd skill.",
+			Description: "Register a directory as a lerd site. Non-PHP sites need .lerd.yaml container.port + Containerfile first.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project directory (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"name": {
-						Type:        "string",
-						Description: "Domain without .test TLD (defaults to cleaned dir name).",
-					},
+					"path": {Type: "string", Description: "Project directory. Defaults to cwd."},
+					"name": {Type: "string", Description: "Without .test TLD. Defaults to dir name."},
 				},
 			},
 		},
@@ -570,74 +470,44 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project directory (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project directory. Defaults to cwd."},
 				},
 			},
 		},
 		{
 			Name:        "site_domain",
-			Description: "Add or remove a domain on a site (without .test TLD). Cannot remove the last domain.",
+			Description: "Add or remove a site domain (no .test TLD). Can't remove the last one.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "add or remove.",
-						Enum:        []string{"add", "remove"},
-					},
-					"path": {
-						Type:        "string",
-						Description: "Project directory (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"domain": {
-						Type:        "string",
-						Description: "Domain without .test TLD.",
-					},
+					"action": {Type: "string", Enum: []string{"add", "remove"}},
+					"path":   {Type: "string", Description: "Project directory."},
+					"domain": {Type: "string", Description: "Without .test TLD."},
 				},
 				Required: []string{"action", "domain"},
 			},
 		},
 		{
 			Name:        "site_tls",
-			Description: "Enable or disable HTTPS for a site (mkcert cert). Updates APP_URL in .env.",
+			Description: "Toggle HTTPS for a site (mkcert). Updates APP_URL in .env.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "enable or disable.",
-						Enum:        []string{"enable", "disable"},
-					},
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
+					"action": {Type: "string", Enum: []string{"enable", "disable"}},
+					"site":   {Type: "string"},
 				},
 				Required: []string{"action", "site"},
 			},
 		},
 		{
 			Name:        "xdebug",
-			Description: "Xdebug control: on (enable + restart FPM, port 9003), off (disable + restart), status (all versions).",
+			Description: "Xdebug control on port 9003. on/off restarts FPM; status reports all versions.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "on, off, or status.",
-						Enum:        []string{"on", "off", "status"},
-					},
-					"version": {
-						Type:        "string",
-						Description: "PHP version (defaults to project/global). Ignored for action=status.",
-					},
-					"mode": {
-						Type:        "string",
-						Description: "xdebug.mode for action=on: debug, coverage, develop, profile, trace, gcstats (combinable). Default debug.",
-					},
+					"action":  {Type: "string", Enum: []string{"on", "off", "status"}},
+					"version": {Type: "string", Description: "PHP version. Ignored for status."},
+					"mode":    {Type: "string", Description: "debug (default) | coverage | develop | profile | trace | gcstats. Combinable."},
 				},
 				Required: []string{"action"},
 			},
@@ -648,18 +518,9 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"database": {
-						Type:        "string",
-						Description: "Database name (defaults to DB_DATABASE).",
-					},
-					"output": {
-						Type:        "string",
-						Description: "Output path (defaults to <database>.sql in the project root).",
-					},
+					"path":     {Type: "string", Description: "Project root."},
+					"database": {Type: "string", Description: "Defaults to DB_DATABASE."},
+					"output":   {Type: "string", Description: "Defaults to <database>.sql in project root."},
 				},
 			},
 		},
@@ -669,18 +530,9 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
-					"file": {
-						Type:        "string",
-						Description: "SQL dump file path.",
-					},
-					"database": {
-						Type:        "string",
-						Description: "Target database (defaults to DB_DATABASE).",
-					},
+					"path":     {Type: "string", Description: "Project root."},
+					"file":     {Type: "string", Description: "SQL dump file path."},
+					"database": {Type: "string", Description: "Defaults to DB_DATABASE."},
 				},
 				Required: []string{"file"},
 			},
@@ -691,10 +543,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 					"name": {
 						Type:        "string",
 						Description: "Database name (defaults to DB_DATABASE, then project dir name).",
@@ -712,52 +561,32 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "php_ext",
-			Description: "Manage custom PHP extensions: list, add (rebuild FPM; slow), remove (rebuild FPM).",
+			Description: "Manage custom PHP extensions. add/remove rebuild FPM (slow).",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "list, add, or remove.",
-						Enum:        []string{"list", "add", "remove"},
-					},
-					"extension": {
-						Type:        "string",
-						Description: "Extension name (required for add/remove; e.g. imagick, redis, swoole).",
-					},
-					"version": {
-						Type:        "string",
-						Description: "PHP version (defaults to project/global).",
-					},
+					"action":    {Type: "string", Enum: []string{"list", "add", "remove"}},
+					"extension": {Type: "string", Description: "Required for add/remove (e.g. imagick, redis, swoole)."},
+					"version":   {Type: "string", Description: "PHP version. Defaults to project/global."},
 				},
 				Required: []string{"action"},
 			},
 		},
 		{
 			Name:        "park",
-			Description: "Register a parent directory as a park: auto-registers all PHP projects under it as sites.",
+			Description: "Register a parent directory as a park (auto-registers all PHP projects under it).",
 			InputSchema: mcpSchema{
-				Type: "object",
-				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Parent directory (defaults to LERD_SITE_PATH or cwd).",
-					},
-				},
+				Type:       "object",
+				Properties: map[string]mcpProp{"path": {Type: "string", Description: "Parent directory."}},
 			},
 		},
 		{
 			Name:        "unpark",
 			Description: "Remove a parked directory and unlink sites under it. Project files are kept.",
 			InputSchema: mcpSchema{
-				Type: "object",
-				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Parked directory path.",
-					},
-				},
-				Required: []string{"path"},
+				Type:       "object",
+				Properties: map[string]mcpProp{"path": {Type: "string", Description: "Parked directory path."}},
+				Required:   []string{"path"},
 			},
 		},
 		{
@@ -766,10 +595,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 				},
 			},
 		},
@@ -779,10 +605,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 				},
 			},
 		},
@@ -814,15 +637,8 @@ func toolList() []mcpTool {
 				InputSchema: mcpSchema{
 					Type: "object",
 					Properties: map[string]mcpProp{
-						"action": {
-							Type:        "string",
-							Description: "start or stop.",
-							Enum:        []string{"start", "stop"},
-						},
-						"site": {
-							Type:        "string",
-							Description: "Site name (from sites).",
-						},
+						"action": {Type: "string", Enum: []string{"start", "stop"}},
+						"site":   {Type: "string", Description: "Site name (from sites)."},
 						"queue": {
 							Type:        "string",
 							Description: `Queue name for action=start (default "default").`,
@@ -845,15 +661,8 @@ func toolList() []mcpTool {
 				InputSchema: mcpSchema{
 					Type: "object",
 					Properties: map[string]mcpProp{
-						"action": {
-							Type:        "string",
-							Description: "start or stop.",
-							Enum:        []string{"start", "stop"},
-						},
-						"site": {
-							Type:        "string",
-							Description: "Site name (from sites).",
-						},
+						"action": {Type: "string", Enum: []string{"start", "stop"}},
+						"site":   {Type: "string", Description: "Site name (from sites)."},
 					},
 					Required: []string{"action", "site"},
 				},
@@ -864,15 +673,8 @@ func toolList() []mcpTool {
 				InputSchema: mcpSchema{
 					Type: "object",
 					Properties: map[string]mcpProp{
-						"action": {
-							Type:        "string",
-							Description: "start or stop.",
-							Enum:        []string{"start", "stop"},
-						},
-						"site": {
-							Type:        "string",
-							Description: "Site name (from sites).",
-						},
+						"action": {Type: "string", Enum: []string{"start", "stop"}},
+						"site":   {Type: "string", Description: "Site name (from sites)."},
 					},
 					Required: []string{"action", "site"},
 				},
@@ -883,42 +685,22 @@ func toolList() []mcpTool {
 				InputSchema: mcpSchema{
 					Type: "object",
 					Properties: map[string]mcpProp{
-						"action": {
-							Type:        "string",
-							Description: "start or stop.",
-							Enum:        []string{"start", "stop"},
-						},
-						"site": {
-							Type:        "string",
-							Description: "Site name (from sites).",
-						},
+						"action": {Type: "string", Enum: []string{"start", "stop"}},
+						"site":   {Type: "string", Description: "Site name (from sites)."},
 					},
 					Required: []string{"action", "site"},
 				},
 			},
 			mcpTool{
 				Name:        "stripe",
-				Description: "Start or stop a Stripe webhook listener for a site. Reads STRIPE_SECRET from .env.",
+				Description: "Start or stop a Stripe webhook listener. Reads STRIPE_SECRET from .env.",
 				InputSchema: mcpSchema{
 					Type: "object",
 					Properties: map[string]mcpProp{
-						"action": {
-							Type:        "string",
-							Description: "start or stop.",
-							Enum:        []string{"start", "stop"},
-						},
-						"site": {
-							Type:        "string",
-							Description: "Site name (from sites).",
-						},
-						"api_key": {
-							Type:        "string",
-							Description: "Stripe secret key for action=start (defaults to STRIPE_SECRET in .env).",
-						},
-						"webhook_path": {
-							Type:        "string",
-							Description: "Webhook path for action=start (default /stripe/webhook).",
-						},
+						"action":       {Type: "string", Enum: []string{"start", "stop"}},
+						"site":         {Type: "string"},
+						"api_key":      {Type: "string", Description: "Defaults to STRIPE_SECRET."},
+						"webhook_path": {Type: "string", Description: "Default /stripe/webhook."},
 					},
 					Required: []string{"action", "site"},
 				},
@@ -933,10 +715,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "Project root (defaults to LERD_SITE_PATH or cwd).",
-					},
+					"path": {Type: "string", Description: "Project root. Defaults to cwd."},
 					"args": {
 						Type:        "array",
 						Description: fmt.Sprintf(`Console arguments, e.g. ["%s", "cache:clear"].`, fw.Console),
@@ -950,23 +729,13 @@ func toolList() []mcpTool {
 	tools = append(tools,
 		mcpTool{
 			Name:        "worker",
-			Description: "Start or stop a framework-defined worker for a site (systemd user service). Call worker_list first.",
+			Description: "Start or stop a framework-defined worker. Call worker_list first.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "start or stop.",
-						Enum:        []string{"start", "stop"},
-					},
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
-					"worker": {
-						Type:        "string",
-						Description: "Worker name (e.g. messenger, horizon, pulse).",
-					},
+					"action": {Type: "string", Enum: []string{"start", "stop"}},
+					"site":   {Type: "string"},
+					"worker": {Type: "string", Description: "e.g. messenger, horizon, pulse."},
 				},
 				Required: []string{"action", "site", "worker"},
 			},
@@ -977,45 +746,42 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
+					"site": {Type: "string", Description: "Site name (from sites)."},
 				},
 				Required: []string{"site"},
 			},
 		},
 		mcpTool{
 			Name:        "worker_add",
-			Description: "Add or update a custom worker. Saves to .lerd.yaml (or global overlay with global=true). Use worker_start to run.",
+			Description: "Add or update a custom worker. Saves to .lerd.yaml (global=true → user overlay). Start via worker.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"site":               {Type: "string", Description: "Site name (from sites)."},
-					"name":               {Type: "string", Description: "Worker slug (e.g. pdf-generator)."},
-					"command":            {Type: "string", Description: "Command (runs in PHP-FPM container)."},
+					"name":               {Type: "string", Description: "Worker slug."},
+					"command":            {Type: "string", Description: "Command run in PHP-FPM container."},
 					"label":              {Type: "string", Description: "Human-readable label."},
-					"restart":            {Type: "string", Description: "Restart policy: always | on-failure (default always)."},
-					"check_file":         {Type: "string", Description: "Show only when this file exists."},
-					"check_composer":     {Type: "string", Description: "Show only when this Composer package is installed."},
+					"restart":            {Type: "string", Description: "always (default) | on-failure."},
+					"check_file":         {Type: "string", Description: "Show only if this file exists."},
+					"check_composer":     {Type: "string", Description: "Show only if this Composer package is installed."},
 					"conflicts_with":     {Type: "array", Description: "Workers to stop before starting this one."},
 					"proxy_path":         {Type: "string", Description: "URL path to proxy (e.g. /app)."},
 					"proxy_port_env_key": {Type: "string", Description: "Env key holding the worker port."},
-					"proxy_default_port": {Type: "number", Description: "Default port if env key is missing."},
-					"global":             {Type: "boolean", Description: "Save to global overlay instead of .lerd.yaml."},
+					"proxy_default_port": {Type: "number", Description: "Fallback port when env key is unset."},
+					"global":             {Type: "boolean", Description: "Save to user overlay."},
 				},
 				Required: []string{"site", "name", "command"},
 			},
 		},
 		mcpTool{
 			Name:        "worker_remove",
-			Description: "Remove a custom worker (from .lerd.yaml or global overlay). Stops if running.",
+			Description: "Remove a custom worker. Stops if running.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site":   {Type: "string", Description: "Site name (from sites)."},
+					"site":   {Type: "string"},
 					"name":   {Type: "string", Description: "Worker name."},
-					"global": {Type: "boolean", Description: "Remove from global overlay instead of .lerd.yaml."},
+					"global": {Type: "boolean", Description: "Target user overlay."},
 				},
 				Required: []string{"site", "name"},
 			},
@@ -1027,76 +793,34 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "framework_add",
-			Description: "Create or update a framework definition. For name=laravel, only workers/setup are merged into the built-in.",
+			Description: "Create or update a framework definition. name=laravel merges workers/setup into the built-in.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: `Framework slug. "laravel" adds workers to Laravel; others: symfony, wordpress, drupal, etc.`,
-					},
-					"label": {
-						Type:        "string",
-						Description: "Human-readable name (e.g. Symfony).",
-					},
-					"public_dir": {
-						Type:        "string",
-						Description: `Document root (e.g. "public", "web", ".").`,
-					},
-					"detect_files": {
-						Type:        "array",
-						Description: `Filenames that signal this framework, e.g. ["wp-login.php"].`,
-					},
-					"detect_packages": {
-						Type:        "array",
-						Description: `Composer packages that signal this framework, e.g. ["symfony/framework-bundle"].`,
-					},
-					"env_file": {
-						Type:        "string",
-						Description: `Primary env file (default ".env").`,
-					},
-					"env_format": {
-						Type:        "string",
-						Description: `Env format: "dotenv" (default) or "php-const".`,
-					},
-					"env_fallback_file": {
-						Type:        "string",
-						Description: `Fallback env file (e.g. "wp-config.php").`,
-					},
-					"env_fallback_format": {
-						Type:        "string",
-						Description: "Format for fallback env file.",
-					},
-					"workers": {
-						Type:        "object",
-						Description: `Map of worker name → {label, command, restart, check?}. check: {file} or {composer}.`,
-					},
-					"setup": {
-						Type:        "array",
-						Description: `List of {label, command, default?, check?} shown in lerd setup.`,
-					},
-					"logs": {
-						Type:        "array",
-						Description: `List of {path, format?} for the log viewer. format: "monolog" or "raw".`,
-					},
+					"name":                {Type: "string", Description: `Framework slug (e.g. "laravel", "symfony", "wordpress").`},
+					"label":               {Type: "string", Description: "Human-readable name."},
+					"public_dir":          {Type: "string", Description: "Document root."},
+					"detect_files":        {Type: "array", Description: "Filenames that signal this framework."},
+					"detect_packages":     {Type: "array", Description: "Composer packages that signal this framework."},
+					"env_file":            {Type: "string", Description: `Primary env file (default ".env").`},
+					"env_format":          {Type: "string", Description: "dotenv (default) or php-const."},
+					"env_fallback_file":   {Type: "string", Description: `Secondary env file (e.g. "wp-config.php").`},
+					"env_fallback_format": {Type: "string", Description: "Format for the fallback file."},
+					"workers":             {Type: "object", Description: "Map of name → {label, command, restart, check?}."},
+					"setup":               {Type: "array", Description: "{label, command, default?, check?} entries."},
+					"logs":                {Type: "array", Description: `{path, format?: "monolog"|"raw"} entries.`},
 				},
 				Required: []string{"name"},
 			},
 		},
 		mcpTool{
 			Name:        "framework_remove",
-			Description: "Delete a framework definition. For laravel, removes only custom additions. Omit version to remove all.",
+			Description: "Delete a framework. For laravel, removes only custom additions.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: "Framework name (e.g. symfony).",
-					},
-					"version": {
-						Type:        "string",
-						Description: "Version to remove (e.g. 7). Omit for all.",
-					},
+					"name":    {Type: "string", Description: "Framework slug."},
+					"version": {Type: "string", Description: "Optional. Omit to remove all versions."},
 				},
 				Required: []string{"name"},
 			},
@@ -1135,22 +859,13 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "project_new",
-			Description: "Scaffold a new PHP project with a framework's create command (default laravel). Follow with site_link.",
+			Description: "Scaffold a new PHP project via framework create command (default laravel). Follow with site_link.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"path": {
-						Type:        "string",
-						Description: "New project directory path.",
-					},
-					"framework": {
-						Type:        "string",
-						Description: `Framework (default "laravel"). Needs a 'create' field defined.`,
-					},
-					"args": {
-						Type:        "array",
-						Description: `Extra args for the scaffold command, e.g. ["--no-interaction"].`,
-					},
+					"path":      {Type: "string", Description: "New project directory."},
+					"framework": {Type: "string", Description: `Defaults to "laravel".`},
+					"args":      {Type: "array", Description: "Extra args for the scaffold command."},
 				},
 				Required: []string{"path"},
 			},
@@ -1161,10 +876,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
+					"site": {Type: "string", Description: "Site name (from sites)."},
 					"version": {
 						Type:        "string",
 						Description: "PHP version (e.g. 8.4, 8.3).",
@@ -1179,10 +891,7 @@ func toolList() []mcpTool {
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
+					"site": {Type: "string", Description: "Site name (from sites)."},
 					"version": {
 						Type:        "string",
 						Description: "Node.js version (e.g. 22, 20, lts).",
@@ -1193,42 +902,25 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_control",
-			Description: "Control a site's container: pause (stop workers + landing-page vhost), unpause (resume), restart (no rebuild), rebuild (rebuild image + restart; custom container only, PHP sites use php_ext).",
+			Description: "pause (stop workers + landing vhost), unpause, restart (no rebuild), rebuild (image rebuild + restart; custom containers only).",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {
-						Type:        "string",
-						Description: "pause, unpause, restart, or rebuild.",
-						Enum:        []string{"pause", "unpause", "restart", "rebuild"},
-					},
-					"site": {
-						Type:        "string",
-						Description: "Site name (from sites).",
-					},
+					"action": {Type: "string", Enum: []string{"pause", "unpause", "restart", "rebuild"}},
+					"site":   {Type: "string"},
 				},
 				Required: []string{"action", "site"},
 			},
 		},
 		mcpTool{
 			Name:        "site_runtime",
-			Description: "Switch the PHP runtime for a site. `fpm` (default) uses the shared PHP-FPM container; `frankenphp` spins up a per-site dunglas/frankenphp container that keeps PHP resident. Worker mode is framework-aware: Laravel uses octane:start --workers=auto, Symfony uses frankenphp's --worker flag + --watch for live reload. Falls back to generic `frankenphp php-server` when the framework has no adapter.",
+			Description: "Switch between fpm (shared container) and frankenphp (per-site, keeps PHP resident). worker=true enables framework-aware worker mode.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {
-						Type:        "string",
-						Description: "Site name as shown by the sites tool",
-					},
-					"runtime": {
-						Type:        "string",
-						Enum:        []string{"fpm", "frankenphp"},
-						Description: "Target runtime: 'fpm' or 'frankenphp'",
-					},
-					"worker": {
-						Type:        "boolean",
-						Description: "When runtime=frankenphp, enable worker mode (PHP stays resident, faster but needs file-watch for dev). Ignored for fpm.",
-					},
+					"site":    {Type: "string"},
+					"runtime": {Type: "string", Enum: []string{"fpm", "frankenphp"}},
+					"worker":  {Type: "boolean", Description: "frankenphp worker mode. Ignored for fpm."},
 				},
 				Required: []string{"site", "runtime"},
 			},
