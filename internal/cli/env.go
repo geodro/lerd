@@ -198,26 +198,31 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// hasn't yet picked a DB service for this project, offer to swap sqlite for
 	// a lerd-managed mysql/postgres. Skipped for frameworks with explicit env
 	// service rules (e.g. wordpress, symfony) — they don't use DB_CONNECTION.
-	// "Keep SQLite" is persisted by adding "sqlite" to the project's services
-	// list so we don't re-ask on every subsequent `lerd env` run.
-	if len(fw.Env.Services) == 0 && isInteractive() &&
+	// Non-interactive callers (MCP, scripts) fall through to sqlite by default
+	// so they don't hit a 500 from the missing .sqlite file; the user can
+	// still switch later with `lerd db set mysql` or the db_set MCP tool.
+	if len(fw.Env.Services) == 0 &&
 		!lerdYAMLServices["mysql"] && !lerdYAMLServices["postgres"] && !lerdYAMLServices["sqlite"] &&
 		strings.EqualFold(strings.TrimSpace(envMap["DB_CONNECTION"]), "sqlite") {
 
 		dbChoice := "sqlite"
-		dbForm := huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Database").
-				Description(envRelPath+" uses SQLite. Use a lerd-managed database service instead?").
-				Options(
-					huh.NewOption("Keep SQLite", "sqlite"),
-					huh.NewOption("MySQL (lerd-mysql)", "mysql"),
-					huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
-				).
-				Value(&dbChoice),
-		)).WithTheme(huh.ThemeCatppuccin())
-		if err := dbForm.Run(); err != nil {
-			return fmt.Errorf("database prompt: %w", err)
+		if isInteractive() {
+			dbForm := huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("Database").
+					Description(envRelPath+" uses SQLite. Use a lerd-managed database service instead?").
+					Options(
+						huh.NewOption("Keep SQLite", "sqlite"),
+						huh.NewOption("MySQL (lerd-mysql)", "mysql"),
+						huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
+					).
+					Value(&dbChoice),
+			)).WithTheme(huh.ThemeCatppuccin())
+			if err := dbForm.Run(); err != nil {
+				return fmt.Errorf("database prompt: %w", err)
+			}
+		} else {
+			fmt.Println("  Defaulting to SQLite (non-interactive). Run `lerd db set <mysql|postgres>` or call db_set to switch.")
 		}
 
 		// Persist the choice to .lerd.yaml so future runs don't re-ask, and

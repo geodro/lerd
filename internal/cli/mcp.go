@@ -1142,20 +1142,46 @@ Returns: ` + bt + `{"version": "...", "checks": [{name, status, detail}], "failu
 
 Single-tool tasks are covered by the tool definitions above (e.g. ` + bt + `site_tls` + bt + ` enables HTTPS, ` + bt + `doctor` + bt + ` runs a full diagnostic, ` + bt + `logs` + bt + ` tails FPM/nginx). These flows only cover multi-step compositions where ordering or non-obvious glue matters.
 
-**New Laravel project from scratch:**
+**Bootstrap a new project from scratch** (any framework lerd knows, e.g. laravel, symfony):
 ` + "```" + `
-composer(args: ["create-project", "laravel/laravel", "."])
-site_link()           // registers the cwd as a lerd site
-env_setup()           // configures .env, starts services, creates DB, generates APP_KEY
-artisan(args: ["migrate"])
+project_new(path: "/abs/path/myapp", framework: "laravel")
+// project_new now runs composer install after scaffold, so vendor/ is ready
+site_link(path: "/abs/path/myapp")
+env_setup(path: "/abs/path/myapp")    // configures .env, starts services, creates/touches DB
+// Run migrations with the framework's own tool:
+artisan(args: ["migrate"])            // Laravel
+// console(args: ["doctrine:migrations:migrate"])  // Symfony
+// (skip for frameworks that don't use migrations)
+site_tls(action: "enable", site: "myapp")   // optional HTTPS
 ` + "```" + `
 
-**Cloned project setup:**
+**Set up a cloned project** (framework-agnostic):
 ` + "```" + `
-site_link()
-env_setup()                          // auto-configures .env, starts services, creates DB
+site_link()                           // registers cwd as a lerd site
+composer(args: ["install"])           // BEFORE env_setup — APP_KEY generation needs vendor/
+env_setup()                           // fills .env, starts services, creates/touches DB, APP_KEY
+// Run migrations with the framework's tool:
+artisan(args: ["migrate", "--seed"])  // Laravel
+// console(args: ["doctrine:migrations:migrate"])  // Symfony
+// vendor_run(bin: "<migrator>", ...) // any other project that needs migrations
+` + "```" + `
+
+**Debugging a 500 on a lerd site** (ordered, stop at the first signal):
+` + "```" + `
+logs()                                 // current site's FPM + recent errors
+logs(target: "nginx")                  // if FPM logs are clean
+env_check()                            // missing .env keys vs .env.example
+which()                                // confirm PHP version, docroot, vhost
+// If the error mentions vendor/, autoload, or class-not-found:
 composer(args: ["install"])
-artisan(args: ["migrate", "--seed"])
+// If the error mentions APP_KEY:
+artisan(args: ["key:generate"])        // or framework's equivalent
+// If the error mentions the database file / connection:
+//   sqlite: env_setup() now auto-creates database/database.sqlite
+//   mysql/postgres: service_control(action: "start", name: "<service>")
+artisan(args: ["migrate"])             // run pending migrations (or framework equivalent)
+status()                               // DNS / nginx / FPM container health at a glance
+doctor()                               // full diagnostic if nothing above explains it
 ` + "```" + `
 
 **Install a package that needs publish + migration:**

@@ -4126,8 +4126,45 @@ func execProjectNew(args map[string]any) (any, *rpcError) {
 	if err := cmd.Run(); err != nil {
 		return toolErr(fmt.Sprintf("scaffold command failed (%v):\n%s", err, stripANSI(out.String()))), nil
 	}
+
+	// Framework create commands use --no-install --no-plugins --no-scripts so
+	// the scaffolder doesn't race with lerd's post-link setup. Chase with
+	// `composer install` in the FPM container so project_new returns a
+	// ready-to-work vendor/ directory and any post-install scripts fire.
+	if composerErr := runComposerInstallIfNeeded(projectPath, &out); composerErr != nil {
+		return toolErr(fmt.Sprintf("scaffold succeeded but composer install failed: %v\n%s", composerErr, stripANSI(out.String()))), nil
+	}
+
 	return toolOK(fmt.Sprintf("Project created at %s\n\nNext steps:\n  site_link(path: %q)\n  env_setup(path: %q)\n\n%s",
 		projectPath, projectPath, projectPath, stripANSI(strings.TrimSpace(out.String())))), nil
+}
+
+// runComposerInstallIfNeeded runs `composer install` inside the FPM container
+// matching projectPath's PHP version when composer.json exists but vendor/
+// does not. Output is appended to the provided buffer.
+func runComposerInstallIfNeeded(projectPath string, out *bytes.Buffer) error {
+	if _, err := os.Stat(filepath.Join(projectPath, "composer.json")); err != nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(projectPath, "vendor")); err == nil {
+		return nil
+	}
+
+	phpVersion, err := phpDet.DetectVersion(projectPath)
+	if err != nil || phpVersion == "" {
+		cfg, cfgErr := config.LoadGlobal()
+		if cfgErr != nil || cfg == nil {
+			return fmt.Errorf("could not determine PHP version: %w", err)
+		}
+		phpVersion = cfg.PHP.DefaultVersion
+	}
+	container := "lerd-php" + strings.ReplaceAll(phpVersion, ".", "") + "-fpm"
+
+	out.WriteString("\n\n--- composer install ---\n")
+	cmd := podman.Cmd("exec", "-w", projectPath, container, "composer", "install", "--no-interaction")
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return cmd.Run()
 }
 
 func execSitePHP(args map[string]any) (any, *rpcError) {
