@@ -15,6 +15,27 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.18.0-beta.5] — 2026-04-23
+
+### Fixed
+
+- **`lerd lan:expose on` crashed nginx with `bind: address already in use`**. `PairIPv6Binds` paired bare / `0.0.0.0:X` PublishPort lines with `[::]:X`; on Linux default (`bindv6only=0`) the v6 dual-stack socket collides with the v4 bind on the same port, so nginx failed to start and every site plus `lerd.localhost` went offline. Bare / `0.0.0.0` is now rewritten to a single `[::]:X` dual-stack bind instead of paired. `BindForLAN` also flips the v6 stack in lockstep with v4 (`127.0.0.1 ↔ bare` and `[::1] ↔ [::]`) so toggling `lan:expose` from the dual-stack loopback state no longer leaves a stale `[::1]` line that dedups against the bare v4 and loses LAN reach. Loopback-only mode keeps the `127.0.0.1` + `[::1]` pair; LAN-exposed mode is `[::]` only.
+
+### Changed
+
+- **Settings page LAN and remote-dashboard copy** now says "loopback (`127.0.0.1` and `::1`)" instead of "127.0.0.1 only", matching the dual-stack reality since beta.1. Underlying auth gate (`isLoopbackRequest`) uses Go's `ip.IsLoopback()` so the "can't lock yourself out" guarantee already covers both stacks; only the text was stale.
+
+### Docs
+
+- New "Runtime" section in the commands reference covers `lerd runtime fpm|frankenphp` and its `--worker` / `--no-worker` flags.
+- Laravel and Symfony getting-started pages mention FrankenPHP / Octane / Symfony Runtime as optional alternatives to the shared PHP-FPM stack.
+- Herd comparison table gains a FrankenPHP / Octane row (Lerd: built-in, free; Herd: Pro-only).
+- Architecture dual-stack section and the remote-development "Security caveats" list note v4-only firewall rules bypass and globally-routable v6 SLAAC LAN reach.
+- Landing page: two-column hero for MCP + Rootless Podman, new Framework store and Polyglot sites cards, trimmed copy to a 4-row max; hero text scaled down to fit "Local PHP development for Linux" on one line.
+- README feature list mentions FrankenPHP; MCP example updated to the post-1.18 `site_link → composer install → env_setup → setup` sequence; tool count corrected to ~50 after the #232 manifest slim.
+
+---
+
 ## [1.18.0-beta.4] — 2026-04-23
 
 ### Added
