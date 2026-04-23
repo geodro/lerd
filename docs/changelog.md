@@ -11,6 +11,15 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.18.0-beta.2] — 2026-04-23
+
+### Fixed
+
+- **Rootless DNS stalled 5–10s per page after dual-stack migration** (#242). Two separate Fedora rootless podman quirks, both triggered by the IPv6 migration in beta.1. First, the lerd bridge came up with a 65520 MTU and glibc's resolver hit EMSGSIZE on UDP, falling back to TCP and eating 5+ seconds per lookup; `EnsureNetwork` and `MigrateNetworkToIPv6` now pin `--opt mtu=1500`. Second, `RemoveNetwork` only unlinked aardvark-dns's config file, so the running daemon held the stale inode and returned NXDOMAIN for containers that joined the recreated network; `RemoveNetwork` now also runs `pkill -f aardvark-dns` so podman respawns it against the fresh config on the next container join.
+- **FrankenPHP sites rendered a "PHP-FPM" log tab pointing at the wrong container** (#243). The Web UI and TUI both labelled the runtime log tab as "PHP-FPM" and pointed its SSE stream at `lerd-php*-fpm`, which does not exist for per-site FrankenPHP deployments. The tab now reads "FrankenPHP" and streams from `lerd-fp-<site>`, and `enrichFPM` checks the frankenphp container so `fpm_running` is accurate for those sites.
+
+---
+
 ## [1.18.0-beta.1] — 2026-04-22
 
 ### Added
