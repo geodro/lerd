@@ -77,20 +77,23 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 
 	// 2. Podman network
-	// Containers removed by the v4→v6 migration are restarted AFTER the
-	// quadlet refresh phase below — restarting inline here would bring them
-	// back on the stale pre-PairIPv6Binds quadlets.
+	// Containers removed by recreate are restarted AFTER the quadlet refresh
+	// phase below so they come up on the freshly written quadlets.
 	var migrated []string
 	step("Creating lerd podman network")
 	if err := podman.EnsureNetwork("lerd"); err != nil {
 		if errors.Is(err, podman.ErrNetworkNeedsMigration) {
 			fmt.Println()
-			fmt.Println("    Migrating lerd network to dual-stack v4+v6.")
-			fmt.Println("    Existing containers on this network will be recreated.")
-			restored, mErr := podman.MigrateNetworkToIPv6("lerd")
+			restored, dualStack, mErr := podman.RecreateNetwork("lerd")
 			if mErr != nil {
-				return fmt.Errorf("migrating lerd network: %w", mErr)
+				return fmt.Errorf("recreating lerd network: %w", mErr)
 			}
+			if dualStack {
+				fmt.Println("    Recreated lerd network as dual-stack v4+v6.")
+			} else {
+				fmt.Println("    Recreated lerd network as v4-only (host has no usable IPv6).")
+			}
+			fmt.Println("    Existing containers on this network were recreated.")
 			migrated = restored
 			step("Creating lerd podman network")
 		} else {
@@ -414,9 +417,8 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	// Start containers removed by the v4→v6 network migration. Runs after
-	// the quadlet refresh phase + DaemonReload so they come up on the
-	// freshly written dual-stack quadlets.
+	// Start containers removed by the network recreate. Runs after the
+	// quadlet refresh + DaemonReload so they come up on fresh quadlets.
 	migratedSet := make(map[string]bool, len(migrated))
 	for _, c := range migrated {
 		migratedSet[c] = true
@@ -638,8 +640,7 @@ func startPerSiteContainers() {
 
 // refreshUnreferencedCustomQuadlets rewrites quadlets for globally installed
 // custom services, per-site custom containers, and per-site FrankenPHP
-// containers that the earlier per-site walk would otherwise skip, so the v4→v6
-// migration and other quadlet-schema changes reach every managed container.
+// containers the earlier per-site walk would skip, so schema changes reach every managed container.
 func refreshUnreferencedCustomQuadlets(seenSvc map[string]bool, reg *config.SiteRegistry) {
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, svc := range customs {

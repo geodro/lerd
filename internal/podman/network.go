@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -19,10 +20,46 @@ const LerdULAv6Subnet = "fd00:1e7d::/64"
 // EMSGSIZE on UDP DNS writes and stalls every lookup ~5 seconds.
 const LerdNetworkMTU = "1500"
 
-// ErrNetworkNeedsMigration is returned when the lerd network needs a destroy
-// + recreate: either it has no IPv6 subnet, or aardvark-dns's listen line
-// has drifted to v4-only. Callers should run MigrateNetworkToIPv6 and retry.
-var ErrNetworkNeedsMigration = errors.New("lerd network needs recreate to reach dual-stack (v4-only subnet, or drifted aardvark listen)")
+// ErrNetworkNeedsMigration signals the lerd network's dual-stack schema
+// doesn't match host IPv6 support. Callers should run RecreateNetwork.
+var ErrNetworkNeedsMigration = errors.New("lerd network needs recreate to match host IPv6 support")
+
+// Swappable /proc paths so tests can stage a synthetic host profile.
+var (
+	ipv6DisablePath = "/proc/sys/net/ipv6/conf/all/disable_ipv6"
+	ipv6IfInet6Path = "/proc/net/if_inet6"
+)
+
+// HostHasUsableIPv6 reports whether the host has a non-loopback,
+// non-link-local IPv6 address. Without one, netavark can't reliably
+// assign the ULA gateway on the rootless bridge and aardvark-dns bind fails.
+func HostHasUsableIPv6() bool {
+	if data, err := os.ReadFile(ipv6DisablePath); err == nil {
+		if strings.TrimSpace(string(data)) == "1" {
+			return false
+		}
+	}
+	data, err := os.ReadFile(ipv6IfInet6Path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		scope, err := strconv.ParseUint(fields[3], 16, 32)
+		if err != nil {
+			continue
+		}
+		// 0x10 loopback, 0x20 link-local; anything else is usable.
+		if scope == 0x10 || scope == 0x20 {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 // NetworkGateway returns the gateway IP of the named Podman network.
 // Falls back to "127.0.0.1" if it cannot be determined. When the network has
@@ -64,33 +101,35 @@ func NetworkHasIPv6(name string) bool {
 	return false
 }
 
-// EnsureNetwork creates the named podman network dual-stack if it doesn't
-// exist. Returns ErrNetworkNeedsMigration when the network exists but is
-// v4-only or has drifted aardvark state; caller should migrate and retry.
+// EnsureNetwork creates the named podman network if it doesn't exist. The
+// schema (v4-only vs dual-stack) follows HostHasUsableIPv6. Returns
+// ErrNetworkNeedsMigration when an existing network's schema doesn't fit.
 func EnsureNetwork(name string) error {
 	out, err := Run("network", "ls", "--format={{.Name}}")
 	if err != nil {
 		return err
 	}
 
+	hostV6 := HostHasUsableIPv6()
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == name {
-			if !NetworkHasIPv6(name) {
+			netV6 := NetworkHasIPv6(name)
+			if hostV6 != netV6 {
 				return ErrNetworkNeedsMigration
 			}
-			if AardvarkNetworkDrifted(name) {
+			if hostV6 && AardvarkNetworkDrifted(name) {
 				return ErrNetworkNeedsMigration
 			}
 			return nil
 		}
 	}
 
-	return RunSilent("network", "create",
-		"--driver", "bridge",
-		"--ipv6",
-		"--subnet", LerdULAv6Subnet,
-		"--opt", "mtu="+LerdNetworkMTU,
-		name)
+	args := []string{"network", "create", "--driver", "bridge"}
+	if hostV6 {
+		args = append(args, "--ipv6", "--subnet", LerdULAv6Subnet)
+	}
+	args = append(args, "--opt", "mtu="+LerdNetworkMTU, name)
+	return RunSilent(args...)
 }
 
 // aardvarkConfigPath returns the on-disk path to aardvark-dns's config file
@@ -147,15 +186,14 @@ func RemoveNetwork(name string) error {
 	return err
 }
 
-// MigrateNetworkToIPv6 stops and removes containers attached to the named
-// network, removes the network, and recreates it dual-stack with v4+v6.
-// Returns the removed container names so the caller can recreate them via
-// StartUnit; `podman start` would reuse the stale pre-migration network spec.
-func MigrateNetworkToIPv6(name string) ([]string, error) {
+// RecreateNetwork destroys and recreates the named network with the schema
+// that matches HostHasUsableIPv6. Returns the attached container names so
+// the caller can StartUnit them, plus whether the new network is dual-stack.
+func RecreateNetwork(name string) ([]string, bool, error) {
 	dnsOut, err := Run("network", "inspect", name,
 		"--format", "{{range .NetworkDNSServers}}{{.}} {{end}}")
 	if err != nil {
-		return nil, fmt.Errorf("inspect %s: %w", name, err)
+		return nil, false, fmt.Errorf("inspect %s: %w", name, err)
 	}
 	prevDNS := strings.Fields(strings.TrimSpace(dnsOut))
 
@@ -163,7 +201,7 @@ func MigrateNetworkToIPv6(name string) ([]string, error) {
 		"--filter", "network="+name,
 		"--format", "{{.Names}}")
 	if err != nil {
-		return nil, fmt.Errorf("listing containers on %s: %w", name, err)
+		return nil, false, fmt.Errorf("listing containers on %s: %w", name, err)
 	}
 	var attached []string
 	for _, c := range strings.Split(containersOut, "\n") {
@@ -178,23 +216,24 @@ func MigrateNetworkToIPv6(name string) ([]string, error) {
 	}
 
 	if err := RemoveNetwork(name); err != nil {
-		return attached, fmt.Errorf("removing %s: %w", name, err)
+		return attached, false, fmt.Errorf("removing %s: %w", name, err)
 	}
 
-	if err := RunSilent("network", "create",
-		"--driver", "bridge",
-		"--ipv6",
-		"--subnet", LerdULAv6Subnet,
-		"--opt", "mtu="+LerdNetworkMTU,
-		name); err != nil {
-		return attached, fmt.Errorf("recreating %s: %w", name, err)
+	hostV6 := HostHasUsableIPv6()
+	args := []string{"network", "create", "--driver", "bridge"}
+	if hostV6 {
+		args = append(args, "--ipv6", "--subnet", LerdULAv6Subnet)
+	}
+	args = append(args, "--opt", "mtu="+LerdNetworkMTU, name)
+	if err := RunSilent(args...); err != nil {
+		return attached, hostV6, fmt.Errorf("recreating %s: %w", name, err)
 	}
 
 	for _, dns := range prevDNS {
 		_ = RunSilent("network", "update", "--dns-add", dns, name)
 	}
 
-	return attached, nil
+	return attached, hostV6, nil
 }
 
 // EnsureNetworkDNS syncs the DNS servers on the named network to the provided list.

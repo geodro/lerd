@@ -99,6 +99,82 @@ func TestAardvarkConfigPath_removeIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestHostHasUsableIPv6(t *testing.T) {
+	tests := []struct {
+		name        string
+		disableIPv6 string
+		ifInet6     string
+		want        bool
+	}{
+		{
+			name: "vm with only loopback and link-local",
+			ifInet6: "00000000000000000000000000000001 01 80 10 80       lo\n" +
+				"fe80000000000000505400fffed9f609 02 40 20 80   enp1s0\n",
+			want: false,
+		},
+		{
+			name: "host with global v6",
+			ifInet6: "00000000000000000000000000000001 01 80 10 80       lo\n" +
+				"fe80000000000000505400fffed9f609 02 40 20 80   enp1s0\n" +
+				"2a0100000000000000000000000000ab 02 40 00 80   enp1s0\n",
+			want: true,
+		},
+		{
+			name: "host with ULA v6",
+			ifInet6: "00000000000000000000000000000001 01 80 10 80       lo\n" +
+				"fd000000000000000000000000000001 02 40 00 80   enp1s0\n",
+			want: true,
+		},
+		{
+			name:        "ipv6 disabled kernel-wide",
+			disableIPv6: "1",
+			ifInet6: "00000000000000000000000000000001 01 80 10 80       lo\n" +
+				"2a0100000000000000000000000000ab 02 40 00 80   enp1s0\n",
+			want: false,
+		},
+		{
+			name:    "empty if_inet6",
+			ifInet6: "",
+			want:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			procSys := filepath.Join(tmp, "sys/net/ipv6/conf/all")
+			procNet := filepath.Join(tmp, "net")
+			if err := os.MkdirAll(procSys, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(procNet, 0755); err != nil {
+				t.Fatal(err)
+			}
+			disabled := tt.disableIPv6
+			if disabled == "" {
+				disabled = "0"
+			}
+			if err := os.WriteFile(filepath.Join(procSys, "disable_ipv6"), []byte(disabled), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(procNet, "if_inet6"), []byte(tt.ifInet6), 0644); err != nil {
+				t.Fatal(err)
+			}
+			// Swap the root-looking paths via the test-only hook.
+			oldDisable := ipv6DisablePath
+			oldIfInet6 := ipv6IfInet6Path
+			ipv6DisablePath = filepath.Join(procSys, "disable_ipv6")
+			ipv6IfInet6Path = filepath.Join(procNet, "if_inet6")
+			defer func() {
+				ipv6DisablePath = oldDisable
+				ipv6IfInet6Path = oldIfInet6
+			}()
+			if got := HostHasUsableIPv6(); got != tt.want {
+				t.Errorf("HostHasUsableIPv6() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoveNetwork_wipesAardvarkConfigEvenWhenPodmanFails(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", tmp)

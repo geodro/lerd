@@ -407,7 +407,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// this must succeed before any container is started.
 	if err := podman.EnsureNetwork("lerd"); err != nil {
 		if errors.Is(err, podman.ErrNetworkNeedsMigration) {
-			fmt.Println("  WARN: lerd network is missing IPv6 support; run 'lerd install' to migrate")
+			fmt.Println("  WARN: lerd network schema doesn't match host IPv6 support; run 'lerd install' to recreate")
 		} else {
 			fmt.Printf("  WARN: ensure lerd network: %v\n", err)
 		}

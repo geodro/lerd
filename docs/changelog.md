@@ -11,6 +11,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.18.0-beta.3] — 2026-04-23
+
+### Fixed
+
+- **Services fail to start on hosts without usable IPv6**. Dual-stack migration from beta.1/beta.2 forced a `fd00:1e7d::/64` subnet on every `lerd install`, but hosts that advertise IPv6 in the kernel yet have no routable v6 address on any interface (typical in headless QEMU/KVM VMs, containers, and v6-less networks) can't hold the ULA gateway on the rootless bridge. aardvark-dns then failed to bind `[fd00:1e7d::1]:53` with `EADDRNOTAVAIL`, so a subset of services (nginx, postgres, meilisearch were the common victims) exited with `exit status 1` during install and stayed in `failed` state. `EnsureNetwork` and the renamed `RecreateNetwork` (was `MigrateNetworkToIPv6`) now probe `/proc/net/if_inet6` + `/proc/sys/net/ipv6/conf/all/disable_ipv6` and create the `lerd` network v4-only when no non-loopback, non-link-local v6 address is present. Existing dual-stack networks on v6-less hosts are recreated as v4-only in place; hosts that later gain v6 are migrated back to dual-stack on the next install.
+
+---
+
 ## [1.18.0-beta.2] — 2026-04-23
 
 ### Fixed

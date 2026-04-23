@@ -248,6 +248,28 @@ podman run --rm --network lerd alpine sh -c 'nslookup laravel.test; nslookup -ty
 ```
 :::
 
+::: details Services fail to start with "aardvark-dns failed to bind [fd00:1e7d::1]:53"
+
+Symptom: after `lerd install`, a subset of service containers (commonly `lerd-nginx`, `lerd-postgres`, `lerd-meilisearch`) fail to start. Journal shows:
+
+```
+Error: netavark: error while applying dns entries: IO error: aardvark-dns failed to start
+Error starting server failed to bind udp listener on [fd00:1e7d::1]:53:
+IO error: Cannot assign requested address (os error 99)
+```
+
+Cause: the host advertises IPv6 in the kernel but has no routable v6 address on any interface — only `::1` and `fe80::` — so netavark can't hold the ULA gateway on the rootless bridge, and aardvark-dns bind fails with `EADDRNOTAVAIL`. Typical in headless QEMU/KVM VMs and networks without v6 DHCP.
+
+Lerd 1.18+ detects this on every `lerd install` by reading `/proc/net/if_inet6` (any non-loopback, non-link-local v6 address counts as usable) and falls back to a v4-only `lerd` network. An existing dual-stack network on a v6-less host is recreated as v4-only automatically. Force it:
+
+```bash
+lerd install
+# look for: "Recreated lerd network as v4-only (host has no usable IPv6)."
+```
+
+If the host later gains v6 connectivity, the next `lerd install` will recreate the network as dual-stack again.
+:::
+
 ::: details Every DNS lookup inside a lerd container stalls ~5 seconds
 Symptom: pages that hit the database or any container-to-container hostname feel slow, and `time dig <anything> @<container>` takes roughly five seconds before returning an answer. The network looks fine in `podman network inspect lerd` (both IPv4 and IPv6 subnets present), but aardvark-dns's on-disk config has the v6 gateway absent from its listen-ips line.
 
