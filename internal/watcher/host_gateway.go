@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"net"
+	"runtime"
 	"time"
 
 	"github.com/geodro/lerd/internal/podman"
@@ -17,12 +18,26 @@ type hostGatewayDeps struct {
 	writeHosts      func() error
 	readNginxOnDisk func() string
 	liveNginxIP     func() string
-	log             func(level, msg string, kv ...any)
+	// driftEveryN gates the nginx drift check to one run every N ticks.
+	// Values below 1 are treated as 1 (every tick).
+	driftEveryN int
+	log         func(level, msg string, kv ...any)
 }
 
 // hostGatewayState is the cross-tick memory for WatchHostGateway.
 type hostGatewayState struct {
-	lastLAN string
+	lastLAN   string
+	tickCount int
+}
+
+// nginxDriftDefault returns the default number of ticks between nginx
+// drift checks for the current platform. macOS pays VM-hop cost per
+// podman inspect so it polls much less often; Linux is nearly free.
+func nginxDriftDefault() int {
+	if runtime.GOOS == "darwin" {
+		return 30
+	}
+	return 10
 }
 
 // WatchHostGateway keeps the host.containers.internal entry in the shared
@@ -53,6 +68,7 @@ func WatchHostGateway(interval time.Duration) {
 		writeHosts:      podman.WriteContainerHosts,
 		readNginxOnDisk: podman.ReadNginxIPFromContainerHosts,
 		liveNginxIP:     podman.NginxContainerIPOrEmpty,
+		driftEveryN:     nginxDriftDefault(),
 		log: func(level, msg string, kv ...any) {
 			switch level {
 			case "info":
@@ -70,11 +86,18 @@ func WatchHostGateway(interval time.Duration) {
 	}
 }
 
-// tickHostGateway runs one iteration: host-gateway reachability after a
-// LAN change, then nginx container IP drift detection.
+// tickHostGateway runs one iteration: LAN-change path every tick, nginx
+// drift path on a slower cadence so laptops stay deep-sleep friendly.
 func tickHostGateway(d hostGatewayDeps, s *hostGatewayState) {
+	s.tickCount++
 	tickLANChange(d, s)
-	tickNginxDrift(d)
+	n := d.driftEveryN
+	if n < 1 {
+		n = 1
+	}
+	if s.tickCount%n == 0 {
+		tickNginxDrift(d)
+	}
 }
 
 // tickLANChange rewrites the hosts file when the primary LAN IP changed

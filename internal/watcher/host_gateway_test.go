@@ -254,3 +254,60 @@ func TestTickNginxDrift_nilFuncsAreSafe(t *testing.T) {
 	// this same path.
 	tickNginxDrift(hostGatewayDeps{})
 }
+
+// TestTickHostGateway_driftGated verifies the battery-friendly cadence:
+// nginx drift only fires once per driftEveryN ticks, regardless of the
+// LAN path. Keeps podman inspect cost off the critical path on laptops.
+func TestTickHostGateway_driftGated(t *testing.T) {
+	cases := []struct {
+		name         string
+		driftEveryN  int
+		ticks        int
+		wantDriftRun int
+	}{
+		{name: "every tick when N=1", driftEveryN: 1, ticks: 5, wantDriftRun: 5},
+		{name: "every 3rd tick when N=3", driftEveryN: 3, ticks: 9, wantDriftRun: 3},
+		{name: "every 10th tick when N=10 (Linux default)", driftEveryN: 10, ticks: 30, wantDriftRun: 3},
+		{name: "every 30th tick when N=30 (macOS default)", driftEveryN: 30, ticks: 60, wantDriftRun: 2},
+		{name: "N=0 treated as 1 (safe default)", driftEveryN: 0, ticks: 4, wantDriftRun: 4},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			driftCalls := 0
+			deps := hostGatewayDeps{
+				primaryLANIP: func() string { return "10.0.0.1" },
+				readCurrent:  func() string { return "10.0.0.1" },
+				reachable:    func(string) bool { return true },
+				readNginxOnDisk: func() string {
+					driftCalls++
+					return ""
+				},
+				liveNginxIP: func() string { return "" },
+				driftEveryN: c.driftEveryN,
+				log:         func(string, string, ...any) {},
+			}
+			state := &hostGatewayState{lastLAN: "10.0.0.1"}
+			for i := 0; i < c.ticks; i++ {
+				tickHostGateway(deps, state)
+			}
+			if driftCalls != c.wantDriftRun {
+				t.Errorf("drift ran %d times in %d ticks with N=%d, want %d",
+					driftCalls, c.ticks, c.driftEveryN, c.wantDriftRun)
+			}
+		})
+	}
+}
+
+// TestNginxDriftDefault documents the platform-specific polling cadence
+// so a future refactor that changes these constants fails CI loudly and
+// forces a human to think about the battery tradeoff.
+func TestNginxDriftDefault(t *testing.T) {
+	n := nginxDriftDefault()
+	if n < 1 {
+		t.Errorf("nginxDriftDefault() = %d, must be >= 1 (0 would spam every tick)", n)
+	}
+	if n > 60 {
+		t.Errorf("nginxDriftDefault() = %d, pushing past 30min (60 ticks) makes drift detection effectively useless", n)
+	}
+}
