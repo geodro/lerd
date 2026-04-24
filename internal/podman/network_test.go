@@ -194,6 +194,21 @@ func TestIPv6ProbeFailedMarker(t *testing.T) {
 	}
 }
 
+func TestMarkIPv6Disabled_sharesProbeFailedMarker(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	MarkIPv6Disabled("lerd")
+	if !ipv6ProbeFailed("lerd") {
+		t.Fatal("MarkIPv6Disabled must set the same marker that EnsureNetwork checks")
+	}
+
+	want := ipv6ProbeFailedPath("lerd")
+	if got := IPv6DisabledMarkerPath("lerd"); got != want {
+		t.Errorf("IPv6DisabledMarkerPath = %q, want %q", got, want)
+	}
+}
+
 func TestProbeNetworkIPv6_detectsAardvarkFailure(t *testing.T) {
 	// probeNetworkIPv6 shells out to podman, so we only unit-test the output
 	// parsing logic by inlining it. Integration coverage comes from the

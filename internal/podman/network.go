@@ -112,16 +112,21 @@ func EnsureNetwork(name string) error {
 		return err
 	}
 
-	hostV6 := HostHasUsableIPv6()
+	// The probe-failed marker doubles as the user opt-out: install --no-ipv6
+	// (or LERD_DISABLE_IPV6=1) writes it before calling EnsureNetwork, so
+	// dual-stack is suppressed on every code path below without a second flag.
+	hostV6 := HostHasUsableIPv6() && !ipv6ProbeFailed(name)
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == name {
 			netV6 := NetworkHasIPv6(name)
 			if netV6 && !hostV6 {
-				// Network has IPv6 but host no longer does — strip it.
+				// Network has IPv6 but host no longer does, or user
+				// opted out: strip it.
 				return ErrNetworkNeedsMigration
 			}
-			if hostV6 && !netV6 && !ipv6ProbeFailed(name) {
-				// Host gained IPv6 and no previous probe failure — try upgrading.
+			if hostV6 && !netV6 {
+				// Host gained IPv6 and no previous probe failure or
+				// opt-out: try upgrading.
 				return ErrNetworkNeedsMigration
 			}
 			if hostV6 && netV6 && AardvarkNetworkDrifted(name) {
@@ -165,6 +170,21 @@ func clearIPv6ProbeFailed(name string) {
 	_ = os.Remove(ipv6ProbeFailedPath(name))
 }
 
+// MarkIPv6Disabled persists the user's opt-out (--no-ipv6 /
+// LERD_DISABLE_IPV6=1) using the same marker file as a probe failure.
+// EnsureNetwork honors it on every code path so dual-stack stays off
+// across installs until the user removes the marker.
+func MarkIPv6Disabled(name string) {
+	markIPv6ProbeFailed(name)
+}
+
+// IPv6DisabledMarkerPath returns the on-disk path of the opt-out marker
+// so callers (and the timeout-fallback warning) can show users exactly
+// what to delete to retry dual-stack.
+func IPv6DisabledMarkerPath(name string) string {
+	return ipv6ProbeFailedPath(name)
+}
+
 // createNetworkWithProbe creates the podman network. When dualStack is true it
 // first tries a dual-stack network and runs a throw-away container to verify
 // aardvark-dns can bind the IPv6 gateway. If the probe fails, the network is
@@ -187,7 +207,7 @@ func createNetworkWithProbe(name string, dualStack bool) (bool, error) {
 				fmt.Fprintf(os.Stderr,
 					"    [WARN] IPv6 probe timed out after %s; falling back to v4-only.\n"+
 						"    To retry dual-stack later, delete %s and re-run `lerd install`.\n",
-					probeNetworkIPv6Timeout, ipv6ProbeFailedPath(name))
+					probeNetworkIPv6Timeout, IPv6DisabledMarkerPath(name))
 			}
 			// Systemd may have auto-restarted containers on this network
 			// between RecreateNetwork and the probe. Stop and remove them
@@ -324,7 +344,7 @@ func RecreateNetwork(name string) ([]string, bool, error) {
 		return attached, false, fmt.Errorf("removing %s: %w", name, err)
 	}
 
-	hostV6 := HostHasUsableIPv6()
+	hostV6 := HostHasUsableIPv6() && !ipv6ProbeFailed(name)
 	actualV6, err := createNetworkWithProbe(name, hostV6)
 	if err != nil {
 		return attached, actualV6, fmt.Errorf("recreating %s: %w", name, err)

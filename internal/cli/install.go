@@ -25,18 +25,32 @@ import (
 
 // NewInstallCmd returns the install command.
 func NewInstallCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Run one-time Lerd setup",
 		RunE:  runInstall,
 	}
+	cmd.Flags().Bool("no-ipv6", false,
+		"Force the lerd network to v4-only even if the host supports IPv6 (also: LERD_DISABLE_IPV6=1)")
+	return cmd
 }
 
 func step(label string) { fmt.Printf("  --> %s ... ", label) }
 func ok()               { fmt.Println("OK") }
 
-func runInstall(_ *cobra.Command, _ []string) error {
+func runInstall(cmd *cobra.Command, _ []string) error {
 	fmt.Println("==> Installing Lerd")
+
+	noIPv6, _ := cmd.Flags().GetBool("no-ipv6")
+	if !noIPv6 && os.Getenv("LERD_DISABLE_IPV6") == "1" {
+		noIPv6 = true
+	}
+	if noIPv6 {
+		podman.MarkIPv6Disabled("lerd")
+		fmt.Println("  IPv6 disabled by user; lerd network will be v4-only.")
+		fmt.Printf("  Delete %s and re-run `lerd install` to re-enable.\n",
+			podman.IPv6DisabledMarkerPath("lerd"))
+	}
 
 	// On macOS, Podman Machine must be running before any podman commands.
 	ensurePodmanMachineRunning()
@@ -130,13 +144,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		wantLerdNode = confirmInstallPrompt("Let lerd manage Node.js versions (installs fnm shims, may override system node)?")
 	}
 
-	// 4. mkcert CA — interactive (may prompt for sudo)
+	// 4. mkcert CA, interactive (may prompt for sudo)
 	fmt.Println("  --> Installing mkcert CA")
-	cmd := exec.Command(certs.MkcertPath(), "-install")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run() //nolint:errcheck
+	mkcertCmd := exec.Command(certs.MkcertPath(), "-install")
+	mkcertCmd.Stdin = os.Stdin
+	mkcertCmd.Stdout = os.Stdout
+	mkcertCmd.Stderr = os.Stderr
+	mkcertCmd.Run() //nolint:errcheck
 
 	// 5. DNS config + sudoers
 	step("Writing DNS configuration")

@@ -268,6 +268,16 @@ lerd install
 ```
 
 If the host later gains v6 connectivity, the next `lerd install` will recreate the network as dual-stack again.
+
+If you'd rather skip the dual-stack code path entirely, even on a v6-capable host, opt out:
+
+```bash
+lerd install --no-ipv6
+# or persistently via shell rc:
+export LERD_DISABLE_IPV6=1
+```
+
+Either path writes `~/.local/share/lerd/ipv6-probe-failed-lerd`, which `EnsureNetwork` honors on every code path (initial create, migration, recreate). To re-enable dual-stack, delete that marker file and re-run `lerd install`.
 :::
 
 ::: details Every DNS lookup inside a lerd container stalls ~5 seconds
