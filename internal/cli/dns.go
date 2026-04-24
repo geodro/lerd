@@ -206,6 +206,11 @@ func regenerateLANContainerQuadlets(progress LANProgressFunc) error {
 		// see the bad state via `lerd doctor` / podman ps.
 		_ = exec.Command("systemctl", "--user", "restart", name).Run()
 	}
+	// Nginx may have been renumbered by the restart, so refresh the
+	// container-hosts file mapping .test domains to the live bridge IP.
+	if err := podman.WriteContainerHosts(); err != nil && progress != nil {
+		progress("[WARN] refreshing container hosts file: " + err.Error())
+	}
 	return nil
 }
 

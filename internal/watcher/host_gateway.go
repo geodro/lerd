@@ -31,13 +31,13 @@ type hostGatewayState struct {
 }
 
 // nginxDriftDefault returns the default number of ticks between nginx
-// drift checks for the current platform. macOS pays VM-hop cost per
-// podman inspect so it polls much less often; Linux is nearly free.
+// drift checks. lerd install / lan:expose already refresh hosts at the
+// source so this is defense-in-depth; slow cadence keeps laptops happy.
 func nginxDriftDefault() int {
 	if runtime.GOOS == "darwin" {
-		return 30
+		return 60
 	}
-	return 10
+	return 20
 }
 
 // WatchHostGateway keeps the host.containers.internal entry in the shared

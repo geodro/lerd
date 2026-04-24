@@ -267,8 +267,8 @@ func TestTickHostGateway_driftGated(t *testing.T) {
 	}{
 		{name: "every tick when N=1", driftEveryN: 1, ticks: 5, wantDriftRun: 5},
 		{name: "every 3rd tick when N=3", driftEveryN: 3, ticks: 9, wantDriftRun: 3},
-		{name: "every 10th tick when N=10 (Linux default)", driftEveryN: 10, ticks: 30, wantDriftRun: 3},
-		{name: "every 30th tick when N=30 (macOS default)", driftEveryN: 30, ticks: 60, wantDriftRun: 2},
+		{name: "every 20th tick (Linux default, 10 min)", driftEveryN: 20, ticks: 40, wantDriftRun: 2},
+		{name: "every 60th tick (macOS default, 30 min)", driftEveryN: 60, ticks: 120, wantDriftRun: 2},
 		{name: "N=0 treated as 1 (safe default)", driftEveryN: 0, ticks: 4, wantDriftRun: 4},
 	}
 

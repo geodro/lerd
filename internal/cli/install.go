@@ -555,6 +555,13 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	installAutostart()
 	installCleanupScript()
 
+	// Refresh container-hosts now that nginx has its final IP after any
+	// quadlet rewrites. Without this call a renumbered nginx leaves
+	// .test domains pointing at a stale IP until the next lerd link.
+	if err := podman.WriteContainerHosts(); err != nil {
+		fmt.Printf("    WARN: refreshing container hosts file: %v\n", err)
+	}
+
 	step("Adding shell PATH configuration")
 	if err := addShellShims(wantLerdNode); err != nil {
 		fmt.Printf("    WARN: %v\n", err)
