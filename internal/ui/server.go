@@ -170,6 +170,22 @@ func Start(currentVersion string) error {
 		}()
 	}
 
+	// Event-driven push from systemd covers mutations that didn't go through
+	// lerd-ui's AfterUnitChange path: external systemctl calls, container
+	// crashes, external podman restart, unit timeouts. Mirrors the same
+	// invalidate-and-broadcast flow so the dashboard stays current without
+	// waiting for the 15s cache poll. AfterUnitChange stays as a fast path
+	// for in-process mutations; the DBus push catches everything else.
+	_ = lerdSystemd.SubscribeLerdUnitStateChanges(context.Background(), func(string) {
+		go func() {
+			podman.Cache.PollNow()
+			siteinfo.InvalidateUnitCache()
+			eventbus.Default.Publish(eventbus.KindSites)
+			eventbus.Default.Publish(eventbus.KindServices)
+			eventbus.Default.Publish(eventbus.KindStatus)
+		}()
+	})
+
 	// A single goroutine subscribes to the eventbus and invalidates the
 	// relevant snapshot on every mutation. The /api/ws handler broadcasts
 	// the freshly rebuilt bytes to every connected browser.
