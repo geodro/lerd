@@ -177,3 +177,80 @@ func TestTickHostGateway(t *testing.T) {
 		})
 	}
 }
+
+// tickNginxDrift rewrites the container-hosts file when lerd-nginx has been
+// renumbered on the lerd bridge without a LAN change (container rebalance,
+// network recreate). These tests pin each decision branch.
+func TestTickNginxDrift(t *testing.T) {
+	cases := []struct {
+		name      string
+		onDisk    string
+		live      string
+		writeErr  error
+		wantWrote bool
+		wantLogs  int
+		wantKind  string
+	}{
+		{
+			name:   "no .test entries yet, skip (no sites linked)",
+			onDisk: "", live: "10.89.0.25",
+			wantWrote: false, wantLogs: 0,
+		},
+		{
+			name:   "nginx not running, skip",
+			onDisk: "10.89.0.15", live: "",
+			wantWrote: false, wantLogs: 0,
+		},
+		{
+			name:   "disk and live agree, no rewrite",
+			onDisk: "10.89.0.25", live: "10.89.0.25",
+			wantWrote: false, wantLogs: 0,
+		},
+		{
+			name:   "drift detected, rewrite and log",
+			onDisk: "10.89.0.15", live: "10.89.0.25",
+			wantWrote: true, wantLogs: 1, wantKind: "info",
+		},
+		{
+			name:   "drift detected but write fails, warn",
+			onDisk: "10.89.0.15", live: "10.89.0.25",
+			writeErr:  errors.New("disk full"),
+			wantWrote: true, wantLogs: 1, wantKind: "warn",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wrote := false
+			var logs []string
+			deps := hostGatewayDeps{
+				readNginxOnDisk: func() string { return c.onDisk },
+				liveNginxIP:     func() string { return c.live },
+				writeHosts: func() error {
+					wrote = true
+					return c.writeErr
+				},
+				log: func(level, _ string, _ ...any) {
+					logs = append(logs, level)
+				},
+			}
+			tickNginxDrift(deps)
+			if wrote != c.wantWrote {
+				t.Errorf("wrote=%v, want %v", wrote, c.wantWrote)
+			}
+			if len(logs) != c.wantLogs {
+				t.Errorf("logs=%v, want %d", logs, c.wantLogs)
+			}
+			if c.wantLogs > 0 && len(logs) > 0 && logs[0] != c.wantKind {
+				t.Errorf("log kind=%q, want %q", logs[0], c.wantKind)
+			}
+		})
+	}
+}
+
+func TestTickNginxDrift_nilFuncsAreSafe(t *testing.T) {
+	// Defensive: if a caller constructs hostGatewayDeps without the new
+	// fields the tick must not panic — existing LAN-only tests exercise
+	// this same path.
+	tickNginxDrift(hostGatewayDeps{})
+}

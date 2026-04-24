@@ -275,6 +275,35 @@ func nginxContainerIP() string {
 	return ip
 }
 
+// NginxContainerIPOrEmpty returns the live IP of lerd-nginx on the lerd
+// Podman network, or "" when the container is not running. Callers that
+// watch for IP drift distinguish "not running" from "running at .25".
+func NginxContainerIPOrEmpty() string {
+	out, err := exec.Command(PodmanBin(), "inspect", "lerd-nginx",
+		"--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// ReadNginxIPFromContainerHosts parses the container-hosts file and returns
+// the IP mapped to the first .test domain, which is always lerd-nginx's
+// bridge IP. Returns "" when no .test entry is present or the file is gone.
+func ReadNginxIPFromContainerHosts() string {
+	data, err := os.ReadFile(config.ContainerHostsFile())
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.HasSuffix(fields[1], ".test") {
+			return fields[0]
+		}
+	}
+	return ""
+}
+
 // primaryLANIP returns the local IPv4 address that the kernel would use to
 // reach a public destination. Duplicates internal/dns/setup_common.go's
 // helper because importing dns from podman would create a cycle.

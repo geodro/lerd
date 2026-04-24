@@ -10,18 +10,17 @@ import (
 // hostGatewayDeps is the injection surface for tickHostGateway so the
 // orchestration can be unit-tested without spinning up lerd-nginx.
 type hostGatewayDeps struct {
-	primaryLANIP func() string
-	readCurrent  func() string
-	reachable    func(ip string) bool
-	detectFresh  func() string
-	writeHosts   func() error
-	log          func(level, msg string, kv ...any)
+	primaryLANIP    func() string
+	readCurrent     func() string
+	reachable       func(ip string) bool
+	detectFresh     func() string
+	writeHosts      func() error
+	readNginxOnDisk func() string
+	liveNginxIP     func() string
+	log             func(level, msg string, kv ...any)
 }
 
-// hostGatewayState is the cross-tick memory for WatchHostGateway. We only
-// keep the last-seen LAN IP so the fast path (compare and skip) is one
-// cheap UDP dial with no container exec. Promoted out of the tick
-// function so tests can seed it.
+// hostGatewayState is the cross-tick memory for WatchHostGateway.
 type hostGatewayState struct {
 	lastLAN string
 }
@@ -47,11 +46,13 @@ type hostGatewayState struct {
 // justify a platform-specific fast path.
 func WatchHostGateway(interval time.Duration) {
 	deps := hostGatewayDeps{
-		primaryLANIP: primaryLANIP,
-		readCurrent:  podman.ReadHostGatewayFromFile,
-		reachable:    podman.HostReachable,
-		detectFresh:  podman.DetectHostGatewayIPProbeOnly,
-		writeHosts:   podman.WriteContainerHosts,
+		primaryLANIP:    primaryLANIP,
+		readCurrent:     podman.ReadHostGatewayFromFile,
+		reachable:       podman.HostReachable,
+		detectFresh:     podman.DetectHostGatewayIPProbeOnly,
+		writeHosts:      podman.WriteContainerHosts,
+		readNginxOnDisk: podman.ReadNginxIPFromContainerHosts,
+		liveNginxIP:     podman.NginxContainerIPOrEmpty,
 		log: func(level, msg string, kv ...any) {
 			switch level {
 			case "info":
@@ -69,12 +70,16 @@ func WatchHostGateway(interval time.Duration) {
 	}
 }
 
-// tickHostGateway runs one iteration of the watch loop. The fast path
-// (LAN IP unchanged since last tick) returns without touching podman,
-// keeping the steady-state cost to a UDP-dial's worth of CPU. The slow
-// path only fires when the host's primary LAN IP actually changes, which
-// is the signal a laptop moved networks.
+// tickHostGateway runs one iteration: host-gateway reachability after a
+// LAN change, then nginx container IP drift detection.
 func tickHostGateway(d hostGatewayDeps, s *hostGatewayState) {
+	tickLANChange(d, s)
+	tickNginxDrift(d)
+}
+
+// tickLANChange rewrites the hosts file when the primary LAN IP changed
+// since the last tick and the old gateway entry no longer routes.
+func tickLANChange(d hostGatewayDeps, s *hostGatewayState) {
 	lan := d.primaryLANIP()
 	if lan == s.lastLAN {
 		return
@@ -94,6 +99,28 @@ func tickHostGateway(d hostGatewayDeps, s *hostGatewayState) {
 		return
 	}
 	d.log("info", "host gateway IP updated", "old", current, "new", fresh)
+}
+
+// tickNginxDrift rewrites the hosts file when the nginx bridge IP on disk
+// differs from the live container's IP. Catches container renumbering that
+// the LAN change path can't detect. One file read + one inspect per tick.
+func tickNginxDrift(d hostGatewayDeps) {
+	if d.readNginxOnDisk == nil || d.liveNginxIP == nil {
+		return
+	}
+	onDisk := d.readNginxOnDisk()
+	if onDisk == "" {
+		return
+	}
+	live := d.liveNginxIP()
+	if live == "" || live == onDisk {
+		return
+	}
+	if err := d.writeHosts(); err != nil {
+		d.log("warn", "rewriting container hosts file for nginx IP drift", "err", err)
+		return
+	}
+	d.log("info", "nginx container IP drift corrected", "old", onDisk, "new", live)
 }
 
 // primaryLANIP returns the local IPv4 address the kernel would use to reach
