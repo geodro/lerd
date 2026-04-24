@@ -856,6 +856,14 @@ func EnsureLerdVhost() error {
         proxy_pass http://host.containers.internal:7073;
     }
 
+    location = /sw.js {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location = /offline.html {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
     location / {
         return 444;
     }
@@ -882,6 +890,14 @@ func EnsureLerdVhost() error {
     }
 
     location = /manifest.webmanifest {
+        proxy_pass http://unix:%[1]s:$request_uri;
+    }
+
+    location = /sw.js {
+        proxy_pass http://unix:%[1]s:$request_uri;
+    }
+
+    location = /offline.html {
         proxy_pass http://unix:%[1]s:$request_uri;
     }
 

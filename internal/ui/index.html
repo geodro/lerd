@@ -4708,8 +4708,14 @@ function lerdApp() {
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('/sw.js').catch(function () { /* ignore */ });
+      navigator.serviceWorker.register('/sw.js').then(function (reg) {
+        console.info('[lerd] SW registered, scope=', reg.scope);
+      }).catch(function (err) {
+        console.warn('[lerd] SW registration failed:', err);
+      });
     });
+  } else {
+    console.warn('[lerd] serviceWorker unavailable (insecure context? private mode?)');
   }
 </script>
 
