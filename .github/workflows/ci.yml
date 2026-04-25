@@ -18,6 +18,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: internal/ui/web/package-lock.json
+
+      - name: Build UI
+        run: make build-ui
+
       - name: Install tray build dependencies
         run: |
           sudo apt-get update
@@ -48,6 +57,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: internal/ui/web/package-lock.json
+
+      - name: Build UI
+        run: make build-ui
 
       - name: Download dependencies
         run: go mod download
