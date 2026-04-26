@@ -336,37 +336,18 @@ func newWatchCmd() *cobra.Command {
 						return mainRepoSitePaths()
 					},
 					func(sitePath, worktreeName string) {
-						site, err := config.FindSiteByPath(sitePath)
-						if err != nil {
-							return
-						}
-						if site.Paused {
-							return
-						}
-						worktrees, err := gitpkg.DetectWorktrees(sitePath, site.PrimaryDomain())
-						if err != nil {
-							return
-						}
-						phpVersion := site.PHPVersion
-						for _, wt := range worktrees {
-							if wt.Name == worktreeName {
-								gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
-								var vhostErr error
-								if site.Secured {
-									vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
-								} else {
-									vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
-								}
-								if vhostErr != nil {
-									fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
-									return
-								}
-								fmt.Printf("Worktree added: %s -> %s\n", wt.Branch, wt.Domain)
-								if err := nginx.Reload(); err != nil {
-									fmt.Printf("[WARN] nginx reload: %v\n", err)
-								}
-								return
+						if syncWorktree(sitePath, worktreeName, "added", false) {
+							if err := nginx.Reload(); err != nil {
+								fmt.Printf("[WARN] nginx reload: %v\n", err)
 							}
+						}
+					},
+					func(sitePath, worktreeName string) {
+						if syncWorktree(sitePath, worktreeName, "changed", true) {
+							if err := nginx.Reload(); err != nil {
+								fmt.Printf("[WARN] nginx reload: %v\n", err)
+							}
+							eventbus.Default.Publish(eventbus.KindSites)
 						}
 					},
 					func(sitePath, _ string) {
@@ -550,22 +531,46 @@ func scanWorktrees() bool {
 	return generated
 }
 
-// cleanupWorktreeVhosts removes all subdomain vhosts for the given site's domain,
-// then re-generates for worktrees still on disk. Returns true if any change was made.
-func cleanupWorktreeVhosts(site *config.Site) bool {
-	confD := config.NginxConfD()
-	entries, err := os.ReadDir(confD)
+func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
+	site, err := config.FindSiteByPath(sitePath)
 	if err != nil {
 		return false
 	}
-	suffix := "." + site.PrimaryDomain() + ".conf"
-	changed := false
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), suffix) {
-			_ = os.Remove(filepath.Join(confD, e.Name()))
-			changed = true
-		}
+	if site.Paused {
+		return false
 	}
+	worktrees, err := gitpkg.DetectWorktrees(sitePath, site.PrimaryDomain())
+	if err != nil {
+		return false
+	}
+	if pruneStale {
+		removeStaleWorktreeVhosts(site, worktrees)
+	}
+	for _, wt := range worktrees {
+		if wt.Name != worktreeName {
+			continue
+		}
+		gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
+		var vhostErr error
+		if site.Secured {
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, site.PHPVersion, site.PrimaryDomain())
+		} else {
+			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, site.PHPVersion)
+		}
+		if vhostErr != nil {
+			fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
+			return false
+		}
+		fmt.Printf("Worktree %s: %s -> %s\n", action, wt.Branch, wt.Domain)
+		return true
+	}
+	return false
+}
+
+// cleanupWorktreeVhosts removes all subdomain vhosts for the given site's domain,
+// then re-generates for worktrees still on disk. Returns true if any change was made.
+func cleanupWorktreeVhosts(site *config.Site) bool {
+	changed := removeWorktreeVhosts(site)
 	// Re-generate for worktrees still present
 	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	for _, wt := range worktrees {
@@ -577,6 +582,46 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 		}
 		if vhostErr != nil {
 			fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
+			continue
+		}
+		changed = true
+	}
+	return changed
+}
+
+func removeStaleWorktreeVhosts(site *config.Site, worktrees []gitpkg.Worktree) bool {
+	current := map[string]bool{}
+	for _, wt := range worktrees {
+		current[wt.Domain+".conf"] = true
+	}
+	confD := config.NginxConfD()
+	entries, err := os.ReadDir(confD)
+	if err != nil {
+		return false
+	}
+	suffix := "." + site.PrimaryDomain() + ".conf"
+	changed := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), suffix) && !current[e.Name()] {
+			_ = os.Remove(filepath.Join(confD, e.Name()))
+			changed = true
+		}
+	}
+	return changed
+}
+
+func removeWorktreeVhosts(site *config.Site) bool {
+	confD := config.NginxConfD()
+	entries, err := os.ReadDir(confD)
+	if err != nil {
+		return false
+	}
+	suffix := "." + site.PrimaryDomain() + ".conf"
+	changed := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), suffix) {
+			_ = os.Remove(filepath.Join(confD, e.Name()))
+			changed = true
 		}
 	}
 	return changed

@@ -11,12 +11,15 @@ import (
 
 // WatchWorktrees monitors the .git/worktrees/ directory for each site returned
 // by getSites and calls onAdded/onRemoved when entries appear or disappear.
+// It calls onChanged when worktree metadata changes, such as HEAD being
+// rewritten by a branch rename.
 // It also watches .git/ itself so it can re-attach to .git/worktrees/ if it is
 // deleted (last worktree removed) and then re-created (first new worktree added).
 // It re-polls getSites every 30 seconds to pick up newly registered sites.
 func WatchWorktrees(
 	getSites func() []string,
 	onAdded func(sitePath, name string),
+	onChanged func(sitePath, name string),
 	onRemoved func(sitePath, name string),
 ) error {
 	w, err := fsnotify.NewWatcher()
@@ -42,6 +45,19 @@ func WatchWorktrees(
 		}
 		if err := w.Add(worktreesDir); err == nil {
 			siteForWorktreesDir[worktreesDir] = sitePath
+		}
+		entries, _ := os.ReadDir(worktreesDir)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			entryDir := filepath.Join(worktreesDir, e.Name())
+			if _, already := siteForEntryDir[entryDir]; already {
+				continue
+			}
+			if err := w.Add(entryDir); err == nil {
+				siteForEntryDir[entryDir] = sitePath
+			}
 		}
 	}
 
@@ -138,9 +154,12 @@ func WatchWorktrees(
 			// Event inside .git/worktrees/<name>/ — gitdir written after we
 			// already set up the watch (slow git or large checkout).
 			if sitePath, known := siteForEntryDir[dir]; known {
-				if filepath.Base(event.Name) == "gitdir" && event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+				base := filepath.Base(event.Name)
+				if base == "gitdir" && event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
 					name := filepath.Base(dir)
 					go handleNewEntry(dir, sitePath, name, onAdded)
+				} else if base == "HEAD" && event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) != 0 {
+					onChanged(sitePath, filepath.Base(dir))
 				}
 				continue
 			}
