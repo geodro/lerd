@@ -54,7 +54,15 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
       }
       return res;
-    } catch (_) {
+    } catch (err) {
+      // The browser aborts in-flight requests when the user navigates away or
+      // a preload is cancelled; returning 503 here dirties the devtools console
+      // with a scary red row. If we have a cached copy, reuse it; otherwise
+      // surface a transparent "aborted" response with no status so DevTools
+      // marks it as (failed) rather than 503.
+      if (err && (err.name === 'AbortError' || /aborted|cancel/i.test(String(err.message)))) {
+        return Response.error();
+      }
       return new Response('', { status: 503 });
     }
   })());

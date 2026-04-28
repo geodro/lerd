@@ -18,6 +18,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
@@ -256,33 +257,14 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// quadlet on disk now says 127.0.0.1.
 	changedQuadlets := []string{}
 	extraVolumes := podman.ExtraVolumePaths()
-	globalCfg, _ := config.LoadGlobal()
-	rewriteQuadlet := func(name string) error {
+	// rewriteEmbedded handles the remaining embedded-template quadlets:
+	// nginx (lives at the network edge, gets extra volumes for sites outside $HOME).
+	rewriteEmbedded := func(name string) error {
 		content, err := podman.GetQuadletTemplate(name + ".container")
 		if err != nil {
 			return nil //nolint:nilerr // missing template = nothing to write
 		}
 		content = podman.InjectExtraVolumes(content, extraVolumes)
-		svcName := strings.TrimPrefix(name, "lerd-")
-		// Match ensureServiceQuadlet so install and the runtime service
-		// path produce byte-identical files. Without this, a user who has
-		// pinned an image (e.g. `mysql:8.0` instead of the embed's
-		// `docker.io/library/mysql:8.0`) sees a perpetual diff and the
-		// "PublishPort changed" restart fires on every install.
-		if globalCfg != nil {
-			if svcCfg, ok := globalCfg.Services[svcName]; ok {
-				content = podman.ApplyImage(content, svcCfg.Image)
-				if len(svcCfg.ExtraPorts) > 0 {
-					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
-				}
-			}
-		}
-		// Platform override applied last so it wins over the global config image.
-		if currentImage := podman.CurrentImage(content); currentImage != "" {
-			if override := platformImageOverride(svcName, currentImage); override != "" {
-				content = podman.ApplyImage(content, override)
-			}
-		}
 		changed, err := podman.WriteQuadletDiff(name, content)
 		if err != nil {
 			return err
@@ -292,9 +274,26 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+	// rewriteDefaultPreset handles the YAML-driven default services (mysql,
+	// postgres, redis, meilisearch, rustfs, mailpit). The shared serviceops
+	// path applies user image / extra-port overrides and the platform image
+	// override, so the install pass produces byte-identical output to the
+	// runtime service path (no perpetual "PublishPort changed" diff).
+	rewriteDefaultPreset := func(svc string) error {
+		path := filepath.Join(config.QuadletDir(), "lerd-"+svc+".container")
+		before, _ := os.ReadFile(path)
+		if err := serviceops.EnsureDefaultPresetQuadlet(svc); err != nil {
+			return err
+		}
+		after, _ := os.ReadFile(path)
+		if string(before) != string(after) {
+			changedQuadlets = append(changedQuadlets, "lerd-"+svc)
+		}
+		return nil
+	}
 
 	step("Writing nginx quadlet")
-	if err := rewriteQuadlet("lerd-nginx"); err != nil {
+	if err := rewriteEmbedded("lerd-nginx"); err != nil {
 		return err
 	}
 	ok()
@@ -306,11 +305,11 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	ok()
 
 	step("Refreshing service quadlets")
-	for _, svc := range []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"} {
+	for _, svc := range config.DefaultPresetNames() {
 		if !podman.QuadletInstalled("lerd-" + svc) {
 			continue
 		}
-		_ = rewriteQuadlet("lerd-" + svc)
+		_ = rewriteDefaultPreset(svc)
 	}
 	ok()
 
@@ -501,7 +500,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-watcher", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -522,7 +521,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-ui", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -543,7 +542,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing tray service")
 	if content, err := lerdSystemd.GetUnit("lerd-tray"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-tray", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -629,6 +628,23 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	fmt.Println("\nLerd installation complete!")
 	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
 	fmt.Println("  Terminal:  \033[96mlerd tui\033[0m")
+	return nil
+}
+
+// writeUserServiceWithReload writes a user service unit file and reloads
+// systemd when the on-disk content changed, so the next Start/Restart
+// picks up the new directives instead of the cached pre-write copy.
+func writeUserServiceWithReload(name, content string) error {
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(name, content)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	if err := services.Mgr.DaemonReload(); err != nil {
+		fmt.Printf("    WARN: daemon-reload after %s: %v\n", name, err)
+	}
 	return nil
 }
 

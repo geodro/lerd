@@ -188,10 +188,10 @@ func TestLoadPreset_MySQL_MultiVersion(t *testing.T) {
 		t.Errorf("multi-version preset must not declare top-level image, got %q", p.Image)
 	}
 	if len(p.Versions) < 2 {
-		t.Errorf("expected at least 2 versions, got %d", len(p.Versions))
+		t.Errorf("expected at least 2 versions (8.4 canonical + 8.0 alternate), got %d", len(p.Versions))
 	}
-	if p.DefaultVersion == "" {
-		t.Errorf("DefaultVersion should be set (defaults to first version)")
+	if p.DefaultVersion != "8.4" {
+		t.Errorf("DefaultVersion should be 8.4 (the canonical LTS default), got %q", p.DefaultVersion)
 	}
 }
 
@@ -230,9 +230,27 @@ func TestPresetResolve_DefaultVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve(\"\"): %v", err)
 	}
-	if svc.Name != "mysql-"+SanitizeImageTag(p.DefaultVersion) {
-		t.Errorf("Resolve(\"\") should fall back to DefaultVersion, got Name=%q", svc.Name)
+	// mysql 8.4 LTS is canonical: bare family name, top-level ports, no version suffix.
+	if svc.Name != "mysql" {
+		t.Errorf("Resolve(\"\") should return canonical bare name, got Name=%q", svc.Name)
 	}
+	if svc.Image != "docker.io/library/mysql:8.4" {
+		t.Errorf("canonical mysql Image = %q, want docker.io/library/mysql:8.4", svc.Image)
+	}
+	if len(svc.Ports) != 1 || svc.Ports[0] != "3306:3306" {
+		t.Errorf("canonical mysql Ports = %v, want [3306:3306]", svc.Ports)
+	}
+	for _, kv := range svc.EnvVars {
+		if strings.Contains(kv, "{{") {
+			t.Errorf("canonical mysql env_vars must have no template placeholders, got %q", kv)
+		}
+	}
+	for _, kv := range svc.EnvVars {
+		if kv == "DB_HOST=lerd-mysql" {
+			return
+		}
+	}
+	t.Errorf("expected DB_HOST=lerd-mysql in canonical env_vars, got %v", svc.EnvVars)
 }
 
 func TestPresetResolve_UnknownVersion(t *testing.T) {
@@ -378,6 +396,62 @@ func TestLoadPreset_Unknown(t *testing.T) {
 	}
 }
 
+func TestLoadPreset_DefaultsTrackLatest(t *testing.T) {
+	// Auto-bumping via track_latest is the user-facing promise that lerd, not
+	// users, keeps fresh installs current. The 4 versioned default presets
+	// must opt in. Mailpit/rustfs already use rolling :latest tags so the
+	// flag is redundant for them.
+	for _, name := range []string{"mysql", "postgres", "redis", "meilisearch"} {
+		p, err := LoadPreset(name)
+		if err != nil {
+			t.Errorf("LoadPreset(%s): %v", name, err)
+			continue
+		}
+		if !p.TrackLatest {
+			t.Errorf("preset %q must declare track_latest: true so fresh installs land on current upstream", name)
+		}
+	}
+}
+
+func TestListPresets_CanonicalHiddenFromAlternates(t *testing.T) {
+	// The canonical version is the default install — listing it as an
+	// "alternate" would let users pick it from the picker and clobber the
+	// default service. Filter it out of PresetMeta.Versions.
+	metas, err := ListPresets()
+	if err != nil {
+		t.Fatalf("ListPresets: %v", err)
+	}
+	var mysql *PresetMeta
+	for i := range metas {
+		if metas[i].Name == "mysql" {
+			mysql = &metas[i]
+			break
+		}
+	}
+	if mysql == nil {
+		t.Fatal("mysql preset missing from ListPresets")
+	}
+	for _, v := range mysql.Versions {
+		if v.Canonical {
+			t.Errorf("ListPresets must not surface canonical version %q in the alternates picker", v.Tag)
+		}
+		if v.Tag == "8.4" {
+			t.Errorf("8.4 is canonical and should be filtered out of mysql alternates")
+		}
+	}
+	wantAlts := map[string]bool{"8.0": false, "5.7": false}
+	for _, v := range mysql.Versions {
+		if _, ok := wantAlts[v.Tag]; ok {
+			wantAlts[v.Tag] = true
+		}
+	}
+	for tag, found := range wantAlts {
+		if !found {
+			t.Errorf("expected mysql alternate %q in picker, got %v", tag, mysql.Versions)
+		}
+	}
+}
+
 func TestPresetExists(t *testing.T) {
 	if !PresetExists("phpmyadmin") {
 		t.Errorf("PresetExists(phpmyadmin) = false, want true")
@@ -387,5 +461,280 @@ func TestPresetExists(t *testing.T) {
 	}
 	if PresetExists("nope") {
 		t.Errorf("PresetExists(nope) = true, want false")
+	}
+}
+
+func TestDefaultPresetNames_ContainsAllSix(t *testing.T) {
+	names := DefaultPresetNames()
+	want := map[string]bool{
+		"mysql": false, "redis": false, "postgres": false,
+		"meilisearch": false, "rustfs": false, "mailpit": false,
+	}
+	for _, n := range names {
+		if _, ok := want[n]; ok {
+			want[n] = true
+		}
+	}
+	for n, found := range want {
+		if !found {
+			t.Errorf("DefaultPresetNames missing %q (got %v)", n, names)
+		}
+	}
+	// Sorted output for deterministic iteration order.
+	for i := 1; i < len(names); i++ {
+		if names[i-1] > names[i] {
+			t.Errorf("DefaultPresetNames not sorted: %q > %q", names[i-1], names[i])
+		}
+	}
+}
+
+func TestIsDefaultPreset(t *testing.T) {
+	for _, name := range []string{"mysql", "postgres", "redis", "meilisearch", "rustfs", "mailpit"} {
+		if !IsDefaultPreset(name) {
+			t.Errorf("IsDefaultPreset(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"phpmyadmin", "pgadmin", "mongo", "rabbitmq", "elasticsearch", "nope"} {
+		if IsDefaultPreset(name) {
+			t.Errorf("IsDefaultPreset(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestLoadPreset_DefaultsHaveFlag(t *testing.T) {
+	for _, name := range []string{"mysql", "postgres", "redis", "meilisearch", "rustfs", "mailpit"} {
+		p, err := LoadPreset(name)
+		if err != nil {
+			t.Fatalf("LoadPreset(%s): %v", name, err)
+		}
+		if !p.Default {
+			t.Errorf("preset %q must declare default: true", name)
+		}
+		if p.UpdateStrategy == "" {
+			t.Errorf("preset %q must declare update_strategy", name)
+		}
+		if p.Family == "" {
+			t.Errorf("preset %q must declare family", name)
+		}
+	}
+}
+
+func TestPresetResolve_AlternatesUseHostPort(t *testing.T) {
+	// Regression: when the canonical version of a multi-version preset is added,
+	// non-canonical alternates must keep their dedicated host_port so they don't
+	// collide with the canonical container on the same port.
+	p, err := LoadPreset("mysql")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	cases := map[string]string{
+		"5.7": "3357:3306",
+		"8.0": "3380:3306",
+	}
+	for tag, wantPort := range cases {
+		svc, err := p.Resolve(tag)
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", tag, err)
+		}
+		if len(svc.Ports) == 0 || svc.Ports[0] != wantPort {
+			t.Errorf("mysql %s: Ports[0] = %v, want %q", tag, svc.Ports, wantPort)
+		}
+	}
+}
+
+func TestPresetResolve_MysqlCanonical(t *testing.T) {
+	p, err := LoadPreset("mysql")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	svc, err := p.Resolve("8.4")
+	if err != nil {
+		t.Fatalf("Resolve(8.4): %v", err)
+	}
+	if svc.Name != "mysql" {
+		t.Errorf("canonical version Name = %q, want bare mysql", svc.Name)
+	}
+	if svc.PresetVersion != "8.4" {
+		t.Errorf("PresetVersion = %q, want 8.4", svc.PresetVersion)
+	}
+	// Non-canonical resolve still produces the suffixed name.
+	alt, err := p.Resolve("5.7")
+	if err != nil {
+		t.Fatalf("Resolve(5.7): %v", err)
+	}
+	if alt.Name != "mysql-5-7" {
+		t.Errorf("non-canonical Name = %q, want mysql-5-7", alt.Name)
+	}
+	for _, port := range alt.Ports {
+		if strings.Contains(port, "{{") {
+			t.Errorf("non-canonical ports must be substituted, got %q", port)
+		}
+	}
+}
+
+func TestPresetCanonical_ValidationOnlyOne(t *testing.T) {
+	yamlData := []byte(`name: testfam
+default: true
+family: testfam
+default_version: "1"
+versions:
+  - tag: "1"
+    image: example/test:1
+    canonical: true
+  - tag: "2"
+    image: example/test:2
+    canonical: true
+ports:
+  - "1234:1234"
+`)
+	if err := ValidatePresetYAML(yamlData, "testfam"); err == nil {
+		t.Errorf("expected validation error for two canonical versions")
+	}
+}
+
+func TestPresetApplyPlatformOverride(t *testing.T) {
+	p := &Preset{
+		CustomService: CustomService{
+			Name:  "postgres",
+			Image: "docker.io/postgis/postgis:16-3.5-alpine",
+		},
+		PlatformOverrides: []PresetPlatformImage{
+			{OS: "darwin", ImageMatch: "postgis/postgis*alpine*", Image: "docker.io/imresamu/postgis:{{tag}}"},
+		},
+	}
+	svc := &CustomService{Image: p.Image}
+	p.ApplyPlatformOverride(svc, "darwin")
+	if svc.Image != "docker.io/imresamu/postgis:16-3.5-alpine" {
+		t.Errorf("darwin override not applied: got %q", svc.Image)
+	}
+	// Regression: track_latest may resolve to a newer tag (e.g. 16.4-3.5-alpine)
+	// before the override runs. The override must preserve the resolved tag,
+	// not hardcode it back to the YAML default.
+	svc3 := &CustomService{Image: "docker.io/postgis/postgis:16.4-3.5-alpine"}
+	p.ApplyPlatformOverride(svc3, "darwin")
+	if svc3.Image != "docker.io/imresamu/postgis:16.4-3.5-alpine" {
+		t.Errorf("darwin override must preserve resolved tag: got %q, want imresamu/postgis:16.4-3.5-alpine", svc3.Image)
+	}
+	svc2 := &CustomService{Image: p.Image}
+	p.ApplyPlatformOverride(svc2, "linux")
+	if svc2.Image != p.Image {
+		t.Errorf("linux must keep upstream image, got %q", svc2.Image)
+	}
+}
+
+func TestLoadPreset_PostgresPlatformOverride(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset(postgres): %v", err)
+	}
+	if len(p.PlatformOverrides) == 0 {
+		t.Fatal("postgres preset must declare a darwin platform_override (lifted from cli.platformImageOverride)")
+	}
+	foundDarwin := false
+	for _, po := range p.PlatformOverrides {
+		if po.OS == "darwin" && strings.Contains(po.Image, "imresamu") {
+			foundDarwin = true
+		}
+	}
+	if !foundDarwin {
+		t.Errorf("postgres preset must override to imresamu/postgis on darwin, got %+v", p.PlatformOverrides)
+	}
+}
+
+func TestDefaultPresetMeta_Caches(t *testing.T) {
+	a, err := DefaultPresetMeta("mysql")
+	if err != nil {
+		t.Fatalf("DefaultPresetMeta(mysql): %v", err)
+	}
+	if a.Name != "mysql" {
+		t.Errorf("Name = %q, want mysql", a.Name)
+	}
+	if got := DefaultPresetEnvVars("mysql"); len(got) == 0 {
+		t.Errorf("DefaultPresetEnvVars(mysql) is empty")
+	}
+	if got := DefaultPresetEnvVars("sqlite"); got != nil {
+		t.Errorf("DefaultPresetEnvVars(sqlite) must return nil for non-default presets")
+	}
+	if DefaultPresetDashboard("mailpit") != "http://localhost:8025" {
+		t.Errorf("DefaultPresetDashboard(mailpit) wrong")
+	}
+	if DefaultPresetConnectionURL("postgres") != "postgresql://postgres:lerd@127.0.0.1:5432/lerd" {
+		t.Errorf("DefaultPresetConnectionURL(postgres) wrong")
+	}
+}
+
+func TestLoadPreset_DefaultEnvVarsParity(t *testing.T) {
+	// Each default preset must encode the same env_vars that lerd shipped from
+	// the hardcoded cli.serviceEnvVars map. This is the no-regression test for
+	// the migration: swapping the map for preset reads must not change a single
+	// .env line a Laravel project sees.
+	cases := map[string][]string{
+		"mysql": {
+			"DB_CONNECTION=mysql",
+			"DB_HOST=lerd-mysql",
+			"DB_PORT=3306",
+			"DB_DATABASE=lerd",
+			"DB_USERNAME=root",
+			"DB_PASSWORD=lerd",
+		},
+		"postgres": {
+			"DB_CONNECTION=pgsql",
+			"DB_HOST=lerd-postgres",
+			"DB_PORT=5432",
+			"DB_DATABASE=lerd",
+			"DB_USERNAME=postgres",
+			"DB_PASSWORD=lerd",
+		},
+		"redis": {
+			"REDIS_HOST=lerd-redis",
+			"REDIS_PORT=6379",
+			"REDIS_PASSWORD=null",
+			"CACHE_STORE=redis",
+			"SESSION_DRIVER=redis",
+			"QUEUE_CONNECTION=redis",
+		},
+		"meilisearch": {
+			"SCOUT_DRIVER=meilisearch",
+			"MEILISEARCH_HOST=http://lerd-meilisearch:7700",
+		},
+		"rustfs": {
+			"FILESYSTEM_DISK=s3",
+			"AWS_ACCESS_KEY_ID=lerd",
+			"AWS_SECRET_ACCESS_KEY=lerdpassword",
+			"AWS_DEFAULT_REGION=us-east-1",
+			"AWS_BUCKET=lerd",
+			"AWS_URL=http://localhost:9000",
+			"AWS_ENDPOINT=http://lerd-rustfs:9000",
+			"AWS_USE_PATH_STYLE_ENDPOINT=true",
+		},
+		"mailpit": {
+			"MAIL_MAILER=smtp",
+			"MAIL_HOST=lerd-mailpit",
+			"MAIL_PORT=1025",
+			"MAIL_USERNAME=null",
+			"MAIL_PASSWORD=null",
+			"MAIL_ENCRYPTION=null",
+		},
+	}
+	for name, want := range cases {
+		p, err := LoadPreset(name)
+		if err != nil {
+			t.Errorf("LoadPreset(%s): %v", name, err)
+			continue
+		}
+		svc, err := p.Resolve("")
+		if err != nil {
+			t.Errorf("Resolve(%s): %v", name, err)
+			continue
+		}
+		if len(svc.EnvVars) != len(want) {
+			t.Errorf("%s: EnvVars length = %d, want %d (got %v, want %v)", name, len(svc.EnvVars), len(want), svc.EnvVars, want)
+			continue
+		}
+		for i, kv := range want {
+			if svc.EnvVars[i] != kv {
+				t.Errorf("%s: EnvVars[%d] = %q, want %q", name, i, svc.EnvVars[i], kv)
+			}
+		}
 	}
 }

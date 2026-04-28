@@ -6,17 +6,35 @@
 |---|---|
 | `lerd service start <name>` | Start a service (auto-installs on first use) |
 | `lerd service stop <name>` | Stop a service container |
-| `lerd service restart <name>` | Restart a service container |
+| `lerd service restart <name>` | Restart a service container; refreshes the quadlet first so config edits land |
 | `lerd service status <name>` | Show systemd unit status |
-| `lerd service list` | Show all services and their current state |
+| `lerd service list` | All services with status, version, and an Update column |
+| `lerd service update <name> [tag]` | Pull a newer image and restart; tag selects an explicit upgrade target |
+| `lerd service migrate <name> <target-tag>` | SQL dump + restore for cross-version moves (mysql, postgres) |
+| `lerd service rollback <name>` | Swap back to the previously-running image (toggles) |
 | `lerd service pin <name>` | Pin a service so it is never auto-stopped |
 | `lerd service unpin <name>` | Unpin a service so it can be auto-stopped when unused |
 | `lerd service expose <name> <host:container>` | Publish an extra port on a built-in service |
 | `lerd service expose <name> <host:container> --remove` | Remove a previously exposed port |
 
-Available services: `mysql`, `redis`, `postgres`, `meilisearch`, `rustfs`, `mailpit`.
+Available services: `mysql` (8.4 LTS), `redis` (7-alpine), `postgres` (16 with PostGIS), `meilisearch` (v1.42), `rustfs` (S3-compatible), `mailpit` (SMTP catcher).
 
-`lerd service list` shows the version (derived from the image tag) alongside each service, e.g. `mysql v8.0`, `redis v7`, `postgres v16`, `meilisearch v1.7`. The Web UI, the TUI, and `lerd status` display the same label. Services pinned to rolling tags (`latest`, `main`) show the tag verbatim.
+Default services are defined as YAML presets with `default: true` in the lerd binary. Adding or replacing a default service is a YAML edit, not a code change. Each preset declares its own `update_strategy` (patch / minor / rolling), whether `track_latest` should auto-bump fresh installs to the current upstream, and whether `allow_major_upgrade` lets the cross-strategy upgrade button cross numeric majors. See [Service updates](service-updates.md) for the full update / upgrade / migrate / rollback flow.
+
+`lerd service list` shows the version (derived from the image tag) and an Update column with green / amber / violet badges:
+
+```
+Service              Version    Status     Update
+────────────────────────────────────────────────────────────
+mailpit              latest     active
+meilisearch          v1.42.1    active
+mysql                v8.4.9     active
+postgres             v16        active
+redis                v7.4.8     active
+rustfs               latest     active
+```
+
+The Web UI, the TUI, and `lerd status` display the same labels. Services pinned to rolling tags (`latest`, `main`) show the tag verbatim. Services where an update is available show `→ <new-tag>`; cross-strategy upgrades show `⇧ <new-tag>` in amber.
 
 ### Exposing extra ports on built-in services
 
@@ -56,14 +74,14 @@ Services run as Podman containers on the `lerd` network. Two hostnames apply dep
 `lerd service start <name>` prints the correct `.env` variables to paste into your project.
 :::
 
-| Service | Host (host tools) | Host (Laravel `.env`) | Port | User | Password | DB |
-|---|---|---|---|---|---|---|
-| MySQL | 127.0.0.1 | lerd-mysql | 3306 | root | `lerd` | `lerd` |
-| PostgreSQL | 127.0.0.1 | lerd-postgres | 5432 | postgres | `lerd` | `lerd` |
-| Redis | 127.0.0.1 | lerd-redis | 6379 | - | - | - |
-| Meilisearch | 127.0.0.1 | lerd-meilisearch | 7700 | - | - | - |
-| RustFS | 127.0.0.1 | lerd-rustfs | 9000 | `lerd` | `lerdpassword` | per-site bucket |
-| Mailpit SMTP | 127.0.0.1 | lerd-mailpit | 1025 | - | - | - |
+| Service | Default version | Host (host tools) | Host (Laravel `.env`) | Port | User | Password | DB |
+|---|---|---|---|---|---|---|---|
+| MySQL | 8.4 LTS (`mysql:8.4`) | 127.0.0.1 | lerd-mysql | 3306 | root | `lerd` | `lerd` |
+| PostgreSQL | 16 + PostGIS 3.5 | 127.0.0.1 | lerd-postgres | 5432 | postgres | `lerd` | `lerd` |
+| Redis | 7-alpine | 127.0.0.1 | lerd-redis | 6379 | - | - | - |
+| Meilisearch | v1.42 | 127.0.0.1 | lerd-meilisearch | 7700 | - | - | - |
+| RustFS | latest | 127.0.0.1 | lerd-rustfs | 9000 | `lerd` | `lerdpassword` | per-site bucket |
+| Mailpit SMTP | latest | 127.0.0.1 | lerd-mailpit | 1025 | - | - | - |
 
 Additional UIs:
 
@@ -131,5 +149,6 @@ rm -rf ~/.local/share/lerd/data/minio
 
 ## More
 
+- [Service updates](service-updates.md): the Update / Upgrade / Migrate / Rollback flow, `update_strategy` / `track_latest` / `allow_major_upgrade` configuration, and recovery from failed migrations.
 - [Service presets](service-presets.md): one-command installers for phpMyAdmin, pgAdmin, MongoDB, alternate MySQL / MariaDB versions, Selenium, and Stripe Mock.
 - [Custom services](custom-services.md): YAML schema for your own OCI-based services, with env injection, placeholders, dependencies, and worked examples (Soketi, Stripe).

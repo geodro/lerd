@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -9,10 +11,11 @@ import (
 
 // ServiceConfig holds configuration for an optional service.
 type ServiceConfig struct {
-	Enabled    bool     `yaml:"enabled"      mapstructure:"enabled"`
-	Image      string   `yaml:"image"        mapstructure:"image"`
-	Port       int      `yaml:"port"         mapstructure:"port"`
-	ExtraPorts []string `yaml:"extra_ports"  mapstructure:"extra_ports"`
+	Enabled       bool     `yaml:"enabled"        mapstructure:"enabled"`
+	Image         string   `yaml:"image"          mapstructure:"image"`
+	Port          int      `yaml:"port"           mapstructure:"port"`
+	ExtraPorts    []string `yaml:"extra_ports"    mapstructure:"extra_ports"`
+	PreviousImage string   `yaml:"previous_image,omitempty" mapstructure:"previous_image"`
 }
 
 // GlobalConfig is the top-level lerd configuration.
@@ -93,39 +96,42 @@ func defaultConfig() *GlobalConfig {
 	home, _ := os.UserHomeDir()
 	cfg.ParkedDirectories = []string{home + "/Lerd"}
 
-	cfg.Services = map[string]ServiceConfig{
-		"mysql": {
-			Enabled: true,
-			Image:   "docker.io/library/mysql:8.0",
-			Port:    3306,
-		},
-		"redis": {
-			Enabled: true,
-			Image:   "docker.io/library/redis:7-alpine",
-			Port:    6379,
-		},
-		"postgres": {
-			Enabled: false,
-			Image:   "docker.io/postgis/postgis:16-3.5-alpine",
-			Port:    5432,
-		},
-		"meilisearch": {
-			Enabled: false,
-			Image:   "docker.io/getmeili/meilisearch:v1.7",
-			Port:    7700,
-		},
-		"rustfs": {
-			Enabled: false,
-			Image:   "docker.io/rustfs/rustfs:latest",
-			Port:    9000,
-		},
-		"mailpit": {
-			Enabled: false,
-			Image:   "docker.io/axllent/mailpit:latest",
-			Port:    1025,
-		},
+	// Hydrate the per-service defaults from each default-preset YAML so the
+	// preset is the single source of truth for image, host port and identity.
+	// Image overrides users have written into ~/.config/lerd/config.yaml are
+	// merged on top by viper after this point in LoadGlobal.
+	cfg.Services = map[string]ServiceConfig{}
+	for _, name := range DefaultPresetNames() {
+		svc, err := DefaultPresetMeta(name)
+		if err != nil {
+			continue
+		}
+		entry := ServiceConfig{Enabled: true, Port: firstHostPort(svc.Ports)}
+		// Skip the Image seed for track_latest presets so EnsureDefaultPresetQuadlet
+		// can detect "fresh install, no user pin" and resolve the actual current
+		// upstream tag at install time. Existing users' saved Image overrides
+		// continue to win via viper merge.
+		if p, _ := LoadPreset(name); p == nil || !p.TrackLatest {
+			entry.Image = svc.Image
+		}
+		cfg.Services[name] = entry
 	}
 	return cfg
+}
+
+// firstHostPort returns the host-side port number from the first ports entry,
+// e.g. "3306:3306" → 3306. Used by defaultConfig to populate ServiceConfig.Port
+// without mirroring the YAML port literals in code.
+func firstHostPort(ports []string) int {
+	if len(ports) == 0 {
+		return 0
+	}
+	first := ports[0]
+	if i := strings.Index(first, ":"); i >= 0 {
+		first = first[:i]
+	}
+	n, _ := strconv.Atoi(first)
+	return n
 }
 
 // LoadGlobal reads config.yaml via viper, returning defaults if the file is absent.
@@ -170,9 +176,10 @@ var staleServiceImages = map[string][]string{
 		"docker.io/postgres:16-alpine",
 		"postgis/postgis:16-3.5-alpine",
 	},
-	"meilisearch": {
-		"getmeili/meilisearch:v1.7",
-	},
+	// meilisearch deliberately omitted: every minor bump breaks data-dir
+	// compatibility, so silently upgrading existing v1.7 users to v1.42
+	// would crash their running container. New installs pick up the latest
+	// minor through defaultConfig; existing users keep their pinned image.
 	"rustfs": {
 		"rustfs/rustfs:latest",
 	},
@@ -194,6 +201,13 @@ func migrateStaleServiceImages(cfg *GlobalConfig) {
 		}
 		def, hasDefault := defaults[name]
 		if !hasDefault {
+			continue
+		}
+		// Skip migration for track_latest presets where defaultConfig has no
+		// concrete image: rewriting to "" would land the user in the
+		// fresh-install path on next start, silently bumping their data dir
+		// across major-line boundaries (e.g. mysql:8.0 → 8.4 forward upgrade).
+		if def.Image == "" {
 			continue
 		}
 		for _, s := range stale {

@@ -310,7 +310,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			}
 		}
 
-		for _, svc := range knownServices {
+		for _, svc := range knownServices() {
 			detector, ok := serviceDetectors[svc]
 			detectedFromEnv := ok && detector(envMap)
 
@@ -323,8 +323,8 @@ func runEnv(_ *cobra.Command, _ []string) error {
 				continue
 			}
 
-			info, ok := serviceEnvVars[svc]
-			if !ok {
+			envs := serviceEnvVars(svc)
+			if len(envs) == 0 {
 				continue
 			}
 
@@ -333,7 +333,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			} else {
 				fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", svc)
 			}
-			for _, kv := range info.envVars {
+			for _, kv := range envs {
 				k, v, _ := strings.Cut(kv, "=")
 				updates[k] = v
 			}
@@ -396,7 +396,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// migrations can run immediately. No service to start, no SQL DB to create.
 	if lerdYAMLServices["sqlite"] {
 		fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", "sqlite")
-		for _, kv := range serviceEnvVars["sqlite"].envVars {
+		for _, kv := range serviceEnvVars("sqlite") {
 			k, v, _ := strings.Cut(kv, "=")
 			updates[k] = v
 		}

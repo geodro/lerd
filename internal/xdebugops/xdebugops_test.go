@@ -116,23 +116,25 @@ func TestApply_RejectsInvalidMode(t *testing.T) {
 }
 
 func TestApply_RestartErrIsNonFatal(t *testing.T) {
-	// PATH is empty so podman.RestartUnit will fail. Apply must still
-	// persist config and ini, returning RestartErr instead of aborting;
-	// otherwise a harmless restart hiccup loses the user's toggle.
+	// Use a bogus PHP version so the derived unit name (lerd-php99-fpm)
+	// can't exist on the host; RestartUnit must then fail, and Apply must
+	// still persist config and ini, surfacing RestartErr rather than
+	// aborting. A prior version of this test relied on PATH=empty to
+	// break the systemctl shell-out, which the DBus refactor bypasses.
 	setupConfigHome(t)
 
-	res, err := Apply("8.4", "debug")
+	res, err := Apply("9.9", "debug")
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if res.RestartErr == nil {
-		t.Fatal("expected RestartErr when podman is unavailable")
+		t.Fatal("expected RestartErr when the target FPM unit does not exist")
 	}
 	if !res.Enabled || res.Mode != "debug" {
 		t.Errorf("config/ini should still be applied: %+v", res)
 	}
 	cfg, _ := config.LoadGlobal()
-	if cfg.GetXdebugMode("8.4") != "debug" {
+	if cfg.GetXdebugMode("9.9") != "debug" {
 		t.Error("config not saved despite RestartErr")
 	}
 }

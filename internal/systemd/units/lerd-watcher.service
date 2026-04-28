@@ -3,6 +3,7 @@ Description=Lerd Project Watcher
 After=default.target
 
 [Service]
+Type=notify
 ExecStart=%h/.local/bin/lerd watch
 Restart=on-failure
 

@@ -3,6 +3,7 @@ Description=Lerd UI Dashboard
 After=default.target
 
 [Service]
+Type=notify
 ExecStart=%h/.local/bin/lerd serve-ui
 Restart=on-failure
 

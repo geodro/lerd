@@ -13,78 +13,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
+// knownServices returns the default-preset service names (mysql, redis, etc.).
+// Backed by the preset YAMLs so adding a default preset surfaces here automatically.
+func knownServices() []string { return config.DefaultPresetNames() }
 
-// serviceInfo holds the quadlet name and Laravel .env hints for a service.
-type serviceInfo struct {
-	envVars []string
+// sqliteEnvVars are the Laravel-standard env values for the sqlite "service"
+// (which isn't a podman container — just a per-project file). Kept hardcoded
+// because there's no preset YAML to host it: sqlite has no image, no port,
+// and no install flow.
+var sqliteEnvVars = []string{
+	"DB_CONNECTION=sqlite",
+	"DB_DATABASE=database/database.sqlite",
 }
 
-var serviceEnvVars = map[string]serviceInfo{
-	// sqlite is not a podman service — it's a per-project file. Listed here so
-	// the env writer can apply Laravel's standard sqlite settings when the user
-	// explicitly chooses sqlite in the wizard or runtime prompt.
-	"sqlite": {envVars: []string{
-		"DB_CONNECTION=sqlite",
-		"DB_DATABASE=database/database.sqlite",
-	}},
-	"mysql": {envVars: []string{
-		"DB_CONNECTION=mysql",
-		"DB_HOST=lerd-mysql",
-		"DB_PORT=3306",
-		"DB_DATABASE=lerd",
-		"DB_USERNAME=root",
-		"DB_PASSWORD=lerd",
-	}},
-	"postgres": {envVars: []string{
-		"DB_CONNECTION=pgsql",
-		"DB_HOST=lerd-postgres",
-		"DB_PORT=5432",
-		"DB_DATABASE=lerd",
-		"DB_USERNAME=postgres",
-		"DB_PASSWORD=lerd",
-	}},
-	"redis": {envVars: []string{
-		"REDIS_HOST=lerd-redis",
-		"REDIS_PORT=6379",
-		"REDIS_PASSWORD=null",
-		"CACHE_STORE=redis",
-		"SESSION_DRIVER=redis",
-		"QUEUE_CONNECTION=redis",
-	}},
-	"meilisearch": {envVars: []string{
-		"SCOUT_DRIVER=meilisearch",
-		"MEILISEARCH_HOST=http://lerd-meilisearch:7700",
-	}},
-	"rustfs": {envVars: []string{
-		"FILESYSTEM_DISK=s3",
-		"AWS_ACCESS_KEY_ID=lerd",
-		"AWS_SECRET_ACCESS_KEY=lerdpassword",
-		"AWS_DEFAULT_REGION=us-east-1",
-		"AWS_BUCKET=lerd",
-		"AWS_URL=http://localhost:9000",
-		"AWS_ENDPOINT=http://lerd-rustfs:9000",
-		"AWS_USE_PATH_STYLE_ENDPOINT=true",
-	}},
-	"mailpit": {envVars: []string{
-		"MAIL_MAILER=smtp",
-		"MAIL_HOST=lerd-mailpit",
-		"MAIL_PORT=1025",
-		"MAIL_USERNAME=null",
-		"MAIL_PASSWORD=null",
-		"MAIL_ENCRYPTION=null",
-	}},
-}
-
-// isKnownService returns true if name is a built-in service.
-func isKnownService(name string) bool {
-	for _, s := range knownServices {
-		if s == name {
-			return true
-		}
+// serviceEnvVars returns the recommended Laravel .env KEY=VALUE pairs for a
+// default-preset service or sqlite. Returns nil for any other name.
+func serviceEnvVars(name string) []string {
+	if name == "sqlite" {
+		return sqliteEnvVars
 	}
-	return false
+	return config.DefaultPresetEnvVars(name)
 }
+
+// isKnownService returns true if name is a default-preset service.
+func isKnownService(name string) bool { return config.IsDefaultPreset(name) }
 
 // NewServiceCmd returns the service command with subcommands.
 func NewServiceCmd() *cobra.Command {
@@ -100,6 +52,9 @@ func NewServiceCmd() *cobra.Command {
 	cmd.AddCommand(newServiceListCmd())
 	cmd.AddCommand(newServiceAddCmd())
 	cmd.AddCommand(newServicePresetCmd())
+	cmd.AddCommand(newServiceUpdateCmd())
+	cmd.AddCommand(newServiceRollbackCmd())
+	cmd.AddCommand(newServiceMigrateCmd())
 	cmd.AddCommand(newServiceRemoveCmd())
 	cmd.AddCommand(newServiceExposeCmd())
 	cmd.AddCommand(newServicePinCmd())
@@ -200,6 +155,176 @@ func RegenerateFamilyConsumersForService(name string) {
 	serviceops.RegenerateFamilyConsumersForService(name)
 }
 
+// serviceUpdateHint queries the registry for an update / upgrade tag and
+// returns a short, colorised hint suitable for the list view's Update column.
+// Returns "" for inactive services or when nothing is available.
+func serviceUpdateHint(name, status string) string {
+	if status != "active" {
+		return ""
+	}
+	avail, err := serviceops.CheckUpdateAvailable(name)
+	if err != nil || avail == nil {
+		return ""
+	}
+	parts := []string{}
+	if avail.Available && avail.LatestTag != "" {
+		parts = append(parts, "\033[32m→ "+avail.LatestTag+"\033[0m")
+	}
+	if avail.UpgradeTag != "" {
+		parts = append(parts, "\033[33m⇧ "+avail.UpgradeTag+"\033[0m")
+	}
+	return strings.Join(parts, " ")
+}
+
+func newServiceUpdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update <service> [tag]",
+		Short: "Pull a newer image for a service and restart it",
+		Long: `Pull a newer image for a service and restart it.
+
+With no tag argument, applies the safe in-strategy update (e.g. mysql 8.4 → 8.4.9).
+Pass an explicit tag to opt into the cross-strategy upgrade (e.g. meilisearch
+v1.7.6 → v1.42.1) — this may require manual data migration; you've been warned.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			targetImage := ""
+			if len(args) == 2 {
+				avail, err := serviceops.CheckUpdateAvailable(name)
+				if err != nil {
+					return err
+				}
+				if avail.CurrentImage == "" {
+					return fmt.Errorf("could not resolve current image for %q", name)
+				}
+				if at := strings.LastIndex(avail.CurrentImage, ":"); at > 0 {
+					targetImage = avail.CurrentImage[:at] + ":" + args[1]
+				} else {
+					targetImage = avail.CurrentImage + ":" + args[1]
+				}
+			}
+			emit := func(ev serviceops.PhaseEvent) {
+				switch ev.Phase {
+				case "checking_registry":
+					fmt.Println("Checking registry...")
+				case "pulling_image":
+					if ev.Message != "" {
+						fmt.Println("  " + strings.TrimSpace(ev.Message))
+					} else if ev.Image != "" {
+						fmt.Println("Pulling " + ev.Image)
+					}
+				case "writing_quadlet":
+					fmt.Println("Writing quadlet for " + ev.Image)
+				case "restarting_unit":
+					fmt.Println("Restarting " + ev.Unit)
+				case "done":
+					if ev.Message != "" {
+						fmt.Println(ev.Message)
+					} else {
+						fmt.Println("Done. Now on " + ev.Image)
+					}
+				}
+			}
+			return serviceops.UpdateServiceStreaming(name, targetImage, emit)
+		},
+	}
+	return cmd
+}
+
+func newServiceMigrateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "migrate <service> <target-tag>",
+		Short: "Migrate a service across data-incompatible versions (dump + restore)",
+		Long: `Migrate a service across versions whose on-disk data dirs are NOT compatible
+(e.g. mysql 8.x → 9.x, postgres 16 → 17, meilisearch v1.x → v1.y across minors).
+
+Flow: dump current data into ~/.local/share/lerd/backups/<svc>-<ts>.sql, stop
+the unit, move the data dir aside, pull the target image, start fresh, restore
+the dump. The old data dir is preserved alongside the dump so manual recovery
+is always possible.
+
+Supported families: mysql, mariadb, postgres, meilisearch.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name, tag := args[0], args[1]
+			avail, err := serviceops.CheckUpdateAvailable(name)
+			if err != nil {
+				return err
+			}
+			if avail.CurrentImage == "" {
+				return fmt.Errorf("could not resolve current image for %q", name)
+			}
+			targetImage := avail.CurrentImage
+			if at := strings.LastIndex(targetImage, ":"); at > 0 {
+				targetImage = targetImage[:at] + ":" + tag
+			}
+			fmt.Printf("Migrating %s: %s → %s\n", name, avail.CurrentImage, targetImage)
+			fmt.Println("Dumps and the previous data dir will be preserved under ~/.local/share/lerd/backups.")
+			emit := func(ev serviceops.PhaseEvent) {
+				switch ev.Phase {
+				case "dumping_data":
+					fmt.Println("Dumping: " + ev.Message)
+				case "stopping_unit":
+					fmt.Println("Stopping " + ev.Unit)
+				case "swapping_data_dir":
+					fmt.Println("Moving data dir aside")
+				case "pulling_image":
+					if ev.Message != "" {
+						fmt.Println("  " + strings.TrimSpace(ev.Message))
+					} else if ev.Image != "" {
+						fmt.Println("Pulling " + ev.Image)
+					}
+				case "writing_quadlet":
+					fmt.Println("Writing quadlet for " + ev.Image)
+				case "restarting_unit":
+					fmt.Println("Restarting " + ev.Unit)
+				case "waiting_ready":
+					fmt.Println("Waiting for new container to be ready")
+				case "restoring_data":
+					fmt.Println("Restoring " + ev.Message)
+				case "done":
+					if ev.Message != "" {
+						fmt.Println(ev.Message)
+					}
+					fmt.Println("Migration complete.")
+				}
+			}
+			return serviceops.MigrateService(name, targetImage, emit)
+		},
+	}
+}
+
+func newServiceRollbackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rollback <service>",
+		Short: "Roll back a service to its previously-running image",
+		Long: `Roll back a service to whatever it was running before the last update.
+Toggling: a second rollback returns to the original (so you can flip-flop).
+Errors when no previous image is recorded — i.e. the service was never updated.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			emit := func(ev serviceops.PhaseEvent) {
+				switch ev.Phase {
+				case "pulling_image":
+					if ev.Message != "" {
+						fmt.Println("  " + strings.TrimSpace(ev.Message))
+					} else if ev.Image != "" {
+						fmt.Println("Pulling " + ev.Image)
+					}
+				case "writing_quadlet":
+					fmt.Println("Writing quadlet for " + ev.Image)
+				case "restarting_unit":
+					fmt.Println("Restarting " + ev.Unit)
+				case "done":
+					fmt.Println("Rolled back to " + ev.Image)
+				}
+			}
+			return serviceops.RollbackService(name, emit)
+		},
+	}
+}
+
 func newServiceRestartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart <service>",
@@ -208,6 +333,18 @@ func newServiceRestartCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			unit := "lerd-" + name
+			// Refresh the quadlet first so config edits (image override,
+			// extra ports) and preset file mounts (mysql lerd.cnf) land
+			// on disk before the unit picks them up.
+			if isKnownService(name) {
+				if err := ensureServiceQuadlet(name); err != nil {
+					return err
+				}
+			} else if svc, err := config.LoadCustomService(name); err == nil {
+				if err := ensureCustomServiceQuadlet(svc); err != nil {
+					return err
+				}
+			}
 			fmt.Printf("Restarting %s...\n", unit)
 			if err := podman.RestartUnit(unit); err != nil {
 				return err
@@ -244,16 +381,16 @@ func newServiceListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all services and their status",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			fmt.Printf("%-20s %-10s %s\n", "Service", "Version", "Status")
-			fmt.Printf("%s\n", strings.Repeat("─", 44))
-			for _, svc := range knownServices {
+			fmt.Printf("%-20s %-10s %-10s %s\n", "Service", "Version", "Status", "Update")
+			fmt.Printf("%s\n", strings.Repeat("─", 60))
+			for _, svc := range knownServices() {
 				unit := "lerd-" + svc
 				status, err := podman.UnitStatus(unit)
 				if err != nil {
 					status = "unknown"
 				}
 				ver := podman.ServiceVersionLabel(podman.InstalledImage(unit))
-				fmt.Printf("%-20s %-10s %s\n", svc, ver, colorStatus(status))
+				fmt.Printf("%-20s %-10s %-10s %s\n", svc, ver, colorStatus(status), serviceUpdateHint(svc, status))
 				if status == "inactive" {
 					if reason := serviceInactiveReason(svc); reason != "" {
 						fmt.Printf("  %s\n", strings.TrimSpace(reason))
@@ -268,7 +405,7 @@ func newServiceListCmd() *cobra.Command {
 					status = "unknown"
 				}
 				ver := podman.ServiceVersionLabel(svc.Image)
-				fmt.Printf("%-20s %-10s %s  [custom]\n", svc.Name, ver, colorStatus(status))
+				fmt.Printf("%-20s %-10s %-10s %s  [custom]\n", svc.Name, ver, colorStatus(status), serviceUpdateHint(svc.Name, status))
 				if status == "inactive" {
 					if reason := serviceInactiveReason(svc.Name); reason != "" {
 						fmt.Printf("  %s\n", strings.TrimSpace(reason))
@@ -615,7 +752,7 @@ func newServiceRemoveCmd() *cobra.Command {
 // This ensures BindForLAN and other install-time settings are applied even for
 // services that already have a unit file on disk.
 func migrateServiceUnits() {
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		ensureServiceQuadlet(svc) //nolint:errcheck
 	}
 	customs, _ := config.ListCustomServices()
@@ -624,36 +761,11 @@ func migrateServiceUnits() {
 	}
 }
 
-// ensureServiceQuadlet writes the unit file for a known service and reloads the service manager.
+// ensureServiceQuadlet writes the unit file for a default-preset service and
+// reloads the service manager. Delegates to serviceops so install + runtime +
+// MCP all generate byte-identical quadlets.
 func ensureServiceQuadlet(name string) error {
-	quadletName := "lerd-" + name
-	content, err := podman.GetQuadletTemplate(quadletName + ".container")
-	if err != nil {
-		return fmt.Errorf("unknown service %q", name)
-	}
-	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
-		if svcCfg, ok := cfg.Services[name]; ok {
-			content = podman.ApplyImage(content, svcCfg.Image)
-			if len(svcCfg.ExtraPorts) > 0 {
-				content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
-			}
-		}
-	}
-	// Platform override applied last so it wins over the global config image.
-	// The override only fires when the resolved image is a known-bad one for
-	// this platform (e.g. postgis/postgis alpine has no ARM64 manifest on macOS).
-	if currentImage := podman.CurrentImage(content); currentImage != "" {
-		if override := platformImageOverride(name, currentImage); override != "" {
-			content = podman.ApplyImage(content, override)
-		}
-	}
-	// WriteQuadletDiff writes the .container file to QuadletDir (needed on macOS
-	// so quadletImage() can resolve the image for pre-pull in startRestoredServices)
-	// and calls AfterQuadletWriteFn (writes the launchd plist on macOS).
-	if _, err := podman.WriteQuadletDiff(quadletName, content); err != nil {
-		return fmt.Errorf("writing unit for %s: %w", name, err)
-	}
-	return podman.DaemonReloadFn()
+	return serviceops.EnsureDefaultPresetQuadlet(name)
 }
 
 // ensureCustomServiceQuadlet defers to serviceops so the CLI and the MCP
@@ -731,10 +843,9 @@ func removePort(ports []string, port string) []string {
 
 // printEnvVars prints the recommended .env variables for a service.
 func printEnvVars(name string) {
-	info, ok := serviceEnvVars[name]
-	if ok && len(info.envVars) > 0 {
+	if envs := serviceEnvVars(name); len(envs) > 0 {
 		fmt.Println("\nAdd to your .env:")
-		for _, v := range info.envVars {
+		for _, v := range envs {
 			fmt.Println(v)
 		}
 		fmt.Println()
@@ -800,8 +911,7 @@ func StopServiceAndDependents(name string) {
 // autoStopUnusedServices stops any running service that has no active sites
 // referencing it and was not manually started by the user.
 func autoStopUnusedServices() {
-	candidates := make([]string, len(knownServices))
-	copy(candidates, knownServices)
+	candidates := knownServices()
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, c := range customs {
 			candidates = append(candidates, c.Name)

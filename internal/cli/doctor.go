@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -27,45 +28,57 @@ func NewDoctorCmd() *cobra.Command {
 }
 
 func runDoctor(_ *cobra.Command, _ []string) error {
-	var fails, warns int
+	_, _, err := RunDoctorTo(os.Stdout, true)
+	return err
+}
+
+// RunDoctorTo runs the full doctor diagnostic, writing human-readable output
+// to w. When useColor is false ANSI escapes are stripped so the output is
+// safe to embed in a plain-text file (used by `lerd bug-report`). Returns
+// the failure and warning counts for callers that want to summarise.
+func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
+	cR, cG, cY, cReset := colorRed, colorGreen, colorYellow, colorReset
+	if !useColor {
+		cR, cG, cY, cReset = "", "", "", ""
+	}
 
 	ok := func(label string) {
-		fmt.Printf("  %s%-34s%s OK\n", colorGreen, label, colorReset)
+		fmt.Fprintf(w, "  %s%-34s%s OK\n", cG, label, cReset)
 	}
 	fail := func(label, msg, hint string) {
 		fails++
-		fmt.Printf("  %s%-34s%s FAIL  %s\n    hint: %s\n", colorRed, label, colorReset, msg, hint)
+		fmt.Fprintf(w, "  %s%-34s%s FAIL  %s\n    hint: %s\n", cR, label, cReset, msg, hint)
 	}
 	warn := func(label, msg string) {
 		warns++
-		fmt.Printf("  %s%-34s%s WARN  %s\n", colorYellow, label, colorReset, msg)
+		fmt.Fprintf(w, "  %s%-34s%s WARN  %s\n", cY, label, cReset, msg)
 	}
 	info := func(label, val string) {
-		fmt.Printf("  %-34s %s\n", label, val)
+		fmt.Fprintf(w, "  %-34s %s\n", label, val)
 	}
 
-	fmt.Printf("Lerd Doctor  (version %s)\n", version.String())
-	fmt.Println("══════════════════════════════════════════════")
+	fmt.Fprintf(w, "Lerd Doctor  (version %s)\n", version.String())
+	fmt.Fprintln(w, "══════════════════════════════════════════════")
 
 	// ── Prerequisites ───────────────────────────────────────────────────────
-	fmt.Println("\n[Prerequisites]")
+	fmt.Fprintln(w, "\n[Prerequisites]")
 
-	if _, err := exec.LookPath("podman"); err != nil {
+	if _, lookErr := exec.LookPath("podman"); lookErr != nil {
 		fail("podman binary", "not found in PATH", "install podman: https://podman.io/docs/installation")
-	} else if err := podman.RunSilent("info"); err != nil {
+	} else if runErr := podman.RunSilent("info"); runErr != nil {
 		fail("podman", "podman info failed — daemon not running?", podmanDaemonHint())
 	} else {
 		ok("podman")
 	}
 
 	if runtime.GOOS == "linux" {
-		if _, err := exec.LookPath("crun"); err != nil {
+		if _, lookErr := exec.LookPath("crun"); lookErr != nil {
 			warn("OCI runtime", "crun not found — recommended for rootless podman (install: sudo pacman -S crun / sudo apt install crun / sudo dnf install crun)")
 		} else {
 			ok("OCI runtime (crun)")
 		}
 
-		if out, err := exec.Command("systemctl", "--user", "is-system-running").Output(); err != nil {
+		if out, runErr := exec.Command("systemctl", "--user", "is-system-running").Output(); runErr != nil {
 			state := strings.TrimSpace(string(out))
 			if state == "degraded" {
 				warn("systemd user session", "degraded — some units have failed")
@@ -81,8 +94,8 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 			currentUser = os.Getenv("LOGNAME")
 		}
 		if currentUser != "" {
-			out, err := exec.Command("loginctl", "show-user", currentUser).Output()
-			if err != nil || !strings.Contains(string(out), "Linger=yes") {
+			out, runErr := exec.Command("loginctl", "show-user", currentUser).Output()
+			if runErr != nil || !strings.Contains(string(out), "Linger=yes") {
 				warn("linger enabled", "services won't survive logout — fix: loginctl enable-linger "+currentUser)
 			} else {
 				ok("linger enabled")
@@ -91,24 +104,24 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	quadletDir := config.QuadletDir()
-	if err := checkDirWritable(quadletDir); err != nil {
-		fail("service config dir writable", err.Error(), "mkdir -p "+quadletDir)
+	if dirErr := checkDirWritable(quadletDir); dirErr != nil {
+		fail("service config dir writable", dirErr.Error(), "mkdir -p "+quadletDir)
 	} else {
 		ok("service config dir writable")
 	}
 
 	dataDir := config.DataDir()
-	if err := checkDirWritable(dataDir); err != nil {
-		fail("data dir writable", err.Error(), "mkdir -p "+dataDir)
+	if dirErr := checkDirWritable(dataDir); dirErr != nil {
+		fail("data dir writable", dirErr.Error(), "mkdir -p "+dataDir)
 	} else {
 		ok("data dir writable")
 	}
 
 	// ── Configuration ────────────────────────────────────────────────────────
-	fmt.Println("\n[Configuration]")
+	fmt.Fprintln(w, "\n[Configuration]")
 
 	cfgFile := config.GlobalConfigFile()
-	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
+	if _, statErr := os.Stat(cfgFile); os.IsNotExist(statErr) {
 		warn("config file", "not found — defaults will be used ("+cfgFile+")")
 	} else {
 		ok("config file exists")
@@ -117,7 +130,6 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	cfg, cfgErr := config.LoadGlobal()
 	if cfgErr != nil {
 		fail("config loads", cfgErr.Error(), "check "+cfgFile+" for YAML syntax errors")
-		// Can't proceed with config-dependent checks
 		cfg = nil
 	} else {
 		ok("config valid")
@@ -137,7 +149,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		}
 
 		for _, dir := range cfg.ParkedDirectories {
-			if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
 				warn(fmt.Sprintf("parked dir: %s", truncate(dir, 26)), "directory does not exist — run: mkdir -p "+dir)
 			} else {
 				ok(fmt.Sprintf("parked dir: %s", truncate(dir, 26)))
@@ -146,7 +158,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── DNS ──────────────────────────────────────────────────────────────────
-	fmt.Println("\n[DNS]")
+	fmt.Fprintln(w, "\n[DNS]")
 
 	tld := "test"
 	if cfg != nil && cfg.DNS.TLD != "" {
@@ -165,7 +177,6 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Port 5300 conflict (only warn when lerd-dns is not actively managing port 5300)
 	dnsRunning := services.Mgr.IsActive("lerd-dns")
 	if !dnsRunning {
 		if cr, _ := podman.ContainerRunning("lerd-dns"); cr {
@@ -177,7 +188,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── Ports ────────────────────────────────────────────────────────────────
-	fmt.Println("\n[Ports]")
+	fmt.Fprintln(w, "\n[Ports]")
 
 	nginxRunning, _ := podman.ContainerRunning("lerd-nginx")
 	if nginxRunning {
@@ -197,7 +208,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── Containers & Images ──────────────────────────────────────────────────
-	fmt.Println("\n[Containers & Images]")
+	fmt.Fprintln(w, "\n[Containers & Images]")
 
 	if !services.Mgr.ContainerUnitInstalled("lerd-nginx") {
 		fail("lerd-nginx service", "not installed", "run: lerd install")
@@ -227,7 +238,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	// Xdebug times out silently with no error in the FPM logs other than
 	// "Time-out connecting to debugging client" (issue #186 redux). This
 	// check surfaces the failure so the user gets a real diagnosis.
-	fmt.Println("\n[Container → Host connectivity]")
+	fmt.Fprintln(w, "\n[Container → Host connectivity]")
 	if !services.Mgr.IsActive("lerd-nginx") {
 		warn("host reachability probe", "skipped — lerd-nginx not running (start lerd first)")
 	} else if !services.Mgr.IsActive("lerd-ui") {
@@ -240,8 +251,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 			"check rootless podman / netavark / pasta routing; run: podman unshare --rootless-netns ip addr (expected: 169.254.1.2 on podman bridge or DNAT for it)")
 	}
 
-	// FrankenPHP suggestions: sites with signals but no runtime set get a one-line nudge.
-	if reg, err := config.LoadSites(); err == nil {
+	if reg, regErr := config.LoadSites(); regErr == nil {
 		for _, site := range reg.Sites {
 			if site.Ignored || site.IsCustomContainer() || site.IsFrankenPHP() {
 				continue
@@ -256,7 +266,7 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── Version Info ─────────────────────────────────────────────────────────
-	fmt.Println("\n[Version Info]")
+	fmt.Fprintln(w, "\n[Version Info]")
 
 	info("lerd", version.String())
 
@@ -278,19 +288,19 @@ func runDoctor(_ *cobra.Command, _ []string) error {
 	}
 
 	// ── Summary ──────────────────────────────────────────────────────────────
-	fmt.Println("\n══════════════════════════════════════════════")
+	fmt.Fprintln(w, "\n══════════════════════════════════════════════")
 	switch {
 	case fails > 0 && warns > 0:
-		fmt.Printf("%s%d failure(s), %d warning(s) found.%s\n", colorRed, fails, warns, colorReset)
+		fmt.Fprintf(w, "%s%d failure(s), %d warning(s) found.%s\n", cR, fails, warns, cReset)
 	case fails > 0:
-		fmt.Printf("%s%d failure(s) found.%s\n", colorRed, fails, colorReset)
+		fmt.Fprintf(w, "%s%d failure(s) found.%s\n", cR, fails, cReset)
 	case warns > 0:
-		fmt.Printf("%s%d warning(s) found.%s  All critical checks passed.\n", colorYellow, warns, colorReset)
+		fmt.Fprintf(w, "%s%d warning(s) found.%s  All critical checks passed.\n", cY, warns, cReset)
 	default:
-		fmt.Printf("%sAll checks passed.%s\n", colorGreen, colorReset)
+		fmt.Fprintf(w, "%sAll checks passed.%s\n", cG, cReset)
 	}
 
-	return nil
+	return fails, warns, nil
 }
 
 // checkDirWritable returns an error if the directory doesn't exist or isn't writable.

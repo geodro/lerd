@@ -63,6 +63,12 @@ func DataSubDir(name string) string {
 	return filepath.Join(DataDir(), "data", name)
 }
 
+// BackupsDir returns the directory where migration dumps are stored so users
+// can recover manually if an automated migration fails.
+func BackupsDir() string {
+	return filepath.Join(DataDir(), "backups")
+}
+
 // DnsmasqDir returns the dnsmasq config directory.
 func DnsmasqDir() string {
 	return filepath.Join(DataDir(), "dnsmasq")

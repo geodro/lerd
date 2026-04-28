@@ -1,17 +1,30 @@
 # Service presets
 
-The built-in services (MySQL, Postgres, Redis, etc.) live in [Services](services.md). This page covers the opt-in **service presets** Lerd ships: one-command installers for phpMyAdmin, pgAdmin, MongoDB, alternate MySQL / MariaDB versions, Selenium, Stripe Mock, Memcached, RabbitMQ, and Elasticsearch.
+Service presets are the YAML-driven definitions for every service lerd manages. There are two kinds:
 
-Lerd ships a small set of opt-in service presets that you can install in one
-command without cluttering the built-in service list. Each preset is just a
-bundled YAML file that becomes a normal custom service once installed, so it
-plays nicely with every `lerd service` subcommand (start/stop/remove/expose/pin).
+- **Default presets** (`default: true`) — the always-recognised services that ship with lerd: `mysql`, `redis`, `postgres`, `meilisearch`, `rustfs`, `mailpit`. They get auto-listed in `lerd service` everywhere; their lifecycle is identical to add-on presets but they don't need an explicit install step.
+- **Add-on presets** — opt-in installers for phpMyAdmin, pgAdmin, MongoDB, alternate MySQL / MariaDB versions, Selenium, Stripe Mock, Memcached, RabbitMQ, Elasticsearch, Elasticvue.
+
+Both kinds use the same YAML schema in `internal/config/presets/*.yaml` and the same code path. Adding or replacing a default service is a YAML edit, not a code change. See [Service updates](service-updates.md) for the configuration knobs (`update_strategy`, `track_latest`, `allow_major_upgrade`).
+
+## Default service presets
+
+| Preset | Default image | Update strategy | Notes |
+|---|---|---|---|
+| `mysql` | `docker.io/library/mysql:8.4` (LTS) | `minor` (track_latest) | Multi-version: 8.4 canonical + 5.7, 8.0 alternates on host ports 3357 / 3380. SQL migration supported. |
+| `postgres` | `docker.io/postgis/postgis:16-3.5-alpine` | `minor` (track_latest) | Darwin platform override → `imresamu/postgis` for ARM64 compatibility. SQL migration supported. |
+| `redis` | `docker.io/library/redis:7-alpine` | `minor` (track_latest) | Forward-compat across 7.x patches. |
+| `meilisearch` | `docker.io/getmeili/meilisearch:v1.42` | `patch` (track_latest) | Cross-minor upgrades require manual dump/restore — automated migration is **not** offered for Meilisearch (binary dump format is version-specific). |
+| `rustfs` | `docker.io/rustfs/rustfs:latest` | `rolling` | S3-compatible. |
+| `mailpit` | `docker.io/axllent/mailpit:latest` | `rolling` | SMTP catcher. |
+
+## Add-on service presets
 
 | Preset | Image / versions | Depends on | Dashboard / host port |
 |---|---|---|---|
-| `phpmyadmin` | `docker.io/library/phpmyadmin:latest` | `mysql` (built-in) | `http://localhost:8080` |
-| `pgadmin` | `docker.io/dpage/pgadmin4:latest` | `postgres` (built-in) | `http://localhost:8081` |
-| `mysql` | `5.7` (default) / `5.6`; alternates only, the built-in `mysql` covers `8.0` | - | `127.0.0.1:3357` / `127.0.0.1:3356` |
+| `phpmyadmin` | `docker.io/library/phpmyadmin:latest` | `mysql` (default) | `http://localhost:8080` |
+| `pgadmin` | `docker.io/dpage/pgadmin4:latest` | `postgres` (default) | `http://localhost:8081` |
+| `mysql` alternates | `5.7` / `8.0` (canonical 8.4 lives in the default preset) | - | `127.0.0.1:3357` / `127.0.0.1:3380` |
 | `mariadb` | `11` (default) / `10.11` LTS | - | `127.0.0.1:3411` / `127.0.0.1:3410` |
 | `mongo` | `docker.io/library/mongo:7` | - | `127.0.0.1:27017` |
 | `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
@@ -61,15 +74,17 @@ persists in `localStorage`.
 
 ## Multi-version presets
 
-`mysql` and `mariadb` ship multiple selectable versions. Each picked version
-materialises as a distinct custom service whose name is `<family>-<sanitized-tag>`:
+`mysql` and `mariadb` ship multiple selectable versions. The canonical version (mysql 8.4 LTS, mariadb 11) is the default install — recognised as the bare service `mysql` / `mariadb` on the canonical host port. Non-canonical alternates materialise as distinct custom services named `<family>-<sanitized-tag>`, runnable side-by-side with the canonical. The alternates picker only shows non-canonical versions (it doesn't list 8.4 because that IS the default install).
 
 | Picked | Service name | Container | Host port | Data dir |
 |---|---|---|---|---|
+| `mysql 8.4` (canonical) | `mysql` | `lerd-mysql` | `127.0.0.1:3306` | `~/.local/share/lerd/data/mysql/` |
+| `mysql 8.0` | `mysql-8-0` | `lerd-mysql-8-0` | `127.0.0.1:3380` | `~/.local/share/lerd/data/mysql-8-0/` |
 | `mysql 5.7` | `mysql-5-7` | `lerd-mysql-5-7` | `127.0.0.1:3357` | `~/.local/share/lerd/data/mysql-5-7/` |
-| `mysql 5.6` | `mysql-5-6` | `lerd-mysql-5-6` | `127.0.0.1:3356` | `~/.local/share/lerd/data/mysql-5-6/` |
-| `mariadb 11` | `mariadb-11` | `lerd-mariadb-11` | `127.0.0.1:3411` | `~/.local/share/lerd/data/mariadb-11/` |
+| `mariadb 11` (canonical) | `mariadb-11` | `lerd-mariadb-11` | `127.0.0.1:3411` | `~/.local/share/lerd/data/mariadb-11/` |
 | `mariadb 10.11` | `mariadb-10-11` | `lerd-mariadb-10-11` | `127.0.0.1:3410` | `~/.local/share/lerd/data/mariadb-10-11/` |
+
+Alternates inherit the preset's `update_strategy` but with one caveat: they're internally promoted to `patch` strategy so an alternate explicitly installed at v8.0 doesn't get auto-suggested an 8.4.x upgrade (which would cross the LTS line). Cross-line moves stay in the user's hands via the alternates picker or `lerd service migrate`.
 
 Each version has its own data directory so they can run side by side. The
 host port is fixed per version so the same `127.0.0.1:<port>` URL works on any

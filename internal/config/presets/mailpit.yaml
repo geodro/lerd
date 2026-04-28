@@ -1,0 +1,20 @@
+name: mailpit
+default: true
+update_strategy: rolling
+description: Mailpit SMTP catcher
+family: mailpit
+image: docker.io/axllent/mailpit:latest
+ports:
+  - "1025:1025"
+  - "8025:8025"
+data_dir: /data
+dashboard: http://localhost:8025
+environment:
+  MP_DATA_FILE: /data/mailpit.db
+env_vars:
+  - MAIL_MAILER=smtp
+  - MAIL_HOST=lerd-mailpit
+  - MAIL_PORT=1025
+  - MAIL_USERNAME=null
+  - MAIL_PASSWORD=null
+  - MAIL_ENCRYPTION=null

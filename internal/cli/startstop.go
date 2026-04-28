@@ -239,7 +239,7 @@ func installedCustomContainerUnits() []string {
 // and have not been manually stopped by the user. Used for lerd start.
 func installedServiceUnits() []string {
 	var units []string
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		if services.Mgr.ContainerUnitInstalled("lerd-"+svc) && !config.ServiceIsPaused(svc) {
 			units = append(units, "lerd-"+svc)
 		}
@@ -257,7 +257,7 @@ func installedServiceUnits() []string {
 // installed, regardless of paused state. Used for lerd stop.
 func allInstalledServiceUnits() []string {
 	var units []string
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		if services.Mgr.ContainerUnitInstalled("lerd-" + svc) {
 			units = append(units, "lerd-"+svc)
 		}
@@ -329,7 +329,7 @@ func collectPortChecks(units []string) []portCheck {
 
 	// Built-in services.
 	cfg, _ := config.LoadGlobal()
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		if !unitSet["lerd-"+svc] {
 			continue
 		}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync/atomic"
@@ -9,28 +10,64 @@ import (
 
 	"github.com/geodro/lerd/internal/eventbus"
 	"github.com/geodro/lerd/internal/podman"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 )
 
-// visibleClients tracks how many browser tabs currently report as visible.
-// When at least one tab is focused the cache polls more aggressively.
-var visibleClients atomic.Int32
+var (
+	visibleClients atomic.Int32
+	sessionIdle    atomic.Bool
+)
 
 const (
-	intervalFocused = 15 * time.Second
-	intervalIdle    = 60 * time.Second
+	intervalFocused      = 15 * time.Second
+	intervalIdle         = 60 * time.Second
+	idleWatcherCheckTick = 30 * time.Second
 )
+
+// chooseInterval returns the cache poll cadence implied by the current
+// (visibility, session-idle) pair. Fast cadence requires both an engaged
+// browser tab and an active desktop session: a focused tab on a locked
+// laptop still drops to idle, matching the watcher's idle backoff.
+func chooseInterval(visible int32, idle bool) time.Duration {
+	if visible > 0 && !idle {
+		return intervalFocused
+	}
+	return intervalIdle
+}
+
+func recomputeInterval() {
+	podman.Cache.SetInterval(chooseInterval(visibleClients.Load(), sessionIdle.Load()))
+}
 
 func noteVisibility(visible bool) {
 	if visible {
-		if visibleClients.Add(1) == 1 {
-			podman.Cache.SetInterval(intervalFocused)
-		}
-	} else {
-		if visibleClients.Add(-1) <= 0 {
-			visibleClients.Store(0)
-			podman.Cache.SetInterval(intervalIdle)
-		}
+		visibleClients.Add(1)
+	} else if visibleClients.Add(-1) < 0 {
+		visibleClients.Store(0)
 	}
+	recomputeInterval()
+}
+
+// startIdleWatcher polls systemd-logind every 30s and recomputes the cache
+// interval when the session transitions between idle/locked and active.
+// On non-Linux SessionIsIdleOrLocked is a stub that always returns false,
+// so the interval stays driven by visibility alone.
+func startIdleWatcher(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(idleWatcherCheckTick)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				idle := lerdSystemd.SessionIsIdleOrLocked()
+				if sessionIdle.Swap(idle) != idle {
+					recomputeInterval()
+				}
+			}
+		}
+	}()
 }
 
 // handleWS upgrades the HTTP connection to a websocket and streams snapshot

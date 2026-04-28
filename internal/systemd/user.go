@@ -1,9 +1,7 @@
 package systemd
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -61,74 +59,32 @@ func RemoveTimer(name string) error {
 }
 
 // EnableService enables a systemd user service.
-func EnableService(name string) error {
-	cmd := exec.Command("systemctl", "--user", "enable", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("enable %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
+func EnableService(name string) error { return DBusEnableService(name) }
 
 // StartService starts a systemd user service.
-func StartService(name string) error {
-	cmd := exec.Command("systemctl", "--user", "start", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("start %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
+func StartService(name string) error { return DBusStartUnit(name) }
 
 // DisableService disables a systemd user service.
-func DisableService(name string) error {
-	cmd := exec.Command("systemctl", "--user", "disable", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("disable %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
+func DisableService(name string) error { return DBusDisableService(name) }
 
 // RestartService restarts a systemd user service.
-func RestartService(name string) error {
-	cmd := exec.Command("systemctl", "--user", "restart", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("restart %s: %w\n%s", name, err, out)
-	}
-	return nil
-}
+func RestartService(name string) error { return DBusRestartUnit(name) }
 
 // IsServiceEnabled returns true if the systemd user service is enabled.
-func IsServiceEnabled(name string) bool {
-	cmd := exec.Command("systemctl", "--user", "is-enabled", name)
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out)) == "enabled"
-}
+func IsServiceEnabled(name string) bool { return DBusIsEnabled(name) }
 
 // IsServiceActive returns true if the systemd user service is currently active.
-func IsServiceActive(name string) bool {
-	cmd := exec.Command("systemctl", "--user", "is-active", name)
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out)) == "active"
-}
+func IsServiceActive(name string) bool { return DBusActiveState(name) == "active" }
 
 // IsServiceActiveOrRestarting returns true if the service is active or in a
 // restart loop (activating). Used to detect workers that should be stopped on unlink.
 func IsServiceActiveOrRestarting(name string) bool {
-	cmd := exec.Command("systemctl", "--user", "is-active", name)
-	out, _ := cmd.Output()
-	state := strings.TrimSpace(string(out))
+	state := DBusActiveState(name)
 	return state == "active" || state == "activating"
 }
 
 // IsTimerActive returns true if the worker's sibling .timer is active.
-func IsTimerActive(name string) bool {
-	cmd := exec.Command("systemctl", "--user", "is-active", name+".timer")
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out)) == "active"
-}
+func IsTimerActive(name string) bool { return DBusActiveState(name+".timer") == "active" }
 
 // FindOrphanedWorkers scans systemd unit files for worker units belonging to
 // the given site that are running but not present in the known workers set.

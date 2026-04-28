@@ -106,6 +106,7 @@ export default defineConfig({
           text: 'Services & Data',
           items: [
             { text: 'Services', link: '/usage/services' },
+            { text: 'Service updates', link: '/usage/service-updates' },
             { text: 'Service presets', link: '/usage/service-presets' },
             { text: 'Custom services', link: '/usage/custom-services' },
             { text: 'Database', link: '/usage/database' },

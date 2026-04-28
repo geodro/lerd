@@ -1,0 +1,26 @@
+name: rustfs
+default: true
+update_strategy: rolling
+description: RustFS S3-compatible object storage
+family: rustfs
+image: docker.io/rustfs/rustfs:latest
+ports:
+  - "9000:9000"
+  - "9001:9001"
+data_dir: /data
+exec: --console-enable /data
+userns: keep-id:uid=10001,gid=10001
+chown_data: true
+dashboard: http://localhost:9001/rustfs/console/
+environment:
+  RUSTFS_ACCESS_KEY: lerd
+  RUSTFS_SECRET_KEY: lerdpassword
+env_vars:
+  - FILESYSTEM_DISK=s3
+  - AWS_ACCESS_KEY_ID=lerd
+  - AWS_SECRET_ACCESS_KEY=lerdpassword
+  - AWS_DEFAULT_REGION=us-east-1
+  - AWS_BUCKET=lerd
+  - AWS_URL=http://localhost:9000
+  - AWS_ENDPOINT=http://lerd-rustfs:9000
+  - AWS_USE_PATH_STYLE_ENDPOINT=true

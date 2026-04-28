@@ -128,7 +128,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	// Services — only show services that have a quadlet file installed
 	fmt.Println("\n[Services]")
 	installedCount := 0
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		unit := "lerd-" + svc
 		if !services.Mgr.ContainerUnitInstalled(unit) {
 			continue

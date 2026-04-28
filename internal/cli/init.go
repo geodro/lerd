@@ -151,8 +151,9 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	// Multi-version mysql/postgres alternates installed via presets show up as
 	// extra Database options instead of polluting the Services list.
 	dbOptions, dbNameSet := buildDatabaseOptions()
-	nonDBServiceOptions := make([]string, 0, len(knownServices))
-	for _, svc := range knownServices {
+	defaultPresets := knownServices()
+	nonDBServiceOptions := make([]string, 0, len(defaultPresets))
+	for _, svc := range defaultPresets {
 		if !dbNameSet[svc] {
 			nonDBServiceOptions = append(nonDBServiceOptions, svc)
 		}
@@ -399,10 +400,11 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 
 	// Build an index of custom service definitions to embed in .lerd.yaml.
 	// Priority: existing inline definition in defaults > definition file on disk.
-	// Built-in services (knownServices) are never embedded — they don't need to be.
+	// Default-preset services are never embedded — they don't need to be.
 	// sqlite is treated as built-in here even though it's not a quadlet service.
-	builtIn := make(map[string]bool, len(knownServices)+1)
-	for _, s := range knownServices {
+	defaultNames := knownServices()
+	builtIn := make(map[string]bool, len(defaultNames)+1)
+	for _, s := range defaultNames {
 		builtIn[s] = true
 	}
 	builtIn["sqlite"] = true
@@ -537,10 +539,9 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 
 	// Services: same flow as the PHP wizard but without the database select
 	// since custom containers manage their own database connections.
-	serviceOptions := make([]string, 0, len(knownServices))
-	for _, svc := range knownServices {
-		serviceOptions = append(serviceOptions, svc)
-	}
+	defaultPresets := knownServices()
+	serviceOptions := make([]string, 0, len(defaultPresets))
+	serviceOptions = append(serviceOptions, defaultPresets...)
 	if customs, err := config.ListCustomServices(); err == nil {
 		for _, svc := range customs {
 			if len(svc.EnvVars) == 0 && svc.EnvDetect == nil {
@@ -589,8 +590,9 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 	}
 
 	// Build services list.
-	builtIn := make(map[string]bool, len(knownServices))
-	for _, s := range knownServices {
+	defaultNames := knownServices()
+	builtIn := make(map[string]bool, len(defaultNames))
+	for _, s := range defaultNames {
 		builtIn[s] = true
 	}
 	inlineByName := map[string]*config.CustomService{}
@@ -820,7 +822,7 @@ func detectServicesFromRules(envFilePath, envFormat string, rules map[string]con
 	readKey := makeEnvReader(envFilePath, envFormat)
 
 	var detected []string
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		def, ok := rules[svc]
 		if !ok || len(def.Detect) == 0 {
 			continue

@@ -31,58 +31,14 @@ import (
 
 const protocolVersion = "2024-11-05"
 
-var knownServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
+// knownServices returns the default-preset names. Wrapper so the existing
+// MCP call sites (`for _, s := range knownServices`) keep compiling.
+func knownServices() []string { return config.DefaultPresetNames() }
 
-// builtinServiceEnv mirrors the serviceEnvVars map in internal/cli/services.go.
-// Returns the recommended Laravel .env KEY=VALUE pairs for each built-in service.
-var builtinServiceEnv = map[string][]string{
-	"mysql": {
-		"DB_CONNECTION=mysql",
-		"DB_HOST=lerd-mysql",
-		"DB_PORT=3306",
-		"DB_DATABASE=lerd",
-		"DB_USERNAME=root",
-		"DB_PASSWORD=lerd",
-	},
-	"postgres": {
-		"DB_CONNECTION=pgsql",
-		"DB_HOST=lerd-postgres",
-		"DB_PORT=5432",
-		"DB_DATABASE=lerd",
-		"DB_USERNAME=postgres",
-		"DB_PASSWORD=lerd",
-	},
-	"redis": {
-		"REDIS_HOST=lerd-redis",
-		"REDIS_PORT=6379",
-		"REDIS_PASSWORD=null",
-		"CACHE_STORE=redis",
-		"SESSION_DRIVER=redis",
-		"QUEUE_CONNECTION=redis",
-	},
-	"meilisearch": {
-		"SCOUT_DRIVER=meilisearch",
-		"MEILISEARCH_HOST=http://lerd-meilisearch:7700",
-	},
-	"rustfs": {
-		"FILESYSTEM_DISK=s3",
-		"AWS_ACCESS_KEY_ID=lerd",
-		"AWS_SECRET_ACCESS_KEY=lerdpassword",
-		"AWS_DEFAULT_REGION=us-east-1",
-		"AWS_BUCKET=lerd",
-		"AWS_URL=http://localhost:9000",
-		"AWS_ENDPOINT=http://lerd-rustfs:9000",
-		"AWS_USE_PATH_STYLE_ENDPOINT=true",
-	},
-	"mailpit": {
-		"MAIL_MAILER=smtp",
-		"MAIL_HOST=lerd-mailpit",
-		"MAIL_PORT=1025",
-		"MAIL_USERNAME=null",
-		"MAIL_PASSWORD=null",
-		"MAIL_ENCRYPTION=null",
-	},
-}
+// builtinServiceEnv returns the recommended Laravel .env KEY=VALUE pairs for
+// a default-preset service, or nil for non-defaults. Reads from the preset
+// YAML so it stays in sync with the env writer (lerd env).
+func builtinServiceEnv(name string) []string { return config.DefaultPresetEnvVars(name) }
 
 // phpVersionRe matches PHP version strings like "8.4" or "8.3" — digits only, no domain names.
 var phpVersionRe = regexp.MustCompile(`^\d+\.\d+$`)
@@ -249,12 +205,13 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_control",
-			Description: "Service control. pin = never auto-stop.",
+			Description: "Lifecycle. update=pull. migrate=dump+restore across data-breaking versions. rollback=revert. remove=delete custom.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"action": {Type: "string", Enum: []string{"start", "stop", "pin", "unpin"}},
-					"name":   {Type: "string", Description: "Built-in or custom service name."},
+					"action": {Type: "string", Enum: []string{"start", "stop", "restart", "pin", "unpin", "update", "rollback", "migrate", "remove"}},
+					"name":   {Type: "string"},
+					"tag":    {Type: "string", Description: "For update/migrate."},
 				},
 				Required: []string{"action", "name"},
 			},
@@ -361,20 +318,6 @@ func toolList() []mcpTool {
 			},
 		},
 		{
-			Name:        "service_remove",
-			Description: "Stop and remove a custom service. Built-ins cannot be removed. Data is kept.",
-			InputSchema: mcpSchema{
-				Type: "object",
-				Properties: map[string]mcpProp{
-					"name": {
-						Type:        "string",
-						Description: "Custom service name.",
-					},
-				},
-				Required: []string{"name"},
-			},
-		},
-		{
 			Name:        "service_expose",
 			Description: "Add or remove a published port on a built-in service.",
 			InputSchema: mcpSchema{
@@ -419,6 +362,16 @@ func toolList() []mcpTool {
 					"version": {Type: "string", Description: "Required for multi-version presets (mysql, mariadb)."},
 				},
 				Required: []string{"name"},
+			},
+		},
+		{
+			Name:        "service_check_updates",
+			Description: "Check registry for newer images. latest_tag=safe update; upgrade_tag=cross-strategy (may need migration). Omit name to scan all active.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"name": {Type: "string", Description: "Service name. Omit to scan all."},
+				},
 			},
 		},
 		{
@@ -980,10 +933,20 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 			return execServiceStart(args)
 		case "stop":
 			return execServiceStop(args)
+		case "restart":
+			return execServiceRestart(args)
 		case "pin":
 			return execServicePin(args)
 		case "unpin":
 			return execServiceUnpin(args)
+		case "update":
+			return execServiceUpdate(args)
+		case "rollback":
+			return execServiceRollback(args)
+		case "migrate":
+			return execServiceMigrate(args)
+		case "remove":
+			return execServiceRemove(args)
 		default:
 			return unknownAction("service_control")
 		}
@@ -1087,14 +1050,14 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execServiceEnv(args)
 	case "service_add":
 		return execServiceAdd(args)
-	case "service_remove":
-		return execServiceRemove(args)
 	case "service_expose":
 		return execServiceExpose(args)
 	case "service_preset_list":
 		return execServicePresetList(args)
 	case "service_preset_install":
 		return execServicePresetInstall(args)
+	case "service_check_updates":
+		return execServiceCheckUpdates(args)
 	case "env_setup":
 		return execEnvSetup(args)
 	case "db_set":
@@ -1268,14 +1231,7 @@ func boolArg(args map[string]any, key string) bool {
 	return v
 }
 
-func isKnownService(name string) bool {
-	for _, s := range knownServices {
-		if s == name {
-			return true
-		}
-	}
-	return false
-}
+func isKnownService(name string) bool { return config.IsDefaultPreset(name) }
 
 // ---- Tool implementations ----
 
@@ -1414,20 +1370,8 @@ func execServiceStart(args map[string]any) (any, *rpcError) {
 	unitName := "lerd-" + name
 
 	if isKnownService(name) {
-		content, err := podman.GetQuadletTemplate(unitName + ".container")
-		if err != nil {
-			return toolErr("no quadlet template for " + name + ": " + err.Error()), nil
-		}
-		if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
-			if svcCfg, ok := cfg.Services[name]; ok {
-				content = podman.ApplyImage(content, svcCfg.Image)
-				if len(svcCfg.ExtraPorts) > 0 {
-					content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
-				}
-			}
-		}
-		if _, err := podman.WriteQuadletDiff(unitName, content); err != nil {
-			return toolErr("writing quadlet: " + err.Error()), nil
+		if err := serviceops.EnsureDefaultPresetQuadlet(name); err != nil {
+			return toolErr("ensuring default preset quadlet: " + err.Error()), nil
 		}
 	} else {
 		svc, err := config.LoadCustomService(name)
@@ -1457,6 +1401,26 @@ func execServiceStop(args map[string]any) (any, *rpcError) {
 		return toolErr("stopping " + name + ": " + err.Error()), nil
 	}
 	return toolOK(name + " stopped"), nil
+}
+
+func execServiceRestart(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	if isKnownService(name) {
+		if err := serviceops.EnsureDefaultPresetQuadlet(name); err != nil {
+			return toolErr("ensuring quadlet: " + err.Error()), nil
+		}
+	} else if svc, err := config.LoadCustomService(name); err == nil {
+		if err := serviceops.EnsureCustomServiceQuadlet(svc); err != nil {
+			return toolErr("ensuring quadlet: " + err.Error()), nil
+		}
+	}
+	if err := podman.RestartUnit("lerd-" + name); err != nil {
+		return toolErr("restarting " + name + ": " + err.Error()), nil
+	}
+	return toolOK(name + " restarted"), nil
 }
 
 func execQueueStart(args map[string]any) (any, *rpcError) {
@@ -2693,6 +2657,119 @@ func execServicePresetInstall(args map[string]any) (any, *rpcError) {
 	return toolOK(msg), nil
 }
 
+func execServiceCheckUpdates(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	var names []string
+	if name != "" {
+		names = []string{name}
+	} else {
+		for _, s := range knownServices() {
+			unit := "lerd-" + s
+			if status, _ := podman.UnitStatus(unit); status == "active" {
+				names = append(names, s)
+			}
+		}
+	}
+	results := make([]map[string]any, 0, len(names))
+	for _, n := range names {
+		avail, err := serviceops.CheckUpdateAvailable(n)
+		if err != nil || avail == nil {
+			continue
+		}
+		entry := map[string]any{
+			"service":       n,
+			"current_image": avail.CurrentImage,
+			"current_tag":   avail.CurrentTag,
+			"strategy":      avail.Strategy,
+			"available":     avail.Available,
+		}
+		if avail.LatestTag != "" {
+			entry["latest_tag"] = avail.LatestTag
+		}
+		if avail.UpgradeTag != "" {
+			entry["upgrade_tag"] = avail.UpgradeTag
+		}
+		results = append(results, entry)
+	}
+	return map[string]any{"services": results}, nil
+}
+
+func execServiceUpdate(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	tag := strArg(args, "tag")
+	targetImage := ""
+	if tag != "" {
+		avail, err := serviceops.CheckUpdateAvailable(name)
+		if err != nil || avail == nil || avail.CurrentImage == "" {
+			return toolErr("could not resolve current image for " + name), nil
+		}
+		if at := strings.LastIndex(avail.CurrentImage, ":"); at > 0 {
+			targetImage = avail.CurrentImage[:at] + ":" + tag
+		} else {
+			targetImage = avail.CurrentImage + ":" + tag
+		}
+	}
+	var lastImage string
+	emit := func(ev serviceops.PhaseEvent) {
+		if ev.Image != "" {
+			lastImage = ev.Image
+		}
+	}
+	if err := serviceops.UpdateServiceStreaming(name, targetImage, emit); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if lastImage == "" {
+		return toolOK("already up to date"), nil
+	}
+	return toolOK("Updated " + name + " to " + lastImage), nil
+}
+
+func execServiceMigrate(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	tag := strArg(args, "tag")
+	if name == "" || tag == "" {
+		return toolErr("name and tag are required"), nil
+	}
+	avail, err := serviceops.CheckUpdateAvailable(name)
+	if err != nil || avail.CurrentImage == "" {
+		return toolErr("could not resolve current image for " + name), nil
+	}
+	target := avail.CurrentImage
+	if at := strings.LastIndex(target, ":"); at > 0 {
+		target = target[:at] + ":" + tag
+	}
+	var lastImage string
+	emit := func(ev serviceops.PhaseEvent) {
+		if ev.Image != "" {
+			lastImage = ev.Image
+		}
+	}
+	if err := serviceops.MigrateService(name, target, emit); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	return toolOK("Migrated " + name + " to " + lastImage + ". Backup preserved in ~/.local/share/lerd/backups."), nil
+}
+
+func execServiceRollback(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	var lastImage string
+	emit := func(ev serviceops.PhaseEvent) {
+		if ev.Image != "" {
+			lastImage = ev.Image
+		}
+	}
+	if err := serviceops.RollbackService(name, emit); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	return toolOK("Rolled back " + name + " to " + lastImage), nil
+}
+
 func execServiceExpose(args map[string]any) (any, *rpcError) {
 	name := strArg(args, "name")
 	port := strArg(args, "port")
@@ -2738,19 +2815,8 @@ func execServiceExpose(args map[string]any) (any, *rpcError) {
 	}
 
 	unitName := "lerd-" + name
-	content, err := podman.GetQuadletTemplate(unitName + ".container")
-	if err != nil {
-		return toolErr("quadlet template not found: " + err.Error()), nil
-	}
-	content = podman.ApplyImage(content, svcCfg.Image)
-	if len(svcCfg.ExtraPorts) > 0 {
-		content = podman.ApplyExtraPorts(content, svcCfg.ExtraPorts)
-	}
-	if _, err := podman.WriteQuadletDiff(unitName, content); err != nil {
-		return toolErr("writing quadlet: " + err.Error()), nil
-	}
-	if err := podman.DaemonReloadFn(); err != nil {
-		return toolErr("daemon-reload: " + err.Error()), nil
+	if err := serviceops.EnsureDefaultPresetQuadlet(name); err != nil {
+		return toolErr("ensuring default preset quadlet: " + err.Error()), nil
 	}
 
 	status, _ := podman.UnitStatus(unitName)
@@ -2771,8 +2837,8 @@ func execServiceEnv(args map[string]any) (any, *rpcError) {
 		return toolErr("name is required"), nil
 	}
 
-	// Check built-in services first.
-	if pairs, ok := builtinServiceEnv[name]; ok {
+	// Check built-in (default-preset) services first.
+	if pairs := builtinServiceEnv(name); pairs != nil {
 		vars := make(map[string]string, len(pairs))
 		for _, kv := range pairs {
 			k, v, _ := strings.Cut(kv, "=")

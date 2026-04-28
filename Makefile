@@ -4,6 +4,7 @@ COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE       ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 BUILD_DIR   = ./build
 INSTALL_DIR = $(HOME)/.local/bin
+UI_DIR      = internal/ui/web
 
 PKG        = github.com/geodro/lerd/internal/version
 LDFLAGS    = -s -w \
@@ -11,9 +12,20 @@ LDFLAGS    = -s -w \
              -X $(PKG).Commit=$(COMMIT) \
              -X $(PKG).Date=$(DATE)
 
-.PHONY: build build-tray install install-installer test clean release release-snapshot
+.PHONY: build build-tray build-ui install-ui-deps test-ui install install-installer test clean release release-snapshot
 
-build:
+install-ui-deps:
+	@if [ ! -d "$(UI_DIR)/node_modules" ]; then \
+		cd $(UI_DIR) && npm install; \
+	fi
+
+build-ui: install-ui-deps
+	cd $(UI_DIR) && npm run build
+
+test-ui: install-ui-deps
+	cd $(UI_DIR) && npm test
+
+build: build-ui
 	CGO_ENABLED=0 go build -tags nogui -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/lerd
 
 build-tray:
@@ -45,10 +57,11 @@ test:
 test-installer:
 	bats tests/installer/installer.bats
 
-test-all: test test-installer
+test-all: test test-ui test-installer
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -rf $(UI_DIR)/dist
 
 # Requires goreleaser: https://goreleaser.com/install/
 release:

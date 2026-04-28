@@ -59,6 +59,31 @@ func ImageExists(image string) bool {
 	return RunSilent("image", "exists", image) == nil
 }
 
+// LocalImageDigest returns every known digest for the locally-stored image,
+// in priority order: the platform-specific manifest digest first, then any
+// repo digests recorded at pull time (which include the upstream manifest
+// list digest used by Docker Hub for multi-arch images). Returns nil when
+// the image isn't present locally.
+func LocalImageDigest(image string) []string {
+	out, err := Run("image", "inspect", image, "--format", "{{.Digest}}|{{range .RepoDigests}}{{.}} {{end}}")
+	if err != nil {
+		return nil
+	}
+	parts := strings.SplitN(strings.TrimSpace(out), "|", 2)
+	digests := []string{}
+	if len(parts) > 0 && parts[0] != "" {
+		digests = append(digests, parts[0])
+	}
+	if len(parts) > 1 {
+		for _, repo := range strings.Fields(parts[1]) {
+			if at := strings.Index(repo, "@"); at >= 0 {
+				digests = append(digests, repo[at+1:])
+			}
+		}
+	}
+	return digests
+}
+
 // PullImageTo pulls the named image, writing progress output to w.
 func PullImageTo(image string, w io.Writer) error {
 	cmd := exec.Command(PodmanBin(), "pull", image)

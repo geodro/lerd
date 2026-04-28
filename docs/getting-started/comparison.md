@@ -6,7 +6,7 @@
 
 |  | Lerd | Laravel Herd |
 |---|---|---|
-| Platforms | Linux, macOS | macOS, Windows (WSL2) |
+| Platforms | Linux (systemd), macOS | macOS, Windows (WSL2) |
 | License | Open source (MIT) | Proprietary, freemium (Herd Pro subscription) |
 | PHP runtime | Rootless Podman containers | Native binaries on macOS, WSL on Windows |
 | PHP versions | 8.1, 8.2, 8.3, 8.4, 8.5 (shared FPM containers) | 7.4 through 8.5 (native) |
@@ -46,7 +46,7 @@ You trade a sliver of native performance (Podman Machine on macOS adds overhead 
 
 |  | Lerd | Laravel Sail |
 |---|---|---|
-| Platforms | Linux, macOS | Linux, macOS, Windows |
+| Platforms | Linux (systemd), macOS | Linux, macOS, Windows |
 | License | Open source (MIT) | Open source (MIT) |
 | Container runtime | Rootless Podman | Docker Desktop / Orbstack / Colima |
 | Architecture | One shared nginx + PHP-FPM + services across every site | Per-project Docker Compose stack |
@@ -85,7 +85,7 @@ See [Importing from Laravel Sail](/usage/import-sail) for details.
 
 |  | Lerd | ddev |
 |---|---|---|
-| Platforms | Linux, macOS | Linux, macOS, Windows |
+| Platforms | Linux (systemd), macOS | Linux, macOS, Windows |
 | License | Open source (MIT) | Open source (Apache 2.0) |
 | Container runtime | Rootless Podman | Docker / Orbstack / Colima |
 | Architecture | Shared nginx + PHP-FPM across all projects | Per-project containers behind a shared reverse proxy |

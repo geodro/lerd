@@ -6,11 +6,34 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/systemd"
 )
+
+// quadletReloadPending records that a previous DaemonReloadIfNeeded call
+// failed without being retried. The next caller forces a reload even when
+// nothing else changed so a transient DBus failure does not leave
+// systemd's cache stale until an external trigger heals it.
+var quadletReloadPending atomic.Bool
+
+// DaemonReloadIfNeeded reloads systemd when the caller wrote new quadlet
+// content (changed=true) or when a previous reload failed and was never
+// retried. Failures set a sticky flag so the next caller forces the
+// retry; success clears it.
+func DaemonReloadIfNeeded(changed bool) error {
+	if !changed && !quadletReloadPending.Load() {
+		return nil
+	}
+	if err := DaemonReloadFn(); err != nil {
+		quadletReloadPending.Store(true)
+		return err
+	}
+	quadletReloadPending.Store(false)
+	return nil
+}
 
 // WriteQuadlet writes a Podman quadlet container unit file. Before writing
 // it applies BindForLAN to rewrite PublishPort= lines according to the
@@ -102,8 +125,14 @@ var UnitLifecycle interface {
 	UnitStatus(name string) (string, error)
 }
 
-// DaemonReload runs systemctl --user daemon-reload.
+// DaemonReload runs the equivalent of systemctl --user daemon-reload.
+// On Linux it goes through systemd DBus. On macOS the DBus stub returns
+// a sentinel and we fall through to the historical shell-out so launchd
+// users still get the legacy path (a no-op for non-systemd systems).
 func DaemonReload() error {
+	if err := systemd.DBusDaemonReload(); err == nil {
+		return nil
+	}
 	cmd := exec.Command("systemctl", "--user", "daemon-reload")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -140,11 +169,8 @@ func StartUnit(name string) error {
 		}
 		return err
 	}
-	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
-	cmd := exec.Command("systemctl", "--user", "start", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("start %s failed: %w\n%s", name, err, out)
+	if err := systemd.DBusStartUnit(name); err != nil {
+		return err
 	}
 	notifyUnitChange(name)
 	return nil
@@ -159,13 +185,9 @@ func StopUnit(name string) error {
 		}
 		return err
 	}
-	cmd := exec.Command("systemctl", "--user", "stop", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("stop %s failed: %w\n%s", name, err, out)
+	if err := systemd.DBusStopUnit(name); err != nil {
+		return err
 	}
-	// Clear any failed state so the unit shows as inactive rather than failed.
-	_ = exec.Command("systemctl", "--user", "reset-failed", name).Run()
 	notifyUnitChange(name)
 	return nil
 }
@@ -179,10 +201,8 @@ func RestartUnit(name string) error {
 		}
 		return err
 	}
-	cmd := exec.Command("systemctl", "--user", "restart", name)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("restart %s failed: %w\n%s", name, err, out)
+	if err := systemd.DBusRestartUnit(name); err != nil {
+		return err
 	}
 	notifyUnitChange(name)
 	return nil
@@ -240,13 +260,9 @@ func UnitStatus(name string) (string, error) {
 	if UnitLifecycle != nil {
 		return UnitLifecycle.UnitStatus(name)
 	}
-	cmd := exec.Command("systemctl", "--user", "is-active", name)
-	out, err := cmd.Output()
-	status := strings.TrimSpace(string(out))
-	if status == "" {
-		if err != nil {
-			return "unknown", nil
-		}
+	state := systemd.DBusActiveState(name)
+	if state == "" {
+		return "unknown", nil
 	}
-	return status, nil
+	return state, nil
 }

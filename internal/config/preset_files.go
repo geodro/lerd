@@ -12,11 +12,13 @@ var presetFiles = map[string][]FileMount{
 	"mysql": {
 		{
 			Target: "/etc/mysql/conf.d/lerd.cnf",
+			// loose- prefix on directives removed in 8.0+ keeps the file
+			// usable across mysql 5.6/5.7/8.0/8.4 without per-version branching.
 			Content: `[mysqld]
 character-set-server=utf8mb4
 collation-server=utf8mb4_unicode_ci
-innodb_large_prefix=ON
-innodb_file_format=Barracuda
+loose-innodb_large_prefix=ON
+loose-innodb_file_format=Barracuda
 innodb_file_per_table=ON
 innodb_strict_mode=OFF
 loose-innodb_default_row_format=DYNAMIC

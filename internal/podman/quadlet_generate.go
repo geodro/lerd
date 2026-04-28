@@ -2,6 +2,7 @@ package podman
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -58,11 +59,16 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 		fmt.Fprintf(&b, "Volume=%s:%s:%s\n", hostPath, f.Target, flags)
 	}
 
-	for k, v := range svc.Environment {
+	envKeys := make([]string, 0, len(svc.Environment))
+	for k := range svc.Environment {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
 		// systemd splits Environment= on whitespace and strips unescaped
 		// double quotes, so JSON / quoted-wildcard values get mangled.
 		// Wrap the whole pair and escape inner quotes to preserve them.
-		escaped := strings.ReplaceAll(v, `"`, `\"`)
+		escaped := strings.ReplaceAll(svc.Environment[k], `"`, `\"`)
 		fmt.Fprintf(&b, "Environment=\"%s=%s\"\n", k, escaped)
 	}
 

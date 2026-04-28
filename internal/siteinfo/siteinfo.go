@@ -146,8 +146,10 @@ func (e *EnrichedSite) PrimaryDomain() string {
 	return ""
 }
 
-// KnownServices lists the built-in service names used for auto-detection.
-var KnownServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
+// KnownServices returns the built-in service names used for auto-detection.
+// Backed by config.DefaultPresetNames so adding/removing a default preset
+// flows through automatically.
+func KnownServices() []string { return config.DefaultPresetNames() }
 
 // faviconCandidates lists file names to probe when looking for a site's favicon.
 var faviconCandidates = []string{
@@ -494,7 +496,7 @@ func (e *EnrichedSite) enrichServices() {
 		return
 	}
 	envStr := string(envData)
-	for _, svcName := range KnownServices {
+	for _, svcName := range KnownServices() {
 		if !svcSet[svcName] && strings.Contains(envStr, "lerd-"+svcName) {
 			e.Services = append(e.Services, svcName)
 			svcSet[svcName] = true

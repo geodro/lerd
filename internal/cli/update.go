@@ -507,6 +507,12 @@ func runRollback() error {
 		}
 	}
 
+	// Old install daemon-reloads before WriteServiceUnit, so a leftover
+	// Type=notify on disk pins the cache and the post-write Restart blocks
+	// on sd_notify(READY=1) which the old binary never sends. Strip it so
+	// the cache picks up Type=simple immediately.
+	prepUserUnitsForRollback("lerd-ui.service", "lerd-watcher.service")
+
 	fmt.Printf("\nRolled back to v%s — applying infrastructure changes...\n\n", prevVersion)
 
 	// Re-exec the new binary with `install`, same as a normal update.
@@ -515,4 +521,37 @@ func runRollback() error {
 	installCmd.Stderr = os.Stderr
 	installCmd.Stdin = os.Stdin
 	return installCmd.Run()
+}
+
+// prepUserUnitsForRollback strips any "Type=notify" line from the named
+// systemd user unit files on disk so the rolled-back binary's install
+// flow does not restart them under a notify cache the old binary cannot
+// satisfy.
+func prepUserUnitsForRollback(units ...string) {
+	for _, name := range units {
+		path := filepath.Join(config.SystemdUserDir(), name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		stripped := stripTypeNotify(string(data))
+		if string(data) == stripped {
+			continue
+		}
+		_ = os.WriteFile(path, []byte(stripped), 0644)
+	}
+}
+
+// stripTypeNotify removes any line whose trimmed content is exactly
+// "Type=notify" from a systemd unit file body.
+func stripTypeNotify(content string) string {
+	lines := strings.Split(content, "\n")
+	out := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "Type=notify" {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

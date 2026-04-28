@@ -98,9 +98,9 @@ Once the MCP server is connected, your AI assistant has access to:
 | `unpark` | Remove a parked directory from lerd and unlink all its sites |
 | `site_tls` | Enable or disable HTTPS for a site using a locally-trusted mkcert certificate — `action`: `enable` / `disable` |
 | `xdebug` | Manage Xdebug for a PHP version — `action`: `on` / `off` / `status`. `on` accepts optional `mode` (default `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage`); `status` reports state and active mode for all PHP versions |
-| `service_control` | Start, stop, pin, or unpin a built-in or custom service — `action`: `start` / `stop` / `pin` / `unpin`. Starting/stopping respects `depends_on` cascades; `pin` keeps a service running regardless of site activity |
+| `service_control` | Service lifecycle: `action` is `start` / `stop` / `restart` / `pin` / `unpin` / `update` / `rollback` / `migrate` / `remove`. `update` accepts an optional `tag` for an explicit upgrade target. `migrate` requires `tag` and runs the SQL dump+restore flow (mysql / postgres only). `rollback` swaps to the previously-running image (toggles). Starting/stopping respects `depends_on` cascades. |
+| `service_check_updates` | Check the registry for newer images. `latest_tag` is the safe in-strategy update; `upgrade_tag` is the cross-strategy (cross-minor) target. Omit `name` to scan every active default service in one call. |
 | `service_add` | Register a new custom OCI-based service (MongoDB, RabbitMQ, etc.); supports `depends_on` for service dependencies |
-| `service_remove` | Stop and deregister a custom service |
 | `service_expose` | Add or remove an extra published port on a built-in service (persisted, auto-restarts if running) |
 | `service_env` | Return the recommended `.env` connection variables for a built-in or custom service |
 | `db_export` | Export a database to a SQL dump file (defaults to site DB from `.env`) |

@@ -242,8 +242,7 @@ func startServicesForSiteNoticed(sitePath, siteName string) {
 	}
 	envContent := string(envData)
 
-	candidates := make([]string, len(knownServices))
-	copy(candidates, knownServices)
+	candidates := knownServices()
 	if customs, cErr := config.ListCustomServices(); cErr == nil {
 		for _, c := range customs {
 			candidates = append(candidates, c.Name)

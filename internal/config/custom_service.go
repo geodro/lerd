@@ -2,12 +2,14 @@ package config
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -86,6 +88,10 @@ type CustomService struct {
 	// PresetVersion is the picked version tag for multi-version presets.
 	// Empty for single-version presets.
 	PresetVersion string `yaml:"preset_version,omitempty"`
+	// PreviousImage is set by the update flow to the image that was running
+	// before the last update, so a one-click rollback can swap back to it.
+	// Toggled on each rollback so consecutive rollbacks redo the update.
+	PreviousImage string `yaml:"previous_image,omitempty"`
 	// ShareHosts mounts the browser-testing hosts file
 	// (~/.local/share/lerd/browser-hosts) into the container at /etc/hosts,
 	// so the container can resolve .test domains to the nginx container's IP
@@ -119,34 +125,52 @@ func ServiceFilePath(svcName string, target string) string {
 	return filepath.Join(ServiceFilesDir(svcName), safe)
 }
 
-// builtinFamilies maps each built-in service name to the family it belongs
-// to so dynamic_env discovery can include built-ins alongside custom services.
-var builtinFamilies = map[string]string{
-	"mysql":       "mysql",
-	"postgres":    "postgres",
-	"redis":       "redis",
-	"meilisearch": "meilisearch",
-	"rustfs":      "rustfs",
-	"mailpit":     "mailpit",
+// builtinFamilies maps each default-preset service name to its family. Read
+// once on first access from the preset YAMLs so adding/removing a default
+// preset flows through automatically.
+func builtinFamilies() map[string]string {
+	defaultFamiliesOnce.Do(loadFamilyIndex)
+	return defaultFamiliesMap
 }
 
-// knownFamilies is the set of recognised family names. It is a superset of
-// the families with built-in implementations — mongo and mariadb for example
-// only exist as presets, but are still "known families" for the purposes of
-// name inference and wizard categorisation.
-var knownFamilies = map[string]bool{
-	"mysql":       true,
-	"mariadb":     true,
-	"postgres":    true,
-	"redis":       true,
-	"meilisearch": true,
-	"rustfs":      true,
-	"mailpit":     true,
-	"mongo":       true,
+// IsKnownFamily reports whether name is a recognised service family. Computed
+// from every preset YAML's family field (default + add-on), so e.g. mongo and
+// mariadb are recognised even though no default preset declares them.
+func IsKnownFamily(name string) bool {
+	defaultFamiliesOnce.Do(loadFamilyIndex)
+	return knownFamiliesSet[name]
 }
 
-// IsKnownFamily reports whether name is a recognised service family.
-func IsKnownFamily(name string) bool { return knownFamilies[name] }
+var (
+	defaultFamiliesOnce sync.Once
+	defaultFamiliesMap  map[string]string
+	knownFamiliesSet    map[string]bool
+)
+
+func loadFamilyIndex() {
+	defaultFamiliesMap = map[string]string{}
+	knownFamiliesSet = map[string]bool{}
+	entries, err := fs.ReadDir(presetFS, "presets")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".yaml")
+		p, err := LoadPreset(name)
+		if err != nil {
+			continue
+		}
+		if p.Family != "" {
+			knownFamiliesSet[p.Family] = true
+			if p.Default {
+				defaultFamiliesMap[name] = p.Family
+			}
+		}
+	}
+}
 
 // ServicesInFamily returns the container hostnames (lerd-<name>) of every
 // installed service that belongs to the named family. Built-ins match against
@@ -161,7 +185,7 @@ func ServicesInFamily(family string) []string {
 	}
 	seen := map[string]bool{}
 	var out []string
-	for name, fam := range builtinFamilies {
+	for name, fam := range builtinFamilies() {
 		if fam == family {
 			host := "lerd-" + name
 			if !seen[host] {
@@ -191,7 +215,8 @@ func ServicesInFamily(family string) []string {
 // when the service is the canonical preset (e.g. "mongo"). Returns empty when
 // neither pattern matches a known family.
 func InferFamily(name string) string {
-	if knownFamilies[name] {
+	defaultFamiliesOnce.Do(loadFamilyIndex)
+	if knownFamiliesSet[name] {
 		return name
 	}
 	for i := 1; i < len(name)-1; i++ {
@@ -202,7 +227,7 @@ func InferFamily(name string) string {
 			continue
 		}
 		prefix := name[:i]
-		if knownFamilies[prefix] {
+		if knownFamiliesSet[prefix] {
 			return prefix
 		}
 	}

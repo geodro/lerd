@@ -128,7 +128,7 @@ func workerRows(sites []siteinfo.EnrichedSite) []ServiceRow {
 
 func loadServices() []ServiceRow {
 	rows := make([]ServiceRow, 0, 16)
-	for _, name := range siteinfo.KnownServices {
+	for _, name := range siteinfo.KnownServices() {
 		rows = append(rows, buildServiceRow(name, false))
 	}
 	customs, _ := config.ListCustomServices()

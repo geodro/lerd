@@ -209,7 +209,12 @@ func TestExtensions_IndependentVersions(t *testing.T) {
 	}
 }
 
-func TestMigrateStaleServiceImages_Postgres(t *testing.T) {
+func TestMigrateStaleServiceImages_LeavesTrackLatestAlone(t *testing.T) {
+	// Once postgres opted into track_latest, defaultConfig leaves its Image
+	// empty so EnsureDefaultPresetQuadlet can resolve the actual newest tag
+	// at install time. The stale-image migration must NOT rewrite to that
+	// empty seed — doing so would land users in the fresh-install branch and
+	// silently bump their data dir across major lines.
 	cfg := defaultConfig()
 	cfg.Services["postgres"] = ServiceConfig{
 		Enabled: false,
@@ -217,8 +222,8 @@ func TestMigrateStaleServiceImages_Postgres(t *testing.T) {
 		Port:    5432,
 	}
 	migrateStaleServiceImages(cfg)
-	if got := cfg.Services["postgres"].Image; got != "docker.io/postgis/postgis:16-3.5-alpine" {
-		t.Errorf("postgres image not migrated: got %q", got)
+	if got := cfg.Services["postgres"].Image; got != "postgres:16-alpine" {
+		t.Errorf("track_latest preset must keep saved image untouched, got %q", got)
 	}
 }
 

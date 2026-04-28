@@ -9,6 +9,24 @@ lerd status   # quick health snapshot of all running services
 
 `lerd doctor` reports OK/FAIL/WARN for each check with a hint for every failure.
 
+## Filing a bug report
+
+If you need help on the [issue tracker](https://github.com/geodro/lerd/issues), run:
+
+```bash
+lerd bug-report
+```
+
+This writes a single plain-text file (default: `./lerd-bug-report-<timestamp>.txt`) containing the full `lerd doctor` output, your `config.yaml` and `sites.yaml`, the state of every `lerd-*` systemd unit, recent journal and container logs, listening sockets on the lerd ports, and a curated set of environment variables. Site `.env` files are intentionally excluded; home paths are replaced with `$HOME`.
+
+Skim the file before posting (it's plain text — open it in any editor) and attach it to your GitHub issue.
+
+Override the destination with `--output`, or change how many log lines per service to include with `--log-lines`:
+
+```bash
+lerd bug-report --output /tmp/report.txt --log-lines 500
+```
+
 ---
 
 ::: details `.test` domains not resolving

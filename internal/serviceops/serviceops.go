@@ -7,26 +7,18 @@ package serviceops
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/registry"
 )
 
-// builtinServices is the list of built-in service names that ship with lerd.
-// Kept here so callers don't have to import cli to know what's built in.
-var builtinServices = []string{"mysql", "redis", "postgres", "meilisearch", "rustfs", "mailpit"}
-
-// IsBuiltin reports whether name is a built-in lerd service.
-func IsBuiltin(name string) bool {
-	for _, s := range builtinServices {
-		if s == name {
-			return true
-		}
-	}
-	return false
-}
+// IsBuiltin reports whether name is a built-in (default-preset) lerd service.
+// Kept as a passthrough so callers don't have to import config.
+func IsBuiltin(name string) bool { return config.IsDefaultPreset(name) }
 
 // PhaseEvent is one step of the streaming preset-install flow.
 type PhaseEvent struct {
@@ -142,9 +134,57 @@ func MissingPresetDependencies(svc *config.CustomService) []string {
 	return missing
 }
 
+// EnsureDefaultPresetQuadlet writes the quadlet for a default-preset service
+// (mysql, postgres, redis, ...) by resolving the canonical CustomService from
+// its YAML preset, layering the user's image / extra-port overrides from
+// global config, applying the platform-specific image override last (matching
+// the legacy "platform override wins" semantics), and finally writing through
+// the shared custom-service quadlet writer.
+//
+// This replaces the older embedded-template flow (cli.ensureServiceQuadlet)
+// so default services and add-on presets share one code path.
+func EnsureDefaultPresetQuadlet(name string) error {
+	if !config.IsDefaultPreset(name) {
+		return fmt.Errorf("not a default preset: %q", name)
+	}
+	p, err := config.LoadPreset(name)
+	if err != nil {
+		return err
+	}
+	svc, err := p.Resolve("")
+	if err != nil {
+		return err
+	}
+	hasUserPin := false
+	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
+		if svcCfg, ok := cfg.Services[name]; ok {
+			if svcCfg.Image != "" {
+				svc.Image = svcCfg.Image
+				hasUserPin = true
+			}
+			if len(svcCfg.ExtraPorts) > 0 {
+				svc.Ports = append(svc.Ports, svcCfg.ExtraPorts...)
+			}
+		}
+	}
+	// track_latest: when there's no user pin, query the registry for the actual
+	// newest tag in the current major + variant line. The YAML preset.Image
+	// stays as a fallback when the registry is unreachable.
+	if !hasUserPin && p.TrackLatest {
+		if latest, _ := registry.NewestStable(svc.Image, p.AllowMajorUpgrade); latest != nil {
+			if at := strings.LastIndex(svc.Image, ":"); at > 0 {
+				svc.Image = svc.Image[:at] + ":" + latest.Name
+			}
+		}
+	}
+	p.ApplyPlatformOverride(svc, runtime.GOOS)
+	return EnsureCustomServiceQuadlet(svc)
+}
+
 // EnsureCustomServiceQuadlet writes the quadlet for a custom service and
-// reloads systemd. Materialises any declared file mounts and resolves
-// dynamic_env directives so the rendered quadlet has the computed values.
+// reloads systemd only when the file actually changed on disk. Materialises
+// any declared file mounts and resolves dynamic_env directives so the
+// rendered quadlet has the computed values.
 func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 	if svc.DataDir != "" {
 		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {
@@ -159,10 +199,11 @@ func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 	}
 	content := podman.GenerateCustomQuadlet(svc)
 	quadletName := "lerd-" + svc.Name
-	if _, err := podman.WriteQuadletDiff(quadletName, content); err != nil {
+	changed, err := podman.WriteQuadletDiff(quadletName, content)
+	if err != nil {
 		return fmt.Errorf("writing unit for %s: %w", svc.Name, err)
 	}
-	return podman.DaemonReloadFn()
+	return podman.DaemonReloadIfNeeded(changed)
 }
 
 // EnsureServiceRunning starts the service if it is not already active and

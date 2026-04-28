@@ -1,0 +1,18 @@
+name: redis
+default: true
+update_strategy: minor
+track_latest: true
+description: Redis in-memory store
+family: redis
+image: docker.io/library/redis:7-alpine
+ports:
+  - "6379:6379"
+data_dir: /data
+env_vars:
+  - REDIS_HOST=lerd-redis
+  - REDIS_PORT=6379
+  - REDIS_PASSWORD=null
+  - CACHE_STORE=redis
+  - SESSION_DRIVER=redis
+  - QUEUE_CONNECTION=redis
+connection_url: redis://127.0.0.1:6379

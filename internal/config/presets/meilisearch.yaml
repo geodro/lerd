@@ -1,0 +1,17 @@
+name: meilisearch
+default: true
+# Meilisearch minor bumps break data-dir compatibility (need dump/restore).
+# patch keeps existing users on their minor; track_latest lands fresh installs
+# on current upstream (empty data dir = no migration concern).
+update_strategy: patch
+track_latest: true
+description: Meilisearch search engine
+family: meilisearch
+image: docker.io/getmeili/meilisearch:v1.42
+ports:
+  - "7700:7700"
+data_dir: /meili_data
+dashboard: http://localhost:7700
+env_vars:
+  - SCOUT_DRIVER=meilisearch
+  - MEILISEARCH_HOST=http://lerd-meilisearch:7700

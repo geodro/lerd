@@ -2,6 +2,12 @@
 
 ## Linux
 
+::: warning Requires systemd
+Lerd runs every container as a Podman Quadlet and every worker as a systemd user service, so a systemd-based distro is required. OpenRC (Gentoo, Artix-openrc, Alpine), runit (Void, Artix-runit), s6, and sysvinit-based distros (Devuan) are not supported.
+
+Tested and known-good: Ubuntu, Fedora, Arch, Debian, Mint, Pop!_OS, openSUSE, CachyOS, Omarchy. Any systemd distro should work.
+:::
+
 ### One-line installer (recommended)
 
 ::: code-group

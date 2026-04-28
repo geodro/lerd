@@ -1,0 +1,25 @@
+name: postgres
+default: true
+update_strategy: minor
+track_latest: true
+description: PostgreSQL with PostGIS
+family: postgres
+image: docker.io/postgis/postgis:16-3.5-alpine
+ports:
+  - "5432:5432"
+data_dir: /var/lib/postgresql/data
+environment:
+  POSTGRES_PASSWORD: lerd
+  POSTGRES_DB: lerd
+env_vars:
+  - DB_CONNECTION=pgsql
+  - DB_HOST=lerd-postgres
+  - DB_PORT=5432
+  - DB_DATABASE=lerd
+  - DB_USERNAME=postgres
+  - DB_PASSWORD=lerd
+connection_url: postgresql://postgres:lerd@127.0.0.1:5432/lerd
+platform_overrides:
+  - os: darwin
+    image_match: postgis/postgis*alpine*
+    image: docker.io/imresamu/postgis:{{tag}}

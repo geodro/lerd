@@ -68,7 +68,7 @@ func resolveLogsTarget(args []string) (string, error) {
 	}
 
 	// known service name
-	for _, svc := range knownServices {
+	for _, svc := range knownServices() {
 		if target == svc {
 			return "lerd-" + svc, nil
 		}
