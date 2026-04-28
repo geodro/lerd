@@ -426,3 +426,77 @@ func TestUpdateCmd_mutuallyExclusive(t *testing.T) {
 		t.Fatal("expected error when both --beta and --rollback are set, got nil")
 	}
 }
+
+// ── stripTypeNotify ────────────────────────────────────────────────────────
+
+func TestStripTypeNotify_removesLineWithSurroundingContext(t *testing.T) {
+	in := "[Service]\nType=notify\nExecStart=/bin/x\nRestart=on-failure\n"
+	want := "[Service]\nExecStart=/bin/x\nRestart=on-failure\n"
+	if got := stripTypeNotify(in); got != want {
+		t.Errorf("stripTypeNotify:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestStripTypeNotify_ignoresWhitespaceVariants(t *testing.T) {
+	in := "[Service]\n  Type=notify  \nExecStart=/bin/x\n"
+	want := "[Service]\nExecStart=/bin/x\n"
+	if got := stripTypeNotify(in); got != want {
+		t.Errorf("stripTypeNotify did not strip whitespace-padded line:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestStripTypeNotify_doesNotTouchOtherDirectives(t *testing.T) {
+	in := "[Service]\nType=simple\nExecStart=/bin/x\n# Type=notify in a comment\n"
+	if got := stripTypeNotify(in); got != in {
+		t.Errorf("stripTypeNotify changed unrelated content:\n got %q\nwant %q", got, in)
+	}
+}
+
+func TestStripTypeNotify_noOpWhenAbsent(t *testing.T) {
+	in := "[Service]\nExecStart=/bin/x\n"
+	if got := stripTypeNotify(in); got != in {
+		t.Errorf("stripTypeNotify changed input without Type=notify:\n got %q\nwant %q", got, in)
+	}
+}
+
+// ── prepUserUnitsForRollback ───────────────────────────────────────────────
+
+func TestPrepUserUnitsForRollback_rewritesOnlyChangedFiles(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	dir := filepath.Join(tmp, "systemd", "user")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	withNotify := "[Service]\nType=notify\nExecStart=/bin/x\n"
+	withoutNotify := "[Service]\nExecStart=/bin/y\n"
+
+	uiPath := filepath.Join(dir, "lerd-ui.service")
+	watcherPath := filepath.Join(dir, "lerd-watcher.service")
+	if err := os.WriteFile(uiPath, []byte(withNotify), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(watcherPath, []byte(withoutNotify), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	prepUserUnitsForRollback("lerd-ui.service", "lerd-watcher.service")
+
+	gotUI, _ := os.ReadFile(uiPath)
+	if string(gotUI) != "[Service]\nExecStart=/bin/x\n" {
+		t.Errorf("lerd-ui.service was not stripped: %q", gotUI)
+	}
+	gotWatcher, _ := os.ReadFile(watcherPath)
+	if string(gotWatcher) != withoutNotify {
+		t.Errorf("lerd-watcher.service must not be rewritten when unchanged: %q", gotWatcher)
+	}
+}
+
+func TestPrepUserUnitsForRollback_skipsMissingFiles(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	prepUserUnitsForRollback("lerd-ui.service")
+}

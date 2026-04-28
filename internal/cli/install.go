@@ -501,7 +501,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing watcher service")
 	if content, err := lerdSystemd.GetUnit("lerd-watcher"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-watcher", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-watcher", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -522,7 +522,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing UI service")
 	if content, err := lerdSystemd.GetUnit("lerd-ui"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-ui", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-ui", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -543,7 +543,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	step("Writing tray service")
 	if content, err := lerdSystemd.GetUnit("lerd-tray"); err == nil {
-		if err := services.Mgr.WriteServiceUnit("lerd-tray", content); err != nil {
+		if err := writeUserServiceWithReload("lerd-tray", content); err != nil {
 			return err
 		}
 		if autostartOn {
@@ -629,6 +629,23 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	fmt.Println("\nLerd installation complete!")
 	fmt.Println("\n  Dashboard: \033[96mhttp://lerd.localhost\033[0m")
 	fmt.Println("  Terminal:  \033[96mlerd tui\033[0m")
+	return nil
+}
+
+// writeUserServiceWithReload writes a user service unit file and reloads
+// systemd when the on-disk content changed, so the next Start/Restart
+// picks up the new directives instead of the cached pre-write copy.
+func writeUserServiceWithReload(name, content string) error {
+	changed, err := services.Mgr.WriteServiceUnitIfChanged(name, content)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	if err := services.Mgr.DaemonReload(); err != nil {
+		fmt.Printf("    WARN: daemon-reload after %s: %v\n", name, err)
+	}
 	return nil
 }
 
