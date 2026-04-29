@@ -16,7 +16,7 @@ LDFLAGS    = -s -w \
 
 install-ui-deps:
 	@if [ ! -d "$(UI_DIR)/node_modules" ]; then \
-		cd $(UI_DIR) && npm install; \
+		cd $(UI_DIR) && npm ci; \
 	fi
 
 build-ui: install-ui-deps
