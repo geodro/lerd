@@ -28,6 +28,10 @@
   import SystemDetail from '$tabs/SystemDetail.svelte';
   import AppsPage from '$tabs/AppsPage.svelte';
 
+  function handlePageHide() {
+    disconnectWs();
+  }
+
   onMount(() => {
     loadVersion();
     loadAccessMode();
@@ -39,9 +43,11 @@
     loadServices();
     connectWs();
     initDashboardRoute();
+    window.addEventListener('pagehide', handlePageHide);
   });
 
   onDestroy(() => {
+    window.removeEventListener('pagehide', handlePageHide);
     disconnectWs();
   });
 

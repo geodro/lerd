@@ -144,8 +144,16 @@ func ListPresets() ([]PresetMeta, error) {
 	return out, nil
 }
 
+// presetCache memoises parsed Presets so the daemon doesn't re-parse the
+// embedded YAML on every snapshot rebuild. The bundled files are immutable for
+// the lifetime of the binary, so the cache never needs invalidation.
+var presetCache sync.Map // map[string]*Preset
+
 // LoadPreset returns the parsed Preset for a bundled file by name.
 func LoadPreset(name string) (*Preset, error) {
+	if cached, ok := presetCache.Load(name); ok {
+		return cached.(*Preset), nil
+	}
 	data, err := presetFS.ReadFile("presets/" + name + ".yaml")
 	if err != nil {
 		return nil, fmt.Errorf("unknown preset %q", name)
@@ -160,6 +168,7 @@ func LoadPreset(name string) (*Preset, error) {
 	if len(p.Versions) > 0 && p.DefaultVersion == "" {
 		p.DefaultVersion = p.Versions[0].Tag
 	}
+	presetCache.Store(name, &p)
 	return &p, nil
 }
 

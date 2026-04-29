@@ -31,7 +31,20 @@ type UpdateAvailability struct {
 // CheckUpdateAvailable queries the registry for a newer tag matching the
 // preset's update_strategy. Network and unsupported-registry errors are
 // swallowed so the UI stays quiet on offline / custom-registry installs.
+// Successful results are cached for updateAvailabilityTTL so snapshot
+// rebuilds don't fork a `podman image inspect` per service per rebuild.
 func CheckUpdateAvailable(name string) (*UpdateAvailability, error) {
+	if cached := cachedUpdateAvailability(name); cached != nil {
+		return cached, nil
+	}
+	out, err := computeUpdateAvailable(name)
+	if err == nil && out != nil {
+		storeUpdateAvailability(name, out)
+	}
+	return out, err
+}
+
+func computeUpdateAvailable(name string) (*UpdateAvailability, error) {
 	svc, strategy, allowMajor, err := resolveServiceForUpdate(name)
 	if err != nil {
 		return nil, err
@@ -265,6 +278,10 @@ func resolveServiceForUpdate(name string) (*config.CustomService, registry.Strat
 // Atomic: if the quadlet write fails the config write is rolled back so the
 // on-disk pair (config + quadlet) stays consistent.
 func persistImageChoice(name, newImage, op string) error {
+	// Drop the cached availability so the next CheckUpdateAvailable reflects
+	// the new image instead of the pre-mutation snapshot.
+	defer invalidateUpdateAvailability(name)
+
 	if config.IsDefaultPreset(name) {
 		cfg, err := config.LoadGlobal()
 		if err != nil {

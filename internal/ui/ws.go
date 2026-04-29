@@ -22,6 +22,15 @@ const (
 	intervalFocused      = 15 * time.Second
 	intervalIdle         = 60 * time.Second
 	idleWatcherCheckTick = 30 * time.Second
+
+	// wsPingInterval is how often the server probes a connected client with
+	// a ping frame. Browsers reply within milliseconds; if no pong (or any
+	// frame) arrives within wsReadTimeout, the read deadline trips and the
+	// reader goroutine exits, releasing the connection. This is the only
+	// reliable mechanism for cleaning up half-open sockets after a tab
+	// suspend, kernel TCP timeout, or browser-side connection orphan.
+	wsPingInterval = 30 * time.Second
+	wsReadTimeout  = 75 * time.Second
 )
 
 // chooseInterval returns the cache poll cadence implied by the current
@@ -113,13 +122,17 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Reader goroutine: handle ping/close/visibility frames.
-	// Visibility frames carry {"type":"visibility","visible":bool} and let
-	// the server tune the container cache polling interval.
+	// Reader goroutine: handle ping/pong/close/visibility frames. The read
+	// deadline is reset before every frame; if the client falls silent
+	// (suspended tab, half-open TCP), ReadFrame returns a timeout error and
+	// the goroutine exits, which triggers the deferred cleanup below.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for {
+			if err := ws.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+				return
+			}
 			op, payload, err := ws.ReadFrame()
 			if err != nil {
 				return
@@ -129,6 +142,8 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 				if err := ws.WritePong(payload); err != nil {
 					return
 				}
+			case wsOpPong:
+				// Client responded to our ping; loop body resets the deadline.
 			case wsOpClose:
 				_ = ws.WriteClose()
 				return
@@ -145,6 +160,9 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	pingTicker := time.NewTicker(wsPingInterval)
+	defer pingTicker.Stop()
+
 	for {
 		select {
 		case msg, ok := <-ch:
@@ -153,6 +171,10 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			frame := assembleSnapshot(msg.Sites, msg.Services, msg.Status, msg.Kinds)
 			if err := ws.WriteText(frame); err != nil {
+				return
+			}
+		case <-pingTicker.C:
+			if err := ws.WritePing(nil); err != nil {
 				return
 			}
 		case <-done:

@@ -1,7 +1,6 @@
 package php
 
 import (
-	"bytes"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -39,21 +38,18 @@ func ListInstalled() ([]string, error) {
 		seen[v] = true
 	}
 
-	// Source 2: podman containers (catches installs where the quadlet is missing)
-	if out, err := podman.Cmd("ps", "-a",
-		"--filter", "name=lerd-php",
-		"--format", "{{.Names}}").Output(); err == nil {
-		for _, name := range bytes.Fields(out) {
-			sub := fpmContainerRe.FindSubmatch(name)
-			if len(sub) != 3 {
-				continue
-			}
-			v := string(sub[1]) + "." + string(sub[2])
-			seen[v] = true
-			// Restore the missing quadlet so systemd can manage the container.
-			if !quadletExists(v) {
-				_ = restoreQuadlet(v)
-			}
+	// Source 2: podman containers (catches installs where the quadlet is missing).
+	// Reads from the daemon's container cache when available; falls back to a
+	// real podman ps in CLI contexts where the cache has not been started.
+	for name := range podman.Cache.Snapshot() {
+		sub := fpmContainerRe.FindStringSubmatch(name)
+		if len(sub) != 3 {
+			continue
+		}
+		v := sub[1] + "." + sub[2]
+		seen[v] = true
+		if !quadletExists(v) {
+			_ = restoreQuadlet(v)
 		}
 	}
 

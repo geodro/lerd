@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/geodro/lerd/internal/config"
 )
@@ -589,6 +591,27 @@ func listInstalledPHPVersions() ([]string, error) {
 	return versions, nil
 }
 
+// ephemeralPathPrefixes lists filesystem trees that are system-managed and
+// short-lived — there is no reason to bind-mount them into FPM/nginx, and
+// IDEs (PhpStorm, VSCode) drop temp .php files into /tmp with random names
+// that, mounted blindly, cascade FPM restarts every time the IDE invokes
+// `php` on a fresh path.
+var ephemeralPathPrefixes = []string{
+	"/tmp/", "/var/tmp/",
+	"/run/", "/proc/", "/sys/", "/dev/",
+}
+
+// pathMountAttempts memoises recent EnsurePathMounted calls so a runaway
+// caller (IDE running `php` repeatedly with rotating temp paths, broken
+// shell loop) cannot keep rewriting the FPM quadlet and re-triggering
+// RestartUnit at the cadence required to hit systemd's start rate-limit.
+var (
+	pathMountAttemptsMu sync.Mutex
+	pathMountAttempts   = map[string]time.Time{}
+)
+
+const pathMountDebounce = 60 * time.Second
+
 // EnsurePathMounted checks whether the given path is accessible inside the
 // PHP-FPM and nginx containers. If the path is outside $HOME and not already
 // volume-mounted, the quadlets are updated and containers restarted
@@ -605,6 +628,19 @@ func EnsurePathMounted(path, phpVersion string) {
 	if path == home || strings.HasPrefix(path, homePrefix) {
 		return
 	}
+	for _, p := range ephemeralPathPrefixes {
+		if strings.HasPrefix(path, p) {
+			return // ephemeral system dir, never bind-mount
+		}
+	}
+
+	pathMountAttemptsMu.Lock()
+	if last, ok := pathMountAttempts[path]; ok && time.Since(last) < pathMountDebounce {
+		pathMountAttemptsMu.Unlock()
+		return // already attempted recently; refuse to cascade restart again
+	}
+	pathMountAttempts[path] = time.Now()
+	pathMountAttemptsMu.Unlock()
 
 	versions, _ := listInstalledPHPVersions()
 

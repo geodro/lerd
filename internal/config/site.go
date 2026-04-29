@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -156,9 +158,41 @@ type siteRegistryYAML struct {
 	Sites []siteYAML `yaml:"sites"`
 }
 
+// sitesCache memoises the parsed registry keyed on sites.yaml's mtime+size.
+// The daemon's snapshot path used to re-read and re-parse sites.yaml once per
+// snapshot rebuild via LoadAll; with many sites this dominated the YAML parse
+// cost. The cache returns a freshly-allocated registry so callers can mutate
+// the slice without poisoning the cached value.
+var (
+	sitesCacheMu sync.Mutex
+	sitesCache   *SiteRegistry
+	sitesCacheAt time.Time
+	sitesCacheSz int64
+)
+
+func invalidateSitesCache() {
+	sitesCacheMu.Lock()
+	sitesCache = nil
+	sitesCacheAt = time.Time{}
+	sitesCacheSz = 0
+	sitesCacheMu.Unlock()
+}
+
 // LoadSites reads sites.yaml, returning an empty registry if the file does not exist.
 func LoadSites() (*SiteRegistry, error) {
-	data, err := os.ReadFile(SitesFile())
+	path := SitesFile()
+	info, statErr := os.Stat(path)
+
+	sitesCacheMu.Lock()
+	if sitesCache != nil && statErr == nil &&
+		sitesCacheAt.Equal(info.ModTime()) && sitesCacheSz == info.Size() {
+		out := cloneSiteRegistry(sitesCache)
+		sitesCacheMu.Unlock()
+		return out, nil
+	}
+	sitesCacheMu.Unlock()
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &SiteRegistry{}, nil
@@ -174,7 +208,33 @@ func LoadSites() (*SiteRegistry, error) {
 	for i, sy := range raw.Sites {
 		reg.Sites[i] = sy.toSite()
 	}
+
+	if statErr == nil {
+		sitesCacheMu.Lock()
+		sitesCache = cloneSiteRegistry(reg)
+		sitesCacheAt = info.ModTime()
+		sitesCacheSz = info.Size()
+		sitesCacheMu.Unlock()
+	}
 	return reg, nil
+}
+
+func cloneSiteRegistry(in *SiteRegistry) *SiteRegistry {
+	if in == nil {
+		return &SiteRegistry{}
+	}
+	out := &SiteRegistry{Sites: make([]Site, len(in.Sites))}
+	for i, s := range in.Sites {
+		cp := s
+		if s.Domains != nil {
+			cp.Domains = append([]string(nil), s.Domains...)
+		}
+		if s.PausedWorkers != nil {
+			cp.PausedWorkers = append([]string(nil), s.PausedWorkers...)
+		}
+		out.Sites[i] = cp
+	}
+	return out
 }
 
 // SaveSites writes the registry to sites.yaml.
@@ -192,7 +252,11 @@ func SaveSites(reg *SiteRegistry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(SitesFile(), data, 0644)
+	if err := os.WriteFile(SitesFile(), data, 0644); err != nil {
+		return err
+	}
+	invalidateSitesCache()
+	return nil
 }
 
 // AddSite appends or updates a site in the registry.

@@ -68,6 +68,15 @@ func (b *wsBroker) remove(ch chan wsMessage) {
 	b.mu.Unlock()
 }
 
+// hasPeers reports whether at least one websocket client is currently
+// subscribed. Used to skip snapshot rebuild work when the broadcast would go
+// to nobody.
+func (b *wsBroker) hasPeers() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.peers) > 0
+}
+
 func (b *wsBroker) broadcast(msg wsMessage) {
 	b.mu.Lock()
 	var drop []chan wsMessage
@@ -86,13 +95,24 @@ func (b *wsBroker) broadcast(msg wsMessage) {
 }
 
 // runSnapshotInvalidator subscribes to the eventbus, invalidates the matching
-// snapshot kinds, and ships the rebuilt bytes to the websocket broker.
+// snapshot kinds, and ships the rebuilt bytes to the websocket broker. When
+// no UI tab is open (visibleClients == 0) the rebuild is skipped — the next
+// HTTP poll from the tray will rebuild lazily, which avoids burning CPU on
+// snapshot work nobody is going to receive over the websocket.
 func runSnapshotInvalidator() {
 	sub := eventbus.Default.Subscribe()
 	for evt := range sub.C {
-		msg := wsMessage{Kinds: evt.Kinds}
+		// Always invalidate so the next read sees fresh data; only rebuild
+		// proactively when at least one websocket client will actually
+		// receive the broadcast.
 		for _, k := range evt.Kinds {
 			snapshots.Invalidate(k)
+		}
+		if !broker.hasPeers() {
+			continue
+		}
+		msg := wsMessage{Kinds: evt.Kinds}
+		for _, k := range evt.Kinds {
 			switch k {
 			case eventbus.KindSites:
 				msg.Sites = snapshots.Sites()

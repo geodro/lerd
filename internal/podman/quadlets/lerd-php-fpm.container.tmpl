@@ -1,6 +1,14 @@
 [Unit]
 Description=Lerd PHP {{.Version}} FPM
 After=network.target
+# Tolerate transient restart cascades (e.g. EnsurePathMounted called rapidly
+# with rotating paths) without permanently killing FPM and the worker units
+# that BindsTo it. systemd's default 5-restarts-in-10s is way too tight; this
+# allows up to 20 restarts in a 5-minute window, which absorbs realistic
+# cascades but still gives up on a genuinely broken FPM (corrupt image,
+# bad ini) instead of looping forever and burning CPU.
+StartLimitIntervalSec=300
+StartLimitBurst=20
 
 [Container]
 Image=lerd-php{{.VersionShort}}-fpm:local
@@ -15,6 +23,8 @@ Exec=php-fpm -F -R
 
 [Service]
 Restart=always
+# 2-second backoff between restarts so a tight crash loop can't burn CPU.
+RestartSec=2
 
 [Install]
 WantedBy=default.target

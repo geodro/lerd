@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Hand-rolled RFC6455 WebSocket helpers. Scope: lerd-ui only ever sends JSON
@@ -80,9 +81,22 @@ func (c *wsConn) WriteText(payload []byte) error {
 	return c.writeFrame(wsOpText, payload)
 }
 
+// WritePing sends a ping frame so the server can probe whether a silent client
+// is still reachable. Browsers reply with a pong, which arrives on the read
+// path and refreshes the read deadline.
+func (c *wsConn) WritePing(payload []byte) error {
+	return c.writeFrame(wsOpPing, payload)
+}
+
 // WritePong sends a pong frame in reply to a ping, echoing the payload.
 func (c *wsConn) WritePong(payload []byte) error {
 	return c.writeFrame(wsOpPong, payload)
+}
+
+// SetReadDeadline forwards to the underlying connection so callers can bound
+// how long ReadFrame blocks waiting for the next frame.
+func (c *wsConn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
 }
 
 // WriteClose sends a close frame with no payload.

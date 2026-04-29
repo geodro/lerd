@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -675,17 +676,87 @@ func LoadUserFramework(name string) *Framework {
 	return loadFrameworkYAML(filepath.Join(FrameworksDir(), name+".yaml"))
 }
 
+// frameworkFileCache memoises parsed Framework definitions keyed by file path,
+// invalidated by mtime+size. The daemon's snapshot path used to read and parse
+// each framework YAML once per site per rebuild — pprof showed yaml.Unmarshal
+// as the dominant CPU cost. Returns a clone of the mutable fields (Workers,
+// Setup, Logs, FrankenPHP) so callers like mergeUserOverlay /
+// mergeProjectWorkers can append without poisoning the cached value.
+type frameworkCacheEntry struct {
+	fw    *Framework // nil = file missing or unparseable
+	mtime time.Time
+	size  int64
+}
+
+var (
+	frameworkFileCacheMu sync.Mutex
+	frameworkFileCache   = map[string]frameworkCacheEntry{}
+)
+
 // loadFrameworkYAML reads and parses a single framework YAML file.
 func loadFrameworkYAML(path string) *Framework {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	info, statErr := os.Stat(path)
+
+	frameworkFileCacheMu.Lock()
+	entry, hit := frameworkFileCache[path]
+	cacheValid := hit && (statErr != nil && entry.fw == nil ||
+		statErr == nil && entry.mtime.Equal(info.ModTime()) && entry.size == info.Size())
+	if cacheValid {
+		fw := entry.fw
+		frameworkFileCacheMu.Unlock()
+		return cloneFrameworkMutable(fw)
+	}
+	frameworkFileCacheMu.Unlock()
+
+	var parsed *Framework
+	if statErr == nil {
+		if data, err := os.ReadFile(path); err == nil {
+			var fw Framework
+			if yaml.Unmarshal(data, &fw) == nil && fw.Name != "" {
+				parsed = &fw
+			}
+		}
+	}
+
+	frameworkFileCacheMu.Lock()
+	next := frameworkCacheEntry{fw: parsed}
+	if statErr == nil {
+		next.mtime = info.ModTime()
+		next.size = info.Size()
+	}
+	frameworkFileCache[path] = next
+	frameworkFileCacheMu.Unlock()
+
+	return cloneFrameworkMutable(parsed)
+}
+
+// cloneFrameworkMutable returns a copy where the maps and slices that
+// mergeUserOverlay/mergeProjectWorkers/mergeBuiltinFrankenPHP touch are freshly
+// allocated. Inner FrameworkWorker/Setup/Log values are copied by value;
+// pointer fields inside them aren't cloned because the merges only replace
+// whole entries, never mutate them in place.
+func cloneFrameworkMutable(in *Framework) *Framework {
+	if in == nil {
 		return nil
 	}
-	var fw Framework
-	if yaml.Unmarshal(data, &fw) != nil || fw.Name == "" {
-		return nil
+	out := *in
+	if in.Workers != nil {
+		out.Workers = make(map[string]FrameworkWorker, len(in.Workers))
+		for k, v := range in.Workers {
+			out.Workers[k] = v
+		}
 	}
-	return &fw
+	if in.Setup != nil {
+		out.Setup = append([]FrameworkSetupCmd(nil), in.Setup...)
+	}
+	if in.Logs != nil {
+		out.Logs = append([]FrameworkLogSource(nil), in.Logs...)
+	}
+	if in.FrankenPHP != nil {
+		cp := *in.FrankenPHP
+		out.FrankenPHP = &cp
+	}
+	return &out
 }
 
 // loadBestVersionedFramework scans StoreFrameworksDir for <name>@<version>.yaml files.

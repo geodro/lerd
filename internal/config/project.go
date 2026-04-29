@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -199,10 +201,60 @@ func (s ProjectService) Resolve() (*CustomService, error) {
 	return nil, nil
 }
 
+// projectConfigCache memoises parsed .lerd.yaml entries keyed by file path,
+// invalidated by mtime+size. Used by the daemon's per-site enrichment so each
+// snapshot rebuild doesn't re-read every project's .lerd.yaml. Negative
+// entries cache the absence so missing files don't cost a fresh stat+open
+// each time.
+type projectConfigCacheEntry struct {
+	cfg   *ProjectConfig // nil = file missing
+	mtime time.Time
+	size  int64
+}
+
+var (
+	projectConfigCacheMu sync.Mutex
+	projectConfigCache   = map[string]projectConfigCacheEntry{}
+)
+
+func invalidateProjectConfigCache(dir string) {
+	path := filepath.Join(dir, ".lerd.yaml")
+	projectConfigCacheMu.Lock()
+	delete(projectConfigCache, path)
+	projectConfigCacheMu.Unlock()
+}
+
 // LoadProjectConfig reads .lerd.yaml from dir, returning an empty config if
 // the file does not exist.
 func LoadProjectConfig(dir string) (*ProjectConfig, error) {
-	data, err := os.ReadFile(filepath.Join(dir, ".lerd.yaml"))
+	path := filepath.Join(dir, ".lerd.yaml")
+	info, statErr := os.Stat(path)
+
+	projectConfigCacheMu.Lock()
+	entry, hit := projectConfigCache[path]
+	cacheValid := hit && (statErr != nil && entry.cfg == nil ||
+		statErr == nil && entry.mtime.Equal(info.ModTime()) && entry.size == info.Size())
+	if cacheValid {
+		out := cloneProjectConfig(entry.cfg)
+		projectConfigCacheMu.Unlock()
+		if out == nil {
+			return &ProjectConfig{}, nil
+		}
+		return out, nil
+	}
+	projectConfigCacheMu.Unlock()
+
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			projectConfigCacheMu.Lock()
+			projectConfigCache[path] = projectConfigCacheEntry{}
+			projectConfigCacheMu.Unlock()
+			return &ProjectConfig{}, nil
+		}
+		return nil, statErr
+	}
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &ProjectConfig{}, nil
@@ -213,7 +265,48 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	return &cfg, nil
+
+	projectConfigCacheMu.Lock()
+	projectConfigCache[path] = projectConfigCacheEntry{
+		cfg: &cfg, mtime: info.ModTime(), size: info.Size(),
+	}
+	projectConfigCacheMu.Unlock()
+
+	return cloneProjectConfig(&cfg), nil
+}
+
+// cloneProjectConfig returns a copy with mutable maps and slices freshly
+// allocated. Inner FrameworkWorker entries are copied by value; their nested
+// pointers (Check, Proxy) aren't deep-copied because callers don't mutate
+// them in place.
+func cloneProjectConfig(in *ProjectConfig) *ProjectConfig {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Domains != nil {
+		out.Domains = append([]string(nil), in.Domains...)
+	}
+	if in.Services != nil {
+		out.Services = append([]ProjectService(nil), in.Services...)
+	}
+	if in.Workers != nil {
+		out.Workers = append([]string(nil), in.Workers...)
+	}
+	if in.CustomWorkers != nil {
+		out.CustomWorkers = make(map[string]FrameworkWorker, len(in.CustomWorkers))
+		for k, v := range in.CustomWorkers {
+			out.CustomWorkers[k] = v
+		}
+	}
+	if in.Container != nil {
+		cp := *in.Container
+		out.Container = &cp
+	}
+	if in.FrameworkDef != nil {
+		out.FrameworkDef = cloneFrameworkMutable(in.FrameworkDef)
+	}
+	return &out
 }
 
 // SaveProjectConfig writes cfg to .lerd.yaml in dir.
@@ -222,5 +315,9 @@ func SaveProjectConfig(dir string, cfg *ProjectConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, ".lerd.yaml"), data, 0644)
+	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"), data, 0644); err != nil {
+		return err
+	}
+	invalidateProjectConfigCache(dir)
+	return nil
 }

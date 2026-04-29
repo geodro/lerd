@@ -101,6 +101,48 @@ func TestRunningUsesMapWhenStarted(t *testing.T) {
 	}
 }
 
+func TestSnapshotStartedReturnsCachedMap(t *testing.T) {
+	c := newTestCache(func() (string, error) {
+		return "lerd-nginx\trunning\nlerd-mysql\texited", nil
+	})
+	c.started = true
+	c.poll()
+
+	snap := c.Snapshot()
+	if !snap["lerd-nginx"] {
+		t.Error("expected lerd-nginx running in snapshot")
+	}
+	if snap["lerd-mysql"] {
+		t.Error("expected lerd-mysql not running in snapshot")
+	}
+
+	// Mutating the returned map must not affect the cache.
+	snap["lerd-nginx"] = false
+	if !c.Running("lerd-nginx") {
+		t.Error("snapshot mutation leaked into cache")
+	}
+}
+
+func TestSnapshotUnstartedFallsBackToPodman(t *testing.T) {
+	calls := 0
+	c := newTestCache(func() (string, error) {
+		calls++
+		return "lerd-nginx\trunning\nlerd-redis\texited", nil
+	})
+	// Note: c.started left false to exercise the CLI fallback path.
+
+	snap := c.Snapshot()
+	if calls != 1 {
+		t.Fatalf("expected 1 fallback poll, got %d", calls)
+	}
+	if !snap["lerd-nginx"] {
+		t.Error("expected lerd-nginx in fallback snapshot")
+	}
+	if snap["lerd-redis"] {
+		t.Error("expected lerd-redis not running in fallback snapshot")
+	}
+}
+
 func TestRefreshTriggersImmediatePoll(t *testing.T) {
 	polled := make(chan struct{}, 10)
 	c := newTestCache(func() (string, error) {

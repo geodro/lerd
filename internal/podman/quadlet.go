@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -155,13 +158,48 @@ func DaemonReload() error {
 // that don't run the UI don't pay the cost.
 var AfterUnitChange func(name string)
 
+// UnitOpDebug controls whether unit-lifecycle calls log a one-line caller
+// trace. Defaults to on; set LERD_UNIT_OP_DEBUG=0 to disable. Cheap when
+// off — runtime.Caller is only invoked when the flag is set. The log line
+// is one line per unit op, so volume is low in normal operation but jumps
+// out immediately during a "who keeps stopping FPM?" cascade.
+var UnitOpDebug = os.Getenv("LERD_UNIT_OP_DEBUG") != "0"
+
 func notifyUnitChange(name string) {
+	InvalidateUnitStatusCache(name)
 	if AfterUnitChange != nil {
 		AfterUnitChange(name)
 	}
 }
 
+func logUnitOp(action, unit string) {
+	if !UnitOpDebug {
+		return
+	}
+	caller := unitOpCaller()
+	fmt.Fprintf(os.Stderr, "[lerd] unit-op action=%s unit=%s caller=%s\n", action, unit, caller)
+}
+
+// unitOpCaller returns the closest frame outside the podman package — that's
+// the lerd-internal site that asked for the unit op. Falls back to "?" if
+// the stack walk fails.
+func unitOpCaller() string {
+	pc := make([]uintptr, 16)
+	n := runtime.Callers(3, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	for {
+		frame, more := frames.Next()
+		if !strings.Contains(frame.Function, "geodro/lerd/internal/podman") {
+			return fmt.Sprintf("%s (%s:%d)", frame.Function, filepath.Base(frame.File), frame.Line)
+		}
+		if !more {
+			return frame.Function
+		}
+	}
+}
+
 func StartUnit(name string) error {
+	logUnitOp("start", name)
 	if UnitLifecycle != nil {
 		err := UnitLifecycle.Start(name)
 		if err == nil {
@@ -178,6 +216,7 @@ func StartUnit(name string) error {
 
 // StopUnit stops a service unit.
 func StopUnit(name string) error {
+	logUnitOp("stop", name)
 	if UnitLifecycle != nil {
 		err := UnitLifecycle.Stop(name)
 		if err == nil {
@@ -194,6 +233,7 @@ func StopUnit(name string) error {
 
 // RestartUnit restarts a service unit.
 func RestartUnit(name string) error {
+	logUnitOp("restart", name)
 	if UnitLifecycle != nil {
 		err := UnitLifecycle.Restart(name)
 		if err == nil {
@@ -255,14 +295,54 @@ func WaitReady(service string, timeout time.Duration) error {
 	return fmt.Errorf("%s did not become ready within %s", service, timeout)
 }
 
+// unitStatusCache memoises DBusActiveState calls for a short window so
+// dashboard snapshot rebuilds don't issue 100+ DBus round-trips per refresh.
+// 2 seconds is short enough that a unit toggle in lerd-ui (which runs the
+// AfterUnitChange hook anyway) is reflected promptly, while long enough to
+// absorb burst rebuilds during systemd state-change storms.
+const unitStatusCacheTTL = 2 * time.Second
+
+type unitStatusEntry struct {
+	state string
+	at    time.Time
+}
+
+var (
+	unitStatusCacheMu sync.Mutex
+	unitStatusCache   = map[string]unitStatusEntry{}
+)
+
+// InvalidateUnitStatusCache drops the cached DBus state for name. Called from
+// AfterUnitChange so explicit mutations are visible to the next snapshot
+// rebuild without waiting for the TTL.
+func InvalidateUnitStatusCache(name string) {
+	unitStatusCacheMu.Lock()
+	delete(unitStatusCache, name)
+	unitStatusCacheMu.Unlock()
+}
+
 // UnitStatus returns the active state of a service unit.
 func UnitStatus(name string) (string, error) {
 	if UnitLifecycle != nil {
 		return UnitLifecycle.UnitStatus(name)
 	}
+
+	unitStatusCacheMu.Lock()
+	if entry, ok := unitStatusCache[name]; ok && time.Since(entry.at) < unitStatusCacheTTL {
+		state := entry.state
+		unitStatusCacheMu.Unlock()
+		return state, nil
+	}
+	unitStatusCacheMu.Unlock()
+
 	state := systemd.DBusActiveState(name)
 	if state == "" {
-		return "unknown", nil
+		state = "unknown"
 	}
+
+	unitStatusCacheMu.Lock()
+	unitStatusCache[name] = unitStatusEntry{state: state, at: time.Now()}
+	unitStatusCacheMu.Unlock()
+
 	return state, nil
 }

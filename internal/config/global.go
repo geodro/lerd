@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -143,9 +145,53 @@ func firstHostPort(ports []string) int {
 	return n
 }
 
+// globalCache memoises the last LoadGlobal result keyed on config.yaml's
+// mtime+size. The daemon's snapshot path used to call LoadGlobal hundreds of
+// times per rebuild (one per site, transitively), and each call re-parsed
+// every preset YAML via defaultConfig — pprof showed yaml.Unmarshal as the
+// dominant CPU cost. The cache returns a deep copy so callers can mutate the
+// returned struct without poisoning the cache.
+var (
+	globalCacheMu sync.Mutex
+	globalCache   *GlobalConfig
+	globalCacheAt time.Time
+	globalCacheSz int64
+)
+
+// invalidateGlobalCache drops the cached config so the next LoadGlobal re-reads
+// from disk. Called from SaveGlobal so writes are visible immediately.
+func invalidateGlobalCache() {
+	globalCacheMu.Lock()
+	globalCache = nil
+	globalCacheAt = time.Time{}
+	globalCacheSz = 0
+	globalCacheMu.Unlock()
+}
+
 // LoadGlobal reads config.yaml via viper, returning defaults if the file is absent.
 func LoadGlobal() (*GlobalConfig, error) {
 	cfgFile := GlobalConfigFile()
+
+	var (
+		statMtime time.Time
+		statSize  int64
+		statErr   error
+	)
+	if info, err := os.Stat(cfgFile); err == nil {
+		statMtime = info.ModTime()
+		statSize = info.Size()
+	} else {
+		statErr = err
+	}
+
+	globalCacheMu.Lock()
+	if globalCache != nil && statErr == nil &&
+		globalCacheAt.Equal(statMtime) && globalCacheSz == statSize {
+		out := cloneGlobalConfig(globalCache)
+		globalCacheMu.Unlock()
+		return out, nil
+	}
+	globalCacheMu.Unlock()
 
 	v := viper.NewWithOptions(viper.KeyDelimiter("::"))
 	v.SetConfigFile(cfgFile)
@@ -163,7 +209,55 @@ func LoadGlobal() (*GlobalConfig, error) {
 		return nil, err
 	}
 	migrateStaleServiceImages(cfg)
+
+	if statErr == nil {
+		globalCacheMu.Lock()
+		globalCache = cloneGlobalConfig(cfg)
+		globalCacheAt = statMtime
+		globalCacheSz = statSize
+		globalCacheMu.Unlock()
+	}
 	return cfg, nil
+}
+
+// cloneGlobalConfig returns a deep copy. Maps and slices are duplicated so
+// callers cannot mutate the cached value.
+func cloneGlobalConfig(in *GlobalConfig) *GlobalConfig {
+	out := *in
+	if in.PHP.XdebugEnabled != nil {
+		out.PHP.XdebugEnabled = make(map[string]bool, len(in.PHP.XdebugEnabled))
+		for k, v := range in.PHP.XdebugEnabled {
+			out.PHP.XdebugEnabled[k] = v
+		}
+	}
+	if in.PHP.XdebugMode != nil {
+		out.PHP.XdebugMode = make(map[string]string, len(in.PHP.XdebugMode))
+		for k, v := range in.PHP.XdebugMode {
+			out.PHP.XdebugMode[k] = v
+		}
+	}
+	if in.PHP.Extensions != nil {
+		out.PHP.Extensions = make(map[string][]string, len(in.PHP.Extensions))
+		for k, v := range in.PHP.Extensions {
+			cp := make([]string, len(v))
+			copy(cp, v)
+			out.PHP.Extensions[k] = cp
+		}
+	}
+	if in.ParkedDirectories != nil {
+		out.ParkedDirectories = append([]string(nil), in.ParkedDirectories...)
+	}
+	if in.Services != nil {
+		out.Services = make(map[string]ServiceConfig, len(in.Services))
+		for k, v := range in.Services {
+			cp := v
+			if v.ExtraPorts != nil {
+				cp.ExtraPorts = append([]string(nil), v.ExtraPorts...)
+			}
+			out.Services[k] = cp
+		}
+	}
+	return &out
 }
 
 // staleServiceImages maps service name → list of historical default images
@@ -331,5 +425,9 @@ func SaveGlobal(cfg *GlobalConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(GlobalConfigFile(), data, 0644)
+	if err := os.WriteFile(GlobalConfigFile(), data, 0644); err != nil {
+		return err
+	}
+	invalidateGlobalCache()
+	return nil
 }

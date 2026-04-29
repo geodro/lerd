@@ -100,42 +100,44 @@ func Start(currentVersion string) error {
 	// Restart any LAN share proxies that were active before this process started.
 	go cli.RestoreLANShareProxies()
 
-	podman.AfterUnitChange = func(name string) {
-		// Run the poll and snapshot publish in a goroutine so the HTTP
-		// handler (and the unit start/stop call that triggered this) returns
-		// immediately. PollNow blocks until podman ps completes, ensuring
-		// the snapshot broadcast carries current container states rather than
-		// a stale pre-mutation value — which would cause the UI toggle to
-		// appear to revert.
-		go func() {
+	// Single coalescer for the three event sources that need to refresh the
+	// container cache and broadcast a snapshot: in-process mutations
+	// (AfterUnitChange), DBus push notifications (SubscribeLerdUnitStateChanges),
+	// and CLI/MCP notifications (/api/internal/notify). A burst of state
+	// transitions (e.g. a unit cycling activating→active during start) used to
+	// spawn one podman ps subprocess per transition; the coalescer collapses
+	// them into one poll + one publish per ~250ms quiet period.
+	//
+	// When no UI tab is open we don't fork podman ps — runSnapshotInvalidator
+	// also skips the rebuild for the same reason, and the periodic cache poll
+	// (60s while idle) catches container state on its own. An incoming WS
+	// connection forces a fresh PollNow before sending the initial snapshot.
+	publisher := newPollPublisher(250*time.Millisecond, func() {
+		if visibleClients.Load() > 0 {
 			podman.Cache.PollNow()
-			siteinfo.InvalidateUnitCache()
-			eventbus.Default.Publish(eventbus.KindSites)
-			eventbus.Default.Publish(eventbus.KindServices)
-			eventbus.Default.Publish(eventbus.KindStatus)
-		}()
-	}
+		}
+		siteinfo.InvalidateUnitCache()
+		eventbus.Default.Publish(eventbus.KindSites)
+		eventbus.Default.Publish(eventbus.KindServices)
+		eventbus.Default.Publish(eventbus.KindStatus)
+	})
+
+	podman.AfterUnitChange = func(string) { publisher.trigger() }
+
+	// External state changes (container crash, systemctl outside lerd-ui,
+	// timer firings) are caught by the periodic podman cache poll instead
+	// of a DBus PropertiesChanged subscription. The subscription used to
+	// burn ~50% of one core because go-systemd's dispatch goroutine fetches
+	// unit properties on every signal, and active containers emit a steady
+	// stream of property updates (CPU accounting, exec status, restart
+	// counters). Polling at 15s when a UI tab is focused / 60s otherwise
+	// trades off-up-to-15s latency for an order-of-magnitude CPU saving.
+	podman.Cache.SetOnChange(publisher.trigger)
 
 	// Drop the cache to idle cadence whenever the desktop session is idle
 	// or locked, so a focused tab on an unattended laptop still saves
 	// battery. Recomputes on every transition.
 	startIdleWatcher(context.Background())
-
-	// Event-driven push from systemd covers mutations that didn't go through
-	// lerd-ui's AfterUnitChange path: external systemctl calls, container
-	// crashes, external podman restart, unit timeouts. Mirrors the same
-	// invalidate-and-broadcast flow so the dashboard stays current without
-	// waiting for the 15s cache poll. AfterUnitChange stays as a fast path
-	// for in-process mutations; the DBus push catches everything else.
-	_ = lerdSystemd.SubscribeLerdUnitStateChanges(context.Background(), func(string) {
-		go func() {
-			podman.Cache.PollNow()
-			siteinfo.InvalidateUnitCache()
-			eventbus.Default.Publish(eventbus.KindSites)
-			eventbus.Default.Publish(eventbus.KindServices)
-			eventbus.Default.Publish(eventbus.KindStatus)
-		}()
-	})
 
 	// A single goroutine subscribes to the eventbus and invalidates the
 	// relevant snapshot on every mutation. The /api/ws handler broadcasts
@@ -158,13 +160,7 @@ func Start(currentVersion string) error {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		go func() {
-			podman.Cache.PollNow()
-			siteinfo.InvalidateUnitCache()
-			eventbus.Default.Publish(eventbus.KindSites)
-			eventbus.Default.Publish(eventbus.KindServices)
-			eventbus.Default.Publish(eventbus.KindStatus)
-		}()
+		publisher.trigger()
 		w.WriteHeader(http.StatusNoContent)
 	})
 

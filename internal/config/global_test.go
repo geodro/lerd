@@ -69,6 +69,58 @@ func TestSaveLoadGlobal_RoundTrip(t *testing.T) {
 	}
 }
 
+// ── Cache ─────────────────────────────────────────────────────────────────────
+
+func TestLoadGlobal_CacheReturnsIndependentCopy(t *testing.T) {
+	setConfigDir(t)
+	invalidateGlobalCache()
+	t.Cleanup(invalidateGlobalCache)
+
+	cfg, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	cfg.DNS.TLD = "local"
+	if cfg.Services == nil {
+		cfg.Services = map[string]ServiceConfig{}
+	}
+	cfg.Services["mutated"] = ServiceConfig{Enabled: true}
+
+	again, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal #2: %v", err)
+	}
+	if again.DNS.TLD == "local" {
+		t.Error("cached value should not reflect caller mutation of DNS.TLD")
+	}
+	if _, ok := again.Services["mutated"]; ok {
+		t.Error("cached value should not reflect caller mutation of Services map")
+	}
+}
+
+func TestLoadGlobal_CacheInvalidatedBySaveGlobal(t *testing.T) {
+	setConfigDir(t)
+	invalidateGlobalCache()
+	t.Cleanup(invalidateGlobalCache)
+
+	cfg, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	cfg.DNS.TLD = "local"
+	if err := SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal: %v", err)
+	}
+
+	got, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal after save: %v", err)
+	}
+	if got.DNS.TLD != "local" {
+		t.Errorf("after SaveGlobal, DNS.TLD = %q, want %q", got.DNS.TLD, "local")
+	}
+}
+
 // ── Xdebug ────────────────────────────────────────────────────────────────────
 
 func TestXdebug_Toggle(t *testing.T) {

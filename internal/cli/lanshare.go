@@ -53,6 +53,9 @@ func LANShareStart(siteName string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if site.Paused {
+		return site.LANPort, fmt.Errorf("site %q is paused", siteName)
+	}
 
 	port := site.LANPort
 	if port == 0 {
@@ -95,6 +98,24 @@ func LANShareStart(siteName string) (int, error) {
 // LANShareStop stops the LAN share proxy for the site and clears its port
 // from the site registry.
 func LANShareStop(siteName string) error {
+	closeLANShareServer(siteName)
+
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return err
+	}
+	site.LANPort = 0
+	return config.AddSite(*site)
+}
+
+// LANShareStopServer closes the running proxy without clearing the site's
+// stored LAN port. Used when pausing a site so the same port can be reused on
+// unpause without invalidating any QR codes the user has shared.
+func LANShareStopServer(siteName string) {
+	closeLANShareServer(siteName)
+}
+
+func closeLANShareServer(siteName string) {
 	lanShareMu.Lock()
 	srv, running := lanShareServers[siteName]
 	if running {
@@ -105,13 +126,6 @@ func LANShareStop(siteName string) error {
 	if running {
 		srv.Close()
 	}
-
-	site, err := config.FindSite(siteName)
-	if err != nil {
-		return err
-	}
-	site.LANPort = 0
-	return config.AddSite(*site)
 }
 
 // LANShareRunning reports whether a share proxy is active for the site.
@@ -141,7 +155,7 @@ func RestoreLANShareProxies() {
 		}
 	}
 	for _, s := range reg.Sites {
-		if s.LANPort == 0 {
+		if !shouldRunLANShareProxy(s) {
 			continue
 		}
 		srv, err := startLANShareProxy(s.PrimaryDomain(), s.LANPort, httpPort, httpsPort, s.Secured)
@@ -152,6 +166,13 @@ func RestoreLANShareProxies() {
 		lanShareServers[s.Name] = srv
 		lanShareMu.Unlock()
 	}
+}
+
+// shouldRunLANShareProxy reports whether the daemon should keep a LAN share
+// proxy bound for the site. Paused sites are excluded so the port is not held
+// while the site is intentionally offline.
+func shouldRunLANShareProxy(s config.Site) bool {
+	return s.LANPort != 0 && !s.Paused
 }
 
 // assignLANSharePort finds the lowest unused port >= 9100 across all sites.

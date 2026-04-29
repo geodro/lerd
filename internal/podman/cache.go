@@ -26,6 +26,21 @@ type ContainerCache struct {
 	// pollFn fetches container states; defaults to the real podman ps call.
 	// Swappable in tests.
 	pollFn func() (string, error)
+
+	// onChangeMu guards onChange; readers load it under the read side of mu.
+	onChangeMu sync.Mutex
+	onChange   func()
+}
+
+// SetOnChange installs a callback that fires after a poll detects a change
+// in the running map. Used by the daemon to trigger a snapshot publish on
+// external state changes (container crash, systemctl outside of lerd-ui)
+// without paying for a DBus PropertiesChanged subscription. Pass nil to
+// remove the callback.
+func (c *ContainerCache) SetOnChange(fn func()) {
+	c.onChangeMu.Lock()
+	c.onChange = fn
+	c.onChangeMu.Unlock()
 }
 
 func defaultPollFn() (string, error) {
@@ -67,6 +82,44 @@ func (c *ContainerCache) Running(name string) bool {
 		return running
 	}
 	return v
+}
+
+// Snapshot returns a copy of the cached container map. When the cache has not
+// been started (CLI context), it falls back to a synchronous podman ps so
+// one-off commands still see current state. Used by callers that need to
+// enumerate containers by name pattern without spawning their own subprocess
+// on the daemon's hot path.
+func (c *ContainerCache) Snapshot() map[string]bool {
+	c.mu.RLock()
+	if c.started {
+		out := make(map[string]bool, len(c.running))
+		for k, v := range c.running {
+			out[k] = v
+		}
+		c.mu.RUnlock()
+		return out
+	}
+	c.mu.RUnlock()
+
+	out, err := c.pollFn()
+	fresh := make(map[string]bool)
+	if err != nil {
+		return fresh
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		state := strings.ToLower(strings.TrimSpace(parts[1]))
+		fresh[name] = strings.HasPrefix(state, "running")
+	}
+	return fresh
 }
 
 // Refresh schedules an immediate re-poll on the background goroutine.
@@ -134,6 +187,30 @@ func (c *ContainerCache) poll() {
 	// as not running, which is the correct observed state.
 
 	c.mu.Lock()
+	changed := !runningMapsEqual(c.running, fresh)
 	c.running = fresh
 	c.mu.Unlock()
+
+	if !changed {
+		return
+	}
+	c.onChangeMu.Lock()
+	cb := c.onChange
+	c.onChangeMu.Unlock()
+	if cb != nil {
+		cb()
+	}
+}
+
+// runningMapsEqual compares two name→running maps without allocating.
+func runningMapsEqual(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }

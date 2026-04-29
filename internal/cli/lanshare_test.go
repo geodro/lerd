@@ -1,6 +1,30 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/geodro/lerd/internal/config"
+)
+
+func TestShouldRunLANShareProxy(t *testing.T) {
+	cases := []struct {
+		name string
+		site config.Site
+		want bool
+	}{
+		{"no port", config.Site{Name: "a"}, false},
+		{"port + active", config.Site{Name: "a", LANPort: 9100}, true},
+		{"port + paused", config.Site{Name: "a", LANPort: 9100, Paused: true}, false},
+		{"no port + paused", config.Site{Name: "a", Paused: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shouldRunLANShareProxy(c.site); got != c.want {
+				t.Errorf("shouldRunLANShareProxy(%+v) = %v, want %v", c.site, got, c.want)
+			}
+		})
+	}
+}
 
 func TestRewriteLANShareBody_collapsesHTTPSToHTTP(t *testing.T) {
 	in := []byte(`<link href="https://laravel.test/build/app.css">

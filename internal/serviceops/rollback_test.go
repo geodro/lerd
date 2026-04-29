@@ -129,6 +129,9 @@ func TestCheckUpdateAvailable_CanRollback(t *testing.T) {
 		LastOp:        "migrate",
 	}
 	_ = config.SaveGlobal(cfg)
+	// Mirror what the apply paths do: out-of-band config mutations must drop
+	// the cached result so the next read recomputes against fresh state.
+	invalidateUpdateAvailability("redis")
 
 	avail, err = CheckUpdateAvailable("redis")
 	if err != nil {

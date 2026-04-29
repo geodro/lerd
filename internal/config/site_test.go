@@ -506,6 +506,64 @@ func TestSaveLoad_ContainerPort_RoundTrip(t *testing.T) {
 	}
 }
 
+// ── Cache ─────────────────────────────────────────────────────────────────────
+
+func TestLoadSites_CacheReturnsIndependentCopy(t *testing.T) {
+	setDataDir(t)
+	invalidateSitesCache()
+	t.Cleanup(invalidateSitesCache)
+
+	if err := AddSite(Site{Name: "alpha", Domains: []string{"alpha.test"}, Path: "/srv/a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := LoadSites()
+	if err != nil {
+		t.Fatalf("LoadSites: %v", err)
+	}
+	first.Sites[0].Name = "MUTATED"
+	first.Sites[0].Domains[0] = "tampered.test"
+	first.Sites = append(first.Sites, Site{Name: "phantom"})
+
+	second, err := LoadSites()
+	if err != nil {
+		t.Fatalf("LoadSites #2: %v", err)
+	}
+	if len(second.Sites) != 1 {
+		t.Fatalf("len = %d, want 1 (callers mutating returned slice should not leak into cache)", len(second.Sites))
+	}
+	if second.Sites[0].Name != "alpha" {
+		t.Errorf("Name leaked: got %q, want alpha", second.Sites[0].Name)
+	}
+	if second.Sites[0].Domains[0] != "alpha.test" {
+		t.Errorf("Domains leaked: got %q, want alpha.test", second.Sites[0].Domains[0])
+	}
+}
+
+func TestLoadSites_CacheInvalidatedBySaveSites(t *testing.T) {
+	setDataDir(t)
+	invalidateSitesCache()
+	t.Cleanup(invalidateSitesCache)
+
+	if err := AddSite(Site{Name: "alpha", Domains: []string{"alpha.test"}, Path: "/srv/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSites(); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddSite(Site{Name: "beta", Domains: []string{"beta.test"}, Path: "/srv/b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadSites()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Sites) != 2 {
+		t.Fatalf("len = %d after second AddSite, want 2 (cache must invalidate on SaveSites)", len(got.Sites))
+	}
+}
+
 func searchString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
