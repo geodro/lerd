@@ -26,6 +26,7 @@ import (
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
+	"github.com/geodro/lerd/internal/workerheal"
 	"github.com/geodro/lerd/internal/xdebugops"
 )
 
@@ -750,6 +751,21 @@ func toolList() []mcpTool {
 			},
 		},
 		mcpTool{
+			Name:        "workers_health",
+			Description: "Failed worker units, grouped per site. Read-only.",
+			InputSchema: mcpSchema{Type: "object", Properties: map[string]mcpProp{}},
+		},
+		mcpTool{
+			Name:        "workers_heal",
+			Description: "Reset failed and restart every failed worker. Pass `unit` for one. Never writes .lerd.yaml or unit files.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"unit": {Type: "string", Description: "Full unit name (lerd-<worker>-<site>). Omit to heal all."},
+				},
+			},
+		},
+		mcpTool{
 			Name:        "framework_list",
 			Description: "List framework definitions (built-in + user YAMLs), with their workers and setup commands.",
 			InputSchema: mcpSchema{Type: "object", Properties: map[string]mcpProp{}},
@@ -1016,6 +1032,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execWorkerRemove(args)
 	case "worker_list":
 		return execWorkerList(args)
+	case "workers_health":
+		return execWorkersHealth()
+	case "workers_heal":
+		return execWorkersHeal(args)
 
 	case "logs":
 		return execLogs(args)
@@ -3926,6 +3946,44 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
 	data, _ := json.MarshalIndent(result, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+// execWorkersHealth returns every worker unit currently in the systemd
+// "failed" state, grouped per site. Read-only counterpart to workers_heal.
+func execWorkersHealth() (any, *rpcError) {
+	unhealthy, err := workerheal.Detect()
+	if err != nil {
+		return toolErr("detecting workers: " + err.Error()), nil
+	}
+	if unhealthy == nil {
+		unhealthy = []workerheal.UnhealthyWorker{}
+	}
+	data, _ := json.MarshalIndent(unhealthy, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+// execWorkersHeal heals every failed worker (or the named one if `unit` is
+// passed). Returns a per-unit summary so the agent can report what was
+// fixed without re-querying. Mirrors `lerd worker heal` exactly: no
+// .lerd.yaml writes, no unit-file rewrites.
+func execWorkersHeal(args map[string]any) (any, *rpcError) {
+	if unit := strArg(args, "unit"); unit != "" {
+		if err := workerheal.HealUnit(unit); err != nil {
+			return toolErr("heal " + unit + ": " + err.Error()), nil
+		}
+		return toolOK("Healed " + unit + "."), nil
+	}
+	report, err := workerheal.HealAll(nil)
+	if err != nil {
+		return toolErr("heal: " + err.Error()), nil
+	}
+	out := map[string]any{
+		"summary": workerheal.Summary(report),
+		"healed":  report.Healed,
+		"failed":  report.Failed,
+	}
+	data, _ := json.MarshalIndent(out, "", "  ")
 	return toolOK(string(data)), nil
 }
 

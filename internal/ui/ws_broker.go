@@ -43,10 +43,11 @@ type wsBroker struct {
 // Kinds names which snapshots changed; Sites/Services/Status hold the fresh
 // JSON bytes for only the kinds in Kinds.
 type wsMessage struct {
-	Kinds    []string
-	Sites    []byte
-	Services []byte
-	Status   []byte
+	Kinds            []string
+	Sites            []byte
+	Services         []byte
+	Status           []byte
+	UnhealthyWorkers []byte
 }
 
 var broker = &wsBroker{peers: make(map[chan wsMessage]struct{})}
@@ -116,6 +117,11 @@ func runSnapshotInvalidator() {
 			switch k {
 			case eventbus.KindSites:
 				msg.Sites = snapshots.Sites()
+				// Worker health rides the same KindSites cycle: it's
+				// derived from the same unit-state cache, and the only
+				// signals that can change it (unit lifecycle ops, the
+				// periodic health-watcher) all publish KindSites.
+				msg.UnhealthyWorkers = snapshots.UnhealthyWorkers()
 			case eventbus.KindServices:
 				msg.Services = snapshots.Services()
 			case eventbus.KindStatus:

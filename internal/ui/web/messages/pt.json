@@ -331,5 +331,11 @@
   "link_linking": "Vinculando...",
   "link_linkThisDir": "Vincular este diretório",
   "link_waitingOutput": "Aguardando saída...",
-  "link_failed": "Vinculação falhou"
+  "link_failed": "Vinculação falhou",
+  "workers_health_banner_title": "{count} worker(s) falhando",
+  "workers_health_banner_starting": "Iniciando {unit}…",
+  "workers_health_banner_heal": "Reparar",
+  "workers_health_banner_healing": "Reparando…",
+  "workers_health_banner_dismiss": "Dispensar",
+  "workers_health_banner_progress": "Reparando {done} de {total}…"
 }

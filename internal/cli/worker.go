@@ -27,6 +27,7 @@ func NewWorkerCmd() *cobra.Command {
 	cmd.AddCommand(newWorkerListCmd())
 	cmd.AddCommand(newWorkerAddCmd())
 	cmd.AddCommand(newWorkerRemoveCmd())
+	cmd.AddCommand(newWorkerHealCmd())
 	return cmd
 }
 

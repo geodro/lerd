@@ -104,8 +104,14 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	snapshots.Invalidate(eventbus.KindServices)
 	snapshots.Invalidate(eventbus.KindStatus)
 
-	// Initial snapshot: assemble one JSON object containing all three kinds.
-	initial := assembleSnapshot(snapshots.Sites(), snapshots.Services(), snapshots.Status(), []string{"snapshot"})
+	// Initial snapshot: assemble one JSON object containing all kinds.
+	initial := assembleSnapshot(
+		snapshots.Sites(),
+		snapshots.Services(),
+		snapshots.Status(),
+		snapshots.UnhealthyWorkers(),
+		[]string{"snapshot"},
+	)
 	if err := ws.WriteText(initial); err != nil {
 		return
 	}
@@ -169,7 +175,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			frame := assembleSnapshot(msg.Sites, msg.Services, msg.Status, msg.Kinds)
+			frame := assembleSnapshot(msg.Sites, msg.Services, msg.Status, msg.UnhealthyWorkers, msg.Kinds)
 			if err := ws.WriteText(frame); err != nil {
 				return
 			}
@@ -185,10 +191,10 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 // assembleSnapshot builds a JSON object of the form:
 //
-//	{"type":"<type>","sites":<sites>,"services":<services>,"status":<status>}
+//	{"type":"<type>","sites":<sites>,"services":<services>,"status":<status>,"unhealthy_workers":<unhealthy>}
 //
 // Any nil slice is omitted so clients can treat missing keys as "unchanged".
-func assembleSnapshot(sites, services, status []byte, kinds []string) []byte {
+func assembleSnapshot(sites, services, status, unhealthy []byte, kinds []string) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(`{"type":"`)
 	if len(kinds) == 1 {
@@ -208,6 +214,10 @@ func assembleSnapshot(sites, services, status []byte, kinds []string) []byte {
 	if len(status) > 0 {
 		buf.WriteString(`,"status":`)
 		buf.Write(status)
+	}
+	if len(unhealthy) > 0 {
+		buf.WriteString(`,"unhealthy_workers":`)
+		buf.Write(unhealthy)
 	}
 	buf.WriteByte('}')
 	return buf.Bytes()

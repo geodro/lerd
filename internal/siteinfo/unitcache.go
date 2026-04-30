@@ -39,6 +39,25 @@ func InvalidateUnitCache() {
 	globalUnitCache.mu.Unlock()
 }
 
+// AllUnitStates returns a snapshot of every cached lerd-* unit state
+// (unit name → "active" | "inactive" | "failed" | …). The map is a copy
+// safe for callers to walk without holding the cache mutex. Triggers a
+// refresh if the cache is stale, but otherwise reuses the same batched
+// systemctl snapshot the dashboard's enrichment path is already populating
+// — zero extra subprocess cost for callers like the worker-health detector.
+func AllUnitStates() map[string]string {
+	globalUnitCache.mu.Lock()
+	defer globalUnitCache.mu.Unlock()
+	if globalUnitCache.states == nil || time.Since(globalUnitCache.at) > unitCacheTTL {
+		_ = globalUnitCache.refreshLocked()
+	}
+	out := make(map[string]string, len(globalUnitCache.states))
+	for k, v := range globalUnitCache.states {
+		out[k] = v
+	}
+	return out
+}
+
 // unitStatusCached returns the active state of a lerd-* unit, consulting a
 // short-lived batched snapshot. One systemctl call populates ~all lerd units
 // instead of one subprocess per worker.

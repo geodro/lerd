@@ -14,11 +14,13 @@
   import { loadAutostart } from '$stores/autostart';
   import { loadSites } from '$stores/sites';
   import { loadServices } from '$stores/services';
+  import { loadWorkerHealth } from '$stores/workerHealth';
   import { connectWs, disconnectWs } from '$lib/ws';
   import { initDashboardRoute } from '$stores/dashboard';
   import { mobileView } from '$stores/mobileView';
   import ModalHost from './modals/ModalHost.svelte';
   import DashboardOverlay from '$components/DashboardOverlay.svelte';
+  import WorkerHealthBanner from '$components/WorkerHealthBanner.svelte';
 
   import SitesTab from '$tabs/SitesTab.svelte';
   import ServicesTab from '$tabs/ServicesTab.svelte';
@@ -41,6 +43,7 @@
     loadAutostart();
     loadSites();
     loadServices();
+    loadWorkerHealth();
     connectWs();
     initDashboardRoute();
     window.addEventListener('pagehide', handlePageHide);
@@ -117,4 +120,5 @@
   <MobileNav />
   <ModalHost />
   <DashboardOverlay />
+  <WorkerHealthBanner />
 </div>

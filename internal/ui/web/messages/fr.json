@@ -331,5 +331,11 @@
   "link_linking": "Liaison...",
   "link_linkThisDir": "Lier ce répertoire",
   "link_waitingOutput": "En attente de sortie...",
-  "link_failed": "Échec de la liaison"
+  "link_failed": "Échec de la liaison",
+  "workers_health_banner_title": "{count} worker(s) en échec",
+  "workers_health_banner_starting": "Démarrage de {unit}…",
+  "workers_health_banner_heal": "Réparer",
+  "workers_health_banner_healing": "Réparation…",
+  "workers_health_banner_dismiss": "Masquer",
+  "workers_health_banner_progress": "Réparation {done} sur {total}…"
 }

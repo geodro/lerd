@@ -39,10 +39,16 @@ type snapshotCache struct {
 	sites, services, status       []byte
 	sitesAt, servicesAt, statusAt time.Time
 
+	// Unhealthy-workers JSON shadows the sites cycle: it is derived from
+	// the same batched unit-state cache and invalidated alongside KindSites,
+	// so callers don't pay any extra subprocess cost.
+	unhealthy   []byte
+	unhealthyAt time.Time
+
 	// One build-mutex per kind serialises concurrent rebuilds so that when
 	// podman inspect is slow, goroutines queue behind one in-flight rebuild
 	// rather than each spawning their own batch of subprocesses.
-	sitesBuild, servicesBuild, statusBuild sync.Mutex
+	sitesBuild, servicesBuild, statusBuild, unhealthyBuild sync.Mutex
 }
 
 var snapshots = &snapshotCache{}
@@ -149,6 +155,40 @@ func (c *snapshotCache) Status() []byte {
 	return b
 }
 
+// UnhealthyWorkers returns cached worker-health JSON, rebuilding if stale.
+// Pinned to the KindSites lifecycle: same source cache, same invalidation
+// signal, no extra polling.
+func (c *snapshotCache) UnhealthyWorkers() []byte {
+	c.mu.Lock()
+	if c.unhealthy != nil && time.Since(c.unhealthyAt) < currentSnapshotTTL() {
+		b := c.unhealthy
+		c.mu.Unlock()
+		return b
+	}
+	stale := c.unhealthy
+	c.mu.Unlock()
+
+	if !c.unhealthyBuild.TryLock() {
+		return stale
+	}
+	defer c.unhealthyBuild.Unlock()
+
+	c.mu.Lock()
+	if c.unhealthy != nil && time.Since(c.unhealthyAt) < currentSnapshotTTL() {
+		b := c.unhealthy
+		c.mu.Unlock()
+		return b
+	}
+	c.mu.Unlock()
+
+	b := buildUnhealthyWorkersJSON()
+	c.mu.Lock()
+	c.unhealthy = b
+	c.unhealthyAt = time.Now()
+	c.mu.Unlock()
+	return b
+}
+
 // Invalidate drops the cached bytes for one kind so the next read rebuilds.
 func (c *snapshotCache) Invalidate(kind string) {
 	c.mu.Lock()
@@ -156,6 +196,8 @@ func (c *snapshotCache) Invalidate(kind string) {
 	switch kind {
 	case eventbus.KindSites:
 		c.sitesAt = time.Time{}
+		// Worker health shares the sites lifecycle.
+		c.unhealthyAt = time.Time{}
 	case eventbus.KindServices:
 		c.servicesAt = time.Time{}
 	case eventbus.KindStatus:
@@ -169,5 +211,6 @@ func (c *snapshotCache) InvalidateAll() {
 	c.sitesAt = time.Time{}
 	c.servicesAt = time.Time{}
 	c.statusAt = time.Time{}
+	c.unhealthyAt = time.Time{}
 	c.mu.Unlock()
 }

@@ -39,18 +39,17 @@ func ListInstalled() ([]string, error) {
 	}
 
 	// Source 2: podman containers (catches installs where the quadlet is missing).
-	// Reads from the daemon's container cache when available; falls back to a
-	// real podman ps in CLI contexts where the cache has not been started.
+	// Read-only: this MUST stay free of side effects. Production heal of a
+	// missing quadlet happens explicitly in install/start paths via
+	// ensureFPMQuadlet. Calling restoreQuadlet here would daemon-reload the
+	// user's real systemd from any test that triggered ListInstalled, and
+	// trigger a worker-stopping cascade via BindsTo.
 	for name := range podman.Cache.Snapshot() {
 		sub := fpmContainerRe.FindStringSubmatch(name)
 		if len(sub) != 3 {
 			continue
 		}
-		v := sub[1] + "." + sub[2]
-		seen[v] = true
-		if !quadletExists(v) {
-			_ = restoreQuadlet(v)
-		}
+		seen[sub[1]+"."+sub[2]] = true
 	}
 
 	versions := make([]string, 0, len(seen))
@@ -64,10 +63,6 @@ func ListInstalled() ([]string, error) {
 func quadletExists(version string) bool {
 	short := version[0:1] + version[2:]
 	return services.Mgr.ContainerUnitInstalled("lerd-php" + short + "-fpm")
-}
-
-func restoreQuadlet(version string) error {
-	return podman.WriteFPMQuadlet(version)
 }
 
 // IsInstalled returns true if the given PHP version has an FPM quadlet.

@@ -67,6 +67,7 @@ var helpReference = []helpSection{
 		title: "General",
 		rows: [][2]string{
 			{"R", "force a manual refresh"},
+			{"H", "heal every failed worker (reset-failed + start)"},
 			{"q / ctrl+c", "quit"},
 		},
 	},

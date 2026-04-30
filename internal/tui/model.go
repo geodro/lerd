@@ -365,8 +365,21 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "R":
 		return m, loadCmd()
+
+	case "H":
+		return m, m.actionHealWorkers()
 	}
 	return m, nil
+}
+
+// actionHealWorkers shells out to `lerd worker heal` so every failed
+// worker on the box gets reset-failed + start. The CLI command is the
+// single source of heal logic; the TUI just triggers it and refreshes
+// the snapshot once it returns. No site context required — heal scans
+// every registered site.
+func (m *Model) actionHealWorkers() tea.Cmd {
+	m.setStatus("healing failed workers…", 10*time.Second)
+	return tea.Sequence(runLerd("", "worker", "heal"), loadCmd())
 }
 
 // openDomainInput switches into domain-input mode for adding a new domain.

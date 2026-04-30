@@ -192,6 +192,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		workerReg, wErr := config.LoadSites()
 		if wErr == nil {
 			hasWorkers := false
+			failedCount := 0
 			for _, s := range workerReg.Sites {
 				if s.Ignored || s.Paused {
 					continue
@@ -210,6 +211,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 					case "failed":
 						fail2(s.Name+"/"+w, "failed", unitLogHint(unit))
 						hasWorkers = true
+						failedCount++
 					}
 				}
 				// Check custom framework workers.
@@ -235,6 +237,7 @@ func runStatus(_ *cobra.Command, _ []string) error {
 						case "failed":
 							fail2(s.Name+"/"+wName, "failed", unitLogHint(unit))
 							hasWorkers = true
+							failedCount++
 						}
 					}
 				}
@@ -248,12 +251,20 @@ func runStatus(_ *cobra.Command, _ []string) error {
 						warn2(label, "restarting")
 					} else {
 						fail2(label, "failed", unitLogHint("lerd-stripe-"+s.Name))
+						failedCount++
 					}
 					hasWorkers = true
 				}
 			}
 			if !hasWorkers {
 				fmt.Println("  No workers running.")
+			}
+			// One consolidated heal hint per status run. Per-line hints
+			// already point at journalctl for the underlying cause; this
+			// surfaces the recovery primitive once instead of N times.
+			if failedCount > 0 {
+				fmt.Printf("\n  %d failed worker(s). Reset and restart with: %slerd worker heal%s\n",
+					failedCount, colorYellow, colorReset)
 			}
 		}
 	}

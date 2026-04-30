@@ -168,7 +168,9 @@ func TestExecEnvCheck_missingKeys(t *testing.T) {
 // context for the whole session; raise the ceiling only with a justified
 // content addition, not by accreting description verbosity.
 func TestToolList_underSizeCeiling(t *testing.T) {
-	const ceiling = 17000
+	// Raised from 17000 to 17500 in v1.19.0-beta.2 for the two new
+	// workers_heal / workers_health tools.
+	const ceiling = 17500
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)

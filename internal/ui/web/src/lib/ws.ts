@@ -6,6 +6,7 @@ export interface WsMessage {
   sites?: unknown;
   services?: unknown;
   status?: unknown;
+  unhealthy_workers?: unknown;
 }
 
 export const wsConnected = writable<boolean>(false);

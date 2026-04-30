@@ -13,14 +13,13 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Security
+### Added
 
-- **Bumped npm dev dependencies to clear five medium-severity Dependabot advisories**. `internal/ui/web` upgraded vite 5 to 7.1, `@sveltejs/vite-plugin-svelte` 4 to 6.2, and vitest 2 to 3.2, which resolves vite to 7.3.2 (path traversal in `.map` handling) and esbuild to 0.27.7 (dev-server SOP). `docs/package.json` keeps vitepress at 1.6.4 and uses npm `overrides` to pull vite ^6.4.2, esbuild ^0.25.0, and postcss ^8.5.10 (XSS in CSS stringify) into vitepress's transitive tree. Both manifests now report zero vulnerabilities under `npm audit`.
+- **Worker self-heal across CLI, dashboard, TUI, and MCP**. New `lerd worker heal [name]` command resets the failed state and restarts every worker unit systemd lists as `failed` (or one named unit, if given). Same recovery is reachable from an amber sticky banner in the dashboard, the `H` keybind in the TUI, and the `workers_heal` / `workers_health` MCP tools. `lerd status` surfaces a one-line hint when any worker is in failed state. Heal is intentionally narrow: it never writes `.lerd.yaml` or rewrites the unit file, since a failed worker is a runtime condition, not a change of user intent. The dashboard banner is push-driven over WebSocket: a 5-second cached-detector watcher publishes only when the unhealthy set changes, and rides the existing `KindSites` snapshot pipeline so there is no extra HTTP round-trip and no extra subprocess. See [healing failed workers](usage/worker-heal.md) for the full surface map.
 
 ### Fixed
 
-- **`lerd install` and other unit-lifecycle calls no longer leak `[lerd] unit-op` debug lines into normal stdout**. The `UnitOpDebug` flag introduced for the FPM-restart-cascade investigation defaulted to on and only switched off when `LERD_UNIT_OP_DEBUG=0` was set; for everyone else, every `StartUnit` / `StopUnit` / `RestartUnit` interleaved a one-line caller trace with the curated installer output. The default is now off; opt back in with `LERD_UNIT_OP_DEBUG=1` when chasing a cascade.
-- **Svelte 5 dashboard mounted blank after the vite 7 / vite-plugin-svelte 6 upgrade**. Svelte 5's package `exports` route to the client runtime only under the `browser` condition and otherwise fall through to the *server* entry. Vite 7 + vite-plugin-svelte 6 don't carry `browser` implicitly the way their predecessors did, so the production bundle silently swapped to Svelte's server `mount` shim and threw `lifecycle_function_unavailable` at runtime. `vite.config.ts` now sets `resolve.conditions: ['browser']` for every build, not just test.
+- **`go test ./...` no longer rewrites the user's PHP-FPM quadlets and daemon-reloads systemd, which used to cascade workers into start-limit-hit**. `internal/php/versions.go::ListInstalled()` had a self-heal step that, when called from a test with `XDG_CONFIG_HOME` redirected to a temp dir, looked at the user's real running FPM containers, decided their quadlets were "missing", and wrote fresh quadlets plus ran `systemd --user daemon-reload` against the real session. Each reload triggered a systemd quadlet-generator pass which restarted the FPM unit; with workers `BindsTo=lerd-php8X-fpm`, that cascade rapidly tripped `StartLimitBurst` and parked every worker in `failed`. `ListInstalled()` is now read-only; production code paths that previously relied on the implicit heal already call `ensureFPMQuadlet()` explicitly.
 
 ---
 
