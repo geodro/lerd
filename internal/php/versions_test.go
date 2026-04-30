@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // --- listInstalledFromServiceDir ---
@@ -111,5 +113,36 @@ func TestListInstalled_fromQuadlets(t *testing.T) {
 	}
 	if !found["8.3"] {
 		t.Error("expected 8.3 in installed versions")
+	}
+}
+
+// ListInstalled used to call WriteFPMQuadlet -> DaemonReloadFn whenever it
+// saw a running FPM container without a matching local quadlet, which under
+// `go test` daemon-reloaded the user's real systemd and stopped every
+// worker via BindsTo. Pin the read-only contract here so it can't regress.
+func TestListInstalled_hasNoSideEffects(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux-only quadlet path")
+	}
+
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	prev := podman.DaemonReloadFn
+	t.Cleanup(func() { podman.DaemonReloadFn = prev })
+	var reloads int
+	podman.DaemonReloadFn = func() error { reloads++; return nil }
+
+	if _, err := ListInstalled(); err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+
+	if reloads != 0 {
+		t.Errorf("ListInstalled triggered %d daemon-reloads, want 0", reloads)
+	}
+
+	systemd := filepath.Join(tmp, "containers", "systemd")
+	if entries, err := os.ReadDir(systemd); err == nil && len(entries) > 0 {
+		t.Errorf("ListInstalled wrote %d entries under %s, want 0", len(entries), systemd)
 	}
 }
