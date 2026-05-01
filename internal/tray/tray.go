@@ -36,6 +36,7 @@ type Snapshot struct {
 	Running          bool
 	NginxRunning     bool
 	DNSOK            bool
+	DNSDisabled      bool // explicit dns.enabled=false from API; zero value falls through to ok/error
 	PHPVersions      []phpInfo
 	PHPDefault       string
 	Services         []serviceInfo
@@ -201,7 +202,8 @@ func fetchSnapshot() *Snapshot {
 			Running bool `json:"running"`
 		} `json:"nginx"`
 		DNS struct {
-			OK bool `json:"ok"`
+			OK      bool `json:"ok"`
+			Enabled bool `json:"enabled"`
 		} `json:"dns"`
 		PHPFPMs []struct {
 			Version string `json:"version"`
@@ -214,6 +216,7 @@ func fetchSnapshot() *Snapshot {
 			snap.Running = sr.Nginx.Running
 			snap.NginxRunning = sr.Nginx.Running
 			snap.DNSOK = sr.DNS.OK
+			snap.DNSDisabled = !sr.DNS.Enabled
 			snap.PHPDefault = sr.PHPDefault
 			for _, p := range sr.PHPFPMs {
 				snap.PHPVersions = append(snap.PHPVersions, phpInfo{Version: p.Version})

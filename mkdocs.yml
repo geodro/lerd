@@ -96,6 +96,7 @@ nav:
       - Tinker tab: features/tinker.md
       - System Tray: features/system-tray.md
       - HTTPS / TLS: features/https.md
+      - DNS: features/dns.md
       - Git Worktrees: features/git-worktrees.md
       - Project Setup: features/project-setup.md
       - Environment Setup: features/env-setup.md

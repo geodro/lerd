@@ -178,6 +178,46 @@ func newRemoteControlStatusCmd() *cobra.Command {
 	}
 }
 
+// promptAndPersistRemoteControl prompts on stdin for a username (defaulting to
+// $USER) and a password (twice), bcrypt-hashes the password, and saves both
+// into ~/.config/lerd/config.yaml. Used by `lerd lan:expose` in disabled-DNS
+// mode to bundle the credential setup into a single command.
+func promptAndPersistRemoteControl() error {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	username := os.Getenv("USER")
+	if username == "" {
+		username = os.Getenv("LOGNAME")
+	}
+	if username == "" {
+		username = "lerd"
+	}
+	fmt.Fprintf(os.Stderr, "  Username [%s]: ", username)
+	var input string
+	if _, scanErr := fmt.Fscanln(os.Stdin, &input); scanErr == nil {
+		if trimmed := strings.TrimSpace(input); trimmed != "" {
+			username = trimmed
+		}
+	}
+	password, err := readPasswordTwice()
+	if err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hashing password: %w", err)
+	}
+	cfg.UI.Username = username
+	cfg.UI.PasswordHash = string(hash)
+	if err := config.SaveGlobal(cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	fmt.Printf("  Saved dashboard credentials for %s.\n", username)
+	return nil
+}
+
 // readPasswordTwice prompts for a password on stdin twice and returns it
 // when the two inputs match. Used by `lerd remote-control on` so the user
 // doesn't accidentally store a typo'd password they can't reproduce.

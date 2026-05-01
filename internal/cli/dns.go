@@ -77,9 +77,11 @@ func EnableLANExposure(progress LANProgressFunc) (lanIP string, err error) {
 		return "", fmt.Errorf("saving config: %w", err)
 	}
 
-	emit("Rewriting container quadlets")
-	if err := regenerateLANContainerQuadlets(progress); err != nil {
-		return "", err
+	if cfg.DNS.Enabled {
+		emit("Rewriting container quadlets")
+		if err := regenerateLANContainerQuadlets(progress); err != nil {
+			return "", err
+		}
 	}
 
 	emit("Detecting primary LAN IP")
@@ -88,24 +90,26 @@ func EnableLANExposure(progress LANProgressFunc) (lanIP string, err error) {
 		return "", fmt.Errorf("could not auto-detect a LAN IP for the dnsmasq target: %w", err)
 	}
 
-	emit("Updating dnsmasq config (.test → " + lanIP + ")")
-	if err := dns.WriteDnsmasqConfigFor(config.DnsmasqDir(), lanIP); err != nil {
-		return "", fmt.Errorf("rewriting dnsmasq config: %w", err)
-	}
+	if cfg.DNS.Enabled {
+		emit("Updating dnsmasq config (.test → " + lanIP + ")")
+		if err := dns.WriteDnsmasqConfigFor(config.DnsmasqDir(), lanIP); err != nil {
+			return "", fmt.Errorf("rewriting dnsmasq config: %w", err)
+		}
 
-	emit("Restarting lerd-dns")
-	if err := reloadAndRestartUnit("lerd-dns"); err != nil {
-		return "", err
-	}
+		emit("Restarting lerd-dns")
+		if err := reloadAndRestartUnit("lerd-dns"); err != nil {
+			return "", err
+		}
 
-	emit("Installing lerd-dns-forwarder.service")
-	if err := installDNSForwarderUnit(lanIP); err != nil {
-		return "", fmt.Errorf("installing dns forwarder: %w", err)
-	}
+		emit("Installing lerd-dns-forwarder.service")
+		if err := installDNSForwarderUnit(lanIP); err != nil {
+			return "", fmt.Errorf("installing dns forwarder: %w", err)
+		}
 
-	emit("Starting lerd-dns-forwarder")
-	if err := reloadAndRestartUnit("lerd-dns-forwarder"); err != nil {
-		return "", fmt.Errorf("starting dns forwarder: %w", err)
+		emit("Starting lerd-dns-forwarder")
+		if err := reloadAndRestartUnit("lerd-dns-forwarder"); err != nil {
+			return "", fmt.Errorf("starting dns forwarder: %w", err)
+		}
 	}
 
 	emit("Done — lerd is reachable on " + lanIP)
@@ -140,27 +144,31 @@ func DisableLANExposure(progress LANProgressFunc) error {
 		return fmt.Errorf("revoking remote-setup token: %w", err)
 	}
 
-	emit("Rewriting container quadlets")
-	if err := regenerateLANContainerQuadlets(progress); err != nil {
-		return err
+	if cfg.DNS.Enabled {
+		emit("Rewriting container quadlets")
+		if err := regenerateLANContainerQuadlets(progress); err != nil {
+			return err
+		}
 	}
 
-	emit("Stopping lerd-dns-forwarder")
-	_ = exec.Command("systemctl", "--user", "stop", "lerd-dns-forwarder").Run()
-	_ = exec.Command("systemctl", "--user", "disable", "lerd-dns-forwarder").Run()
-	if err := os.Remove(dnsForwarderUnitPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing forwarder unit: %w", err)
-	}
-	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	if cfg.DNS.Enabled {
+		emit("Stopping lerd-dns-forwarder")
+		_ = exec.Command("systemctl", "--user", "stop", "lerd-dns-forwarder").Run()
+		_ = exec.Command("systemctl", "--user", "disable", "lerd-dns-forwarder").Run()
+		if err := os.Remove(dnsForwarderUnitPath()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing forwarder unit: %w", err)
+		}
+		_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
 
-	emit("Reverting dnsmasq to 127.0.0.1")
-	if err := dns.WriteDnsmasqConfigFor(config.DnsmasqDir(), "127.0.0.1"); err != nil {
-		return fmt.Errorf("rewriting dnsmasq config: %w", err)
-	}
+		emit("Reverting dnsmasq to 127.0.0.1")
+		if err := dns.WriteDnsmasqConfigFor(config.DnsmasqDir(), "127.0.0.1"); err != nil {
+			return fmt.Errorf("rewriting dnsmasq config: %w", err)
+		}
 
-	emit("Restarting lerd-dns")
-	if err := reloadAndRestartUnit("lerd-dns"); err != nil {
-		return err
+		emit("Restarting lerd-dns")
+		if err := reloadAndRestartUnit("lerd-dns"); err != nil {
+			return err
+		}
 	}
 
 	emit("Done — lerd is loopback only")

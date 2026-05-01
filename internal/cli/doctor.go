@@ -160,12 +160,15 @@ func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
 	// ── DNS ──────────────────────────────────────────────────────────────────
 	fmt.Fprintln(w, "\n[DNS]")
 
+	dnsManaged := cfg == nil || cfg.DNS.Enabled
 	tld := "test"
 	if cfg != nil && cfg.DNS.TLD != "" {
 		tld = cfg.DNS.TLD
 	}
 
-	if tld == "" {
+	if !dnsManaged {
+		ok(fmt.Sprintf("DNS managed externally (lerd-dns disabled, TLD .%s)", tld))
+	} else if tld == "" {
 		fail("DNS TLD configured", "empty TLD in config", "set dns.tld in "+cfgFile)
 	} else {
 		ok(fmt.Sprintf("DNS TLD (.%s)", tld))
@@ -177,14 +180,16 @@ func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
 		}
 	}
 
-	dnsRunning := services.Mgr.IsActive("lerd-dns")
-	if !dnsRunning {
-		if cr, _ := podman.ContainerRunning("lerd-dns"); cr {
-			dnsRunning = true
+	if dnsManaged {
+		dnsRunning := services.Mgr.IsActive("lerd-dns")
+		if !dnsRunning {
+			if cr, _ := podman.ContainerRunning("lerd-dns"); cr {
+				dnsRunning = true
+			}
 		}
-	}
-	if !dnsRunning && portInUse("5300") {
-		warn("DNS port 5300", "port in use by another process — lerd-dns may fail to start")
+		if !dnsRunning && portInUse("5300") {
+			warn("DNS port 5300", "port in use by another process — lerd-dns may fail to start")
+		}
 	}
 
 	// ── Ports ────────────────────────────────────────────────────────────────

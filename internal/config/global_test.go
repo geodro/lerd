@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 )
 
@@ -25,6 +26,9 @@ func TestLoadGlobal_Defaults(t *testing.T) {
 	}
 	if cfg.DNS.TLD == "" {
 		t.Error("expected a default DNS TLD")
+	}
+	if !cfg.DNS.Enabled {
+		t.Error("expected DNS.Enabled to default true")
 	}
 	if cfg.Nginx.HTTPPort == 0 {
 		t.Error("expected a non-zero HTTP port")
@@ -258,6 +262,59 @@ func TestExtensions_IndependentVersions(t *testing.T) {
 	}
 	if exts := cfg.GetExtensions("8.4"); len(exts) != 1 || exts[0] != "imagick" {
 		t.Errorf("8.4 extensions wrong: %v", exts)
+	}
+}
+
+// Pre-existing configs from before the dns.enabled field was introduced have
+// no `enabled:` key under `dns:`. LoadGlobal must preserve the `true` default
+// for those users so an upgrade does not silently disable DNS.
+func TestDNSEnabled_DefaultsTrueWhenKeyAbsent(t *testing.T) {
+	setConfigDir(t)
+	invalidateGlobalCache()
+	t.Cleanup(invalidateGlobalCache)
+
+	if err := os.MkdirAll(ConfigDir(), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	legacy := []byte("dns:\n  tld: test\nphp:\n  default_version: 8.4\n")
+	if err := os.WriteFile(GlobalConfigFile(), legacy, 0644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	got, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	if !got.DNS.Enabled {
+		t.Errorf("DNS.Enabled = false on legacy config without enabled key, want true")
+	}
+	if got.DNS.TLD != "test" {
+		t.Errorf("DNS.TLD = %q, want %q", got.DNS.TLD, "test")
+	}
+}
+
+func TestDNSEnabled_RoundTripsThroughYAML(t *testing.T) {
+	setConfigDir(t)
+	invalidateGlobalCache()
+	t.Cleanup(invalidateGlobalCache)
+	cfg, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	cfg.DNS.Enabled = false
+	cfg.DNS.TLD = "localhost"
+	if err := SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal: %v", err)
+	}
+	got, err := LoadGlobal()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got.DNS.Enabled {
+		t.Errorf("DNS.Enabled = true, want false after roundtrip")
+	}
+	if got.DNS.TLD != "localhost" {
+		t.Errorf("DNS.TLD = %q, want %q", got.DNS.TLD, "localhost")
 	}
 }
 

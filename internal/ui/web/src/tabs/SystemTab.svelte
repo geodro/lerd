@@ -57,8 +57,10 @@
   {#if !$statusLoaded}
     <LoadingRow />
   {:else}
-    {#snippet dnsDot()}<StatusDot color={$status.dns.ok ? 'green' : 'red'} />{/snippet}
-    <ListRow active={selected === 'dns'} onclick={() => select('dns')} leading={dnsDot}>{m.system_dns()}</ListRow>
+    {#if $status.dns?.enabled !== false}
+      {#snippet dnsDot()}<StatusDot color={$status.dns.ok ? 'green' : 'red'} />{/snippet}
+      <ListRow active={selected === 'dns'} onclick={() => select('dns')} leading={dnsDot}>{m.system_dns()}</ListRow>
+    {/if}
 
     {#snippet nginxDot()}<StatusDot color={$status.nginx.running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'nginx'} onclick={() => select('nginx')} leading={nginxDot}>{m.system_nginx()}</ListRow>

@@ -29,10 +29,12 @@
     <StatusPill tone={headerTone.tone} label={headerTone.label} />
   {/snippet}
 
-  <div class="flex items-center justify-between text-sm">
-    <span class="text-gray-600 dark:text-gray-300">{m.dashboard_health_dns({ tld: $status.dns.tld })}</span>
-    <StatusDot color={$status.dns.ok ? 'green' : 'red'} />
-  </div>
+  {#if $status.dns?.enabled !== false}
+    <div class="flex items-center justify-between text-sm">
+      <span class="text-gray-600 dark:text-gray-300">{m.dashboard_health_dns({ tld: $status.dns.tld })}</span>
+      <StatusDot color={$status.dns.ok ? 'green' : 'red'} />
+    </div>
+  {/if}
 
   <div class="flex items-center justify-between text-sm">
     <span class="text-gray-600 dark:text-gray-300">{m.dashboard_health_nginx()}</span>

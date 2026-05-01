@@ -611,7 +611,16 @@ In practice, you can almost always omit ` + bt + `path` + bt + ` — just open C
 - Framework definitions can include ` + bt + `setup` + bt + ` commands (one-off bootstrap steps like migrations, storage links) shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed
 - **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port. Lerd builds a per-project image (` + bt + `lerd-custom-<sitename>:local` + bt + `), runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it. Workers exec into the custom container. Services are accessible by name (` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, etc.) on the shared ` + bt + `lerd` + bt + ` Podman network.
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
-- DNS resolves ` + bt + `*.test` + bt + ` to ` + bt + `127.0.0.1` + bt + `
+- DNS resolves ` + bt + `*.test` + bt + ` to ` + bt + `127.0.0.1` + bt + ` via the lerd-dns dnsmasq container
+
+## DNS modes
+
+Lerd supports two DNS modes set at install time and recorded in ` + bt + `~/.config/lerd/config.yaml` + bt + ` under the ` + bt + `dns` + bt + ` key:
+
+- **Managed (default)**: ` + bt + `dns.enabled: true` + bt + `, ` + bt + `dns.tld: test` + bt + `. The lerd-dns container runs, mkcert installs a trusted CA, sites use ` + bt + `*.test` + bt + ` and HTTPS via ` + bt + `site_tls` + bt + ` is available.
+- **Disabled**: ` + bt + `dns.enabled: false` + bt + `, ` + bt + `dns.tld: localhost` + bt + `. No dnsmasq, no mkcert CA, no system resolver tweak. Sites use ` + bt + `*.localhost` + bt + ` (RFC 6761 hardwired to ` + bt + `127.0.0.1` + bt + `). HTTPS is unavailable, ` + bt + `site_tls` + bt + ` returns an error.
+
+Always read ` + bt + `status()` + bt + ` before assuming a TLD. The response carries ` + bt + `dns.tld` + bt + ` (the active TLD) and ` + bt + `dns.enabled` + bt + ` (false in disabled mode). Construct site URLs from ` + bt + `dns.tld` + bt + ` rather than hardcoding ` + bt + `.test` + bt + `, and skip suggesting ` + bt + `site_tls` + bt + ` when ` + bt + `dns.enabled` + bt + ` is false.
 
 ## Available MCP Tools
 
@@ -1342,6 +1351,14 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Service version placeholders (` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + `) are available in framework env vars and are resolved from the service image tag at ` + bt + `lerd env` + bt + ` time
 - **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port; lerd builds a per-project image, runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it; the project directory is volume-mounted at its host path with ` + bt + `--workdir` + bt + ` set automatically — do NOT add ` + bt + `WORKDIR` + bt + ` or ` + bt + `COPY` + bt + ` to the Containerfile; workers exec into the custom container; services are accessible by name on the shared ` + bt + `lerd` + bt + ` Podman network; **hot-reload file watchers must use polling on macOS** (inotify does not fire across Podman Machine's virtiofs mount) — nodemon: ` + bt + `--legacy-watch` + bt + `, Vite: ` + bt + `server.watch.usePolling: true` + bt + `, webpack: ` + bt + `watchOptions: { poll: 1000 }` + bt + `
 - Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
+
+### DNS modes
+
+Lerd has two install-time DNS modes recorded in ` + bt + `~/.config/lerd/config.yaml` + bt + `:
+- **Managed (default)**: ` + bt + `dns.enabled: true` + bt + `, ` + bt + `dns.tld: test` + bt + `. Sites at ` + bt + `*.test` + bt + ` via lerd-dns + mkcert; ` + bt + `site_tls` + bt + ` works.
+- **Disabled**: ` + bt + `dns.enabled: false` + bt + `, ` + bt + `dns.tld: localhost` + bt + `. Sites at ` + bt + `*.localhost` + bt + ` via RFC 6761; no mkcert CA, ` + bt + `site_tls` + bt + ` is unavailable.
+
+Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `dns.enabled` + bt + ` instead of assuming ` + bt + `.test` + bt + `; do not propose ` + bt + `site_tls` + bt + ` when ` + bt + `dns.enabled` + bt + ` is false.
 
 ### Available MCP tools
 

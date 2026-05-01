@@ -25,7 +25,7 @@
   const coreDown = $derived.by(() => {
     if (!$statusLoaded) return [] as string[];
     const issues: string[] = [];
-    if (!$status.dns.ok) issues.push('DNS');
+    if ($status.dns?.enabled !== false && !$status.dns.ok) issues.push('DNS');
     if (!$status.nginx.running) issues.push('Nginx');
     if (!$status.watcher_running) issues.push('Watcher');
     return issues;

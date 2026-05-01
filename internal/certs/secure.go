@@ -11,8 +11,16 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 )
 
+// ErrDNSDisabled signals that the operation requires the lerd-managed DNS /
+// mkcert CA stack, which the user has opted out of. Surfaces through the CLI
+// `lerd secure` command and the dashboard HTTPS toggle.
+var ErrDNSDisabled = fmt.Errorf("HTTPS requires lerd-managed DNS, set dns.enabled: true and re-run lerd install")
+
 // SecureSite issues a TLS certificate for the site and switches its nginx vhost to HTTPS.
 func SecureSite(site config.Site) error {
+	if cfg, _ := config.LoadGlobal(); cfg != nil && !cfg.DNS.Enabled {
+		return ErrDNSDisabled
+	}
 	certsDir := filepath.Join(config.CertsDir(), "sites")
 	if err := IssueCert(site.PrimaryDomain(), site.Domains, certsDir); err != nil {
 		return fmt.Errorf("issuing certificate: %w", err)

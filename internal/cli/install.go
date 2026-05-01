@@ -33,6 +33,8 @@ func NewInstallCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("no-ipv6", false,
 		"Force the lerd network to v4-only even if the host supports IPv6 (also: LERD_DISABLE_IPV6=1)")
+	cmd.Flags().Bool("from-update", false, "")
+	_ = cmd.Flags().MarkHidden("from-update")
 	return cmd
 }
 
@@ -46,6 +48,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	if !noIPv6 && os.Getenv("LERD_DISABLE_IPV6") == "1" {
 		noIPv6 = true
 	}
+	fromUpdate, _ := cmd.Flags().GetBool("from-update")
 	if noIPv6 {
 		podman.MarkIPv6Disabled("lerd")
 		fmt.Println("  IPv6 disabled by user; lerd network will be v4-only.")
@@ -145,23 +148,99 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		wantLerdNode = confirmInstallPrompt("Let lerd manage Node.js versions (installs fnm shims, may override system node)?")
 	}
 
-	// 4. mkcert CA, interactive (may prompt for sudo)
-	fmt.Println("  --> Installing mkcert CA")
-	mkcertCmd := exec.Command(certs.MkcertPath(), "-install")
-	mkcertCmd.Stdin = os.Stdin
-	mkcertCmd.Stdout = os.Stdout
-	mkcertCmd.Stderr = os.Stderr
-	mkcertCmd.Run() //nolint:errcheck
+	// Ask whether lerd should manage local DNS. Prompted on every direct
+	// `lerd install` (fresh or rerun) with the default reflecting the saved
+	// choice, so users can flip the mode without hand-editing config.yaml.
+	// `lerd update` re-execs install with --from-update; in that path the
+	// saved choice is honoured silently so updates are non-interactive.
+	wantDNS := true
+	prevEnabled := true
+	prevTLD := "test"
+	dnsCfg, loadErr := config.LoadGlobal()
+	if loadErr != nil || dnsCfg == nil {
+		if loadErr != nil {
+			fmt.Printf("    WARN: load config (%v); proceeding with DNS enabled\n", loadErr)
+		}
+	} else {
+		prevEnabled = dnsCfg.DNS.Enabled
+		if dnsCfg.DNS.TLD != "" {
+			prevTLD = dnsCfg.DNS.TLD
+		}
+		if fromUpdate {
+			wantDNS = prevEnabled
+		} else {
+			wantDNS = confirmInstallPromptDefault(
+				"Let lerd manage DNS for local sites (No: use *.localhost, no dnsmasq, no HTTPS)?",
+				prevEnabled,
+			)
+		}
+		// Only flip TLD on a real toggle and only when the current TLD is the
+		// canonical default for the previous state; preserves any custom TLD
+		// the user has set in config.yaml.
+		newTLD := prevTLD
+		switch {
+		case prevEnabled && !wantDNS && newTLD == "test":
+			newTLD = "localhost"
+		case !prevEnabled && wantDNS && newTLD == "localhost":
+			newTLD = "test"
+		}
 
-	// 5. DNS config + sudoers
-	step("Writing DNS configuration")
-	if err := dns.WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
-		return err
+		if newTLD != prevTLD {
+			if affected := sitesWithTLD(prevTLD); len(affected) > 0 {
+				fmt.Printf("  --> TLD change: %d site(s) currently on .%s -> .%s\n", len(affected), prevTLD, newTLD)
+				fmt.Printf("      %s\n", strings.Join(affected, ", "))
+				migrate := fromUpdate || confirmInstallPromptDefault(
+					fmt.Sprintf("Rewrite domains, .env APP_URL, and vhosts to .%s?", newTLD),
+					true,
+				)
+				if migrate {
+					migrateSiteTLD(prevTLD, newTLD, !wantDNS)
+				} else {
+					fmt.Println("      skipped, sites still reference ." + prevTLD)
+				}
+			}
+		}
+
+		if prevEnabled != wantDNS || newTLD != prevTLD {
+			dnsCfg.DNS.Enabled = wantDNS
+			dnsCfg.DNS.TLD = newTLD
+			if err := config.SaveGlobal(dnsCfg); err != nil {
+				fmt.Printf("    WARN: persist DNS choice: %v\n", err)
+			}
+		}
 	}
-	ok()
 
-	fmt.Println("  --> Installing DNS sudoers rule")
-	dns.InstallSudoers() //nolint:errcheck
+	// Reconcile DNS service state to the saved choice on every install.
+	// Idempotent: teardownDNS Stops/Removes via underlying calls that
+	// no-op against missing units, so this is cheap on a system that
+	// already matches the desired state (e.g. fresh install with no
+	// lerd-dns yet, or rerun where the unit is already gone).
+	if !wantDNS {
+		fmt.Println("  --> Tearing down lerd-dns service")
+		teardownDNS()
+	}
+
+	if wantDNS {
+		// 4. mkcert CA, interactive (may prompt for sudo)
+		fmt.Println("  --> Installing mkcert CA")
+		mkcertCmd := exec.Command(certs.MkcertPath(), "-install")
+		mkcertCmd.Stdin = os.Stdin
+		mkcertCmd.Stdout = os.Stdout
+		mkcertCmd.Stderr = os.Stderr
+		mkcertCmd.Run() //nolint:errcheck
+
+		// 5. DNS config + sudoers
+		step("Writing DNS configuration")
+		if err := dns.WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
+			return err
+		}
+		ok()
+
+		fmt.Println("  --> Installing DNS sudoers rule")
+		dns.InstallSudoers() //nolint:errcheck
+	} else {
+		fmt.Println("  --> DNS disabled, skipping mkcert CA, dnsmasq and sudoers")
+	}
 
 	// 6. Nginx
 	step("Writing nginx configuration")
@@ -298,11 +377,13 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	}
 	ok()
 
-	step("Writing DNS service unit")
-	if err := writeDNSUnit(os.Stdout); err != nil {
-		return err
+	if wantDNS {
+		step("Writing DNS service unit")
+		if err := writeDNSUnit(os.Stdout); err != nil {
+			return err
+		}
+		ok()
 	}
-	ok()
 
 	step("Refreshing service quadlets")
 	for _, svc := range config.DefaultPresetNames() {
@@ -384,7 +465,9 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 			},
 		},
 	}
-	pullJobs = append(pullJobs, pullDNSImages()...)
+	if wantDNS {
+		pullJobs = append(pullJobs, pullDNSImages()...)
+	}
 	for _, job := range pullJobs {
 		step(job.Label)
 		if err := job.Run(io.Discard); err != nil {
@@ -404,7 +487,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	// On macOS, DNS runs natively (no container image needed) and DaemonReload
 	// is a no-op, so we can start lerd-dns and configure the resolver here.
-	if !isDNSContainerUnit() {
+	if wantDNS && !isDNSContainerUnit() {
 		step("Starting lerd-dns")
 		if err := services.Mgr.Restart("lerd-dns"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
@@ -463,7 +546,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	// On Linux, DNS is a container — start it after images are pulled.
 	// On macOS it was already started before RunParallel above.
-	if isDNSContainerUnit() {
+	if wantDNS && isDNSContainerUnit() {
 		step("Starting lerd-dns")
 		if err := services.Mgr.Restart("lerd-dns"); err != nil {
 			fmt.Printf("    WARN: %v\n", err)
@@ -901,10 +984,24 @@ func detectSystemNode() string {
 // confirmInstallPrompt asks a [Y/n] question. Must be called before any
 // RunParallel invocation, which leaves a goroutine reading from os.Stdin.
 func confirmInstallPrompt(question string) bool {
-	fmt.Printf("  --> %s [Y/n] ", question)
+	return confirmInstallPromptDefault(question, true)
+}
+
+// confirmInstallPromptDefault is like confirmInstallPrompt but lets the caller
+// pick the default for an empty answer, so re-running install can mirror the
+// user's previous choice.
+func confirmInstallPromptDefault(question string, defaultYes bool) bool {
+	hint := "[Y/n]"
+	if !defaultYes {
+		hint = "[y/N]"
+	}
+	fmt.Printf("  --> %s %s ", question, hint)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "" {
+		return defaultYes
+	}
 	return answer != "n" && answer != "no"
 }
 

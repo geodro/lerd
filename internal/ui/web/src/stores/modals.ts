@@ -9,6 +9,7 @@ export interface ModalState {
   kind: ModalKind;
   site?: Site;
   lanAction?: LANAction;
+  onSuccess?: () => void;
 }
 
 export const modal = writable<ModalState>({ kind: null });
@@ -25,8 +26,8 @@ export function openPresetModal() {
   modal.set({ kind: 'preset' });
 }
 
-export function openRemoteControlModal() {
-  modal.set({ kind: 'remoteControl' });
+export function openRemoteControlModal(onSuccess?: () => void) {
+  modal.set({ kind: 'remoteControl', onSuccess });
 }
 
 export function openLANProgressModal(lanAction: LANAction) {

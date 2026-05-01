@@ -16,7 +16,7 @@ describe('status store', () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
         JSON.stringify({
-          dns: { ok: true, tld: 'test' },
+          dns: { ok: true, enabled: true, tld: 'test' },
           nginx: { running: true },
           php_fpms: [{ version: '8.5', running: true, xdebug_enabled: false }],
           php_default: '8.5',
@@ -45,7 +45,7 @@ describe('status store', () => {
     statusLoaded.set(true);
     status.update((s) => ({
       ...s,
-      dns: { ok: false, tld: 'test' },
+      dns: { ok: false, enabled: true, tld: 'test' },
       nginx: { running: true },
       watcher_running: true
     }));
@@ -58,7 +58,7 @@ describe('status store', () => {
     statusLoaded.set(true);
     status.update((s) => ({
       ...s,
-      dns: { ok: true, tld: 'test' },
+      dns: { ok: true, enabled: true, tld: 'test' },
       nginx: { running: true },
       watcher_running: true
     }));
@@ -72,7 +72,7 @@ describe('status store', () => {
     statusLoaded.set(true);
     status.update((s) => ({
       ...s,
-      dns: { ok: true, tld: 'test' },
+      dns: { ok: true, enabled: true, tld: 'test' },
       nginx: { running: true },
       watcher_running: true
     }));

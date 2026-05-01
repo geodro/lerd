@@ -105,11 +105,15 @@ func (m *menuState) apply(snap *Snapshot) {
 	}
 	m.mNginx.SetTitle(fmt.Sprintf("  %s nginx", nginxDot))
 
-	dnsDot := "🔴"
-	if snap.DNSOK {
-		dnsDot = "🟢"
+	if snap.DNSDisabled {
+		m.mDNS.SetTitle("  ⚪ dns (disabled)")
+	} else {
+		dnsDot := "🔴"
+		if snap.DNSOK {
+			dnsDot = "🟢"
+		}
+		m.mDNS.SetTitle(fmt.Sprintf("  %s dns", dnsDot))
 	}
-	m.mDNS.SetTitle(fmt.Sprintf("  %s dns", dnsDot))
 
 	// Services
 	scount := len(snap.Services)

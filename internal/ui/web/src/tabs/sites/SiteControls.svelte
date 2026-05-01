@@ -165,15 +165,17 @@
       </select>
     {/if}
 
-    <div class="flex items-center gap-1.5">
-      <Toggle
-        on={Boolean(site.tls)}
-        loading={tlsBusy}
-        onclick={() => runAction((b) => (tlsBusy = b), () => toggleTLS(site))}
-        title={site.tls ? m.sites_controls_httpsToggle_on() : m.sites_controls_httpsToggle_off()}
-      />
-      <span class="text-xs text-gray-500 dark:text-gray-400">{m.sites_controls_https()}</span>
-    </div>
+    {#if $status.dns?.enabled !== false}
+      <div class="flex items-center gap-1.5">
+        <Toggle
+          on={Boolean(site.tls)}
+          loading={tlsBusy}
+          onclick={() => runAction((b) => (tlsBusy = b), () => toggleTLS(site))}
+          title={site.tls ? m.sites_controls_httpsToggle_on() : m.sites_controls_httpsToggle_off()}
+        />
+        <span class="text-xs text-gray-500 dark:text-gray-400">{m.sites_controls_https()}</span>
+      </div>
+    {/if}
 
     <div class="flex items-center gap-1.5">
       <Toggle

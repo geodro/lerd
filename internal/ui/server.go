@@ -506,8 +506,9 @@ type StatusResponse struct {
 }
 
 type DNSStatus struct {
-	OK  bool   `json:"ok"`
-	TLD string `json:"tld"`
+	OK      bool   `json:"ok"`
+	Enabled bool   `json:"enabled"`
+	TLD     string `json:"tld"`
 }
 
 type ServiceCheck struct {
@@ -529,8 +530,10 @@ func handleStatus(w http.ResponseWriter, _ *http.Request) {
 func buildStatus() StatusResponse {
 	cfg, _ := config.LoadGlobal()
 	tld := "test"
+	dnsEnabled := true
 	if cfg != nil {
 		tld = cfg.DNS.TLD
+		dnsEnabled = cfg.DNS.Enabled
 	}
 
 	dnsOK, _ := dns.Check(tld)
@@ -559,7 +562,7 @@ func buildStatus() StatusResponse {
 	_, nodeShimErr := os.Stat(nodeShim)
 	nodeManagedByLerd := nodeShimErr == nil
 	return StatusResponse{
-		DNS:               DNSStatus{OK: dnsOK, TLD: tld},
+		DNS:               DNSStatus{OK: dnsOK, Enabled: dnsEnabled, TLD: tld},
 		Nginx:             ServiceCheck{Running: nginxRunning},
 		PHPFPMs:           phpStatuses,
 		PHPDefault:        phpDefault,

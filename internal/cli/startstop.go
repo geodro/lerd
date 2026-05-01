@@ -187,9 +187,13 @@ func ensureDefaultPHPInstalled() {
 // with zero registered sites. Other installed versions are only started when
 // at least one site references them; unused versions are left stopped.
 func coreUnits() []string {
-	units := []string{"lerd-dns", "lerd-nginx"}
+	cfg, _ := config.LoadGlobal()
+	units := []string{"lerd-nginx"}
+	if cfg == nil || cfg.DNS.Enabled {
+		units = append([]string{"lerd-dns"}, units...)
+	}
 	active := activePHPVersions()
-	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil && cfg.PHP.DefaultVersion != "" {
+	if cfg != nil && cfg.PHP.DefaultVersion != "" {
 		active[cfg.PHP.DefaultVersion] = true
 	}
 	versions, _ := phpPkg.ListInstalled()

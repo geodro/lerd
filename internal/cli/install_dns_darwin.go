@@ -165,3 +165,14 @@ func removeDNSContainerIfRunning() {
 func nativeDNSRestart() error {
 	return services.Mgr.Restart("lerd-dns")
 }
+
+// teardownDNS stops the lerd-dns launchd service and removes its plist so a
+// subsequent `lerd install` does not silently restart the unit. Called from
+// runInstall when the user flips dns.enabled from true to false; safe to call
+// when nothing is installed.
+func teardownDNS() {
+	_ = services.Mgr.Stop("lerd-dns")
+	_ = services.Mgr.RemoveServiceUnit("lerd-dns")
+	// Defensive: if a legacy container plist is still around, clear that too.
+	_ = services.Mgr.RemoveContainerUnit("lerd-dns")
+}

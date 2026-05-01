@@ -53,13 +53,17 @@ func runStatus(_ *cobra.Command, _ []string) error {
 
 	// DNS check
 	fmt.Println("\n[DNS]")
-	ok, _ := dns.Check(cfg.DNS.TLD)
-	if ok {
-		ok2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD))
+	if !cfg.DNS.Enabled {
+		ok2(fmt.Sprintf("DNS managed externally (.%s)", cfg.DNS.TLD))
 	} else {
-		fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
-			"not resolving",
-			dnsRestartHint())
+		ok, _ := dns.Check(cfg.DNS.TLD)
+		if ok {
+			ok2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD))
+		} else {
+			fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
+				"not resolving",
+				dnsRestartHint())
+		}
 	}
 
 	// Nginx

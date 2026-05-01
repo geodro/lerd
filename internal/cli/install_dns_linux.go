@@ -72,3 +72,13 @@ func nativeDNSRestart() error { return nil }
 
 // needsDNSServiceInstall always returns false on Linux (container quadlet handles it).
 func needsDNSServiceInstall() bool { return false }
+
+// teardownDNS stops the lerd-dns container, removes its quadlet, and reloads
+// the user manager so a subsequent `lerd install` does not silently restart
+// the unit. Called from runInstall when the user flips dns.enabled from true
+// to false; safe to call when nothing is installed.
+func teardownDNS() {
+	_ = services.Mgr.Stop("lerd-dns")
+	_ = services.Mgr.RemoveContainerUnit("lerd-dns")
+	_ = services.Mgr.DaemonReload()
+}

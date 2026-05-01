@@ -45,7 +45,11 @@ type GlobalConfig struct {
 		HTTPSPort int `yaml:"https_port" mapstructure:"https_port"`
 	} `yaml:"nginx" mapstructure:"nginx"`
 	DNS struct {
-		TLD string `yaml:"tld" mapstructure:"tld"`
+		// Enabled=false skips lerd-dns, mkcert CA, sudoers, and resolver
+		// config; sites use *.localhost (RFC 6761). HTTPS is unavailable
+		// in that mode. Default true preserves historical behaviour.
+		Enabled bool   `yaml:"enabled" mapstructure:"enabled"`
+		TLD     string `yaml:"tld"     mapstructure:"tld"`
 	} `yaml:"dns" mapstructure:"dns"`
 	LAN struct {
 		// Exposed controls whether lerd's services are reachable from
@@ -137,6 +141,7 @@ func defaultConfig() *GlobalConfig {
 	cfg.Node.DefaultVersion = "22"
 	cfg.Nginx.HTTPPort = 80
 	cfg.Nginx.HTTPSPort = 443
+	cfg.DNS.Enabled = true
 	cfg.DNS.TLD = "test"
 
 	home, _ := os.UserHomeDir()

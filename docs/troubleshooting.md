@@ -30,7 +30,9 @@ lerd bug-report --output /tmp/report.txt --log-lines 500
 ---
 
 ::: details `.test` domains not resolving
-Run the DNS check first:
+First, confirm DNS is actually meant to be managed by lerd. If `lerd dns:check` reports `DNS managed externally`, you opted out of dnsmasq during install and your sites should be on `*.localhost` rather than `*.test`. See [DNS](features/dns.md) for switching modes.
+
+Otherwise, run the DNS check:
 
 ```bash
 lerd dns:check

@@ -67,7 +67,9 @@ func detailRows(s *siteinfo.EnrichedSite) []detailRow {
 	if s.NodeVersion != "" {
 		rows = append(rows, detailRow{kind: kindNode})
 	}
-	rows = append(rows, detailRow{kind: kindHTTPS})
+	if cfg, _ := config.LoadGlobal(); cfg == nil || cfg.DNS.Enabled {
+		rows = append(rows, detailRow{kind: kindHTTPS})
+	}
 	rows = append(rows, detailRow{kind: kindLANShare})
 	return rows
 }

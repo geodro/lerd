@@ -148,8 +148,10 @@ func runUpdate(currentVersion string, beta bool) error {
 	fmt.Printf("\nLerd updated to v%s — applying infrastructure changes...\n\n", lat)
 
 	// Re-exec the new binary with `install` to reapply quadlet files,
-	// DNS config, sysctl, etc. lerd install is idempotent.
-	installCmd := exec.Command(self, "install")
+	// DNS config, sysctl, etc. lerd install is idempotent. Pass
+	// --from-update so the install pass honours the saved DNS choice
+	// silently instead of re-prompting the user.
+	installCmd := exec.Command(self, "install", "--from-update")
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	installCmd.Stdin = os.Stdin

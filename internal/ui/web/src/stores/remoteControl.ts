@@ -41,8 +41,13 @@ export async function enableRemoteControl(username: string, password: string): P
     const res = await apiFetch('/api/remote-control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true, username, password })
+      body: JSON.stringify({ action: 'enable', username, password })
     });
+    if (!res.ok) {
+      const text = await res.text();
+      remoteControl.update((v) => ({ ...v, loading: false, error: text || `HTTP ${res.status}` }));
+      return { ok: false, error: text || `HTTP ${res.status}` };
+    }
     const data = (await res.json()) as { ok?: boolean; error?: string };
     if (data.ok) {
       remoteControl.set({ enabled: true, username, loading: false, error: '' });
@@ -63,8 +68,13 @@ export async function disableRemoteControl(): Promise<boolean> {
     const res = await apiFetch('/api/remote-control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: false })
+      body: JSON.stringify({ action: 'disable' })
     });
+    if (!res.ok) {
+      const text = await res.text();
+      remoteControl.update((v) => ({ ...v, loading: false, error: text || `HTTP ${res.status}` }));
+      return false;
+    }
     const data = (await res.json()) as { ok?: boolean; error?: string };
     if (data.ok) {
       remoteControl.set({ enabled: false, username: '', loading: false, error: '' });

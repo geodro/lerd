@@ -240,6 +240,11 @@ func newDNSCheckCmd() *cobra.Command {
 				return err
 			}
 
+			if !cfg.DNS.Enabled {
+				fmt.Printf("DNS managed externally: lerd-dns is disabled, sites use *.%s.\n", cfg.DNS.TLD)
+				return nil
+			}
+
 			ok, err := dns.Check(cfg.DNS.TLD)
 			if err != nil {
 				return err

@@ -330,7 +330,12 @@ func handleRemoteControl(w http.ResponseWriter, r *http.Request) {
 
 		switch body.Action {
 		case "enable":
-			if !cfg.LAN.Exposed {
+			// In disabled-DNS mode the dashboard chains "set credentials"
+			// with "flip lan:expose" into a single user action because the
+			// dashboard is effectively the only thing LAN exposure unlocks
+			// (sites can't resolve over .localhost on remote devices). So we
+			// only require lan:expose to be on first when DNS is enabled.
+			if !cfg.LAN.Exposed && cfg.DNS.Enabled {
 				http.Error(w, "LAN exposure is off — run `lerd lan:expose` first. Dashboard credentials are only meaningful while the dashboard is reachable from other devices.", http.StatusBadRequest)
 				return
 			}
@@ -385,6 +390,10 @@ func handleRemoteSetupGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isLoopbackRequest(r) {
 		http.Error(w, "Forbidden — setup codes can only be generated from the lerd host (loopback).", http.StatusForbidden)
+		return
+	}
+	if cfg, _ := config.LoadGlobal(); cfg != nil && !cfg.DNS.Enabled {
+		http.Error(w, "remote-setup requires lerd-managed DNS, the remote machine has no way to resolve *.localhost; set dns.enabled: true and re-run lerd install.", http.StatusBadRequest)
 		return
 	}
 

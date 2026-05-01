@@ -22,7 +22,7 @@ If you're a PHP developer on Linux and want frictionless local development — a
 
 ## Features
 
-- 🌐 **Automatic `.test` domains** with one-command TLS
+- 🌐 **Automatic `.test` domains** with one-command TLS, or [opt out of lerd-managed DNS](https://geodro.github.io/lerd/features/dns/) and use `*.localhost` (no dnsmasq, no system resolver tweak, no sudo for the DNS bits)
 - 🐘 **Per-project PHP version** (8.1–8.5), switch with one click
 - ⚡ **FrankenPHP runtime** per site as an alternative to shared PHP-FPM, with Laravel Octane and Symfony Runtime worker mode
 - 📦 **Node.js isolation** per project (Node 22, 24)

@@ -52,6 +52,7 @@ const (
 // StatusRow drives the top header bar.
 type StatusRow struct {
 	DNSOk          bool
+	DNSDisabled    bool
 	TLD            string
 	NginxRunning   bool
 	WatcherRunning bool
@@ -172,13 +173,16 @@ func buildServiceRow(name string, custom bool) ServiceRow {
 func loadStatus() StatusRow {
 	cfg, _ := config.LoadGlobal()
 	tld := "test"
+	dnsDisabled := false
 	if cfg != nil {
 		tld = cfg.DNS.TLD
+		dnsDisabled = !cfg.DNS.Enabled
 	}
 	dnsOK, _ := dns.Check(tld)
 	row := StatusRow{
 		TLD:          tld,
 		DNSOk:        dnsOK,
+		DNSDisabled:  dnsDisabled,
 		NginxRunning: podman.Cache.Running("lerd-nginx"),
 	}
 

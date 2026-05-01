@@ -107,22 +107,42 @@ Make sure your firewall allows the relevant ports (typically 80, 443,
 5300, 7073) from the devices you want to grant access. 'lerd remote-setup'
 generates a one-shot bootstrap code for a remote machine.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			cfg, _ := config.LoadGlobal()
+			dnsOn := cfg == nil || cfg.DNS.Enabled
+			// In disabled-DNS mode the dashboard is the only thing the LAN
+			// exposure unlocks for remote devices, so bundle the
+			// remote-control credential prompt into this single command if
+			// it has not already been set.
+			if !dnsOn && cfg != nil && cfg.UI.PasswordHash == "" {
+				fmt.Println("DNS is disabled, the dashboard is the only thing reachable on the LAN, set HTTP Basic credentials so it is gated:")
+				if err := promptAndPersistRemoteControl(); err != nil {
+					return err
+				}
+				cfg, _ = config.LoadGlobal()
+			}
 			lanIP, err := EnableLANExposure(func(step string) {
 				fmt.Printf("  • %s\n", step)
 			})
 			if err != nil {
 				return err
 			}
-			cfg, _ := config.LoadGlobal()
 			fmt.Printf("Lerd is now reachable on the LAN at %s.\n", lanIP)
-			fmt.Printf("  - sites: http://*.test (resolved via dnsmasq on %s:5300)\n", lanIP)
+			if dnsOn {
+				fmt.Printf("  - sites: http://*.test (resolved via dnsmasq on %s:5300)\n", lanIP)
+			} else {
+				fmt.Println("  - sites: only reachable via per-site `lerd lan:share` (no dnsmasq, *.localhost cannot resolve to a remote host)")
+			}
 			if cfg != nil && cfg.UI.PasswordHash != "" {
 				fmt.Printf("  - dashboard: http://%s:7073 (HTTP Basic auth required)\n", lanIP)
 			} else {
 				fmt.Printf("  - dashboard: http://%s:7073 (LAN clients get 403 — run `lerd remote-control on` to grant LAN access)\n", lanIP)
 			}
-			fmt.Println("Make sure your firewall allows ports 80, 443, 5300, 7073 from the devices you want to grant access.")
-			fmt.Println("Run `lerd remote-setup` to generate a one-time bootstrap code for a remote machine.")
+			if dnsOn {
+				fmt.Println("Make sure your firewall allows ports 80, 443, 5300, 7073 from the devices you want to grant access.")
+				fmt.Println("Run `lerd remote-setup` to generate a one-time bootstrap code for a remote machine.")
+			} else {
+				fmt.Println("Make sure your firewall allows ports 80, 443, 7073 plus any `lerd lan:share` ports from the devices you want to grant access.")
+			}
 			return nil
 		},
 	}

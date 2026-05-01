@@ -11,7 +11,7 @@ export interface PHPStatus {
 }
 
 export interface StatusResponse {
-  dns: { ok: boolean; tld: string };
+  dns: { ok: boolean; enabled: boolean; tld: string };
   nginx: { running: boolean };
   php_fpms: PHPStatus[];
   php_default: string;
@@ -21,7 +21,7 @@ export interface StatusResponse {
 }
 
 const empty: StatusResponse = {
-  dns: { ok: false, tld: 'test' },
+  dns: { ok: false, enabled: true, tld: 'test' },
   nginx: { running: false },
   php_fpms: [],
   php_default: '',

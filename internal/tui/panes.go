@@ -138,7 +138,9 @@ func (m *Model) renderHeader() string {
 		parts = append(parts, accentStyle.Render("update: "+m.updateAvailable+" (run `lerd update`)"))
 	}
 
-	if m.snap.Status.DNSOk {
+	if m.snap.Status.DNSDisabled {
+		parts = append(parts, dimStyle.Render("DNS off"))
+	} else if m.snap.Status.DNSOk {
 		parts = append(parts, runningStyle.Render("DNS ok"))
 	} else {
 		parts = append(parts, failingStyle.Render("DNS down"))

@@ -3,6 +3,7 @@
   import { version, loadVersion } from '$stores/version';
   import { accessMode } from '$stores/accessMode';
   import { lan, loadLANStatus, toggleLAN, generateRemoteSetupCode, copySetupCurl } from '$stores/lan';
+  import { status } from '$stores/status';
   import {
     remoteControl,
     loadRemoteControl,
@@ -24,6 +25,14 @@
   function startLAN(action: LANAction) {
     openLANProgressModal(action);
     toggleLAN(action);
+  }
+
+  function exposeDashboardForLAN() {
+    if ($remoteControl.enabled) {
+      startLAN('expose');
+    } else {
+      openRemoteControlModal(() => startLAN('expose'));
+    }
   }
 
   let autostartBusy = $state(false);
@@ -177,6 +186,7 @@
       </div>
     </div>
 
+    {#if $status.dns?.enabled !== false}
     <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_lan_title()}</span>
@@ -296,6 +306,7 @@
         </div>
       {/if}
     </div>
+    {/if}
 
     <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
       <div class="flex items-center justify-between mb-2">
@@ -316,7 +327,11 @@
         </span>
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-        {@html m.system_remote_description({ loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">127.0.0.1</code>', loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">::1</code>' })}
+        {#if $status.dns?.enabled === false}
+          DNS is disabled, so the dashboard is the only thing remote devices can use lerd for. Enable to set HTTP Basic credentials and bind the dashboard at <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">{$lan.lanIP || '<lan-ip>'}:7073</code>. Sites need per-site <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">lerd lan:share</code> to be reachable.
+        {:else}
+          {@html m.system_remote_description({ loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">127.0.0.1</code>', loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">::1</code>' })}
+        {/if}
       </p>
 
       {#if $remoteControl.enabled}
@@ -324,21 +339,36 @@
           <p class="text-xs text-gray-600 dark:text-gray-400">
             {@html m.system_remote_usernameRow({ username: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">' + $remoteControl.username + '</code>' })}
           </p>
-          {#if !$lan.exposed}
+          {#if !$lan.exposed && $status.dns?.enabled !== false}
             <p class="text-xs text-amber-600 dark:text-amber-400">
               {@html m.system_remote_inertWarning({ cmd: '<code class="font-mono">lerd lan:expose</code>', btn: '<em>' + m.system_lan_expose() + '</em>' })}
             </p>
           {/if}
+          <div class="flex flex-wrap gap-2">
+            <button
+              onclick={() => openRemoteControlModal()}
+              disabled={$remoteControl.loading}
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors"
+            >Change credentials</button>
+            <button
+              onclick={doDisableRemoteControl}
+              disabled={$remoteControl.loading}
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-50 transition-colors"
+            >{m.system_remote_disable()}</button>
+          </div>
+        </div>
+      {:else if $status.dns?.enabled === false}
+        <div>
           <button
-            onclick={doDisableRemoteControl}
-            disabled={$remoteControl.loading}
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-50 transition-colors"
-          >{m.system_remote_disable()}</button>
+            onclick={exposeDashboardForLAN}
+            disabled={$lan.loading}
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors"
+          >Enable dashboard on LAN</button>
         </div>
       {:else}
         <div>
           <button
-            onclick={openRemoteControlModal}
+            onclick={() => openRemoteControlModal()}
             disabled={!$lan.exposed}
             title={$lan.exposed ? '' : m.system_remote_enableDisabledHint()}
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

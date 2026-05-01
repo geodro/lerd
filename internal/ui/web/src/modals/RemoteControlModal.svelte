@@ -1,7 +1,7 @@
 <script lang="ts">
   import Modal from '$components/Modal.svelte';
   import DetailButton from '$components/DetailButton.svelte';
-  import { closeModal } from '$stores/modals';
+  import { closeModal, modal } from '$stores/modals';
   import { remoteControl, enableRemoteControl } from '$stores/remoteControl';
   import { m } from '../paraglide/messages.js';
 
@@ -12,9 +12,11 @@
   async function confirm() {
     if (!username || !password) return;
     error = '';
+    const onSuccess = $modal.onSuccess;
     const r = await enableRemoteControl(username, password);
     if (r.ok) {
       closeModal();
+      if (onSuccess) onSuccess();
     } else {
       error = r.error || m.common_failed();
     }

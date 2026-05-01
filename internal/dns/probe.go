@@ -17,6 +17,10 @@ import (
 // Returns (true, nil) if DNS resolution is working correctly for the given
 // TLD in either mode.
 func Check(tld string) (bool, error) {
+	cfg, _ := config.LoadGlobal()
+	if cfg != nil && !cfg.DNS.Enabled {
+		return true, nil
+	}
 	host := "test-lerd-probe." + tld
 	addrs, err := net.LookupHost(host)
 	if err != nil {
@@ -24,7 +28,7 @@ func Check(tld string) (bool, error) {
 	}
 
 	exposed := false
-	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+	if cfg != nil {
 		exposed = cfg.LAN.Exposed
 	}
 	lanIP := ""

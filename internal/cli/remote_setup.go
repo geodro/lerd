@@ -167,6 +167,10 @@ Re-run this command to generate a new code if it expires or is consumed.`,
 				return nil
 			}
 
+			if cfg, _ := config.LoadGlobal(); cfg != nil && !cfg.DNS.Enabled {
+				return fmt.Errorf("remote-setup requires lerd-managed DNS, the remote machine has no way to resolve *.localhost to this host; set dns.enabled: true and re-run lerd install, or use `lerd lan:share` per site for individual port-based access")
+			}
+
 			// Always (re)apply LAN exposure. EnableLANExposure is idempotent
 			// and reapplying it heals any state drift between cfg.LAN.Exposed
 			// and the actual on-disk container quadlets / forwarder unit /
