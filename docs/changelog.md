@@ -13,6 +13,10 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [1.19.0-beta.4] — 2026-05-02
+
 ### Added
 
 - **Layered DNS diagnostic in `lerd doctor` and an `dns_diagnose` MCP tool** that walks the chain end to end (lerd-dns container → dnsmasq config file → port 5300 listening → direct dig at 127.0.0.1:5300 → resolver hookup script/drop-in installed → interface routing in `resolvectl status` → system-wide DNS lookup) and surfaces exactly which rung is broken with a one-line remediation hint per failure. Replaces the old single "not resolving to 127.0.0.1" error that conflated seven possible causes. The MCP variant returns the structured walk as JSON (`steps[].status`, `first_failure` index) so AI assistants can drive troubleshooting without scraping doctor's output. Inspired by issue #285. See [Troubleshooting → `.test` domains not resolving](troubleshooting.md#test-domains-not-resolving).
