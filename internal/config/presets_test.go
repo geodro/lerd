@@ -622,22 +622,20 @@ func TestPresetApplyPlatformOverride(t *testing.T) {
 	}
 }
 
-func TestLoadPreset_PostgresPlatformOverride(t *testing.T) {
+func TestLoadPreset_PostgresHasNoForkOverride(t *testing.T) {
+	// v1.19 dropped imresamu/postgis; arm64 macs now run upstream postgis
+	// under linux/amd64 emulation via podman.PlatformPodmanArgs.
 	p, err := LoadPreset("postgres")
 	if err != nil {
 		t.Fatalf("LoadPreset(postgres): %v", err)
 	}
-	if len(p.PlatformOverrides) == 0 {
-		t.Fatal("postgres preset must declare a darwin platform_override (lifted from cli.platformImageOverride)")
-	}
-	foundDarwin := false
 	for _, po := range p.PlatformOverrides {
-		if po.OS == "darwin" && strings.Contains(po.Image, "imresamu") {
-			foundDarwin = true
+		if strings.Contains(po.Image, "imresamu") {
+			t.Errorf("postgres preset must not ship a third-party fork override, got %+v", po)
 		}
 	}
-	if !foundDarwin {
-		t.Errorf("postgres preset must override to imresamu/postgis on darwin, got %+v", p.PlatformOverrides)
+	if !strings.Contains(p.Image, "postgis/postgis") {
+		t.Errorf("postgres preset must keep the upstream postgis/postgis image, got %q", p.Image)
 	}
 }
 

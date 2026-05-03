@@ -19,7 +19,3 @@ env_vars:
   - DB_USERNAME=postgres
   - DB_PASSWORD=lerd
 connection_url: postgresql://postgres:lerd@127.0.0.1:5432/lerd
-platform_overrides:
-  - os: darwin
-    image_match: postgis/postgis*alpine*
-    image: docker.io/imresamu/postgis:{{tag}}

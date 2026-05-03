@@ -213,6 +213,32 @@ func TestInjectExtraVolumesNoDuplicates(t *testing.T) {
 	}
 }
 
+func TestInjectPodmanArgs_AppendsAfterImage(t *testing.T) {
+	in := "[Container]\nImage=docker.io/postgis/postgis:16-3.5-alpine\nContainerName=lerd-postgres\n"
+	out := InjectPodmanArgs(in, "--platform=linux/amd64")
+	if !strings.Contains(out, "Image=docker.io/postgis/postgis:16-3.5-alpine\nPodmanArgs=--platform=linux/amd64\n") {
+		t.Errorf("PodmanArgs should land directly under Image=, got:\n%s", out)
+	}
+}
+
+func TestInjectPodmanArgs_Idempotent(t *testing.T) {
+	in := "[Container]\nImage=docker.io/postgis/postgis:16-3.5-alpine\nPodmanArgs=--platform=linux/amd64\n"
+	if out := InjectPodmanArgs(in, "--platform=linux/amd64"); out != in {
+		t.Errorf("re-injecting an arg already present must return content unchanged, got:\n%s", out)
+	}
+	in2 := "[Container]\nImage=x\nPodmanArgs=--security-opt=label=disable --platform=linux/amd64\n"
+	if out := InjectPodmanArgs(in2, "--platform=linux/amd64"); out != in2 {
+		t.Errorf("must detect arg even when concatenated with other args, got:\n%s", out)
+	}
+}
+
+func TestInjectPodmanArgs_NoImageLineNoChange(t *testing.T) {
+	in := "[Container]\nContainerName=lerd-x\n"
+	if out := InjectPodmanArgs(in, "--platform=linux/amd64"); out != in {
+		t.Errorf("content with no Image= line must be returned unchanged, got:\n%s", out)
+	}
+}
+
 func TestGenerateCustomQuadlet_ShareHosts(t *testing.T) {
 	svc := &config.CustomService{
 		Name:       "selenium",

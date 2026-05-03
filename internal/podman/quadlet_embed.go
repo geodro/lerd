@@ -99,6 +99,37 @@ func StripInstallSection(content string, autostartDisabled bool) string {
 	return strings.Join(out, "\n")
 }
 
+// InjectPodmanArgs adds `PodmanArgs=<arg>` to the [Container] section.
+// Idempotent: if any PodmanArgs= line already carries the same arg we
+// return unchanged so the quadlet diff doesn't oscillate across writes.
+func InjectPodmanArgs(content, arg string) string {
+	if arg == "" {
+		return content
+	}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "PodmanArgs=") {
+			continue
+		}
+		for _, f := range strings.Fields(strings.TrimPrefix(trimmed, "PodmanArgs=")) {
+			if f == arg {
+				return content
+			}
+		}
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "Image=") {
+			out := make([]string, 0, len(lines)+1)
+			out = append(out, lines[:i+1]...)
+			out = append(out, "PodmanArgs="+arg)
+			out = append(out, lines[i+1:]...)
+			return strings.Join(out, "\n")
+		}
+	}
+	return content
+}
+
 // InjectExtraVolumes adds Volume= lines for paths that are not already covered
 // by the %h:%h mount. Each path is bind-mounted read-write at the same location
 // inside the container. Existing Volume= lines for the same host path are not
