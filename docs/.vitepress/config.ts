@@ -142,6 +142,7 @@ export default defineConfig({
             { text: 'Terminal Dashboard', link: '/features/tui' },
             { text: 'System Tray', link: '/features/system-tray' },
             { text: 'AI Integration (MCP)', link: '/features/mcp' },
+            { text: 'Tinker tab', link: '/features/tinker' },
           ],
         },
         {
@@ -149,12 +150,14 @@ export default defineConfig({
           items: [
             { text: 'Project Setup', link: '/features/project-setup' },
             { text: 'Environment Setup', link: '/features/env-setup' },
+            { text: 'FrankenPHP runtime', link: '/features/frankenphp' },
           ],
         },
         {
           text: 'Networking',
           items: [
             { text: 'HTTPS / TLS', link: '/features/https' },
+            { text: 'DNS', link: '/features/dns' },
             { text: 'Git Worktrees', link: '/features/git-worktrees' },
           ],
         },

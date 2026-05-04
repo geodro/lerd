@@ -42,7 +42,10 @@ features:
     details: Built-ins (MySQL, Postgres, Redis, Meilisearch, RustFS, Mailpit), one-click presets, or any OCI image as a custom service.
   - icon: 🖥️
     title: Web UI, TUI & tray
-    details: Browser dashboard, btop-style TUI (`lerd tui`), and a system tray applet, all wired to the same live event bus.
+    details: Browser dashboard with command palette, btop-style TUI (`lerd tui`), and a system tray applet, all wired to the same live event bus.
+  - icon: 🧪
+    title: Tinker tab
+    details: In-browser PHP REPL per site with autocomplete, live linting, and collapsible dump trees. Works on Laravel, Symfony, and any composer-based PHP project.
   - icon: 🧩
     title: Framework store
     details: YAML framework definitions for Laravel, Symfony, WordPress, Drupal, CakePHP, and Statamic, auto-detected on `lerd link`.

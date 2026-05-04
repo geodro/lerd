@@ -26,12 +26,14 @@ If you're a PHP developer on Linux and want frictionless local development — a
 - 🐘 **Per-project PHP version** (8.1–8.5), switch with one click
 - ⚡ **FrankenPHP runtime** per site as an alternative to shared PHP-FPM, with Laravel Octane and Symfony Runtime worker mode
 - 📦 **Node.js isolation** per project (Node 22, 24)
-- 🖥️ **Built-in Web UI** - 3-pane dashboard to manage sites, services, and logs from a browser
+- 🖥️ **Built-in Web UI** with a dashboard root, live widgets, and a global Cmd+K command palette to jump to any site, service, or page
 - 🧪 **Tinker tab** - in-browser PHP REPL per site with autocomplete (project models, composer helpers, PHP built-ins), live `php -l` syntax checking, and a collapsible tree view for `dump()` output. Works on Laravel (`artisan tinker`), Symfony, and any composer-based PHP project
 - 💻 **Terminal dashboard** (`lerd tui`) - btop-style TUI with live status, site detail pane, inline domain and version editing, shell drop-in, log tailing, and filter/sort — the same operations surface as the web UI, for tmux and SSH workflows
-- 🗄️ **One-click services**: MySQL, PostgreSQL, Redis, Meilisearch, RustFS, Mailpit, Stripe Mock, Reverb and more
+- 🗄️ **One-click services**: MySQL, PostgreSQL, Redis, Meilisearch, RustFS, Mailpit, Gotenberg, Stripe Mock, Reverb and more. Every default service is a YAML preset you can update, migrate, rollback, or reinstall in place, including a reset-data reinstall that auto-recreates linked sites' databases and buckets
+- 🌳 **First-class git worktrees** with auto-detected branch domains, per-worktree PHP/Node versions, optional per-worktree database isolation (clone from main or empty), and a per-worktree LAN-share proxy
+- ⚒️ **Worker self-heal**, failed queue, schedule, horizon, reverb, and stripe workers are surfaced everywhere (CLI, dashboard banner, TUI, MCP) and recovered with one click or `lerd worker heal`
 - 📋 **Live logs** for PHP-FPM, Queue, Schedule, Reverb, per site
-- 🔒 **Rootless & daemonless** - Podman-native, no Docker required
+- 🔒 **Rootless & daemonless** - Podman-native, no Docker required, dual-stack IPv4 + IPv6
 - 🤖 **MCP server** - let AI assistants (Claude Code, Windsurf, Junie) manage your environment directly
 - 🧩 **Framework store** - community definitions for Laravel, Symfony, WordPress, Drupal, CakePHP, Statamic with versioned auto-detection
 - ⚡ **Framework-agnostic** workers, env setup, and nginx proxy — driven by YAML definitions, not hardcoded
