@@ -9,6 +9,11 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Service quadlets failed to generate on Podman 4.x** (#299). v1.19.0 emitted `StopTimeout=5` in every service's `[Container]` section, but that key was added in Podman 5.0 and is unrecognised by the 4.9.3 shipped on Ubuntu 24.04. systemd-quadlet aborted with exit 1 and produced no service units, so `lerd-mysql.service`, `lerd-redis.service` etc. simply didn't exist. Lerd now probes `podman --version` once and falls back to `PodmanArgs=--stop-timeout=5` on Podman <5.0, which is universally supported and produces the same `--stop-timeout=5` on the underlying `podman run`.
+- **Dashboard could go green for a service with no unit** (#299, #301). When a quadlet generator rejected a `.container` file but a container from an earlier valid load was still in the cgroup, `systemctl --user list-units` printed `not-found active running` and the dashboard read the `active` column verbatim. The unit-state cache now collapses any LOAD other than `loaded` (`not-found`, `masked`, `bad-setting`, `error`) to `inactive` so the UI matches reality.
+
 ---
 
 ## [1.19.0] — 2026-05-04

@@ -106,6 +106,34 @@ func TestUnitStatusCachedRefreshesAfterTTL(t *testing.T) {
 	}
 }
 
+func TestUnitStatusCachedNonLoadedReportedInactive(t *testing.T) {
+	// When a quadlet generator rejects a .container file (e.g. Podman 4.x
+	// hitting StopTimeout=, #299), the .service vanishes but a container
+	// from an earlier valid load can still be in the cgroup, and systemctl
+	// emits "not-found active running". Surfacing "active" sent the
+	// dashboard green for a service with no unit; any LOAD other than
+	// "loaded" must collapse to "inactive".
+	withStubList(t, `lerd-mysql.service       not-found active   running Lerd MySQL
+lerd-redis.service       loaded    active   running Lerd Redis
+lerd-masked.service      masked    active   running Lerd Masked
+lerd-broken.service      bad-setting active running Lerd Broken
+`, nil)
+
+	cases := map[string]string{
+		"lerd-mysql":         "inactive",
+		"lerd-mysql.service": "inactive",
+		"lerd-redis":         "active",
+		"lerd-masked":        "inactive",
+		"lerd-broken":        "inactive",
+	}
+	for unit, want := range cases {
+		got, _ := unitStatusCached(unit)
+		if got != want {
+			t.Errorf("%s: got %q, want %q", unit, got, want)
+		}
+	}
+}
+
 func TestUnitStatusCachedSystemctlFailure(t *testing.T) {
 	withStubList(t, "", errFakeSystemctl{})
 	got, _ := unitStatusCached("lerd-anything")

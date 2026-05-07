@@ -113,6 +113,12 @@ func (c *unitCache) refreshLocked() error {
 			continue
 		}
 		unit, active := fields[0], fields[2]
+		// systemctl reports "not-found active running" when the unit file
+		// is gone but a container from an earlier load still owns the
+		// cgroup; normalise non-"loaded" LOAD values so we don't go green.
+		if fields[1] != "loaded" {
+			active = "inactive"
+		}
 		// Strip the .service suffix so callers can pass either form.
 		// Timer and other suffixes are preserved since enrichWorkers
 		// explicitly looks up "lerd-schedule-<site>.timer".
