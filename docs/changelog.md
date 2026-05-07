@@ -9,6 +9,10 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Service quadlets failed to generate on Podman 4.x** (#299). v1.19.0 emitted `StopTimeout=5` in every service's `[Container]` section, but that key was added in Podman 5.0 and is unrecognised by the 4.9.3 shipped on Ubuntu 24.04. systemd-quadlet aborted with exit 1 and produced no service units, so `lerd-mysql.service`, `lerd-redis.service` etc. simply didn't exist. Lerd now probes `podman --version` once and falls back to `PodmanArgs=--stop-timeout=5` on Podman <5.0, which is universally supported and produces the same `--stop-timeout=5` on the underlying `podman run`.
+
 ---
 
 ## [1.19.0] — 2026-05-04

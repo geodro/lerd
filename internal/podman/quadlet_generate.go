@@ -27,7 +27,15 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 	// Bound podman's graceful-stop window so images with slow shutdown
 	// sequences (selenium/supervisord, chromium) don't block systemctl stop
 	// for the full 90 s default. Mirrors the --stop-timeout=5 used on macOS.
-	b.WriteString("StopTimeout=5\n")
+	// StopTimeout= in [Container] requires Podman >=5.0; on Ubuntu 24.04's
+	// 4.9.3 the key is unrecognised and quadlet aborts with exit 1, leaving
+	// no service units at all (#299). Fall back to PodmanArgs= which works
+	// on every quadlet-supporting podman.
+	if supportsContainerStopTimeoutKey() {
+		b.WriteString("StopTimeout=5\n")
+	} else {
+		b.WriteString("PodmanArgs=--stop-timeout=5\n")
+	}
 
 	if svc.ShareHosts {
 		fmt.Fprintf(&b, "Volume=%s:/etc/hosts:ro,z\n", config.BrowserHostsFile())

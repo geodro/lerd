@@ -315,17 +315,45 @@ func TestGenerateCustomQuadlet_EnvWithJSONPreservesQuotes(t *testing.T) {
 	}
 }
 
-func TestGenerateCustomQuadlet_StopTimeout(t *testing.T) {
-	// Images like selenium/standalone-chromium hang for 30s+ on graceful
-	// shutdown. StopTimeout=5 bounds podman's SIGTERM-wait so systemctl stop
-	// returns promptly instead of blocking the UI.
+func TestGenerateCustomQuadlet_StopTimeoutModernPodman(t *testing.T) {
+	// Podman >=5.0 supports the native StopTimeout= key in [Container].
+	// Bounds podman's SIGTERM-wait so systemctl stop returns promptly for
+	// slow-shutdown images (selenium/supervisord, chromium).
+	prev := supportsContainerStopTimeoutKey
+	supportsContainerStopTimeoutKey = func() bool { return true }
+	t.Cleanup(func() { supportsContainerStopTimeoutKey = prev })
+
 	svc := &config.CustomService{
 		Name:  "selenium",
 		Image: "docker.io/selenium/standalone-chromium:latest",
 	}
 	out := GenerateCustomQuadlet(svc)
-	if !strings.Contains(out, "StopTimeout=5") {
+	if !strings.Contains(out, "\nStopTimeout=5\n") {
 		t.Errorf("expected StopTimeout=5 in [Container] section, got:\n%s", out)
+	}
+	if strings.Contains(out, "PodmanArgs=--stop-timeout=5") {
+		t.Errorf("must not also emit PodmanArgs fallback on modern podman, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_StopTimeoutOldPodman(t *testing.T) {
+	// Ubuntu 24.04 ships Podman 4.9.3 which doesn't recognise the
+	// StopTimeout= quadlet key. Quadlet aborts with exit 1 and emits no
+	// service units at all, so we must fall back to PodmanArgs.
+	prev := supportsContainerStopTimeoutKey
+	supportsContainerStopTimeoutKey = func() bool { return false }
+	t.Cleanup(func() { supportsContainerStopTimeoutKey = prev })
+
+	svc := &config.CustomService{
+		Name:  "selenium",
+		Image: "docker.io/selenium/standalone-chromium:latest",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if !strings.Contains(out, "PodmanArgs=--stop-timeout=5") {
+		t.Errorf("expected PodmanArgs=--stop-timeout=5 fallback, got:\n%s", out)
+	}
+	if strings.Contains(out, "\nStopTimeout=5\n") {
+		t.Errorf("must not emit StopTimeout= key on old podman (breaks quadlet), got:\n%s", out)
 	}
 }
 
