@@ -409,7 +409,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// inside the Podman Machine VM; it may be absent after a fresh machine
 	// init or if it was pruned. All service containers use --network lerd so
 	// this must succeed before any container is started.
-	if err := podman.EnsureNetwork("lerd"); err != nil {
+	if err := podman.EnsureNetwork("lerd", dns.ReadContainerDNS()); err != nil {
 		if errors.Is(err, podman.ErrNetworkNeedsMigration) {
 			fmt.Println("  WARN: lerd network schema doesn't match host IPv6 support; run 'lerd install' to recreate")
 		} else {

@@ -99,10 +99,11 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// phase below so they come up on the freshly written quadlets.
 	var migrated []string
 	step("Creating lerd podman network")
-	if err := podman.EnsureNetwork("lerd"); err != nil {
+	desiredDNS := dns.ReadContainerDNS()
+	if err := podman.EnsureNetwork("lerd", desiredDNS); err != nil {
 		if errors.Is(err, podman.ErrNetworkNeedsMigration) {
 			fmt.Println()
-			restored, dualStack, mErr := podman.RecreateNetwork("lerd")
+			restored, dualStack, mErr := podman.RecreateNetwork("lerd", desiredDNS)
 			if mErr != nil {
 				return fmt.Errorf("recreating lerd network: %w", mErr)
 			}
@@ -118,7 +119,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
+	if err := podman.EnsureNetworkDNS("lerd", desiredDNS); err != nil {
 		return err
 	}
 	ok()
