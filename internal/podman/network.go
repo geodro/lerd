@@ -106,7 +106,13 @@ func NetworkHasIPv6(name string) bool {
 // EnsureNetwork creates the named podman network if it doesn't exist. The
 // schema (v4-only vs dual-stack) follows HostHasUsableIPv6. Returns
 // ErrNetworkNeedsMigration when an existing network's schema doesn't fit.
-func EnsureNetwork(name string) error {
+//
+// dns is applied at create time via `podman network create --dns`, which
+// dodges Ubuntu Noble's netavark <1.11 bug where `network update --dns-add`
+// fails with "No such file or directory" before any container has connected
+// to the network. When the network already exists, dns is ignored here and
+// the caller should reconcile drift via EnsureNetworkDNS.
+func EnsureNetwork(name string, dns []string) error {
 	out, err := Run("network", "ls", "--format={{.Name}}")
 	if err != nil {
 		return err
@@ -136,7 +142,7 @@ func EnsureNetwork(name string) error {
 		}
 	}
 
-	_, err = createNetworkWithProbe(name, hostV6)
+	_, err = createNetworkWithProbe(name, hostV6, dns)
 	return err
 }
 
@@ -189,13 +195,8 @@ func IPv6DisabledMarkerPath(name string) string {
 // first tries a dual-stack network and runs a throw-away container to verify
 // aardvark-dns can bind the IPv6 gateway. If the probe fails, the network is
 // torn down and recreated as v4-only. Returns the actual dual-stack state.
-func createNetworkWithProbe(name string, dualStack bool) (bool, error) {
-	args := []string{"network", "create", "--driver", "bridge"}
-	if dualStack {
-		args = append(args, "--ipv6", "--subnet", LerdULAv6Subnet)
-	}
-	args = append(args, "--opt", "mtu="+LerdNetworkMTU, name)
-	if err := RunSilent(args...); err != nil {
+func createNetworkWithProbe(name string, dualStack bool, dns []string) (bool, error) {
+	if err := RunSilent(networkCreateArgs(name, dualStack, dns)...); err != nil {
 		return dualStack, err
 	}
 
@@ -221,11 +222,30 @@ func createNetworkWithProbe(name string, dualStack bool) (bool, error) {
 				}
 			}
 			_ = RemoveNetwork(name)
-			return createNetworkWithProbe(name, false)
+			return createNetworkWithProbe(name, false, dns)
 		}
 		clearIPv6ProbeFailed(name)
 	}
 	return dualStack, nil
+}
+
+// networkCreateArgs assembles the `podman network create` argv. DNS servers
+// are passed via `--dns <ip>` so they're written to netavark's per-network
+// JSON in the same atomic step as subnet/MTU; this avoids the post-create
+// `network update --dns-add` path that fails on Ubuntu 24.04's netavark
+// (<1.11) before any container has used the network.
+func networkCreateArgs(name string, dualStack bool, dns []string) []string {
+	args := []string{"network", "create", "--driver", "bridge"}
+	if dualStack {
+		args = append(args, "--ipv6", "--subnet", LerdULAv6Subnet)
+	}
+	for _, d := range dns {
+		if d = strings.TrimSpace(d); d != "" {
+			args = append(args, "--dns", d)
+		}
+	}
+	args = append(args, "--opt", "mtu="+LerdNetworkMTU, name)
+	return args
 }
 
 // probeNetworkIPv6Timeout caps how long the throw-away container is allowed
@@ -314,13 +334,20 @@ func RemoveNetwork(name string) error {
 // RecreateNetwork destroys and recreates the named network with the schema
 // that matches HostHasUsableIPv6. Returns the attached container names so
 // the caller can StartUnit them, plus whether the new network is dual-stack.
-func RecreateNetwork(name string) ([]string, bool, error) {
-	dnsOut, err := Run("network", "inspect", name,
-		"--format", "{{range .NetworkDNSServers}}{{.}} {{end}}")
-	if err != nil {
-		return nil, false, fmt.Errorf("inspect %s: %w", name, err)
+//
+// dns is applied at create time. Pass nil to preserve whatever DNS servers
+// are currently set on the network; the netavark <1.11 update bug is moot
+// here because the recreated network has no aardvark-dns runtime file yet,
+// so reapplying via `--dns-add` would fail just as it does on fresh install.
+func RecreateNetwork(name string, dns []string) ([]string, bool, error) {
+	if dns == nil {
+		dnsOut, err := Run("network", "inspect", name,
+			"--format", "{{range .NetworkDNSServers}}{{.}} {{end}}")
+		if err != nil {
+			return nil, false, fmt.Errorf("inspect %s: %w", name, err)
+		}
+		dns = strings.Fields(strings.TrimSpace(dnsOut))
 	}
-	prevDNS := strings.Fields(strings.TrimSpace(dnsOut))
 
 	containersOut, err := Run("ps", "-a",
 		"--filter", "network="+name,
@@ -345,13 +372,9 @@ func RecreateNetwork(name string) ([]string, bool, error) {
 	}
 
 	hostV6 := HostHasUsableIPv6() && !ipv6ProbeFailed(name)
-	actualV6, err := createNetworkWithProbe(name, hostV6)
+	actualV6, err := createNetworkWithProbe(name, hostV6, dns)
 	if err != nil {
 		return attached, actualV6, fmt.Errorf("recreating %s: %w", name, err)
-	}
-
-	for _, dns := range prevDNS {
-		_ = RunSilent("network", "update", "--dns-add", dns, name)
 	}
 
 	return attached, actualV6, nil

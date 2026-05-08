@@ -12,16 +12,20 @@ var presetFiles = map[string][]FileMount{
 	"mysql": {
 		{
 			Target: "/etc/mysql/conf.d/lerd.cnf",
-			// loose- prefix on directives removed in 8.0+ keeps the file
-			// usable across mysql 5.6/5.7/8.0/8.4 without per-version branching.
+			// loose- prefix lets the file load across mysql 5.7/8.0/8.4 even
+			// when a directive is unknown to that version. innodb_large_prefix
+			// and innodb_file_format used to live here for 5.6 compatibility,
+			// but lerd no longer ships 5.6 and both were removed in 8.0,
+			// so they generated startup warnings on every modern run.
 			Content: `[mysqld]
 character-set-server=utf8mb4
 collation-server=utf8mb4_unicode_ci
-loose-innodb_large_prefix=ON
-loose-innodb_file_format=Barracuda
 innodb_file_per_table=ON
 innodb_strict_mode=OFF
 loose-innodb_default_row_format=DYNAMIC
+loose-mysql-native-password=ON
+authentication_policy='mysql_native_password,,'
+loose-restrict-fk-on-non-standard-key=OFF
 `,
 		},
 	},

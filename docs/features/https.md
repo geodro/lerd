@@ -33,7 +33,7 @@ The Sites tab has an HTTPS toggle per site; clicking it runs `lerd secure` or `l
 
 ## Git worktrees
 
-When a site has [git worktrees](git-worktrees.md), securing the parent automatically enables HTTPS for all its worktrees too. Lerd reuses the parent's wildcard certificate (`*.myapp.test`), no extra `lerd secure` calls needed, and no per-worktree certificate is issued.
+When a site has [git worktrees](git-worktrees.md), securing the parent automatically enables HTTPS for all its worktrees too. The parent's certificate is issued with `*.myapp.test` to cover worktree subdomains. When a new worktree is created on a secured site, the certificate is reissued to also include `*.branch.myapp.test` SANs, so deep subdomains like `app.branch.myapp.test` (common in multi-tenant apps) are covered without manual cert regeneration.
 
 Unsecuring the parent switches all worktree vhosts back to HTTP and updates their `.env` files accordingly.
 
@@ -48,7 +48,7 @@ If a [Stripe webhook listener](../usage/stripe.md#stripelisten) is running for t
 ## How it works
 
 1. `lerd install` generates a local CA with mkcert and installs it into the system trust store (NSS databases for Chrome/Firefox, and the system root store).
-2. `lerd secure <site>` issues a certificate signed by that CA for `<site>.test` **and** `*.<site>.test` (wildcard), so all subdomain worktrees are covered by a single cert.
+2. `lerd secure <site>` issues a certificate signed by that CA for `<site>.test` **and** `*.<site>.test` (wildcard), so all subdomain worktrees are covered. When worktrees exist, `*.branch.<site>.test` SANs are included so deep subdomains work too. The certificate is reissued automatically when new worktrees are created.
 3. The nginx vhost is regenerated to listen on port 443 with the new cert, and port 80 redirects to HTTPS (302, not 301, so the redirect is not cached by browsers).
 4. `APP_URL` in the project's `.env` (and any worktree `.env` files) is updated to `https://`.
 5. If a `lerd stripe:listen` service is active for the site, it is restarted with the updated forwarding URL.

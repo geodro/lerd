@@ -194,6 +194,9 @@ func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 	if !strings.Contains(content, "server_name feat-x.myapp.test") {
 		t.Errorf("expected worktree domain in:\n%s", content)
 	}
+	if !strings.Contains(content, "*.feat-x.myapp.test") {
+		t.Errorf("expected wildcard server_name for worktree subdomains in:\n%s", content)
+	}
 	if !strings.Contains(content, "root /srv/myapp-feat/public") {
 		t.Errorf("expected worktree path in:\n%s", content)
 	}
@@ -209,6 +212,9 @@ func TestGenerateWorktreeSSLVhost_usesParentCert(t *testing.T) {
 	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
 	if !strings.Contains(content, "server_name feat-x.myapp.test") {
 		t.Errorf("expected worktree domain in:\n%s", content)
+	}
+	if !strings.Contains(content, "*.feat-x.myapp.test") {
+		t.Errorf("expected wildcard server_name for worktree subdomains in:\n%s", content)
 	}
 	// Must use parent domain's cert (wildcard *.myapp.test), not feat-x.myapp.test
 	if !strings.Contains(content, "myapp.test.crt") {

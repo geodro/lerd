@@ -152,6 +152,12 @@ func Start(currentVersion string) error {
 	// KindSites only when the unhealthy set actually changes.
 	go runWorkerHealthWatcher()
 
+	// WatchDNS lives in the lerd-watcher process; its eventbus publishes
+	// don't cross over here. This in-process probe surfaces DNS transitions
+	// (notably lerd-dns coming up after a boot where the dashboard opened
+	// before resolver was ready) to live WebSocket clients.
+	go runDNSStatusWatcher()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/status", withCORS(handleStatus))

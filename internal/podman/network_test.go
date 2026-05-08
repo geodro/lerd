@@ -24,6 +24,59 @@ func TestLerdULAv6Subnet_isValidIPv6CIDR(t *testing.T) {
 	}
 }
 
+func TestNetworkCreateArgs(t *testing.T) {
+	// DNS servers must land as `--dns <ip>` flags before the trailing name
+	// so they're written into netavark's per-network JSON at create time.
+	// This avoids the post-create `network update --dns-add` path that
+	// fails on Ubuntu 24.04's netavark <1.11 with "No such file or
+	// directory" before any container has connected (#299).
+	tests := []struct {
+		name      string
+		dualStack bool
+		dns       []string
+		want      []string
+	}{
+		{
+			name:      "v4 no dns",
+			dualStack: false,
+			dns:       nil,
+			want:      []string{"network", "create", "--driver", "bridge", "--opt", "mtu=1500", "lerd"},
+		},
+		{
+			name:      "dual-stack no dns",
+			dualStack: true,
+			dns:       nil,
+			want:      []string{"network", "create", "--driver", "bridge", "--ipv6", "--subnet", LerdULAv6Subnet, "--opt", "mtu=1500", "lerd"},
+		},
+		{
+			name:      "v4 with two dns servers",
+			dualStack: false,
+			dns:       []string{"192.168.122.1", "8.8.8.8"},
+			want:      []string{"network", "create", "--driver", "bridge", "--dns", "192.168.122.1", "--dns", "8.8.8.8", "--opt", "mtu=1500", "lerd"},
+		},
+		{
+			name:      "dual-stack with dns",
+			dualStack: true,
+			dns:       []string{"169.254.1.1"},
+			want:      []string{"network", "create", "--driver", "bridge", "--ipv6", "--subnet", LerdULAv6Subnet, "--dns", "169.254.1.1", "--opt", "mtu=1500", "lerd"},
+		},
+		{
+			name:      "blank dns entries skipped",
+			dualStack: false,
+			dns:       []string{"", "  ", "1.1.1.1", ""},
+			want:      []string{"network", "create", "--driver", "bridge", "--dns", "1.1.1.1", "--opt", "mtu=1500", "lerd"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := networkCreateArgs("lerd", tt.dualStack, tt.dns)
+			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
+				t.Errorf("networkCreateArgs:\n got  %v\n want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestErrNetworkNeedsMigration_isComparable(t *testing.T) {
 	if ErrNetworkNeedsMigration == nil {
 		t.Fatal("ErrNetworkNeedsMigration is nil")

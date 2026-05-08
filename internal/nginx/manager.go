@@ -316,7 +316,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 
 	data := VhostData{
 		Domain:          domain,
-		ServerNames:     domain,
+		ServerNames:     domain + " *." + domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
@@ -350,7 +350,7 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 
 	data := VhostData{
 		Domain:          domain,
-		ServerNames:     domain,
+		ServerNames:     domain + " *." + domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),

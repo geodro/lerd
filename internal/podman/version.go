@@ -63,7 +63,9 @@ var (
 
 func defaultSupportsContainerStopTimeoutKey() bool {
 	stopTimeoutOnce.Do(func() {
-		out, err := exec.Command("podman", "--version").Output()
+		// Use PodmanBin() so the probe still resolves under launchd's
+		// restricted PATH on macOS, where "podman" alone misses Homebrew.
+		out, err := exec.Command(PodmanBin(), "--version").Output()
 		if err != nil {
 			// Conservative fallback: PodmanArgs= works on every quadlet
 			// version, while StopTimeout= breaks <5.0. Better to use the

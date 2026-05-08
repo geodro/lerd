@@ -70,9 +70,13 @@ RUN apk update && apk add --no-cache \
     && { (pecl install pcov && docker-php-ext-enable pcov) || true; } \
     && rm -rf /tmp/pear /var/cache/apk/*
 
-# Install Composer and Node.js (for CLI tools like laravel new that spawn npm)
+# MariaDB client (mysql-client) connecting to lerd MySQL uses self-signed certs;
+# disable SSL verification so CLI tools (mysqldump, schema loading) work out of the box.
+RUN mkdir -p /etc/my.cnf.d && printf '[client]\nssl=0\n' > /etc/my.cnf.d/lerd-no-ssl.cnf
+
+# Install Composer, Node.js, and FFmpeg (used by media libraries like spatie/media-library)
 COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
-RUN apk add --no-cache nodejs npm
+RUN apk add --no-cache nodejs npm ffmpeg
 
 # Override pool: run workers as root, log errors to stderr
 RUN printf '[www]\nuser=root\ngroup=root\ncatch_workers_output=yes\nphp_flag[display_errors]=off\nphp_admin_value[error_log]=/proc/self/fd/2\nphp_admin_flag[log_errors]=on\n' > /usr/local/etc/php-fpm.d/zz-lerd.conf

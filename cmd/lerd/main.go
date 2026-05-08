@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"net/http"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
@@ -633,6 +634,9 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 		var vhostErr error
 		if site.Secured {
 			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain())
+			if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
+				fmt.Printf("[WARN] reissue cert for worktree %s: %v\n", wt.Domain, reissueErr)
+			}
 		} else {
 			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP)
 		}
