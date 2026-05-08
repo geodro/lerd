@@ -357,13 +357,6 @@ var laravelFramework = &Framework{
 			Check:         &FrameworkRule{Composer: "laravel/horizon"},
 			ConflictsWith: []string{"queue"},
 		},
-		"vite": {
-			Label:   "Vite Dev Server",
-			Command: "npm run dev",
-			Restart: "on-failure",
-			Host:    true,
-			Check:   &FrameworkRule{File: "vite.config.js"},
-		},
 	},
 	Setup: []FrameworkSetupCmd{
 		{Label: "php artisan storage:link", Command: "php artisan storage:link", Default: true},
@@ -557,29 +550,6 @@ func mergeBuiltinTinker(fw *Framework) *Framework {
 	return fw
 }
 
-// mergeBuiltinWorkers adds workers from the built-in framework definition that
-// are missing in the store definition. Store workers take precedence so user
-// customisations are preserved; this only fills in newly added built-in workers
-// (e.g. vite) that the store YAML doesn't know about yet.
-func mergeBuiltinWorkers(fw *Framework) *Framework {
-	if fw == nil {
-		return fw
-	}
-	src := builtinFramework(fw.Name)
-	if src == nil || len(src.Workers) == 0 {
-		return fw
-	}
-	if fw.Workers == nil {
-		fw.Workers = make(map[string]FrameworkWorker)
-	}
-	for name, w := range src.Workers {
-		if _, exists := fw.Workers[name]; !exists {
-			fw.Workers[name] = w
-		}
-	}
-	return fw
-}
-
 // mergeUserOverlay checks for a user-defined overlay file in FrameworksDir()
 // and merges its workers and setup commands on top of base.
 // User additions/overrides win. If no overlay exists, base is returned as-is.
@@ -671,7 +641,6 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 		base = mergeUserOverlay(base)
 		base = mergeBuiltinFrankenPHP(base)
 		base = mergeBuiltinTinker(base)
-		base = mergeBuiltinWorkers(base)
 		return mergeProjectWorkers(base, projectDir), true
 	}
 
