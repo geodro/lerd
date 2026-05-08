@@ -10,6 +10,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
+	nodeDet "github.com/geodro/lerd/internal/node"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 )
@@ -28,7 +29,10 @@ func removeWorkerExecArtifacts(_ string) {}
 // expression — the right shape for one-shot commands like Laravel 10's
 // `php artisan schedule:run`, which exit immediately and would otherwise
 // restart-loop every 5s under Restart=always.
-func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string) (bool, error) {
+func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string, host bool) (bool, error) {
+	if host {
+		return writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, restart)
+	}
 	container := fpmUnit
 
 	if schedule != "" {
@@ -89,6 +93,42 @@ WantedBy=default.target
 	return services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 }
 
+const defaultNodeVersion = "22"
+
+// writeHostWorkerUnitFile writes a systemd service unit for a worker that runs
+// on the host via fnm rather than inside a container. Used for Node.js tools
+// like Vite that need direct host access for HMR.
+func writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, restart string) (bool, error) {
+	fnm := filepath.Join(config.BinDir(), "fnm")
+	nodeVersion, err := nodeDet.DetectVersion(sitePath)
+	if err != nil {
+		if cfg, _ := config.LoadGlobal(); cfg != nil {
+			nodeVersion = cfg.Node.DefaultVersion
+		}
+		if nodeVersion == "" {
+			nodeVersion = defaultNodeVersion
+		}
+	}
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd %s (%s)
+
+[Service]
+Type=simple
+Restart=%s
+RestartSec=5
+WorkingDirectory=%s
+SuccessExitStatus=1 130 143
+ExecStart=%s exec --using=%s -- %s
+
+[Install]
+WantedBy=default.target
+`, label, siteName, restart, sitePath, fnm, nodeVersion, command)
+
+	_ = services.Mgr.RemoveTimerUnit(unitName)
+	return services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
+}
+
 // workerLogHint returns the hint for viewing worker logs on Linux.
 func workerLogHint(unitName string) string {
 	return "journalctl --user -u " + unitName + " -f"
@@ -129,7 +169,7 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit, w.Host)
 	if err != nil {
 		fmt.Printf("[WARN] writing worker unit %s: %v\n", unitName, err)
 		return

@@ -24,7 +24,7 @@ import (
 //     FPM image. Higher memory but 1:1 supervisor boundary.
 //
 // Scheduled workers (Schedule != "") still aren't supported on macOS.
-func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string) (bool, error) {
+func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string, host bool) (bool, error) {
 	if schedule != "" {
 		fmt.Printf("[WARN] worker %s has schedule=%q which is not yet supported on macOS — skipping\n", unitName, schedule)
 		return false, nil
@@ -158,5 +158,5 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 	if label == "" {
 		label = workerName
 	}
-	writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, w.Command, restart, w.Schedule, fpmUnit) //nolint:errcheck
+	writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, w.Command, restart, w.Schedule, fpmUnit, w.Host) //nolint:errcheck
 }

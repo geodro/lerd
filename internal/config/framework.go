@@ -89,7 +89,8 @@ type FrameworkFrankenPHP struct {
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.
-// The Command is executed inside the PHP-FPM container for the site.
+// The Command is executed inside the PHP-FPM container for the site unless
+// Host is true, in which case it runs directly on the host via fnm.
 type FrameworkWorker struct {
 	Label         string         `yaml:"label,omitempty"`
 	Command       string         `yaml:"command"`
@@ -99,6 +100,7 @@ type FrameworkWorker struct {
 	ExcludeCheck  *FrameworkRule `yaml:"exclude_check,omitempty"`  // only show when check FAILS (e.g. queue is hidden when laravel/horizon is installed because horizon supersedes it)
 	ConflictsWith []string       `yaml:"conflicts_with,omitempty"` // workers to stop before starting this one (e.g. horizon conflicts_with queue)
 	Proxy         *WorkerProxy   `yaml:"proxy,omitempty"`          // WebSocket/HTTP proxy config for nginx
+	Host          bool           `yaml:"host,omitempty"`           // run on the host via fnm instead of inside the PHP-FPM container
 }
 
 // WorkerProxy describes an HTTP/WebSocket proxy that nginx should configure

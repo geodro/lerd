@@ -146,6 +146,11 @@ workers:
       path: /ws
       port_env_key: WS_PORT
       default_port: 8080
+    host: false                   # run on the host via fnm instead of inside the
+                                  # PHP-FPM container (optional, default: false).
+                                  # Used for Node.js tools like Vite that need
+                                  # direct filesystem access for HMR. Host workers
+                                  # auto-start when worktrees are created.
 
 # One-off setup commands
 setup:

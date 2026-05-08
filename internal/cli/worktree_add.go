@@ -75,7 +75,9 @@ func newWorktreeAddCmd() *cobra.Command {
 				fmt.Println("Dependencies installed.")
 			}
 
-			if script := promptFrontendBuild(worktreePath); script != "" {
+			if hasHostWorkerAutoStart(site) {
+				fmt.Println("Vite dev server auto-started by the watcher — skipping build prompt.")
+			} else if script := promptFrontendBuild(worktreePath); script != "" {
 				fmt.Printf("Running npm run %s...\n", script)
 				if err := gitpkg.RunNpmScript(worktreePath, script); err != nil {
 					fmt.Printf("[WARN] npm run %s failed: %v — first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", script, err)
@@ -388,6 +390,26 @@ func worktreePathForBranch(site *config.Site, branch string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("worktree %q not found", branch)
+}
+
+// hasHostWorkerAutoStart returns true when the site's framework defines at
+// least one host worker whose check passes, meaning the watcher will auto-start
+// it for new worktrees (e.g. vite). When true the CLI skips the build prompt
+// to avoid running npm run build in parallel with npm run dev.
+func hasHostWorkerAutoStart(site *config.Site) bool {
+	if site.Framework == "" {
+		return false
+	}
+	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !ok {
+		return false
+	}
+	for _, w := range fw.Workers {
+		if w.Host && (w.Check == nil || config.MatchesRule(site.Path, *w.Check)) {
+			return true
+		}
+	}
+	return false
 }
 
 func branchesWithIsolatedDB(site *config.Site) []string {

@@ -33,7 +33,9 @@ After git completes, the wrapper:
 3. Prompts how to set up the worktree's database — see [Per-worktree database](#per-worktree-database) below.
 4. If you pick "isolated empty", asks whether to run `php artisan migrate --force` against the new schema right away.
 
-Skipping the build step leaves the worktree without a Vite manifest, which means the first request will throw `ViteManifestNotFoundException` until you run `npm run dev` or `npm run build` yourself. That's intentional — the alternative is silently rendering main's compiled UI on the worktree, which is worse.
+When the framework defines a host worker like `vite` (with `host: true` and a passing `check`), the build prompt is skipped and the watcher auto-starts `npm run dev` as a per-worktree systemd unit instead. Multiple worktrees can run Vite simultaneously — each gets its own unit (`lerd-vite-site-branch`) and Vite auto-increments ports.
+
+If no host worker is defined, skipping the build step leaves the worktree without a Vite manifest, which means the first request will throw `ViteManifestNotFoundException` until you run `npm run dev` or `npm run build` yourself. That's intentional — the alternative is silently rendering main's compiled UI on the worktree, which is worse.
 
 ### `lerd worktree remove <git args>`
 

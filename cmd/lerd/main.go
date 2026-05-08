@@ -645,6 +645,22 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 			return false
 		}
 		fmt.Printf("Worktree %s: %s -> %s\n", action, wt.Branch, wt.Domain)
+
+		// Auto-start host workers (e.g. vite) for the worktree.
+		if fw, ok := config.GetFrameworkForDir(site.Framework, sitePath); ok {
+			for name, w := range fw.Workers {
+				if !w.Host {
+					continue
+				}
+				if w.Check != nil && !config.MatchesRule(wt.Path, *w.Check) {
+					continue
+				}
+				if err := cli.WorkerStartForSite(site.Name, wt.Path, effectivePHP, name, w, false); err != nil {
+					fmt.Printf("[WARN] auto-start %s for worktree %s: %v\n", name, wt.Branch, err)
+				}
+			}
+		}
+
 		return true
 	}
 	return false

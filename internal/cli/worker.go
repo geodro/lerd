@@ -156,7 +156,11 @@ func newWorkerListCmd() *cobra.Command {
 func resolveSiteAndFramework(cwd string) (*config.Site, *config.Framework, string, error) {
 	site, err := config.FindSiteByPath(cwd)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+		if parent, ok := config.ParentSiteForWorktreeDir(cwd); ok {
+			site = parent
+		} else {
+			return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+		}
 	}
 
 	// Custom container sites may not have a framework. Build a synthetic
@@ -210,7 +214,9 @@ func requireFrameworkWorker(cwd, workerName string) error {
 // The unit name is lerd-{workerName}-{siteName}.
 // If the worker has a Proxy config, the proxy port is auto-assigned and the
 // nginx vhost is regenerated to include the WebSocket/HTTP proxy block.
-func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) error {
+// When persist is false the worker is not added to .lerd.yaml — used by the
+// auto-start path so worktree vite workers don't appear as user-opted entries.
+func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker, persist ...bool) error {
 	if err := workerStartPreflight(sitePath, workerName, w); err != nil {
 		return err
 	}
@@ -248,6 +254,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		fpmUnit = "lerd-php" + versionShort + "-fpm"
 	}
 	unitName := "lerd-" + workerName + "-" + siteName
+	unitSiteName := siteName
+	if s, _ := config.FindSite(siteName); s != nil && s.Path != sitePath {
+		wtDir := filepath.Base(sitePath)
+		unitName = "lerd-" + workerName + "-" + siteName + "-" + wtDir
+		unitSiteName = siteName + "/" + wtDir
+	}
 
 	restart := w.Restart
 	if restart == "" {
@@ -258,7 +270,7 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, unitSiteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit, w.Host)
 	if err != nil {
 		return fmt.Errorf("writing worker unit: %w", err)
 	}
@@ -299,8 +311,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 	// Persist this worker to .lerd.yaml so lerd install can restore it.
 	// Additive: other workers already in the list are not removed. This covers
 	// callers like setup and pause that start workers sequentially and must not
-	// clobber each other's entries.
-	_ = config.AddProjectWorker(sitePath, workerName)
+	// clobber each other's entries. Skipped when persist is explicitly false
+	// (auto-start path) so worktree workers don't appear as user-opted entries.
+	shouldPersist := len(persist) == 0 || persist[0]
+	if shouldPersist {
+		_ = config.AddProjectWorker(sitePath, workerName)
+	}
 
 	return nil
 }
