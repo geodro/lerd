@@ -173,6 +173,11 @@ export function setWorktreeDBIsolated(
   return postAction(site(d, 'db:isolate') + '?' + params.toString());
 }
 
+export const removeWorktree = (d: string, branch: string) =>
+  postAction(site(d, 'worktree-remove') + `?branch=${encodeURIComponent(branch)}`);
+export const stopWorktreeVite = (d: string, branch: string) =>
+  postAction(site(d, 'worktree-vite-stop') + `?branch=${encodeURIComponent(branch)}`);
+
 export const toggleTLS = (s: Site) => postAction(site(s.domain, s.tls ? 'unsecure' : 'secure'));
 export const toggleLANShare = (s: Site, branch: string = '') => {
   const wt = branch ? (s.worktrees || []).find((w) => w.branch === branch) : undefined;

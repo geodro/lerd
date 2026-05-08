@@ -12,6 +12,7 @@
   import ServicesWidget from './dashboard/ServicesWidget.svelte';
   import WorkersWidget from './dashboard/WorkersWidget.svelte';
   import ResourcesWidget from './dashboard/ResourcesWidget.svelte';
+  import WorktreesWidget from './dashboard/WorktreesWidget.svelte';
   import { openCommandPalette } from '$stores/commandPalette';
   import { m } from '../paraglide/messages.js';
 
@@ -71,6 +72,7 @@
       <SitesWidget />
       <ServicesWidget />
       <WorkersWidget />
+      <WorktreesWidget />
       <SystemHealthWidget />
       <ResourcesWidget />
       <LerdInfoWidget />

@@ -1910,6 +1910,50 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
+	case "worktree-remove":
+		branch := r.URL.Query().Get("branch")
+		if branch == "" {
+			writeJSON(w, SiteActionResponse{Error: "branch parameter required"})
+			return
+		}
+		worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
+		if err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		var wtPath string
+		for _, wt := range worktrees {
+			if wt.Branch == branch {
+				wtPath = wt.Path
+				break
+			}
+		}
+		if wtPath == "" {
+			writeJSON(w, SiteActionResponse{Error: "unknown worktree branch"})
+			return
+		}
+		cmd := exec.Command("git", "worktree", "remove", "--force", wtPath)
+		cmd.Dir = site.Path
+		if out, err := cmd.CombinedOutput(); err != nil {
+			writeJSON(w, SiteActionResponse{Error: fmt.Sprintf("git worktree remove: %s", strings.TrimSpace(string(out)))})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "worktree-vite-stop":
+		branch := r.URL.Query().Get("branch")
+		if branch == "" {
+			writeJSON(w, SiteActionResponse{Error: "branch parameter required"})
+			return
+		}
+		wtDir := gitpkg.SanitizeBranch(branch)
+		unitName := "lerd-vite-" + site.Name + "-" + wtDir
+		if err := services.Mgr.Stop(unitName); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
 	case "rebuild":
 		if err := cli.RebuildSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
