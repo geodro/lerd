@@ -654,18 +654,20 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 		}
 		fmt.Printf("Worktree %s: %s -> %s\n", action, wt.Branch, wt.Domain)
 
-		// Auto-start host workers (e.g. vite) for the worktree.
-		if fw, ok := config.GetFrameworkForDir(site.Framework, sitePath); ok {
-			for name, w := range fw.Workers {
-				if !w.Host {
-					continue
-				}
-				if w.Check != nil && !config.MatchesRule(wt.Path, *w.Check) {
-					continue
-				}
-				if err := cli.WorkerStartForSite(site.Name, wt.Path, effectivePHP, name, w, false); err != nil {
-					fmt.Printf("[WARN] auto-start %s for worktree %s: %v\n", name, wt.Branch, err)
-				}
+		// Auto-start only the host workers the user opted into via
+		// .lerd.yaml workers:. Worktrees inherit the parent's project
+		// intent rather than every host:true worker the framework defines.
+		for _, name := range cli.OptedInHostWorkers(site, wt.Path) {
+			fw, ok := config.GetFrameworkForDir(site.Framework, sitePath)
+			if !ok {
+				break
+			}
+			w, ok := fw.Workers[name]
+			if !ok {
+				continue
+			}
+			if err := cli.WorkerStartForSite(site.Name, wt.Path, effectivePHP, name, w, false); err != nil {
+				fmt.Printf("[WARN] auto-start %s for worktree %s: %v\n", name, wt.Branch, err)
 			}
 		}
 

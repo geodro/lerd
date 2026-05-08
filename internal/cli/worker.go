@@ -13,6 +13,7 @@ import (
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -532,6 +533,10 @@ func findOrphanedWorkers(siteName string, known map[string]bool) []string {
 	suffix := "-" + siteName
 	prefix := "lerd-"
 	units := services.Mgr.ListServiceUnits("lerd-*-" + siteName)
+	var sites []config.Site
+	if reg, err := config.LoadSites(); err == nil {
+		sites = reg.Sites
+	}
 	var orphans []string
 	for _, unit := range units {
 		workerName := strings.TrimPrefix(unit, prefix)
@@ -542,6 +547,9 @@ func findOrphanedWorkers(siteName string, known map[string]bool) []string {
 		switch workerName {
 		case "php84-fpm", "php83-fpm", "php82-fpm", "php81-fpm", "php80-fpm",
 			"nginx", "dns", "dns-forwarder", "watcher", "ui", "stripe":
+			continue
+		}
+		if lerdSystemd.UnitBelongsToOtherSiteWorktree(workerName, siteName, sites) {
 			continue
 		}
 		if isServiceActiveOrRestarting(unit) {

@@ -710,6 +710,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		ensureDefaultNode()
 	}
 
+	refreshStoreFrameworks()
 	refreshGlobalMCPSkills()
 	refreshProjectMCPSkills()
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	gitpkg "github.com/geodro/lerd/internal/git"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/siteops"
 	"github.com/geodro/lerd/internal/store"
@@ -43,6 +44,13 @@ func runLink(args []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+
+	if parent, branch, ok := findOwningWorktree(cwd); ok {
+		fmt.Printf("This directory is the %q worktree of site %q.\n", branch, parent.Name)
+		fmt.Printf("Worktrees inherit the parent's registration; not linking %s as a separate site.\n", cwd)
+		fmt.Printf("Manage it from the parent (%s) or via `lerd worktree`.\n", parent.Path)
+		return nil
 	}
 
 	cfg, err := config.LoadGlobal()
@@ -433,6 +441,29 @@ func resolveFramework(dir string) (string, bool) {
 	}
 	// Interactive store fallback — only for terminal commands.
 	return store.DetectFrameworkWithStore(dir)
+}
+
+// findOwningWorktree returns the parent site if cwd is one of its worktree
+// checkouts. Used to short-circuit runLink so worktrees don't get registered
+// as standalone sites.
+func findOwningWorktree(cwd string) (*config.Site, string, bool) {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil, "", false
+	}
+	for i := range reg.Sites {
+		s := &reg.Sites[i]
+		if s.Ignored || s.Path == cwd {
+			continue
+		}
+		wts, _ := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+		for _, wt := range wts {
+			if wt.Path == cwd {
+				return s, wt.Branch, true
+			}
+		}
+	}
+	return nil, "", false
 }
 
 // fetchFrameworkFromStore attempts to install a framework definition from the

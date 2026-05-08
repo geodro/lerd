@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -75,12 +76,15 @@ func newWorktreeAddCmd() *cobra.Command {
 				fmt.Println("Dependencies installed.")
 			}
 
-			if hasHostWorkerAutoStart(site, worktreePath) {
-				fmt.Println("Vite dev server auto-started by the watcher — skipping build prompt.")
+			if optedIn := OptedInHostWorkers(site, worktreePath); len(optedIn) > 0 {
+				fmt.Printf("Auto-starting opted-in workers: %s\n", strings.Join(optedIn, ", "))
+			}
+			if replacers := OptedInBuildReplacers(site, worktreePath); len(replacers) > 0 {
+				fmt.Printf("Skipping build, %s will provide assets.\n", strings.Join(replacers, ", "))
 			} else if script := promptFrontendBuild(worktreePath); script != "" {
 				fmt.Printf("Running npm run %s...\n", script)
 				if err := gitpkg.RunNpmScript(worktreePath, script); err != nil {
-					fmt.Printf("[WARN] npm run %s failed: %v — first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", script, err)
+					fmt.Printf("[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", script, err)
 				} else {
 					fmt.Println("Frontend built.")
 				}
@@ -392,26 +396,76 @@ func worktreePathForBranch(site *config.Site, branch string) (string, error) {
 	return "", fmt.Errorf("worktree %q not found", branch)
 }
 
-// hasHostWorkerAutoStart returns true when the worktree path matches a
-// host worker check rule, meaning the watcher will auto-start that worker
-// for the new worktree. The check must run against worktreePath (not the
-// parent site path) because syncWorktree uses worktreePath when deciding
-// whether to spawn, and a divergence between the suppression check and the
-// spawn check causes either a duplicate build or a missing manifest.
-func hasHostWorkerAutoStart(site *config.Site, worktreePath string) bool {
+// OptedInBuildReplacers returns names of workers (a) opted into via
+// .lerd.yaml workers:, (b) declared replaces_build:true in the framework
+// yaml, and (c) able to run at the given path. When path != site.Path the
+// per_worktree:true gate applies; for the parent it doesn't.
+func OptedInBuildReplacers(site *config.Site, path string) []string {
 	if site.Framework == "" {
-		return false
+		return nil
 	}
 	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
 	if !ok {
-		return false
+		return nil
 	}
-	for _, w := range fw.Workers {
-		if w.Host && (w.Check == nil || config.MatchesRule(worktreePath, *w.Check)) {
-			return true
+	proj, _ := config.LoadProjectConfig(site.Path)
+	if proj == nil || len(proj.Workers) == 0 {
+		return nil
+	}
+	wanted := make(map[string]bool, len(proj.Workers))
+	for _, n := range proj.Workers {
+		wanted[n] = true
+	}
+	isWorktree := path != site.Path
+	var out []string
+	for name, w := range fw.Workers {
+		if !wanted[name] || !w.ReplacesBuild {
+			continue
 		}
+		if isWorktree && !w.IsPerWorktree() {
+			continue
+		}
+		if w.Check != nil && !config.MatchesRule(path, *w.Check) {
+			continue
+		}
+		out = append(out, name)
 	}
-	return false
+	sort.Strings(out)
+	return out
+}
+
+// OptedInHostWorkers returns the names of host-mode workers the user has
+// opted into for this project (.lerd.yaml workers:) and whose check rule
+// matches the worktree path. Worker auto-start now follows project intent
+// instead of treating every host:true worker as implicitly desired.
+func OptedInHostWorkers(site *config.Site, worktreePath string) []string {
+	if site.Framework == "" {
+		return nil
+	}
+	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !ok {
+		return nil
+	}
+	proj, _ := config.LoadProjectConfig(site.Path)
+	if proj == nil || len(proj.Workers) == 0 {
+		return nil
+	}
+	wanted := make(map[string]bool, len(proj.Workers))
+	for _, n := range proj.Workers {
+		wanted[n] = true
+	}
+	var out []string
+	for name, w := range fw.Workers {
+		if !w.Host || !wanted[name] || !w.IsPerWorktree() {
+			continue
+		}
+		if w.Check != nil && !config.MatchesRule(worktreePath, *w.Check) {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func branchesWithIsolatedDB(site *config.Site) []string {

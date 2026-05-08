@@ -123,7 +123,10 @@
     reconcile('schedule', Boolean(site.schedule_running));
     reconcile('reverb', Boolean(site.reverb_running));
     reconcile('stripe', Boolean(site.stripe_running));
-    for (const w of site.framework_workers || []) {
+    const sourceWorkers = activeWorktreeBranch
+      ? activeWorktree?.framework_workers || []
+      : site.framework_workers || [];
+    for (const w of sourceWorkers) {
       reconcile('worker:' + w.name, Boolean(w.running));
     }
   });
@@ -266,12 +269,30 @@
     <div class="w-px h-4 bg-gray-200 dark:bg-lerd-border mx-0.5"></div>
 
     {#if activeWorktreeBranch}
-      <span
-        class="text-[11px] text-gray-400 dark:text-gray-500 italic"
-        title="Queue, schedule, Horizon, Reverb and custom workers run against the main branch only. Switch to main to start or stop them."
-      >
-        Workers run from main
-      </span>
+      {@const wtWorkers = activeWorktree?.framework_workers || []}
+      {#if wtWorkers.length === 0}
+        <span
+          class="text-[11px] text-gray-400 dark:text-gray-500 italic"
+          title="Queue, schedule, Horizon and Reverb run against the main branch only. Switch to main to start or stop them."
+        >
+          Workers run from main
+        </span>
+      {:else}
+        {#each wtWorkers as w (w.name)}
+          <div class="flex items-center gap-1.5">
+            <Toggle
+              on={Boolean(w.running)}
+              failing={Boolean(w.failing)}
+              tone="indigo"
+              loading={isPending('worker:' + w.name)}
+              disabled={isPending('worker:' + w.name)}
+              onclick={() => transition('worker:' + w.name, !w.running, () => toggleWorker(site, w, activeWorktreeBranch))}
+              title={w.running ? 'Stop ' + (w.label || w.name) : 'Start ' + (w.label || w.name)}
+            />
+            <span class="text-xs text-gray-500 dark:text-gray-400">{w.label || w.name}</span>
+          </div>
+        {/each}
+      {/if}
     {:else}
       {#if site.has_queue_worker}
         <div class="flex items-center gap-1.5">

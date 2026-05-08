@@ -13,6 +13,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/store"
 	"github.com/geodro/lerd/internal/systemd"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/spf13/cobra"
@@ -204,6 +205,55 @@ func runUpdate(currentVersion string, beta bool) error {
 
 	restartLerdUserServices()
 	return nil
+}
+
+// refreshStoreFrameworks re-fetches every cached framework yaml so users pick
+// up schema additions (per_worktree, etc.) without waiting for the 24h
+// staleness check in GetFrameworkForDir to expire.
+func refreshStoreFrameworks() {
+	dir := config.StoreFrameworksDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type target struct{ name, version string }
+	var targets []target
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".yaml")
+		var t target
+		if at := strings.Index(base, "@"); at != -1 {
+			t.name = base[:at]
+			t.version = base[at+1:]
+		} else {
+			t.name = base
+		}
+		targets = append(targets, t)
+	}
+	if len(targets) == 0 {
+		return
+	}
+	fmt.Printf("\n==> Refreshing %d framework definition%s\n", len(targets), pluralS(len(targets)))
+	client := store.NewClient()
+	for _, t := range targets {
+		label := t.name
+		if t.version != "" {
+			label = t.name + "@" + t.version
+		}
+		fmt.Printf("  --> %s ... ", label)
+		fw, err := client.FetchFramework(t.name, t.version)
+		if err != nil {
+			fmt.Printf("WARN (%v)\n", err)
+			continue
+		}
+		if err := config.SaveStoreFramework(fw); err != nil {
+			fmt.Printf("WARN (%v)\n", err)
+			continue
+		}
+		fmt.Println("OK")
+	}
 }
 
 // refreshGlobalMCPSkills re-writes the user-scope skill, rules, and guidelines

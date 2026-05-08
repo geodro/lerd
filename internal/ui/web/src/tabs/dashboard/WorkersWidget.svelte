@@ -2,7 +2,7 @@
   import DashboardCard from './DashboardCard.svelte';
   import StatusPill from '$components/StatusPill.svelte';
   import StatusDot from '$components/StatusDot.svelte';
-  import { workerGroups, workerSiteName, type Service } from '$stores/services';
+  import { workerGroups, workerSiteName, parentSiteDomain, type Service } from '$stores/services';
   import {
     unhealthyWorkers,
     healAll,
@@ -26,8 +26,12 @@
   }
 
   function jumpToSite(item: Service) {
-    const site = workerSiteName(item);
-    goToTab('sites', site + '.test');
+    const domain = parentSiteDomain(item);
+    if (domain) {
+      goToTab('sites', domain);
+      return;
+    }
+    goToTab('sites', workerSiteName(item) + '.test');
   }
 
   async function onHeal() {
