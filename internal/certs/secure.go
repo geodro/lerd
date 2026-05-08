@@ -68,7 +68,9 @@ func ReissueCertForWorktree(site config.Site) error {
 
 // issueCertWithWorktrees detects all worktrees for the site and issues a
 // certificate covering the site's own domains plus *.worktreeDomain for each
-// worktree, so that deep subdomains (e.g. app.branch.domain.test) work.
+// worktree, so that deep subdomains (e.g. app.branch.domain.test) work. The
+// reissue is atomic: a transient mkcert failure leaves the existing cert
+// intact rather than tripping RepairVhosts into flipping the site to HTTP.
 func issueCertWithWorktrees(site config.Site) error {
 	certsDir := filepath.Join(config.CertsDir(), "sites")
 
@@ -80,13 +82,7 @@ func issueCertWithWorktrees(site config.Site) error {
 	}
 	domains := WorktreeCertDomains(site.Domains, wtDomains)
 
-	// Remove existing cert so IssueCert regenerates it with the updated SANs.
-	certFile := filepath.Join(certsDir, site.PrimaryDomain()+".crt")
-	keyFile := filepath.Join(certsDir, site.PrimaryDomain()+".key")
-	os.Remove(certFile) //nolint:errcheck
-	os.Remove(keyFile)  //nolint:errcheck
-
-	return IssueCert(site.PrimaryDomain(), domains, certsDir)
+	return IssueCertForce(site.PrimaryDomain(), domains, certsDir)
 }
 
 // WorktreeCertDomains builds the full domain list for a certificate that covers

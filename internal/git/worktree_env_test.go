@@ -152,6 +152,37 @@ func TestEnsureWorktreeEnv_staticOverrideValues(t *testing.T) {
 	}
 }
 
+// env_overrides should only override the keys it declares. APP_URL must still
+// get the default scheme://worktreeDomain rewrite when the user only overrides
+// some other key (e.g. SESSION_DOMAIN).
+func TestEnsureWorktreeEnv_partialOverridesStillRewriteAppURL(t *testing.T) {
+	main := t.TempDir()
+	wt := t.TempDir()
+
+	mainEnv := "APP_URL=http://acme.test\nSESSION_DOMAIN=acme.test\n"
+	if err := os.WriteFile(filepath.Join(main, ".env"), []byte(mainEnv), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lerdYAML := "domains:\n  - acme\nenv_overrides:\n  SESSION_DOMAIN: \"{{domain}}\"\n"
+	if err := os.WriteFile(filepath.Join(main, ".lerd.yaml"), []byte(lerdYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	EnsureWorktreeEnv(main, wt, "feat-a.acme.test", true)
+
+	got, err := os.ReadFile(filepath.Join(wt, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if !strings.Contains(s, "APP_URL=https://feat-a.acme.test") {
+		t.Errorf("APP_URL must still be rewritten when env_overrides omits it:\n%s", s)
+	}
+	if !strings.Contains(s, "SESSION_DOMAIN=feat-a.acme.test") {
+		t.Errorf("declared override not applied:\n%s", s)
+	}
+}
+
 // Without env_overrides in .lerd.yaml, falls back to default APP_URL rewrite.
 func TestEnsureWorktreeEnv_fallsBackWithoutOverrides(t *testing.T) {
 	main := t.TempDir()

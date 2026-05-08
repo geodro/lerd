@@ -58,10 +58,13 @@ func defaultDNSStatusDeps() dnsStatusDeps {
 // here, and the dashboard would otherwise stay red after boot until the
 // user manually refreshed even after lerd-dns came online.
 //
-// Each tick: if no tab is visible, skip. Otherwise probe once, compare to
-// the last observation, and publish KindStatus on transition.
+// Probes immediately on startup so a UI tab opened during boot doesn't
+// sit on stale dns.ok=false for up to 30s while DNS comes online. Each
+// subsequent tick: if no tab is visible, skip. Otherwise probe once,
+// compare to the last observation, and publish KindStatus on transition.
 func runDNSStatusWatcher() {
 	deps := defaultDNSStatusDeps()
+	tickDNSStatus(deps)
 	ticker := time.NewTicker(dnsStatusWatchInterval)
 	defer ticker.Stop()
 	for range ticker.C {

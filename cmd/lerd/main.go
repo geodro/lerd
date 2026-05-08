@@ -591,6 +591,14 @@ func scanWorktrees() bool {
 		if len(worktrees) == 0 {
 			continue
 		}
+		// Reissue once per site so the cert covers the wildcard SAN for every
+		// worktree even after a daemon restart that picked up worktrees added
+		// before the wildcard-SAN feature shipped.
+		if s.Secured {
+			if reissueErr := certs.ReissueCertForWorktree(s); reissueErr != nil {
+				fmt.Printf("[WARN] reissue cert for %s: %v\n", s.PrimaryDomain(), reissueErr)
+			}
+		}
 		for _, wt := range worktrees {
 			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
 			var vhostErr error
@@ -656,6 +664,13 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 func cleanupWorktreeVhosts(site *config.Site) bool {
 	changed := removeWorktreeVhosts(site)
 	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
+	// Shrink the cert SAN list to just the surviving worktrees so removed
+	// branches drop their wildcard SAN.
+	if site.Secured {
+		if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
+			fmt.Printf("[WARN] reissue cert for %s: %v\n", site.PrimaryDomain(), reissueErr)
+		}
+	}
 	for _, wt := range worktrees {
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 		var vhostErr error

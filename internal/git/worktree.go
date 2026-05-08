@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/envfile"
 )
 
 // Worktree represents a git worktree checkout for a registered site.
@@ -216,8 +217,10 @@ func lockfilesMatch(mainRepoPath, worktreePath string, lockfiles []string) bool 
 // EnsureWorktreeEnv copies .env from the main repo when missing (gitignored,
 // so `git worktree add` never carries it across) and rewrites APP_URL to the
 // worktree domain. When the main repo's .lerd.yaml defines env_overrides,
-// those templates are resolved and applied instead of the plain APP_URL
-// rewrite. Idempotent and cheap; safe to call on every request.
+// those values are resolved and layered on top — only keys declared in
+// env_overrides are touched, so partial overrides (e.g. SESSION_DOMAIN only)
+// don't suppress the default APP_URL rewrite. Idempotent and cheap; safe to
+// call on every request.
 func EnsureWorktreeEnv(mainRepoPath, worktreePath, worktreeDomain string, secured bool) {
 	scheme := "http"
 	if secured {
@@ -231,54 +234,22 @@ func EnsureWorktreeEnv(mainRepoPath, worktreePath, worktreeDomain string, secure
 		}
 	}
 
+	updates := map[string]string{
+		"APP_URL": scheme + "://" + worktreeDomain,
+	}
+
 	cfg, _ := config.LoadProjectConfig(mainRepoPath)
 	if cfg != nil && len(cfg.EnvOverrides) > 0 {
-		applyEnvOverrides(worktreeEnv, cfg.EnvOverrides, worktreeDomain, scheme)
-	} else {
-		_ = rewriteAppURL(worktreeEnv, scheme+"://"+worktreeDomain)
-	}
-}
-
-// applyEnvOverrides resolves {{domain}}, {{scheme}}, and {{site}} placeholders
-// in the override map and writes the resulting KEY=VALUE pairs into the .env
-// file, replacing existing keys or appending new ones.
-func applyEnvOverrides(envPath string, overrides map[string]string, domain, scheme string) {
-	site := strings.ReplaceAll(strings.ReplaceAll(domain, ".", "_"), "-", "_")
-
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(data), "\n")
-
-	resolved := make(map[string]string, len(overrides))
-	for k, v := range overrides {
-		v = strings.ReplaceAll(v, "{{domain}}", domain)
-		v = strings.ReplaceAll(v, "{{scheme}}", scheme)
-		v = strings.ReplaceAll(v, "{{site}}", site)
-		resolved[k] = v
-	}
-
-	applied := make(map[string]bool, len(resolved))
-	for i, line := range lines {
-		for key, val := range resolved {
-			if strings.HasPrefix(line, key+"=") || strings.HasPrefix(line, key+" =") {
-				lines[i] = key + "=" + val
-				applied[key] = true
-			}
-		}
-	}
-	for key, val := range resolved {
-		if !applied[key] {
-			lines = append(lines, key+"="+val)
+		site := config.SiteSlug(worktreeDomain)
+		for k, v := range cfg.EnvOverrides {
+			v = strings.ReplaceAll(v, "{{domain}}", worktreeDomain)
+			v = strings.ReplaceAll(v, "{{scheme}}", scheme)
+			v = strings.ReplaceAll(v, "{{site}}", site)
+			updates[k] = v
 		}
 	}
 
-	out := []byte(strings.Join(lines, "\n"))
-	if bytes.Equal(out, data) {
-		return
-	}
-	_ = os.WriteFile(envPath, out, 0644)
+	_ = envfile.ApplyUpdates(worktreeEnv, updates)
 }
 
 func copyFile(src, dst string) error {
@@ -294,33 +265,6 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
-}
-
-// rewriteAppURL replaces APP_URL in the given .env file. The write is skipped
-// when the new contents match the existing file so dev-side watchers (vite,
-// IDE indexers, opcache) don't see mtime churn on no-op scans.
-func rewriteAppURL(envPath, appURL string) error {
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(line, "APP_URL=") || strings.HasPrefix(line, "APP_URL =") {
-			lines[i] = "APP_URL=" + appURL
-			found = true
-			break
-		}
-	}
-	if !found {
-		lines = append(lines, "APP_URL="+appURL)
-	}
-	out := []byte(strings.Join(lines, "\n"))
-	if bytes.Equal(out, data) {
-		return nil
-	}
-	return os.WriteFile(envPath, out, 0644)
 }
 
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9-]`)

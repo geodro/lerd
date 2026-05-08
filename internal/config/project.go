@@ -310,6 +310,12 @@ func cloneProjectConfig(in *ProjectConfig) *ProjectConfig {
 			out.CustomWorkers[k] = v
 		}
 	}
+	if in.EnvOverrides != nil {
+		out.EnvOverrides = make(map[string]string, len(in.EnvOverrides))
+		for k, v := range in.EnvOverrides {
+			out.EnvOverrides[k] = v
+		}
+	}
 	if in.Container != nil {
 		cp := *in.Container
 		out.Container = &cp

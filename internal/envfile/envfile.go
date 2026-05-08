@@ -10,9 +10,16 @@ import (
 )
 
 // ApplyUpdates rewrites the .env at path, replacing values for any key in updates.
-// Keys not already present are appended at the end. Comments and blank lines are preserved.
+// Keys not already present are appended at the end. Comments and blank lines are
+// preserved. The write is skipped when the resulting contents match the existing
+// file, so dev-side watchers (vite, IDE indexers, opcache) don't see mtime churn
+// on idempotent calls. The file's existing mode is preserved.
 func ApplyUpdates(path string, updates map[string]string) error {
-	f, err := os.Open(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	original, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -20,7 +27,7 @@ func ApplyUpdates(path string, updates map[string]string) error {
 	var lines []string
 	applied := map[string]bool{}
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(strings.NewReader(string(original)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "#") && strings.Contains(line, "=") {
@@ -33,7 +40,6 @@ func ApplyUpdates(path string, updates map[string]string) error {
 		}
 		lines = append(lines, line)
 	}
-	f.Close()
 	if err := scanner.Err(); err != nil {
 		return err
 	}
@@ -65,10 +71,15 @@ func ApplyUpdates(path string, updates map[string]string) error {
 	}
 
 	out := strings.Join(lines, "\n")
-	if len(lines) > 0 {
+	if len(lines) > 0 && len(original) > 0 && original[len(original)-1] == '\n' {
+		out += "\n"
+	} else if len(lines) > 0 && len(original) == 0 {
 		out += "\n"
 	}
-	return os.WriteFile(path, []byte(out), 0600)
+	if out == string(original) {
+		return nil
+	}
+	return os.WriteFile(path, []byte(out), info.Mode().Perm())
 }
 
 // ReadKey returns the value of a single key from the .env file at path,
