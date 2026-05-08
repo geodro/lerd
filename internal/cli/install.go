@@ -99,10 +99,11 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// phase below so they come up on the freshly written quadlets.
 	var migrated []string
 	step("Creating lerd podman network")
-	if err := podman.EnsureNetwork("lerd"); err != nil {
+	desiredDNS := dns.ReadContainerDNS()
+	if err := podman.EnsureNetwork("lerd", desiredDNS); err != nil {
 		if errors.Is(err, podman.ErrNetworkNeedsMigration) {
 			fmt.Println()
-			restored, dualStack, mErr := podman.RecreateNetwork("lerd")
+			restored, dualStack, mErr := podman.RecreateNetwork("lerd", desiredDNS)
 			if mErr != nil {
 				return fmt.Errorf("recreating lerd network: %w", mErr)
 			}
@@ -118,7 +119,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
+	if err := podman.EnsureNetworkDNS("lerd", desiredDNS); err != nil {
 		return err
 	}
 	ok()
@@ -1173,8 +1174,9 @@ func addShellShims(manageNode bool) error {
 
 	// Write node/npm/npx shims — use fnm directly so they work inside containers
 	// (lerd is glibc-linked and cannot run inside Alpine-based PHP containers).
-	// Only written when lerd is managing Node versions; skipped when the user
-	// declined the prompt because they already have their own node installed.
+	// Only written when lerd is managing Node versions; otherwise existing
+	// shims are removed so the user's system node stops being masked by a
+	// stale fnm shim from a prior managed install.
 	if manageNode {
 		nodeShimTmpl := `#!/bin/sh
 FNM="%s"
@@ -1197,6 +1199,12 @@ fi
 			shim := fmt.Sprintf(nodeShimTmpl, fnmBin, bin, bin)
 			if err := os.WriteFile(filepath.Join(binDir, bin), []byte(shim), 0755); err != nil {
 				return fmt.Errorf("writing %s shim: %w", bin, err)
+			}
+		}
+	} else {
+		for _, bin := range []string{"node", "npm", "npx"} {
+			if err := os.Remove(filepath.Join(binDir, bin)); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing %s shim: %w", bin, err)
 			}
 		}
 	}

@@ -53,6 +53,36 @@ func NewEnvCmd() *cobra.Command {
 	}
 }
 
+// userPickedDBFromYAML returns true when the user has named any database
+// service in .lerd.yaml: sqlite, the built-in mysql/postgres, or a custom DB
+// family alternate (mysql-5-6, mariadb-11, postgres-14, mongo-6, …). This
+// signal is what lets us replace whatever the existing .env says about
+// DB_CONNECTION with the user's actual pick.
+func userPickedDBFromYAML(lerdYAMLServices map[string]bool) bool {
+	if lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"] {
+		return true
+	}
+	for name := range lerdYAMLServices {
+		switch config.InferFamily(name) {
+		case "mysql", "mariadb", "postgres", "mongo":
+			return true
+		}
+	}
+	return false
+}
+
+// shouldApplyService decides whether to apply env vars for svc. A built-in
+// DB service that wasn't explicitly picked is skipped when the user picked a
+// different DB, so a fresh-Laravel DB_CONNECTION=sqlite never re-imprints
+// itself when the wizard selected mysql. Otherwise apply when the env file
+// references the service or .lerd.yaml lists it.
+func shouldApplyService(svc string, detectedFromEnv, pickedFromYAML, userPickedDB bool) bool {
+	if userPickedDB && (svc == "mysql" || svc == "postgres") && !pickedFromYAML {
+		return false
+	}
+	return detectedFromEnv || pickedFromYAML
+}
+
 // serviceDetectors maps service names to a function that detects if the env references that service.
 var serviceDetectors = map[string]func(map[string]string) bool{
 	"mysql": func(env map[string]string) bool {
@@ -239,13 +269,28 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		lerdYAMLServices[dbChoice] = true
 	}
 
+	userPickedDB := userPickedDBFromYAML(lerdYAMLServices)
+
 	if len(fw.Env.Services) > 0 {
 		// Framework defines its own service detection and vars — use those.
+		// A service applies when its env_detect rule matches the existing env
+		// file OR it is listed in .lerd.yaml. The .lerd.yaml hint is what
+		// lets `lerd init` swap a fresh Laravel project from sqlite to mysql:
+		// the env file still says DB_CONNECTION=sqlite, so detection misses,
+		// but the user picked mysql in the wizard.
 		for svc, def := range fw.Env.Services {
-			if !frameworkServiceDetected(def, envMap) {
+			detectedFromEnv := frameworkServiceDetected(def, envMap)
+			pickedFromYAML := lerdYAMLServices[svc]
+
+			if !shouldApplyService(svc, detectedFromEnv, pickedFromYAML, userPickedDB) {
 				continue
 			}
-			fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc)
+
+			if detectedFromEnv {
+				fmt.Printf("  Detected %-12s — applying lerd connection values\n", svc)
+			} else {
+				fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values\n", svc)
+			}
 			isDB := svc == "mysql" || svc == "postgres"
 			for _, kv := range def.Vars {
 				k, v, _ := strings.Cut(kv, "=")
@@ -303,24 +348,12 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		// existing .env happens to say about DB_CONNECTION — otherwise
 		// switching DB types via the wizard would silently keep the old
 		// credentials.
-		userPickedDB := lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"]
-		for name := range lerdYAMLServices {
-			if fam := config.InferFamily(name); fam == "mysql" || fam == "mariadb" || fam == "postgres" || fam == "mongo" {
-				userPickedDB = true
-				break
-			}
-		}
-
 		for _, svc := range knownServices() {
 			detector, ok := serviceDetectors[svc]
 			detectedFromEnv := ok && detector(envMap)
+			pickedFromYAML := lerdYAMLServices[svc]
 
-			// Skip auto-detected DBs the user didn't pick.
-			if userPickedDB && (svc == "mysql" || svc == "postgres") && !lerdYAMLServices[svc] {
-				continue
-			}
-
-			if !detectedFromEnv && !lerdYAMLServices[svc] {
+			if !shouldApplyService(svc, detectedFromEnv, pickedFromYAML, userPickedDB) {
 				continue
 			}
 

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 // Worktree represents a git worktree checkout for a registered site.
@@ -213,23 +215,70 @@ func lockfilesMatch(mainRepoPath, worktreePath string, lockfiles []string) bool 
 
 // EnsureWorktreeEnv copies .env from the main repo when missing (gitignored,
 // so `git worktree add` never carries it across) and rewrites APP_URL to the
-// worktree domain. Idempotent and cheap; safe to call on every request.
+// worktree domain. When the main repo's .lerd.yaml defines env_overrides,
+// those templates are resolved and applied instead of the plain APP_URL
+// rewrite. Idempotent and cheap; safe to call on every request.
 func EnsureWorktreeEnv(mainRepoPath, worktreePath, worktreeDomain string, secured bool) {
 	scheme := "http"
 	if secured {
 		scheme = "https"
 	}
-	appURL := scheme + "://" + worktreeDomain
 	worktreeEnv := filepath.Join(worktreePath, ".env")
-	if _, err := os.Lstat(worktreeEnv); err == nil {
-		_ = rewriteAppURL(worktreeEnv, appURL)
+	if _, err := os.Lstat(worktreeEnv); err != nil {
+		mainEnv := filepath.Join(mainRepoPath, ".env")
+		if err := copyFile(mainEnv, worktreeEnv); err != nil {
+			return
+		}
+	}
+
+	cfg, _ := config.LoadProjectConfig(mainRepoPath)
+	if cfg != nil && len(cfg.EnvOverrides) > 0 {
+		applyEnvOverrides(worktreeEnv, cfg.EnvOverrides, worktreeDomain, scheme)
+	} else {
+		_ = rewriteAppURL(worktreeEnv, scheme+"://"+worktreeDomain)
+	}
+}
+
+// applyEnvOverrides resolves {{domain}}, {{scheme}}, and {{site}} placeholders
+// in the override map and writes the resulting KEY=VALUE pairs into the .env
+// file, replacing existing keys or appending new ones.
+func applyEnvOverrides(envPath string, overrides map[string]string, domain, scheme string) {
+	site := strings.ReplaceAll(strings.ReplaceAll(domain, ".", "_"), "-", "_")
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
 		return
 	}
-	mainEnv := filepath.Join(mainRepoPath, ".env")
-	if err := copyFile(mainEnv, worktreeEnv); err != nil {
+	lines := strings.Split(string(data), "\n")
+
+	resolved := make(map[string]string, len(overrides))
+	for k, v := range overrides {
+		v = strings.ReplaceAll(v, "{{domain}}", domain)
+		v = strings.ReplaceAll(v, "{{scheme}}", scheme)
+		v = strings.ReplaceAll(v, "{{site}}", site)
+		resolved[k] = v
+	}
+
+	applied := make(map[string]bool, len(resolved))
+	for i, line := range lines {
+		for key, val := range resolved {
+			if strings.HasPrefix(line, key+"=") || strings.HasPrefix(line, key+" =") {
+				lines[i] = key + "=" + val
+				applied[key] = true
+			}
+		}
+	}
+	for key, val := range resolved {
+		if !applied[key] {
+			lines = append(lines, key+"="+val)
+		}
+	}
+
+	out := []byte(strings.Join(lines, "\n"))
+	if bytes.Equal(out, data) {
 		return
 	}
-	_ = rewriteAppURL(worktreeEnv, appURL)
+	_ = os.WriteFile(envPath, out, 0644)
 }
 
 func copyFile(src, dst string) error {

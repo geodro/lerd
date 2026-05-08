@@ -60,6 +60,12 @@ type ProjectConfig struct {
 	// into its own database (named <parent_db>_<sanitized_branch>) so
 	// migrations don't bleed into the parent. Off by default.
 	DBIsolated bool `yaml:"db_isolated,omitempty"`
+	// EnvOverrides maps env keys to template values that are resolved and
+	// written into the worktree's .env when a worktree is created. Supported
+	// placeholders: {{domain}} (worktree domain), {{scheme}} (http/https),
+	// {{site}} (database-safe name). When APP_URL is present here it takes
+	// precedence over the default scheme://domain rewrite.
+	EnvOverrides map[string]string `yaml:"env_overrides,omitempty"`
 }
 
 // IsEmpty returns true when the config has no meaningful content, which
@@ -69,7 +75,8 @@ func (c *ProjectConfig) IsEmpty() bool {
 		c.Framework == "" && len(c.Services) == 0 && len(c.Workers) == 0 &&
 		len(c.CustomWorkers) == 0 && !c.Secured && c.AppURL == "" &&
 		c.DB.Service == "" && c.DB.Database == "" && c.Container == nil &&
-		c.Runtime == "" && !c.RuntimeWorker && !c.DBIsolated
+		c.Runtime == "" && !c.RuntimeWorker && !c.DBIsolated &&
+		len(c.EnvOverrides) == 0
 }
 
 // ServiceNames returns the name of every service in the config, for callers

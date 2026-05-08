@@ -503,7 +503,7 @@ func runRollback() error {
 	// binary's probe logic decides v4-only vs dual-stack; the old
 	// binary's EnsureNetwork will accept whatever schema it finds.
 	fmt.Println("  --> Resetting lerd network for rollback")
-	if attached, _, err := podman.RecreateNetwork("lerd"); err == nil {
+	if attached, _, err := podman.RecreateNetwork("lerd", nil); err == nil {
 		for _, c := range attached {
 			_ = podman.StartUnit(c)
 		}

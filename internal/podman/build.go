@@ -285,6 +285,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, w io.
 	if !local {
 		if baseRef := tryPullBaseImage(version, w); baseRef != "" {
 			containerfile = "FROM " + baseRef + "\n" +
+				"RUN mkdir -p /etc/my.cnf.d && printf '[client]\\nssl=0\\n' > /etc/my.cnf.d/lerd-no-ssl.cnf\n" +
 				buildCustomExtBlock(customExts) +
 				mkcertCABlock(tmp)
 			if force {

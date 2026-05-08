@@ -396,3 +396,66 @@ func TestDetectSystemNode_findsNpmInPath(t *testing.T) {
 		t.Errorf("expected detectSystemNode to find npm, got %q", got)
 	}
 }
+
+// TestAddShellShims_OptOutRemovesNodeShims covers re-running `lerd install`
+// after a previous managed-node install: answering "no" to the prompt must
+// actually unblock system node, which means deleting the fnm-backed shims
+// that would otherwise keep masking it in PATH.
+func TestAddShellShims_OptOutRemovesNodeShims(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("HOME", tmp)
+	t.Setenv("SHELL", "/bin/sh")
+
+	binDir := filepath.Join(tmp, "lerd", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := addShellShims(true); err != nil {
+		t.Fatalf("addShellShims(true): %v", err)
+	}
+	for _, bin := range []string{"node", "npm", "npx"} {
+		if _, err := os.Stat(filepath.Join(binDir, bin)); err != nil {
+			t.Fatalf("%s shim missing after addShellShims(true): %v", bin, err)
+		}
+	}
+
+	if err := addShellShims(false); err != nil {
+		t.Fatalf("addShellShims(false): %v", err)
+	}
+	for _, bin := range []string{"node", "npm", "npx"} {
+		if _, err := os.Stat(filepath.Join(binDir, bin)); err == nil {
+			t.Errorf("%s shim should be removed when manageNode=false", bin)
+		} else if !os.IsNotExist(err) {
+			t.Errorf("%s shim stat: %v", bin, err)
+		}
+	}
+
+	// Non-node shims must be preserved across the opt-out.
+	for _, bin := range []string{"php", "composer", "laravel"} {
+		if _, err := os.Stat(filepath.Join(binDir, bin)); err != nil {
+			t.Errorf("%s shim should survive opt-out: %v", bin, err)
+		}
+	}
+}
+
+// TestAddShellShims_OptOutWhenNoNodeShims is the fresh-install opt-out path
+// (no prior managed node). os.Remove on a missing file must not surface as
+// an error and must not block writing the rest of the shims.
+func TestAddShellShims_OptOutWhenNoNodeShims(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("HOME", tmp)
+	t.Setenv("SHELL", "/bin/sh")
+
+	binDir := filepath.Join(tmp, "lerd", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := addShellShims(false); err != nil {
+		t.Fatalf("addShellShims(false) on clean bin dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "php")); err != nil {
+		t.Errorf("php shim should still be written: %v", err)
+	}
+}
