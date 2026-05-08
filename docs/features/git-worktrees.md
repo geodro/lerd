@@ -54,7 +54,7 @@ Whether you use `lerd worktree add` or the bare `git` command, the daemon's watc
 
 1. Wait for `HEAD` to be a final ref or SHA — git writes `gitdir`/`HEAD` over multiple steps and the watcher must avoid acting on a half-written detached state.
 2. Seed `vendor/` and `node_modules/` from the main repo when the worktree's `composer.lock` / JS lockfile matches main's, using reflinks where the filesystem supports them (btrfs, xfs-reflink, APFS) and a plain copy elsewhere.
-3. Sync `.env` from main with `APP_URL` rewritten to the worktree's vhost domain.
+3. Sync `.env` from main with `APP_URL` rewritten to the worktree's vhost domain. When `.lerd.yaml` defines `env_overrides`, those templates are resolved instead (see [env overrides](#env-overrides) below).
 4. Run `composer install` (skipped when the marker is at-or-newer than `composer.lock`) and `npm ci` / `pnpm install --frozen-lockfile` / `yarn install --immutable` / `bun install --frozen-lockfile` (skipped under the same marker rule).
 5. Generate the worktree's nginx vhost.
 
@@ -67,7 +67,7 @@ Frontend build (`npm run build`) is **not** part of the watcher pipeline — it'
 | `vendor/` | Reflink/copy from main when `composer.lock` matches; otherwise skip and let `composer install` build from scratch (no stale autoload entries). |
 | `node_modules/` | Same lockfile-match guard against `pnpm-lock.yaml` / `yarn.lock` / `bun.lock*` / `package-lock.json` / `npm-shrinkwrap.json` (whichever exists). |
 | `public/build/` | Not seeded. Run `npm run dev` (Vite dev server, hot reload) or `npm run build` (static manifest) inside the worktree. |
-| `.env` | Copied from main; `APP_URL` rewritten to `http(s)://<branch>.<site>.test`. Realigned on every subsequent watcher pass so a branch rename keeps the value current. |
+| `.env` | Copied from main; `APP_URL` rewritten to `http(s)://<branch>.<site>.test` (or resolved via `env_overrides` when defined). Realigned on every subsequent watcher pass so a branch rename keeps the value current. |
 
 ::: info Why not symlink?
 Earlier lerd versions symlinked `vendor/` to save disk. PHP resolves `__DIR__` through symlinks to the real path, so Composer's `ClassLoader` would initialise against the main repo and silently load stale classes. Real copies (or reflinks) avoid the problem at no meaningful disk cost on modern filesystems.
@@ -86,6 +86,27 @@ lerd secure myapp
 ```
 
 `APP_URL` in each worktree's `.env` is rewritten to `https://` when you secure the parent (and back to `http://` on `lerd unsecure`).
+
+## Env overrides
+
+By default lerd only rewrites `APP_URL` in worktree `.env` files. Multi-tenant apps and other projects that derive multiple env variables from the site domain can define `env_overrides` in `.lerd.yaml`:
+
+```yaml
+env_overrides:
+    APP_URL: "{{scheme}}://app.{{domain}}"
+    CENTRAL_DOMAIN: "{{domain}}"
+    CACHE_DRIVER: redis
+```
+
+Values can use template placeholders or be plain static strings. When a worktree is created (or the watcher re-syncs), each value is resolved and written into the worktree's `.env`.
+
+| Placeholder | Resolves to | Example |
+|-------------|-------------|---------|
+| `{{domain}}` | Worktree domain | `feature-branch.myapp.test` |
+| `{{scheme}}` | `http` or `https` | `https` |
+| `{{site}}` | Database-safe name (underscored) | `feature_branch_myapp_test` |
+
+When `APP_URL` is present in `env_overrides` it takes precedence over the default `scheme://domain` rewrite. Without `env_overrides`, behaviour is unchanged.
 
 ---
 
