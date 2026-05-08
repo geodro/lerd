@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
@@ -90,7 +89,7 @@ func resolveDBName(s config.Site) string {
 	if v := envfile.ReadKey(filepath.Join(s.Path, ".env"), "DB_DATABASE"); v != "" {
 		return v
 	}
-	return strings.ReplaceAll(strings.ToLower(s.Name), "-", "_")
+	return config.SiteSlug(s.Name)
 }
 
 func resolveBucketName(s config.Site) string {

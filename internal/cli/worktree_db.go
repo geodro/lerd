@@ -124,8 +124,7 @@ func SetWorktreeDBIsolated(site *config.Site, branch string, isolated bool, sour
 // WorktreeDBName mirrors the projectDBName convention so a parent named
 // "acme_app" with branch "feat-x" becomes "acme_app_feat_x".
 func WorktreeDBName(parentDB, branch string) string {
-	slug := strings.ReplaceAll(strings.ToLower(branch), "-", "_")
-	return parentDB + "_" + slug
+	return parentDB + "_" + config.SiteSlug(branch)
 }
 
 func resolveCloneSource(site *config.Site, branch, source, parentDB string) string {

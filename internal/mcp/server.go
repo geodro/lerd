@@ -4685,7 +4685,7 @@ func execDBCreate(args map[string]any) (any, *rpcError) {
 			dbName = env.database
 		} else {
 			base := filepath.Base(projectPath)
-			dbName = strings.ToLower(strings.ReplaceAll(base, "-", "_"))
+			dbName = config.SiteSlug(base)
 		}
 	}
 
