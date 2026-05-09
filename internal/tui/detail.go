@@ -39,6 +39,9 @@ const (
 	kindWorktreeHeader
 	kindWorktreeWorker
 	kindWorktreeDB
+	kindWorktreeLAN
+	kindWorktreePHP
+	kindWorktreeNode
 )
 
 // detailRows returns the ordered rows the detail view draws. Built on each
@@ -90,6 +93,13 @@ func detailRows(s *siteinfo.EnrichedSite) []detailRow {
 		}
 		if dbCapable {
 			rows = append(rows, detailRow{kind: kindWorktreeDB, branch: wt.Branch, branchPath: wt.Path})
+		}
+		rows = append(rows, detailRow{kind: kindWorktreeLAN, branch: wt.Branch, branchPath: wt.Path})
+		if s.ContainerPort == 0 && wt.PHPVersion != "" {
+			rows = append(rows, detailRow{kind: kindWorktreePHP, branch: wt.Branch, branchPath: wt.Path})
+		}
+		if wt.NodeVersion != "" {
+			rows = append(rows, detailRow{kind: kindWorktreeNode, branch: wt.Branch, branchPath: wt.Path})
 		}
 	}
 	return rows
@@ -171,8 +181,29 @@ func (m *Model) detailToggleSelected(s *siteinfo.EnrichedSite, rows []detailRow,
 		return m.toggleWorktreeWorker(s, row)
 	case kindWorktreeDB:
 		return m.toggleWorktreeDB(s, row)
+	case kindWorktreeLAN:
+		return m.toggleWorktreeLAN(s, row)
+	case kindWorktreePHP:
+		m.openWorktreePHPPicker(s, row)
+		return nil
+	case kindWorktreeNode:
+		m.openWorktreeNodePicker(s, row)
+		return nil
 	}
 	return nil
+}
+
+func (m *Model) toggleWorktreeLAN(s *siteinfo.EnrichedSite, row detailRow) tea.Cmd {
+	wt := findWorktree(s, row.branch)
+	if wt == nil {
+		return nil
+	}
+	if wt.LANPort > 0 {
+		m.setStatus("stopping LAN share on "+row.branch+"…", 5*time.Second)
+		return runLerd(row.branchPath, "lan", "unshare")
+	}
+	m.setStatus("starting LAN share on "+row.branch+"…", 5*time.Second)
+	return runLerd(row.branchPath, "lan", "share")
 }
 
 func (m *Model) toggleWorktreeWorker(s *siteinfo.EnrichedSite, row detailRow) tea.Cmd {
@@ -594,6 +625,44 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 						worktreeDBStateText(wt)), selected)
 				}
 			}
+			for i, row := range rows {
+				if row.kind == kindWorktreeLAN && row.branch == wt.Branch {
+					renderedAny = true
+					selected := focused && navPos(i) == m.detailCursor
+					add(renderDetailRow(selected,
+						onOffGlyph(wt.LANPort > 0),
+						"    "+"LAN share",
+						lanShareText(wt.LANPort)), selected)
+				}
+			}
+			for i, row := range rows {
+				if row.kind == kindWorktreePHP && row.branch == wt.Branch {
+					renderedAny = true
+					selected := focused && navPos(i) == m.detailCursor
+					add(renderDetailRow(selected,
+						accentStyle.Render("λ"),
+						"    "+"PHP",
+						worktreeVersionText(wt.PHPVersion, wt.PHPVersionOverride)), selected)
+					if selected && m.pickerKind == kindWorktreePHP && m.pickerWorktreeName == wt.Branch {
+						for _, pl := range m.renderPickerRows(wt.PHPVersion) {
+							addPlain(pl)
+						}
+					}
+				}
+				if row.kind == kindWorktreeNode && row.branch == wt.Branch {
+					renderedAny = true
+					selected := focused && navPos(i) == m.detailCursor
+					add(renderDetailRow(selected,
+						accentStyle.Render("⬢"),
+						"    "+"Node",
+						worktreeVersionText(wt.NodeVersion, wt.NodeVersionOverride)), selected)
+					if selected && m.pickerKind == kindWorktreeNode && m.pickerWorktreeName == wt.Branch {
+						for _, pl := range m.renderPickerRows(wt.NodeVersion) {
+							addPlain(pl)
+						}
+					}
+				}
+			}
 			if !renderedAny {
 				addPlain(dimStyle.Render("    (no per-worktree controls)"))
 			}
@@ -754,6 +823,19 @@ func worktreeDBStateText(wt siteinfo.WorktreeInfo) string {
 		return runningStyle.Render(name)
 	}
 	return dimStyle.Render("shared with parent")
+}
+
+// worktreeVersionText shows the effective PHP/Node version with an
+// "(inherited)" hint when the value comes from the parent rather than a
+// .lerd.yaml override on the worktree.
+func worktreeVersionText(version string, override bool) string {
+	if version == "" {
+		return dimStyle.Render("not set")
+	}
+	if override {
+		return accentStyle.Render(version)
+	}
+	return dimStyle.Render(version + " (inherited)")
 }
 
 func workerGlyphFor(s *siteinfo.EnrichedSite, name string) string {

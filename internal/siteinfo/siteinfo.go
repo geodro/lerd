@@ -62,6 +62,9 @@ type WorktreeInfo struct {
 	FrameworkLabel      string
 	DBIsolated          bool
 	DBDatabase          string
+	// LANPort, when non-zero, means a per-worktree reverse proxy is
+	// listening on 0.0.0.0:LANPort. Independent of the parent's LAN port.
+	LANPort int
 	// Per-worktree worker state (lerd-<wname>-<site>-<wtBase>).
 	// queue/schedule/reverb/horizon are excluded; those bind to the parent.
 	FrameworkWorkers []WorkerInfo
@@ -538,6 +541,9 @@ func (e *EnrichedSite) enrichGit() {
 				info.DBIsolated = cfg.DBIsolated
 			}
 			info.DBDatabase = envfile.ReadKey(filepath.Join(wt.Path, ".env"), "DB_DATABASE")
+			if entry, ok, err := config.FindWorktreeLAN(e.Name, wt.Branch); err == nil && ok {
+				info.LANPort = entry.Port
+			}
 			if fw, ok := config.GetFrameworkForDir(e.FrameworkName, wt.Path); ok {
 				info.FrameworkVersion = fw.Version
 				info.FrameworkLabel = frameworkLabel(e.FrameworkName, wt.Path, fw, true)

@@ -241,6 +241,57 @@ func TestSiteHasManagedDB(t *testing.T) {
 	}
 }
 
+// TestDetailRows_WorktreesEmitLANAndVersionRows pins the LAN row + per-
+// worktree PHP/Node picker rows that Phase 4 added on top of the worker +
+// DB rows from Phase 2. PHP appears only on PHP sites (ContainerPort==0,
+// PHPVersion set); Node appears only when NodeVersion is set.
+func TestDetailRows_WorktreesEmitLANAndVersionRows(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:        "alpha",
+		Domains:     []string{"alpha.test"},
+		PHPVersion:  "8.3",
+		NodeVersion: "20",
+		Services:    []string{"mysql"},
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p", PHPVersion: "8.4", NodeVersion: "22"},
+		},
+	}
+	rows := detailRows(s)
+	kinds := rowKinds(rows)
+	assertKindCount(t, kinds, kindWorktreeLAN, 1)
+	assertKindCount(t, kinds, kindWorktreePHP, 1)
+	assertKindCount(t, kinds, kindWorktreeNode, 1)
+}
+
+// TestDetailRows_WorktreesSkipPHPForCustomContainer verifies a non-PHP
+// site (ContainerPort != 0) doesn't render a PHP picker row.
+func TestDetailRows_WorktreesSkipPHPForCustomContainer(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:          "nodeapp",
+		ContainerPort: 3000,
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p", PHPVersion: "8.3"},
+		},
+	}
+	rows := detailRows(s)
+	assertKindCount(t, rowKinds(rows), kindWorktreePHP, 0)
+}
+
+// TestWorktreeVersionText_OverrideVsInherited pins the visual cue: explicit
+// overrides render in accent colour, inherited versions show "(inherited)"
+// so users see at a glance whether the value lives in the worktree's yaml.
+func TestWorktreeVersionText_OverrideVsInherited(t *testing.T) {
+	if got := worktreeVersionText("8.4", true); !strings.Contains(got, "8.4") || strings.Contains(got, "inherited") {
+		t.Errorf("override should not say inherited, got %q", got)
+	}
+	if got := worktreeVersionText("8.4", false); !strings.Contains(got, "inherited") {
+		t.Errorf("inherited version should mark itself, got %q", got)
+	}
+	if got := worktreeVersionText("", false); !strings.Contains(got, "not set") {
+		t.Errorf("empty version should say 'not set', got %q", got)
+	}
+}
+
 // TestFindWorktree_ByBranch pins the lookup used by toggle handlers.
 func TestFindWorktree_ByBranch(t *testing.T) {
 	s := &siteinfo.EnrichedSite{
