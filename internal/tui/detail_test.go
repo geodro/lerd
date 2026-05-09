@@ -176,6 +176,138 @@ func TestServiceStatesByName(t *testing.T) {
 	}
 }
 
+// TestDetailRows_WorktreesEmitWorkerAndDBRows pins that each worktree gets
+// a header row plus one worker row per per-worktree FrameworkWorker, plus a
+// DB-isolation row when the parent uses a managed DB service.
+func TestDetailRows_WorktreesEmitWorkerAndDBRows(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:       "alpha",
+		Domains:    []string{"alpha.test"},
+		PHPVersion: "8.3",
+		Services:   []string{"mysql"},
+		Worktrees: []siteinfo.WorktreeInfo{
+			{
+				Branch: "feat-x", Path: "/srv/alpha/.worktrees/feat-x",
+				FrameworkWorkers: []siteinfo.WorkerInfo{
+					{Name: "vite", Label: "Vite Dev Server"},
+				},
+			},
+		},
+	}
+	rows := detailRows(s)
+	kinds := rowKinds(rows)
+	assertKindCount(t, kinds, kindWorktreeHeader, 1)
+	assertKindCount(t, kinds, kindWorktreeWorker, 1)
+	assertKindCount(t, kinds, kindWorktreeDB, 1)
+	for _, r := range rows {
+		if r.kind == kindWorktreeWorker && (r.branch != "feat-x" || r.workerName != "vite") {
+			t.Errorf("worktree worker row missing branch/name, got %+v", r)
+		}
+	}
+}
+
+// TestDetailRows_WorktreesSkipDBWhenNoManagedService verifies that a site
+// without a lerd-managed DB service doesn't render the per-worktree
+// isolation toggle (it would mislead — the CLI command would error).
+func TestDetailRows_WorktreesSkipDBWhenNoManagedService(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:       "alpha",
+		Domains:    []string{"alpha.test"},
+		PHPVersion: "8.3",
+		Worktrees:  []siteinfo.WorktreeInfo{{Branch: "feat-x", Path: "/p"}},
+	}
+	rows := detailRows(s)
+	assertKindCount(t, rowKinds(rows), kindWorktreeDB, 0)
+}
+
+// TestSiteHasManagedDB pins the gate used to decide whether the per-worktree
+// DB toggle row appears: only mysql / mariadb / postgres count.
+func TestSiteHasManagedDB(t *testing.T) {
+	cases := []struct {
+		services []string
+		want     bool
+	}{
+		{[]string{"mysql"}, true},
+		{[]string{"mariadb", "redis"}, true},
+		{[]string{"postgres"}, true},
+		{[]string{"redis", "meilisearch"}, false},
+		{nil, false},
+	}
+	for _, tc := range cases {
+		got := siteHasManagedDB(&siteinfo.EnrichedSite{Services: tc.services})
+		if got != tc.want {
+			t.Errorf("services=%v: got %v, want %v", tc.services, got, tc.want)
+		}
+	}
+}
+
+// TestDetailRows_WorktreesEmitLANAndVersionRows pins the LAN row + per-
+// worktree PHP/Node picker rows that Phase 4 added on top of the worker +
+// DB rows from Phase 2. PHP appears only on PHP sites (ContainerPort==0,
+// PHPVersion set); Node appears only when NodeVersion is set.
+func TestDetailRows_WorktreesEmitLANAndVersionRows(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:        "alpha",
+		Domains:     []string{"alpha.test"},
+		PHPVersion:  "8.3",
+		NodeVersion: "20",
+		Services:    []string{"mysql"},
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p", PHPVersion: "8.4", NodeVersion: "22"},
+		},
+	}
+	rows := detailRows(s)
+	kinds := rowKinds(rows)
+	assertKindCount(t, kinds, kindWorktreeLAN, 1)
+	assertKindCount(t, kinds, kindWorktreePHP, 1)
+	assertKindCount(t, kinds, kindWorktreeNode, 1)
+}
+
+// TestDetailRows_WorktreesSkipPHPForCustomContainer verifies a non-PHP
+// site (ContainerPort != 0) doesn't render a PHP picker row.
+func TestDetailRows_WorktreesSkipPHPForCustomContainer(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:          "nodeapp",
+		ContainerPort: 3000,
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p", PHPVersion: "8.3"},
+		},
+	}
+	rows := detailRows(s)
+	assertKindCount(t, rowKinds(rows), kindWorktreePHP, 0)
+}
+
+// TestWorktreeVersionText_OverrideVsInherited pins the visual cue: explicit
+// overrides render in accent colour, inherited versions show "(inherited)"
+// so users see at a glance whether the value lives in the worktree's yaml.
+func TestWorktreeVersionText_OverrideVsInherited(t *testing.T) {
+	if got := worktreeVersionText("8.4", true); !strings.Contains(got, "8.4") || strings.Contains(got, "inherited") {
+		t.Errorf("override should not say inherited, got %q", got)
+	}
+	if got := worktreeVersionText("8.4", false); !strings.Contains(got, "inherited") {
+		t.Errorf("inherited version should mark itself, got %q", got)
+	}
+	if got := worktreeVersionText("", false); !strings.Contains(got, "not set") {
+		t.Errorf("empty version should say 'not set', got %q", got)
+	}
+}
+
+// TestFindWorktree_ByBranch pins the lookup used by toggle handlers.
+func TestFindWorktree_ByBranch(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p/x"},
+			{Branch: "feat-y", Path: "/p/y"},
+		},
+	}
+	if wt := findWorktree(s, "feat-y"); wt == nil || wt.Path != "/p/y" {
+		t.Errorf("expected /p/y, got %+v", wt)
+	}
+	if wt := findWorktree(s, "missing"); wt != nil {
+		t.Errorf("missing branch should return nil, got %+v", wt)
+	}
+}
+
 func rowKinds(rows []detailRow) []detailKind {
 	out := make([]detailKind, len(rows))
 	for i, r := range rows {

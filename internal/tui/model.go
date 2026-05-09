@@ -74,9 +74,14 @@ type Model struct {
 
 	// Picker state (PHP/Node version). When active, up/down navigates
 	// pickerOptions instead of detail rows and enter applies the pick.
-	pickerKind    detailKind
-	pickerOptions []string
-	pickerCursor  int
+	// pickerWorktreePath is set when the picker was opened from a per-
+	// worktree row; applyPicker uses it as the cwd so the change writes
+	// .php-version / .node-version inside the worktree's checkout.
+	pickerKind         detailKind
+	pickerOptions      []string
+	pickerCursor       int
+	pickerWorktreePath string
+	pickerWorktreeName string
 
 	// Domain-input state: when active, typing adds characters to the
 	// pending domain name; enter runs `lerd domain add`, esc cancels.

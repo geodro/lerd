@@ -50,6 +50,12 @@ var helpReference = []helpSection{
 		},
 	},
 	{
+		title: "Worktrees",
+		rows: [][2]string{
+			{"space / enter", "toggle the focused per-worktree row (worker, isolated DB)"},
+		},
+	},
+	{
 		title: "Logs",
 		rows: [][2]string{
 			{"l", "toggle the logs pane for the focused item"},
