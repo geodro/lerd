@@ -18,6 +18,11 @@ type detailRow struct {
 	workerName string
 	// Domain kind: the full domain (including the TLD) this row represents.
 	domain string
+	// Worktree-scoped rows: branch is the sanitized branch name and path is
+	// the worktree checkout path; actions cd into path so cwd-keyed CLI
+	// helpers (workerNames, FindParentSiteForWorktree) target the right unit.
+	branch     string
+	branchPath string
 }
 
 type detailKind int
@@ -31,6 +36,9 @@ const (
 	kindNode
 	kindDomain
 	kindDomainAdd
+	kindWorktreeHeader
+	kindWorktreeWorker
+	kindWorktreeDB
 )
 
 // detailRows returns the ordered rows the detail view draws. Built on each
@@ -71,7 +79,44 @@ func detailRows(s *siteinfo.EnrichedSite) []detailRow {
 		rows = append(rows, detailRow{kind: kindHTTPS})
 	}
 	rows = append(rows, detailRow{kind: kindLANShare})
+	dbCapable := siteHasManagedDB(s)
+	for _, wt := range s.Worktrees {
+		rows = append(rows, detailRow{kind: kindWorktreeHeader, branch: wt.Branch, branchPath: wt.Path})
+		for _, fw := range wt.FrameworkWorkers {
+			rows = append(rows, detailRow{
+				kind: kindWorktreeWorker, workerName: fw.Name,
+				branch: wt.Branch, branchPath: wt.Path,
+			})
+		}
+		if dbCapable {
+			rows = append(rows, detailRow{kind: kindWorktreeDB, branch: wt.Branch, branchPath: wt.Path})
+		}
+	}
 	return rows
+}
+
+// siteHasManagedDB reports whether the site uses a lerd-managed database
+// service that supports per-worktree isolation. Mirrors the gate the
+// dashboard uses to render the Isolated DB toggle.
+func siteHasManagedDB(s *siteinfo.EnrichedSite) bool {
+	for _, svc := range s.Services {
+		switch svc {
+		case "mysql", "mariadb", "postgres":
+			return true
+		}
+	}
+	return false
+}
+
+// findWorktree returns the WorktreeInfo for the given branch, or nil when
+// the branch has no live worktree on disk.
+func findWorktree(s *siteinfo.EnrichedSite, branch string) *siteinfo.WorktreeInfo {
+	for i := range s.Worktrees {
+		if s.Worktrees[i].Branch == branch {
+			return &s.Worktrees[i]
+		}
+	}
+	return nil
 }
 
 // navigableRows filters out info rows so cursor moves skip them.
@@ -122,8 +167,75 @@ func (m *Model) detailToggleSelected(s *siteinfo.EnrichedSite, rows []detailRow,
 	case kindDomainAdd:
 		m.openDomainInput()
 		return nil
+	case kindWorktreeWorker:
+		return m.toggleWorktreeWorker(s, row)
+	case kindWorktreeDB:
+		return m.toggleWorktreeDB(s, row)
 	}
 	return nil
+}
+
+func (m *Model) toggleWorktreeWorker(s *siteinfo.EnrichedSite, row detailRow) tea.Cmd {
+	wt := findWorktree(s, row.branch)
+	if wt == nil {
+		return nil
+	}
+	running := worktreeWorkerRunning(wt, row.workerName)
+	verb := "start"
+	if running {
+		verb = "stop"
+	}
+	m.setStatus(verb+"ing "+row.workerName+" on "+row.branch+"…", 5*time.Second)
+	return runLerd(row.branchPath, "worker", verb, row.workerName)
+}
+
+func (m *Model) toggleWorktreeDB(s *siteinfo.EnrichedSite, row detailRow) tea.Cmd {
+	wt := findWorktree(s, row.branch)
+	if wt == nil {
+		return nil
+	}
+	if wt.DBIsolated {
+		m.setStatus("sharing parent DB on "+row.branch+"…", 5*time.Second)
+		return runLerd(row.branchPath, "db:share")
+	}
+	m.setStatus("isolating DB on "+row.branch+"…", 5*time.Second)
+	return runLerd(row.branchPath, "db:isolate")
+}
+
+func worktreeWorkerRunning(wt *siteinfo.WorktreeInfo, name string) bool {
+	if wt == nil {
+		return false
+	}
+	for _, fw := range wt.FrameworkWorkers {
+		if fw.Name == name {
+			return fw.Running
+		}
+	}
+	return false
+}
+
+func worktreeWorkerFailing(wt *siteinfo.WorktreeInfo, name string) bool {
+	if wt == nil {
+		return false
+	}
+	for _, fw := range wt.FrameworkWorkers {
+		if fw.Name == name {
+			return fw.Failing
+		}
+	}
+	return false
+}
+
+func worktreeWorkerLabel(wt *siteinfo.WorktreeInfo, name string) string {
+	if wt == nil {
+		return name
+	}
+	for _, fw := range wt.FrameworkWorkers {
+		if fw.Name == name && fw.Label != "" {
+			return fw.Label
+		}
+	}
+	return name
 }
 
 // removeFocusedDomain runs `lerd domain remove <name>` for the domain the
@@ -453,14 +565,38 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 	if len(site.Worktrees) > 0 {
 		addPlain(sectionStyle.Render("Worktrees"))
 		for _, wt := range site.Worktrees {
-			line := "  " + accentStyle.Render(wt.Branch)
+			head := "  " + accentStyle.Render(wt.Branch)
 			if wt.Domain != "" {
-				line += "  " + dimStyle.Render(scheme+"://"+wt.Domain)
+				head += "  " + dimStyle.Render(scheme+"://"+wt.Domain)
 			}
 			if wt.Path != "" {
-				line += "  " + dimStyle.Render(wt.Path)
+				head += "  " + dimStyle.Render(wt.Path)
 			}
-			addPlain(line)
+			addPlain(head)
+			renderedAny := false
+			for i, row := range rows {
+				if row.kind == kindWorktreeWorker && row.branch == wt.Branch {
+					renderedAny = true
+					selected := focused && navPos(i) == m.detailCursor
+					add(renderDetailRow(selected,
+						worktreeWorkerGlyph(&wt, row.workerName),
+						"    "+worktreeWorkerLabel(&wt, row.workerName),
+						worktreeWorkerStateText(&wt, row.workerName)), selected)
+				}
+			}
+			for i, row := range rows {
+				if row.kind == kindWorktreeDB && row.branch == wt.Branch {
+					renderedAny = true
+					selected := focused && navPos(i) == m.detailCursor
+					add(renderDetailRow(selected,
+						onOffGlyph(wt.DBIsolated),
+						"    "+"Isolated DB",
+						worktreeDBStateText(wt)), selected)
+				}
+			}
+			if !renderedAny {
+				addPlain(dimStyle.Render("    (no per-worktree controls)"))
+			}
 		}
 		addPlain("")
 	}
@@ -587,6 +723,37 @@ func domainRole(s *siteinfo.EnrichedSite, domain string) string {
 		role = "primary"
 	}
 	return role + " · e edit · x remove"
+}
+
+func worktreeWorkerGlyph(wt *siteinfo.WorktreeInfo, name string) string {
+	switch {
+	case worktreeWorkerFailing(wt, name):
+		return failingStyle.Render(glyphFailing)
+	case worktreeWorkerRunning(wt, name):
+		return runningStyle.Render(glyphRunning)
+	}
+	return stoppedStyle.Render(glyphStopped)
+}
+
+func worktreeWorkerStateText(wt *siteinfo.WorktreeInfo, name string) string {
+	switch {
+	case worktreeWorkerFailing(wt, name):
+		return failingStyle.Render("failing")
+	case worktreeWorkerRunning(wt, name):
+		return runningStyle.Render("running")
+	}
+	return dimStyle.Render("stopped")
+}
+
+func worktreeDBStateText(wt siteinfo.WorktreeInfo) string {
+	if wt.DBIsolated {
+		name := wt.DBDatabase
+		if name == "" {
+			name = "isolated"
+		}
+		return runningStyle.Render(name)
+	}
+	return dimStyle.Render("shared with parent")
 }
 
 func workerGlyphFor(s *siteinfo.EnrichedSite, name string) string {

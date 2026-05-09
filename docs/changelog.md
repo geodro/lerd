@@ -7,6 +7,14 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **TUI per-worktree controls in the site detail pane.** Each worktree row now expands to show its per-worktree workers (one row per `FrameworkWorker` in the worktree, e.g. `vite` on a Laravel branch) and an "Isolated DB" toggle when the parent uses a managed database service (`mysql` / `mariadb` / `postgres`). Pressing space/enter on a worktree-worker row runs `lerd worker start/stop <name>` from inside the worktree's checkout, so the worktree-suffixed unit (`lerd-<worker>-<site>-<branch>`) is targeted; toggling the DB row runs `lerd db:isolate` / `lerd db:share` with the same cwd. Worktrees on sites with no managed DB only expose the worker rows. Help reference (`?`) gains a Worktrees section.
+
+---
+
 ## [1.20.0-beta.1] — 2026-05-09
 
 First beta of the 1.20.0 line. The headline is a deeper pass on git worktrees: per-worktree workers as a first-class concept driven by framework yaml intent, a built-in Vite dev server worker that runs on the host (HMR with no port publishing), automatic wildcard cert SANs for worktree subdomains, `env_overrides` templating for multi-tenant apps, and a unified asset-worker / build prompt on `lerd worktree add`. Plus dashboard surfaces for per-worktree workers and the post-1.19.1 regression fixes around secured sites, certs, and the DNS pill.

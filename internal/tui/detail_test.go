@@ -176,6 +176,87 @@ func TestServiceStatesByName(t *testing.T) {
 	}
 }
 
+// TestDetailRows_WorktreesEmitWorkerAndDBRows pins that each worktree gets
+// a header row plus one worker row per per-worktree FrameworkWorker, plus a
+// DB-isolation row when the parent uses a managed DB service.
+func TestDetailRows_WorktreesEmitWorkerAndDBRows(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:       "alpha",
+		Domains:    []string{"alpha.test"},
+		PHPVersion: "8.3",
+		Services:   []string{"mysql"},
+		Worktrees: []siteinfo.WorktreeInfo{
+			{
+				Branch: "feat-x", Path: "/srv/alpha/.worktrees/feat-x",
+				FrameworkWorkers: []siteinfo.WorkerInfo{
+					{Name: "vite", Label: "Vite Dev Server"},
+				},
+			},
+		},
+	}
+	rows := detailRows(s)
+	kinds := rowKinds(rows)
+	assertKindCount(t, kinds, kindWorktreeHeader, 1)
+	assertKindCount(t, kinds, kindWorktreeWorker, 1)
+	assertKindCount(t, kinds, kindWorktreeDB, 1)
+	for _, r := range rows {
+		if r.kind == kindWorktreeWorker && (r.branch != "feat-x" || r.workerName != "vite") {
+			t.Errorf("worktree worker row missing branch/name, got %+v", r)
+		}
+	}
+}
+
+// TestDetailRows_WorktreesSkipDBWhenNoManagedService verifies that a site
+// without a lerd-managed DB service doesn't render the per-worktree
+// isolation toggle (it would mislead — the CLI command would error).
+func TestDetailRows_WorktreesSkipDBWhenNoManagedService(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Name:       "alpha",
+		Domains:    []string{"alpha.test"},
+		PHPVersion: "8.3",
+		Worktrees:  []siteinfo.WorktreeInfo{{Branch: "feat-x", Path: "/p"}},
+	}
+	rows := detailRows(s)
+	assertKindCount(t, rowKinds(rows), kindWorktreeDB, 0)
+}
+
+// TestSiteHasManagedDB pins the gate used to decide whether the per-worktree
+// DB toggle row appears: only mysql / mariadb / postgres count.
+func TestSiteHasManagedDB(t *testing.T) {
+	cases := []struct {
+		services []string
+		want     bool
+	}{
+		{[]string{"mysql"}, true},
+		{[]string{"mariadb", "redis"}, true},
+		{[]string{"postgres"}, true},
+		{[]string{"redis", "meilisearch"}, false},
+		{nil, false},
+	}
+	for _, tc := range cases {
+		got := siteHasManagedDB(&siteinfo.EnrichedSite{Services: tc.services})
+		if got != tc.want {
+			t.Errorf("services=%v: got %v, want %v", tc.services, got, tc.want)
+		}
+	}
+}
+
+// TestFindWorktree_ByBranch pins the lookup used by toggle handlers.
+func TestFindWorktree_ByBranch(t *testing.T) {
+	s := &siteinfo.EnrichedSite{
+		Worktrees: []siteinfo.WorktreeInfo{
+			{Branch: "feat-x", Path: "/p/x"},
+			{Branch: "feat-y", Path: "/p/y"},
+		},
+	}
+	if wt := findWorktree(s, "feat-y"); wt == nil || wt.Path != "/p/y" {
+		t.Errorf("expected /p/y, got %+v", wt)
+	}
+	if wt := findWorktree(s, "missing"); wt != nil {
+		t.Errorf("missing branch should return nil, got %+v", wt)
+	}
+}
+
 func rowKinds(rows []detailRow) []detailKind {
 	out := make([]detailKind, len(rows))
 	for i, r := range rows {
