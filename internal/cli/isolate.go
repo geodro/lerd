@@ -42,8 +42,8 @@ func runIsolate(_ *cobra.Command, args []string) error {
 		}
 		if err := regenerateWorktreeVhost(site, branch, version); err != nil {
 			fmt.Printf("[WARN] regenerating worktree vhost: %v\n", err)
-		} else if err := nginx.Reload(); err != nil {
-			fmt.Printf("[WARN] nginx reload: %v\n", err)
+		} else {
+			nginx.ReloadOrWarn("")
 		}
 		fmt.Printf("PHP version pinned to %s for worktree %s of %s\n", version, branch, site.Name)
 		return nil

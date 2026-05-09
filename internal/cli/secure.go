@@ -74,9 +74,7 @@ func runSecure(_ *cobra.Command, args []string) error {
 	updateEnvAppURL(site.Path, "https", site.PrimaryDomain())
 	_ = config.SetProjectSecured(site.Path, true)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 	restartStripeIfActive(site)
 	fmt.Printf("Secured: https://%s\n", site.PrimaryDomain())
 	return nil
@@ -107,9 +105,7 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 	updateEnvAppURL(site.Path, "http", site.PrimaryDomain())
 	_ = config.SetProjectSecured(site.Path, false)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 	restartStripeIfActive(site)
 	fmt.Printf("Unsecured: http://%s\n", site.PrimaryDomain())
 	return nil

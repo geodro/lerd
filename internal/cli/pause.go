@@ -95,9 +95,7 @@ func PauseSite(name string) error {
 
 	pauseWorktrees(site)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	fmt.Printf("Paused: %s (%s)\n", name, site.PrimaryDomain())
 	if len(running) > 0 {
@@ -189,9 +187,7 @@ func UnpauseSite(name string) error {
 		unpauseWorktrees(site, phpVersion)
 	}
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	startServicesForSite(site.Path)
 

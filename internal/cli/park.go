@@ -124,9 +124,7 @@ func runPark(_ *cobra.Command, args []string) error {
 
 	if count > 0 {
 		fmt.Printf("Reloading nginx (%d sites registered)...\n", count)
-		if err := nginx.Reload(); err != nil {
-			fmt.Printf("  [WARN] nginx reload: %v\n", err)
-		}
+		nginx.ReloadOrWarn("  ")
 	} else {
 		fmt.Println("No PHP projects found in directory.")
 	}
