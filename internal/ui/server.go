@@ -1762,7 +1762,9 @@ func handleVersion(w http.ResponseWriter, _ *http.Request, currentVersion string
 	info, _ := lerdUpdate.CachedUpdateCheck(currentVersion)
 	resp := VersionResponse{Current: currentVersion}
 	if info != nil {
-		resp.Latest = info.LatestVersion
+		// The dashboard banner template ("Lerd v{version} is available")
+		// already includes the v, so the wire payload must be bare.
+		resp.Latest = lerdUpdate.StripV(info.LatestVersion)
 		resp.HasUpdate = true
 		resp.Changelog = info.Changelog
 	}
@@ -2886,14 +2888,18 @@ func handleLerdQuit(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLerdUpdateTerminal opens the user's terminal emulator running
-// `lerd update`, with a "press Enter to close" tail so the user can read
-// the output. Loopback-only — listed in loopbackOnlyRoutes.
+// `lerd update`. Loopback-only. Uses os.Executable() because the spawned
+// `sh -c` doesn't source .bashrc, so ~/.local/bin is off PATH otherwise.
 func handleLerdUpdateTerminal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	script := `lerd update; echo; read -rp "Press Enter to close..."`
+	self, err := os.Executable()
+	if err != nil || self == "" {
+		self = "lerd"
+	}
+	script := shQuote(self) + ` update; echo; read -rp "Press Enter to close..."`
 	if err := openTerminalCommand(script); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return

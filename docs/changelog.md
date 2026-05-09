@@ -9,6 +9,12 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboard "Open terminal & update" button failed with `lerd: command not found`.** The handler shelled out via `sh -c "lerd update; …"`, but the spawned terminal inherits a non-login shell environment that doesn't source `.bashrc` / `.zshrc`, so `~/.local/bin` is off `PATH`. The script now uses `os.Executable()` to resolve the absolute path of the running `lerd-ui` binary (which is the `lerd` binary itself) before passing it to the shell. Same fix pattern the TUI's `runLerd` already uses.
+- **Dashboard update banner showed `Lerd vv1.19.2 is available`.** Two bugs compounded: the wire payload from `/api/version` returned the GitHub tag verbatim (with leading `v`) while the Svelte template `Lerd v{version} is available` already prepends `v`, producing the double-`v`. `handleVersion` now strips the `v` via `lerdUpdate.StripV` before sending so the wire data is bare and the template renders cleanly.
+- **`internal/update` test pollution rewrote the user's real `update-check.json`.** `withTempCache` set `XDG_CONFIG_HOME` but `config.UpdateCheckFile` reads `XDG_DATA_HOME`, so test cache writes leaked to `~/.local/share/lerd/update-check.json` and surfaced bogus version tags (e.g. `v1.19.2`) in the dashboard banner for 24h. Test now sets the correct env var so writes stay in the temp dir.
+
 ### Added
 
 - **TUI service lifecycle keybinds** (`u` update, `b` rollback). Pressing `u` while focused on the Services pane runs `lerd service update <name>` for the highlighted service (no tag, applies the safe in-strategy update). Pressing `b` runs `lerd service rollback <name>`. Both fire and refresh the snapshot, mirroring the dashboard's Update / Rollback buttons. No-op on worker rows (queue-alpha, etc.) since they have no upstream image. Help reference (`?`) lists both. Migrate, remove, and reinstall stay CLI/dashboard-only for now since they need tag pickers or destructive-action confirmation.

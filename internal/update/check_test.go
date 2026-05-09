@@ -77,11 +77,13 @@ func TestCachedUpdateCheck_stableUserSeesNewerStable(t *testing.T) {
 }
 
 // withTempCache pre-seeds the on-disk update-check cache so CachedUpdateCheck
-// returns the given tag without hitting the network.
+// returns the given tag without hitting the network. Sets XDG_DATA_HOME (the
+// var DataDir() reads) so the writes land in the temp dir and never touch
+// the user's real ~/.local/share/lerd/update-check.json.
 func withTempCache(t *testing.T, tag string) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
 	cacheDir := filepath.Dir(config.UpdateCheckFile())
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
