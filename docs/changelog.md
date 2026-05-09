@@ -12,6 +12,7 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **TUI service lifecycle keybinds** (`u` update, `b` rollback). Pressing `u` while focused on the Services pane runs `lerd service update <name>` for the highlighted service (no tag, applies the safe in-strategy update). Pressing `b` runs `lerd service rollback <name>`. Both fire and refresh the snapshot, mirroring the dashboard's Update / Rollback buttons. No-op on worker rows (queue-alpha, etc.) since they have no upstream image. Help reference (`?`) lists both. Migrate, remove, and reinstall stay CLI/dashboard-only for now since they need tag pickers or destructive-action confirmation.
+- **TUI header pill for failing workers.** When any framework worker (built-in queue/schedule/horizon/reverb, custom worker, or per-worktree worker) is in the systemd `failed` state, the TUI header renders `⚠ N workers failing · H to heal` in failing-style colour next to the existing DNS / nginx / FPM / watcher pills. Mirrors the dashboard's amber sticky banner from #319. Helper `countFailingWorkers` aggregates state across every site and worktree.
 
 ---
 
