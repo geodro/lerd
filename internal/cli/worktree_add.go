@@ -79,12 +79,17 @@ func newWorktreeAddCmd() *cobra.Command {
 			if optedIn := OptedInHostWorkers(site, worktreePath); len(optedIn) > 0 {
 				fmt.Printf("Auto-starting opted-in workers: %s\n", strings.Join(optedIn, ", "))
 			}
-			if replacers := OptedInBuildReplacers(site, worktreePath); len(replacers) > 0 {
-				fmt.Printf("Skipping build, %s will provide assets.\n", strings.Join(replacers, ", "))
-			} else if script := promptFrontendBuild(worktreePath); script != "" {
-				fmt.Printf("Running npm run %s...\n", script)
-				if err := gitpkg.RunNpmScript(worktreePath, script); err != nil {
-					fmt.Printf("[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", script, err)
+			switch choice := promptWorktreeBuild(site, worktreePath); choice.kind {
+			case "worker":
+				if err := WorkerStartForSite(site.Name, worktreePath, site.PHPVersion, choice.value, choice.worker, false); err != nil {
+					fmt.Printf("[WARN] failed to start %s: %v — assets will not be served, run `lerd worker start %s` or `npm run build` manually.\n", choice.value, err, choice.value)
+				} else {
+					fmt.Printf("Started %s, skipping build — it will provide assets.\n", choice.value)
+				}
+			case "script":
+				fmt.Printf("Running npm run %s...\n", choice.value)
+				if err := gitpkg.RunNpmScript(worktreePath, choice.value); err != nil {
+					fmt.Printf("[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", choice.value, err)
 				} else {
 					fmt.Println("Frontend built.")
 				}
@@ -105,23 +110,64 @@ func newWorktreeAddCmd() *cobra.Command {
 	return cmd
 }
 
-// promptFrontendBuild asks the user which package.json script to run, if any,
-// for the worktree's static assets. Returns the script name or "" to skip.
-// Lists every script that exists in package.json among build / prod /
-// build-prod / build:prod so users with custom names get the right options.
-func promptFrontendBuild(worktreePath string) string {
-	available := availableBuildScripts(worktreePath)
-	if len(available) == 0 {
-		return ""
-	}
-	options := []huh.Option[string]{
-		huh.NewOption("Skip — I'll run npm run dev (or build) myself", ""),
-	}
-	for _, s := range available {
-		options = append(options, huh.NewOption("npm run "+s, s))
+// worktreeBuildChoice tags the user's pick from promptWorktreeBuild so the
+// caller can branch without parsing strings. kind is "worker" (asset worker
+// will serve assets, skip build), "script" (run `npm run <value>`), or
+// "skip" (do nothing). When kind == "worker" the worker field carries the
+// FrameworkWorker so the caller can start it without re-resolving.
+type worktreeBuildChoice struct {
+	kind   string
+	value  string
+	worker config.FrameworkWorker
+}
+
+// promptWorktreeBuild merges the asset-worker decision and the npm-build
+// decision into one select. Options include every framework worker eligible
+// to replace the build for this worktree (per_worktree + replaces_build +
+// check passes) — even ones the user hasn't opted into via .lerd.yaml — plus
+// each available package.json build script. The default is the first
+// opted-in asset worker, then the first build script, then skip. Workers
+// that aren't opted in still appear so the user can start them ad-hoc for
+// this worktree without editing parent yaml.
+func promptWorktreeBuild(site *config.Site, worktreePath string) worktreeBuildChoice {
+	eligible := eligibleBuildReplacers(site, worktreePath)
+	scripts := availableBuildScripts(worktreePath)
+	if len(eligible) == 0 && len(scripts) == 0 {
+		return worktreeBuildChoice{kind: "skip"}
 	}
 
-	picked := available[0] // pre-select the first detected build script
+	var workers map[string]config.FrameworkWorker
+	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok {
+		workers = fw.Workers
+	}
+	optedSet := make(map[string]bool)
+	for _, n := range OptedInBuildReplacers(site, worktreePath) {
+		optedSet[n] = true
+	}
+
+	options := make([]huh.Option[string], 0, len(eligible)+len(scripts)+1)
+	var defaultVal string
+	for _, name := range eligible {
+		label := name
+		if w, ok := workers[name]; ok && w.Label != "" {
+			label = w.Label
+		}
+		val := "worker:" + name
+		options = append(options, huh.NewOption(fmt.Sprintf("Use %s (asset worker)", label), val))
+		if optedSet[name] && defaultVal == "" {
+			defaultVal = val
+		}
+	}
+	for _, s := range scripts {
+		val := "script:" + s
+		options = append(options, huh.NewOption("npm run "+s, val))
+		if defaultVal == "" {
+			defaultVal = val
+		}
+	}
+	options = append(options, huh.NewOption("Skip — I'll run npm run dev (or build) myself", "skip"))
+
+	picked := defaultVal
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
 			Title("Build the worktree's frontend assets?").
@@ -130,9 +176,17 @@ func promptFrontendBuild(worktreePath string) string {
 			Value(&picked),
 	))
 	if err := form.Run(); err != nil {
-		return ""
+		return worktreeBuildChoice{kind: "skip"}
 	}
-	return picked
+	switch {
+	case picked == "skip":
+		return worktreeBuildChoice{kind: "skip"}
+	case strings.HasPrefix(picked, "worker:"):
+		name := strings.TrimPrefix(picked, "worker:")
+		return worktreeBuildChoice{kind: "worker", value: name, worker: workers[name]}
+	default:
+		return worktreeBuildChoice{kind: "script", value: strings.TrimPrefix(picked, "script:")}
+	}
 }
 
 // availableBuildScripts returns the production-build-style scripts declared
@@ -394,6 +448,38 @@ func worktreePathForBranch(site *config.Site, branch string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("worktree %q not found", branch)
+}
+
+// eligibleBuildReplacers returns every framework worker eligible to provide
+// assets at the given path: replaces_build:true, per_worktree:true (when
+// path is a worktree), and Check rule matches. Unlike OptedInBuildReplacers
+// it does NOT require the worker to be in the parent's .lerd.yaml workers:
+// list, so the worktree-add prompt can offer asset workers the user hasn't
+// explicitly opted into yet.
+func eligibleBuildReplacers(site *config.Site, path string) []string {
+	if site.Framework == "" {
+		return nil
+	}
+	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !ok {
+		return nil
+	}
+	isWorktree := path != site.Path
+	var out []string
+	for name, w := range fw.Workers {
+		if !w.ReplacesBuild {
+			continue
+		}
+		if isWorktree && !w.IsPerWorktree() {
+			continue
+		}
+		if w.Check != nil && !config.MatchesRule(path, *w.Check) {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // OptedInBuildReplacers returns names of workers (a) opted into via
