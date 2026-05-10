@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import { dumpGroups, dumps, filterSite, filterCtx, filterText } from './dumps';
+import { dumpGroups, dumps, filterSite, filterCtx, filterText, buildDumpGroups } from './dumps';
 import type { DumpEvent } from '$lib/dumpsStream';
 
 function ev(over: Partial<DumpEvent> & { id: string; ts: string }): DumpEvent {
@@ -76,6 +76,29 @@ describe('dumpGroups', () => {
     const groups = get(dumpGroups);
     expect(groups.length).toBe(1);
     expect(groups[0].events[0].id).toBe('b');
+  });
+
+  it('hides [site] prefix when hideSitePrefix is set', () => {
+    const groups = buildDumpGroups(
+      [ev({ id: 'a', ts: '2026-05-10T12:00:00.000Z', ctx: { type: 'fpm', site: 'whitewaters', request: 'GET /x' } })],
+      'whitewaters',
+      '',
+      '',
+      true
+    );
+    expect(groups[0].label).toBe('GET /x');
+    expect(groups[0].label).not.toContain('whitewaters');
+  });
+
+  it('keeps [site] prefix when hideSitePrefix is false', () => {
+    const groups = buildDumpGroups(
+      [ev({ id: 'a', ts: '2026-05-10T12:00:00.000Z', ctx: { type: 'fpm', site: 'whitewaters', request: 'GET /x' } })],
+      '',
+      '',
+      '',
+      false
+    );
+    expect(groups[0].label).toContain('[whitewaters]');
   });
 
   it('applies free-text search across label, text, file', () => {

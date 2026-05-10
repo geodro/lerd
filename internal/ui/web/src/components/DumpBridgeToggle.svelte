@@ -44,11 +44,13 @@
       ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
       : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}"
 >
-  <!-- Antenna / broadcast icon: dot at the bottom plus two concentric arcs. -->
+  <!-- Antenna tower: triangular mast, two cross-struts, transmitter tip. -->
   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-    <path d="M5 12a9 9 0 0 1 14 0" />
-    <path d="M8.5 14.5a4.5 4.5 0 0 1 7 0" />
-    <circle cx="12" cy="18" r="1.5" fill="currentColor" stroke="none" />
+    <path d="M12 4 L6 21" />
+    <path d="M12 4 L18 21" />
+    <path d="M9 12 L15 12" />
+    <path d="M7.5 17 L16.5 17" />
+    <circle cx="12" cy="4" r="1.25" fill="currentColor" stroke="none" />
   </svg>
 
   {#if enabled}

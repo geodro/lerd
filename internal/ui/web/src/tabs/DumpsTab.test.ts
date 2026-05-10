@@ -70,15 +70,17 @@ describe('DumpsTab', () => {
 
   it('renders dump events that match siteScope', async () => {
     dumps.set([
-      ev({ id: 'a', ctx: { type: 'fpm', site: 'whitewaters', request: 'GET /' } }),
-      ev({ id: 'b', ctx: { type: 'fpm', site: 'otherone', request: 'GET /' } })
+      ev({ id: 'a', ctx: { type: 'fpm', site: 'whitewaters', request: 'GET /matched' } }),
+      ev({ id: 'b', ctx: { type: 'fpm', site: 'otherone', request: 'GET /excluded' } })
     ]);
     const { container } = render(DumpsTab, { siteScope: 'whitewaters' });
     await waitFor(() => {
-      // The matching event's request label should be visible.
-      expect(container.textContent).toContain('whitewaters');
+      // Scoped view drops the [site] prefix — assert the request URL of
+      // the matching event is visible and the excluded one isn't.
+      expect(container.textContent).toContain('GET /matched');
     });
-    expect(container.textContent).not.toContain('otherone');
+    expect(container.textContent).not.toContain('GET /excluded');
+    expect(container.textContent).not.toContain('[whitewaters]');
   });
 
   it('shows empty state when no events match scope', async () => {

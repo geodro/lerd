@@ -37,7 +37,12 @@ export function buildDumpGroups(
   events: DumpEvent[],
   site: string,
   ctx: string,
-  text: string
+  text: string,
+  // hideSitePrefix drops the leading `[site]` chunk from every group label.
+  // Used when the surrounding UI already establishes site context (e.g.
+  // SiteDetail > Dumps), so repeating the site name on every header is
+  // visual noise.
+  hideSitePrefix = false
 ): DumpGroup[] {
   const needle = text ? text.toLowerCase() : '';
   const filtered = events.filter((ev) => {
@@ -61,7 +66,7 @@ export function buildDumpGroups(
     } else {
       groups.set(key, {
         key,
-        label: groupLabel(ev),
+        label: groupLabel(ev, hideSitePrefix),
         events: [ev],
         ts: ev.ts
       });
@@ -92,14 +97,12 @@ function groupKey(ev: DumpEvent): string {
   return `cli:${ev.ctx.site ?? ''}:${ev.ctx.pid ?? ''}:${bucket}`;
 }
 
-function groupLabel(ev: DumpEvent): string {
+function groupLabel(ev: DumpEvent, hideSitePrefix = false): string {
+  const prefix = !hideSitePrefix && ev.ctx.site ? `[${ev.ctx.site}] ` : '';
   if (ev.ctx.type === 'fpm') {
-    const req = ev.ctx.request || '(request)';
-    const site = ev.ctx.site ? `[${ev.ctx.site}] ` : '';
-    return site + req;
+    return prefix + (ev.ctx.request || '(request)');
   }
-  const site = ev.ctx.site ? `[${ev.ctx.site}] ` : '';
-  return `${site}cli (pid ${ev.ctx.pid ?? '?'})`;
+  return `${prefix}cli (pid ${ev.ctx.pid ?? '?'})`;
 }
 
 // lastFlashId tracks the most recent event arriving over the live socket

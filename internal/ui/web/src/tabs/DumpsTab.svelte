@@ -30,7 +30,7 @@
   // either siteScope (per-site embed) or the global filterSite (standalone
   // view). No store mutation, no race with sibling instances.
   const groups = $derived(
-    buildDumpGroups($dumps, scoped ? siteScope : $filterSite, $filterCtx, $filterText)
+    buildDumpGroups($dumps, scoped ? siteScope : $filterSite, $filterCtx, $filterText, scoped)
   );
 
   onMount(() => {
@@ -103,7 +103,6 @@
       {#each groups as group (group.key)}
         <section class="mb-4">
           <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-[1]">
-            <span class="text-xs font-mono text-gray-500">{new Date(group.ts).toLocaleTimeString()}</span>
             <span class="text-sm">{group.label}</span>
             <span class="text-xs text-gray-400 ml-auto">{group.events.length} dump{group.events.length === 1 ? '' : 's'}</span>
           </header>
