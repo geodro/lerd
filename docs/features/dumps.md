@@ -58,7 +58,7 @@ Reserved fields: `tree` (structured cloner output, populated in a future revisio
 ## Caveats
 
 - **Only `dump()` / `dd()` are intercepted** in this revision. Eloquent queries, jobs, blade renders, and outgoing HTTP requests are not captured (planned for follow-up work).
-- **Original output is still emitted.** The bridge calls Symfony's VarDumper after sending its own copy, so Whoops/Ignition/HTTP responses still show the dump in the page. Use `lerd dump off` if that's undesirable for a particular session.
+- **Response output is suppressed by default.** While the bridge is on, `dump()` and `dd()` ship to the dashboard only — the HTTP response stays clean. That matches Herd's behaviour and is the whole point of the feature. If you'd rather keep the original `sf-dump` output in the response too (useful as a fallback when `lerd-ui` isn't running), set `dumps.passthrough: true` in `~/.config/lerd/config.yaml` and re-run `lerd dump on`. `dd()` then prints in the response before exiting; with passthrough off, `dd()` exits silently with an empty body. When the bridge is **off**, `dump()` / `dd()` behave exactly as Symfony ships them — no override.
 - **VarCloner caps.** Defaults are `setMaxItems(2500)` and `setMaxString(4096)`. Override via `LERD_DUMP_MAX_ITEMS` in the site's `.env`.
-- **One TCP port.** The receiver binds `127.0.0.1:9913`. If another process is already listening there, the receiver logs a warning at startup and the dashboard shows an empty feed; nothing else breaks.
+- **No host TCP listener.** The receiver binds a per-user Unix socket under `~/.local/share/lerd/run/lerd-dumps.sock`, reached inside each FPM container via the existing `%h:%h` bind mount. No LAN exposure, no firewall configuration.
 - **No persistence.** Buffer is in-memory only and resets when `lerd-ui` restarts.

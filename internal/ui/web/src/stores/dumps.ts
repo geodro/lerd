@@ -48,6 +48,9 @@ export const dumpGroups: Readable<DumpGroup[]> = derived(
       const existing = groups.get(key);
       if (existing) {
         existing.events.push(ev);
+        // Track the latest event timestamp on the group so sorting reflects
+        // the most-recent activity in that request, not its first dump.
+        if (ev.ts > existing.ts) existing.ts = ev.ts;
       } else {
         groups.set(key, {
           key,
@@ -57,8 +60,14 @@ export const dumpGroups: Readable<DumpGroup[]> = derived(
         });
       }
     }
-    // Most recent group first.
-    return Array.from(groups.values()).sort((a, b) => b.ts.localeCompare(a.ts));
+    // Newest first, end to end: groups by latest activity, and events
+    // within each group in reverse arrival order so the most recent dump
+    // sits at the top of every card.
+    const out = Array.from(groups.values()).sort((a, b) => b.ts.localeCompare(a.ts));
+    for (const g of out) {
+      g.events = g.events.slice().reverse();
+    }
+    return out;
   }
 );
 

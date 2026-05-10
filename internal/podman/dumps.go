@@ -32,17 +32,24 @@ func DumpBridgePHP() (string, error) {
 	return string(b), nil
 }
 
-// DumpBridgeIni returns the conf.d ini content with the {{ DUMP_TARGET }}
-// placeholder substituted for the local lerd-ui dump socket path. The
-// socket is bind-mounted into every FPM container via the standard %h:%h
-// volume, so containers reach it at the same host path.
+// DumpBridgeIni returns the conf.d ini content with runtime placeholders
+// substituted. {{ DUMP_TARGET }} resolves to the lerd-ui Unix socket path
+// (already reachable inside every FPM container via the standard %h:%h
+// bind mount) and {{ DUMP_PASSTHROUGH }} is "1" or "0" depending on
+// Dumps.Passthrough.
 func DumpBridgeIni() (string, error) {
 	b, err := dumpBridgeFS.ReadFile("dumpbridge/97-lerd-dump.ini")
 	if err != nil {
 		return "", fmt.Errorf("dump bridge ini embed: %w", err)
 	}
 	target := "unix://" + config.DumpsSocketPath()
-	return strings.ReplaceAll(string(b), "{{ DUMP_TARGET }}", target), nil
+	passthrough := "0"
+	if cfg, _ := config.LoadGlobal(); cfg != nil && cfg.IsDumpsPassthrough() {
+		passthrough = "1"
+	}
+	out := strings.ReplaceAll(string(b), "{{ DUMP_TARGET }}", target)
+	out = strings.ReplaceAll(out, "{{ DUMP_PASSTHROUGH }}", passthrough)
+	return out, nil
 }
 
 // WriteDumpBridgeAssets writes the bridge PHP file and the conf.d ini to

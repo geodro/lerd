@@ -39,6 +39,21 @@ namespace Lerd\DumpBridge {
         return 'tcp://host.containers.internal:9913';
     }
 
+    // passthrough_enabled reports whether the dashboard capture should ALSO
+    // emit the dump to the response via Symfony's stock VarDumper handler.
+    // Default false (capture-only) — same behaviour as Herd's dumps window;
+    // override per-install with `dumps.passthrough: true` in config.yaml or
+    // via the LERD_DUMP_PASSTHROUGH env var.
+    function passthrough_enabled(): bool
+    {
+        $env = getenv('LERD_DUMP_PASSTHROUGH');
+        if ($env !== false && $env !== '') {
+            return $env === '1' || strcasecmp($env, 'true') === 0;
+        }
+        $cfg = get_cfg_var('lerd.dump_passthrough');
+        return is_string($cfg) && ($cfg === '1' || strcasecmp($cfg, 'true') === 0);
+    }
+
     function send(array $payload): void
     {
         $target = target();
@@ -176,9 +191,10 @@ namespace {
     if (!function_exists('dump')) {
         function dump(mixed ...$vars): mixed
         {
+            $passthrough = \Lerd\DumpBridge\passthrough_enabled();
             foreach ($vars as $label => $var) {
                 \Lerd\DumpBridge\emit($var, is_string($label) ? $label : null);
-                if (class_exists(\Symfony\Component\VarDumper\VarDumper::class)) {
+                if ($passthrough && class_exists(\Symfony\Component\VarDumper\VarDumper::class)) {
                     \Symfony\Component\VarDumper\VarDumper::dump($var);
                 }
             }

@@ -180,7 +180,7 @@ func runDumpClear() error {
 	if err != nil {
 		return fmt.Errorf("lerd-ui not reachable: %w", err)
 	}
-	if code != http.StatusOK {
+	if code != http.StatusOK && code != http.StatusNoContent {
 		return fmt.Errorf("lerd-ui returned %d: %s", code, strings.TrimSpace(string(body)))
 	}
 	fmt.Println("Dump ring cleared.")

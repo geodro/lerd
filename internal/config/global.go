@@ -117,10 +117,19 @@ type GlobalConfig struct {
 		// and the CLI php wrapper. When true, WriteFPMQuadlet splices two
 		// extra Volume= lines (the bridge PHP file and the conf.d ini) so
 		// userland calls to dump()/dd() ship to the lerd-ui receiver in
-		// addition to their normal output. When false (the default), the
-		// volumes are absent and the FPM container behaves as before.
+		// place of their default response output. When false (the default),
+		// the volumes are absent and the FPM container behaves as before.
 		// Toggled via `lerd dump on/off`.
 		Enabled bool `yaml:"enabled,omitempty" mapstructure:"enabled"`
+		// Passthrough controls whether dump()/dd() ALSO emit to the response
+		// while the bridge is enabled. False (default) means captured-only:
+		// the dashboard is the single destination and the response stays
+		// clean (matching Herd's behaviour). True forwards each call through
+		// Symfony's stock VarDumper handler after capture, useful as a
+		// safety net when lerd-ui isn't running. No effect when Enabled is
+		// false — without the bridge, dump() behaves exactly as Symfony
+		// ships it.
+		Passthrough bool `yaml:"passthrough,omitempty" mapstructure:"passthrough"`
 	} `yaml:"dumps,omitempty" mapstructure:"dumps"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
@@ -476,6 +485,13 @@ func (c *GlobalConfig) IsDumpsEnabled() bool {
 // run dumpsops.Apply to actually rewrite the FPM quadlets.
 func (c *GlobalConfig) SetDumpsEnabled(enabled bool) {
 	c.Dumps.Enabled = enabled
+}
+
+// IsDumpsPassthrough reports whether the bridge should also forward each
+// captured dump to Symfony's stock VarDumper handler (response output).
+// Always false in effect when the bridge itself is disabled.
+func (c *GlobalConfig) IsDumpsPassthrough() bool {
+	return c.Dumps.Passthrough
 }
 
 // SaveGlobal writes the configuration to config.yaml.
