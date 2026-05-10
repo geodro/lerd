@@ -2,11 +2,17 @@
   import type { DumpEvent } from '$lib/dumpsStream';
   import DumpView from './DumpView.svelte';
   import { parseDump, looksLikeDump } from '$lib/dump-parser';
+  import { lastFlashId } from '$stores/dumps';
 
   interface Props {
     event: DumpEvent;
   }
   let { event }: Props = $props();
+
+  // True for the most recent live-delivered dump. Drives a one-shot CSS
+  // animation in the entry container; the store clears this after a few
+  // seconds so subsequent re-renders don't replay the flash.
+  const flashing = $derived($lastFlashId === event.id);
 
   // The CliDumper output (event.text) is parseable into a tree by the
   // existing dump-parser. Fall back to a <pre> block if the text isn't
@@ -33,7 +39,7 @@
   }
 </script>
 
-<div class="rounded border border-gray-200 dark:border-lerd-border p-3 mb-2 bg-white dark:bg-lerd-card text-sm">
+<div class="rounded border border-gray-200 dark:border-lerd-border p-3 mb-2 bg-white dark:bg-lerd-card text-sm" class:lerd-dump-flash={flashing}>
   <div class="flex items-baseline gap-2 mb-2 flex-wrap">
     <span class="font-mono text-xs text-gray-500">{timeOnly(event.ts)}</span>
     {#if event.label}
@@ -58,3 +64,14 @@
     <div class="text-xs text-amber-600 dark:text-amber-400 mt-2">⚠ truncated by dumper caps</div>
   {/if}
 </div>
+
+<style>
+  .lerd-dump-flash {
+    animation: lerd-dump-flash 2.5s ease-out 1;
+  }
+  @keyframes lerd-dump-flash {
+    0%   { box-shadow: 0 0 0 2px rgb(59 130 246 / 0.7); }
+    20%  { box-shadow: 0 0 0 2px rgb(59 130 246 / 0.55); }
+    100% { box-shadow: 0 0 0 0   rgb(59 130 246 / 0);    }
+  }
+</style>

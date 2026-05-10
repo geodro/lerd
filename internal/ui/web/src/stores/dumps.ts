@@ -91,11 +91,58 @@ function groupLabel(ev: DumpEvent): string {
   return `${site}cli (pid ${ev.ctx.pid ?? '?'})`;
 }
 
+// lastFlashId tracks the most recent event arriving over the live socket
+// (post-initial-replay) so DumpEntry can paint a one-shot highlight ring
+// that fades over a couple of seconds. Cleared via setTimeout so the ring
+// animation only plays once per genuinely new dump.
+export const lastFlashId = writable<string>('');
+
+// Window during which incoming events count as part of the snapshot replay,
+// not new live deliveries. Picked so a slow round-trip on a busy machine
+// still drops every replayed event into the "stale" bucket.
+const REPLAY_GRACE_MS = 400;
+const FLASH_DURATION_MS = 2500;
+
+let flashReady = false;
+let flashTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSeenId = '';
+
+dumps.subscribe(($dumps) => {
+  if (!flashReady) {
+    return;
+  }
+  if ($dumps.length === 0) {
+    return;
+  }
+  const latest = $dumps[$dumps.length - 1];
+  if (latest.id === lastSeenId) {
+    return;
+  }
+  lastSeenId = latest.id;
+  lastFlashId.set(latest.id);
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => lastFlashId.set(''), FLASH_DURATION_MS);
+});
+
 let started = false;
 
 export function startDumpsStream() {
   if (started) return;
   started = true;
+  // Seed lastSeenId with whatever's already in the store so the initial
+  // replay's last event doesn't immediately flash on connect.
+  const snap = get(dumps);
+  if (snap.length > 0) {
+    lastSeenId = snap[snap.length - 1].id;
+  }
+  setTimeout(() => {
+    // After the replay grace window, future store updates count as live.
+    flashReady = true;
+    const after = get(dumps);
+    if (after.length > 0) {
+      lastSeenId = after[after.length - 1].id;
+    }
+  }, REPLAY_GRACE_MS);
   stream.connect();
   void refreshStatus();
 }
