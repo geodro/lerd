@@ -15,10 +15,14 @@
   import { accessMode } from '$stores/accessMode';
   import { lerdStart, lerdStop, lerdStarting, lerdStopping } from '$stores/lerdLifecycle';
   import { workerExecMode, workerModeApplies, loadWorkerMode } from '$stores/workerMode';
+  import { status as dumpsStatusValue, refreshStatus as refreshDumpsStatus } from '$stores/dumps';
   import { onMount } from 'svelte';
   import { m } from '../paraglide/messages.js';
 
-  onMount(loadWorkerMode);
+  onMount(() => {
+    loadWorkerMode();
+    void refreshDumpsStatus();
+  });
 
   const selected = $derived($routeRest || 'lerd');
 
@@ -67,6 +71,14 @@
 
     {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
+
+    {#snippet dumpBridgeDot()}<StatusDot color={$dumpsStatusValue?.enabled ? 'green' : 'gray'} pulse={Boolean($dumpsStatusValue?.enabled)} />{/snippet}
+    {#snippet dumpBridgeTrailing()}
+      {#if $dumpsStatusValue?.enabled && ($dumpsStatusValue?.count ?? 0) > 0}
+        <span class="text-[10px] font-medium tabular-nums shrink-0 {selected === 'dump-bridge' ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$dumpsStatusValue.count}</span>
+      {/if}
+    {/snippet}
+    <ListRow active={selected === 'dump-bridge'} onclick={() => select('dump-bridge')} leading={dumpBridgeDot} trailing={dumpBridgeTrailing}>Dump bridge</ListRow>
 
     {#if $phpVersions.length > 0}
       <SectionHeader title={m.system_phpFpm()} />
