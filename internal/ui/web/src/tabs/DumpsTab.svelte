@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import {
-    dumpGroups,
+    dumps,
     dumpsConnected,
     status,
     filterSite,
@@ -12,45 +12,36 @@
     stopDumpsStream,
     refreshStatus,
     clearDumps,
-    toggleDumps
+    toggleDumps,
+    buildDumpGroups
   } from '$stores/dumps';
   import DumpEntry from '$components/DumpEntry.svelte';
   import EmptyState from '$components/EmptyState.svelte';
 
   interface Props {
-    // siteScope locks the site filter to a fixed value and hides the site
-    // picker. Used when this tab is embedded in SiteDetail — the surrounding
-    // page already establishes site context.
+    // siteScope pins the site filter for this view. When set, the site
+    // picker is hidden and only events whose ctx.site matches the scope
+    // are rendered. Other filters (ctx, text) remain user-controlled and
+    // the global filterSite store stays untouched.
     siteScope?: string;
   }
   let { siteScope = '' }: Props = $props();
   const scoped = $derived(siteScope !== '');
 
+  // Local derived: build groups from the always-fresh dumps store using
+  // either siteScope (per-site embed) or the global filterSite (standalone
+  // view). No store mutation, no race with sibling instances.
+  const groups = $derived(
+    buildDumpGroups($dumps, scoped ? siteScope : $filterSite, $filterCtx, $filterText)
+  );
+
   onMount(() => {
     startDumpsStream();
     void refreshStatus();
-    if (scoped) {
-      // Snapshot whatever the global tab had selected so we can restore it
-      // when this scoped instance unmounts (otherwise the standalone view
-      // would inherit the per-site filter on next mount).
-      previousSite = untrack(() => $filterSite);
-      filterSite.set(siteScope);
-    }
   });
-
-  let previousSite = '';
 
   onDestroy(() => {
-    if (scoped) {
-      filterSite.set(previousSite);
-    }
     stopDumpsStream();
-  });
-
-  // Sync the store filter to siteScope changes (user switching sites in
-  // the SiteDetail nav). $effect re-runs whenever siteScope changes.
-  $effect(() => {
-    if (scoped) filterSite.set(siteScope);
   });
 
   let textInput = $state('');
@@ -131,7 +122,7 @@
   </div>
 
   <div class="flex-1 overflow-y-auto px-4 py-3">
-    {#if $dumpGroups.length === 0}
+    {#if groups.length === 0}
       <EmptyState title={$status?.enabled ? 'Waiting for dumps…' : 'Dump bridge is disabled'}>
         {#snippet hint()}
           {$status?.enabled
@@ -140,7 +131,7 @@
         {/snippet}
       </EmptyState>
     {:else}
-      {#each $dumpGroups as group (group.key)}
+      {#each groups as group (group.key)}
         <section class="mb-4">
           <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-[1]">
             <span class="text-xs font-mono text-gray-500">{new Date(group.ts).toLocaleTimeString()}</span>

@@ -30,45 +30,56 @@ export interface DumpGroup {
   ts: string;
 }
 
+// buildDumpGroups is the pure-function version of the group derivation so
+// per-tab views can compose their own derived stores (e.g. SiteDetail >
+// Dumps wants a site-scoped slice without mutating the global filterSite).
+export function buildDumpGroups(
+  events: DumpEvent[],
+  site: string,
+  ctx: string,
+  text: string
+): DumpGroup[] {
+  const needle = text ? text.toLowerCase() : '';
+  const filtered = events.filter((ev) => {
+    if (site && ev.ctx.site !== site) return false;
+    if (ctx && ev.ctx.type !== ctx) return false;
+    if (needle) {
+      const haystack = [ev.label ?? '', ev.text ?? '', ev.src.file ?? ''].join(' ').toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+    return true;
+  });
+  const groups = new Map<string, DumpGroup>();
+  for (const ev of filtered) {
+    const key = groupKey(ev);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.events.push(ev);
+      // Track the latest event timestamp on the group so sorting reflects
+      // the most-recent activity in that request, not its first dump.
+      if (ev.ts > existing.ts) existing.ts = ev.ts;
+    } else {
+      groups.set(key, {
+        key,
+        label: groupLabel(ev),
+        events: [ev],
+        ts: ev.ts
+      });
+    }
+  }
+  // Newest first, end to end: groups by latest activity, and events
+  // within each group in reverse arrival order so the most recent dump
+  // sits at the top of every card.
+  const out = Array.from(groups.values()).sort((a, b) => b.ts.localeCompare(a.ts));
+  for (const g of out) {
+    g.events = g.events.slice().reverse();
+  }
+  return out;
+}
+
 export const dumpGroups: Readable<DumpGroup[]> = derived(
   [dumps, filterSite, filterCtx, filterText],
-  ([$dumps, $site, $ctx, $text]) => {
-    const filtered = $dumps.filter((ev) => {
-      if ($site && ev.ctx.site !== $site) return false;
-      if ($ctx && ev.ctx.type !== $ctx) return false;
-      if ($text) {
-        const haystack = [ev.label ?? '', ev.text ?? '', ev.src.file ?? ''].join(' ').toLowerCase();
-        if (!haystack.includes($text.toLowerCase())) return false;
-      }
-      return true;
-    });
-    const groups = new Map<string, DumpGroup>();
-    for (const ev of filtered) {
-      const key = groupKey(ev);
-      const existing = groups.get(key);
-      if (existing) {
-        existing.events.push(ev);
-        // Track the latest event timestamp on the group so sorting reflects
-        // the most-recent activity in that request, not its first dump.
-        if (ev.ts > existing.ts) existing.ts = ev.ts;
-      } else {
-        groups.set(key, {
-          key,
-          label: groupLabel(ev),
-          events: [ev],
-          ts: ev.ts
-        });
-      }
-    }
-    // Newest first, end to end: groups by latest activity, and events
-    // within each group in reverse arrival order so the most recent dump
-    // sits at the top of every card.
-    const out = Array.from(groups.values()).sort((a, b) => b.ts.localeCompare(a.ts));
-    for (const g of out) {
-      g.events = g.events.slice().reverse();
-    }
-    return out;
-  }
+  ([$dumps, $site, $ctx, $text]) => buildDumpGroups($dumps, $site, $ctx, $text)
 );
 
 function groupKey(ev: DumpEvent): string {
@@ -124,33 +135,35 @@ dumps.subscribe(($dumps) => {
   flashTimer = setTimeout(() => lastFlashId.set(''), FLASH_DURATION_MS);
 });
 
-let started = false;
+// Reference-counted lazy connection. The first DumpsTab to mount opens the
+// EventSource; the last one to unmount closes it. Keeps CPU/network at
+// zero when no Dumps tab is on screen, which matters because the SSE
+// connection otherwise sits idle holding a goroutine and a heartbeat
+// timer for every open dashboard tab.
+let subscriberCount = 0;
 
 export function startDumpsStream() {
-  if (started) return;
-  started = true;
-  // Seed lastSeenId with whatever's already in the store so the initial
-  // replay's last event doesn't immediately flash on connect.
-  const snap = get(dumps);
-  if (snap.length > 0) {
-    lastSeenId = snap[snap.length - 1].id;
+  subscriberCount++;
+  if (subscriberCount === 1) {
+    const snap = get(dumps);
+    if (snap.length > 0) lastSeenId = snap[snap.length - 1].id;
+    flashReady = false;
+    setTimeout(() => {
+      flashReady = true;
+      const after = get(dumps);
+      if (after.length > 0) lastSeenId = after[after.length - 1].id;
+    }, REPLAY_GRACE_MS);
+    stream.connect();
   }
-  setTimeout(() => {
-    // After the replay grace window, future store updates count as live.
-    flashReady = true;
-    const after = get(dumps);
-    if (after.length > 0) {
-      lastSeenId = after[after.length - 1].id;
-    }
-  }, REPLAY_GRACE_MS);
-  stream.connect();
   void refreshStatus();
 }
 
 export function stopDumpsStream() {
-  if (!started) return;
-  started = false;
-  stream.close();
+  if (subscriberCount === 0) return;
+  subscriberCount--;
+  if (subscriberCount === 0) {
+    stream.close();
+  }
 }
 
 export async function refreshStatus(): Promise<void> {
