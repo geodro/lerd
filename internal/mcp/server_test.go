@@ -170,9 +170,9 @@ func TestExecEnvCheck_missingKeys(t *testing.T) {
 // context for the whole session; raise the ceiling only with a justified
 // content addition, not by accreting description verbosity.
 func TestToolList_underSizeCeiling(t *testing.T) {
-	// Bumped to 22500 for site_php / site_node `branch` param + new
-	// workers_mode and bug_report tools (post-1.20.0-beta.1 audit).
-	const ceiling = 22500
+	// Bumped to 23000 for the four new dumps_* tools (recent/status/clear/toggle).
+	// Descriptions trimmed in dumpToolDefs to keep the delta as small as possible.
+	const ceiling = 23000
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)

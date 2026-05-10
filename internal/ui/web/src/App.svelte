@@ -32,6 +32,7 @@
   import SystemDetail from '$tabs/SystemDetail.svelte';
   import AppsPage from '$tabs/AppsPage.svelte';
   import DashboardTab from '$tabs/DashboardTab.svelte';
+  import DumpsTab from '$tabs/DumpsTab.svelte';
 
   function handlePageHide() {
     disconnectWs();
@@ -68,7 +69,7 @@
 <div class="h-screen flex">
   <NavRail />
 
-  {#if !onDashboard}
+  {#if !onDashboard && $tab !== 'dumps'}
     <SidePanel>
       {#if $tab === 'sites'}
         <SitesTab />
@@ -94,6 +95,8 @@
         <ServicesDetail />
       {:else if $tab === 'system'}
         <SystemDetail />
+      {:else if $tab === 'dumps'}
+        <DumpsTab />
       {/if}
     </div>
 
@@ -113,6 +116,8 @@
           <ServicesTab />
         {:else if $tab === 'system'}
           <SystemTab />
+        {:else if $tab === 'dumps'}
+          <DumpsTab />
         {/if}
       </div>
     {:else}
@@ -124,6 +129,8 @@
           <ServicesDetail />
         {:else if $tab === 'system'}
           <SystemDetail />
+        {:else if $tab === 'dumps'}
+          <DumpsTab />
         {/if}
       </div>
     {/if}

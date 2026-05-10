@@ -144,6 +144,20 @@ Re-run `lerd xdebug on --mode <new>` at any time to swap modes without going thr
 
 ---
 
+## Dump bridge
+
+Calls to `dump()` and `dd()` can be captured into the lerd dashboard, TUI, and MCP tools alongside the normal response output. Enable it for every PHP-FPM container with:
+
+```bash
+lerd dump on
+lerd dump tail   # follow the live feed
+lerd dump off
+```
+
+The bridge is auto-prepended into FPM and CLI invocations via a single shared PHP file; the dashboard's **Dumps** tab is updated in real time. See the [Dump viewer feature page](../features/dumps.md) for the wire format, caveats, and tuning knobs.
+
+---
+
 ## Pre-built images
 
 lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top, bringing first-time build time from ~5 minutes down to ~30 seconds.

@@ -112,6 +112,16 @@ type GlobalConfig struct {
 		// effective value.
 		ExecMode string `yaml:"exec_mode,omitempty" mapstructure:"exec_mode"`
 	} `yaml:"workers,omitempty" mapstructure:"workers"`
+	Dumps struct {
+		// Enabled toggles the lerd dump bridge on every PHP-FPM container
+		// and the CLI php wrapper. When true, WriteFPMQuadlet splices two
+		// extra Volume= lines (the bridge PHP file and the conf.d ini) so
+		// userland calls to dump()/dd() ship to the lerd-ui receiver in
+		// addition to their normal output. When false (the default), the
+		// volumes are absent and the FPM container behaves as before.
+		// Toggled via `lerd dump on/off`.
+		Enabled bool `yaml:"enabled,omitempty" mapstructure:"enabled"`
+	} `yaml:"dumps,omitempty" mapstructure:"dumps"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
 }
@@ -453,6 +463,19 @@ func (c *GlobalConfig) RemoveExtension(version, ext string) {
 	} else {
 		c.PHP.Extensions[version] = filtered
 	}
+}
+
+// IsDumpsEnabled reports whether the lerd dump bridge is on for all PHP
+// versions. The toggle is global because the bridge file is a single,
+// version-agnostic asset bind-mounted into every FPM container.
+func (c *GlobalConfig) IsDumpsEnabled() bool {
+	return c.Dumps.Enabled
+}
+
+// SetDumpsEnabled flips the dump bridge toggle. Persist via SaveGlobal and
+// run dumpsops.Apply to actually rewrite the FPM quadlets.
+func (c *GlobalConfig) SetDumpsEnabled(enabled bool) {
+	c.Dumps.Enabled = enabled
 }
 
 // SaveGlobal writes the configuration to config.yaml.

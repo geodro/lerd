@@ -1,0 +1,354 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"time"
+
+	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/dumps"
+	"github.com/geodro/lerd/internal/dumpsops"
+	"github.com/spf13/cobra"
+)
+
+// NewDumpCmd returns the parent `lerd dump` command. Subcommands toggle the
+// dump bridge, tail received dumps, and inspect state.
+func NewDumpCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "dump",
+		Short: "Capture PHP dump()/dd() calls into the lerd dashboard",
+		Long: `Toggle the lerd dump bridge so that calls to dump() and dd() in your PHP
+code ship to the lerd dashboard, TUI, and MCP tools instead of (only) hitting
+the response. Off by default — enable with ` + "`lerd dump on`" + ` and disable
+with ` + "`lerd dump off`" + `.`,
+	}
+	cmd.AddCommand(newDumpOnCmd())
+	cmd.AddCommand(newDumpOffCmd())
+	cmd.AddCommand(newDumpStatusCmd())
+	cmd.AddCommand(newDumpTailCmd())
+	cmd.AddCommand(newDumpClearCmd())
+	return cmd
+}
+
+func newDumpOnCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "on",
+		Short: "Enable the dump bridge for every installed PHP version",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runDumpToggle(true)
+		},
+	}
+}
+
+func newDumpOffCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "off",
+		Short: "Disable the dump bridge",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runDumpToggle(false)
+		},
+	}
+}
+
+func newDumpStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show whether the dump bridge is enabled and how many dumps are buffered",
+		RunE:  runDumpStatus,
+	}
+}
+
+func newDumpClearCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear",
+		Short: "Clear the in-memory dump ring",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runDumpClear()
+		},
+	}
+}
+
+func newDumpTailCmd() *cobra.Command {
+	var (
+		site    string
+		ctxKind string
+	)
+	cmd := &cobra.Command{
+		Use:   "tail",
+		Short: "Stream dumps to the terminal as they arrive",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runDumpTail(site, ctxKind)
+		},
+	}
+	cmd.Flags().StringVar(&site, "site", "", "filter to a single site by short name")
+	cmd.Flags().StringVar(&ctxKind, "ctx", "", "filter by context type: fpm or cli")
+	return cmd
+}
+
+func runDumpToggle(enable bool) error {
+	res, err := dumpsops.Apply(enable)
+	if err != nil {
+		return err
+	}
+	if res.NoChange {
+		state := "disabled"
+		if res.Enabled {
+			state = "enabled"
+		}
+		fmt.Printf("Dump bridge already %s.\n", state)
+		return nil
+	}
+	if res.Enabled {
+		fmt.Printf("Dump bridge enabled. ")
+	} else {
+		fmt.Printf("Dump bridge disabled. ")
+	}
+	if len(res.Changed) == 0 {
+		fmt.Println("No PHP versions installed yet — bridge will activate on next FPM start.")
+		return nil
+	}
+	if res.RestartErr != nil {
+		fmt.Println()
+		fmt.Printf("[WARN] some FPM units failed to restart: %v\n", res.RestartErr)
+		var pending []string
+		restartedSet := map[string]bool{}
+		for _, u := range res.Restarted {
+			restartedSet[u] = true
+		}
+		for _, u := range res.Changed {
+			if !restartedSet[u] {
+				pending = append(pending, u)
+			}
+		}
+		if len(pending) > 0 {
+			fmt.Printf("Run: systemctl --user restart %s\n", strings.Join(pending, " "))
+		}
+		return nil
+	}
+	fmt.Printf("Restarted FPM unit(s): %s\n", strings.Join(res.Restarted, ", "))
+	return nil
+}
+
+func runDumpStatus(_ *cobra.Command, _ []string) error {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	state := "disabled"
+	colour := "\033[33m"
+	if cfg.IsDumpsEnabled() {
+		state = "enabled"
+		colour = "\033[32m"
+	}
+	fmt.Printf("Dump bridge: %s%s\033[0m\n", colour, state)
+	fmt.Printf("Listener:    unix:%s\n", config.DumpsSocketPath())
+	fmt.Printf("Bridge file: %s\n", config.DumpsBridgeFile())
+	fmt.Printf("Bridge ini:  %s\n", config.DumpsIniFile())
+
+	if !cfg.IsDumpsEnabled() {
+		return nil
+	}
+	// Best-effort: ask lerd-ui for the buffer size. If the daemon isn't
+	// running we just say so without erroring — `lerd dump status` should
+	// be informational and never fail loudly.
+	st, err := fetchStatus()
+	if err != nil {
+		fmt.Printf("Buffered:    (lerd-ui not reachable: %v)\n", err)
+		return nil
+	}
+	fmt.Printf("Buffered:    %d event(s)\n", st.Count)
+	if st.LastTS != "" {
+		fmt.Printf("Last event:  %s\n", st.LastTS)
+	}
+	return nil
+}
+
+func runDumpClear() error {
+	body, code, err := postUnix("/api/dumps/clear", nil)
+	if err != nil {
+		return fmt.Errorf("lerd-ui not reachable: %w", err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("lerd-ui returned %d: %s", code, strings.TrimSpace(string(body)))
+	}
+	fmt.Println("Dump ring cleared.")
+	return nil
+}
+
+func runDumpTail(site, ctxKind string) error {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	if !cfg.IsDumpsEnabled() {
+		fmt.Fprintln(os.Stderr, "[INFO] dump bridge is disabled. Run `lerd dump on` to enable.")
+	}
+
+	q := []string{}
+	if site != "" {
+		q = append(q, "site="+site)
+	}
+	if ctxKind != "" {
+		if ctxKind != "fpm" && ctxKind != "cli" {
+			return fmt.Errorf("--ctx must be fpm or cli, got %q", ctxKind)
+		}
+		q = append(q, "ctx="+ctxKind)
+	}
+	path := "/api/dumps/stream"
+	if len(q) > 0 {
+		path += "?" + strings.Join(q, "&")
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	conn, err := dialUnixHTTP(ctx)
+	if err != nil {
+		return fmt.Errorf("lerd-ui not reachable on %s: %w", config.UISocketPath(), err)
+	}
+	defer conn.Close()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://lerd"+path, nil)
+	req.Header.Set("Accept", "text/event-stream")
+	if err := req.Write(conn); err != nil {
+		return err
+	}
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("lerd-ui /api/dumps/stream returned %s", resp.Status)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), dumps.MaxLineBytes)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		raw := strings.TrimPrefix(line, "data: ")
+		var ev dumps.Event
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			continue
+		}
+		printEvent(ev)
+	}
+	if err := scanner.Err(); err != nil && !isClosed(err) {
+		return err
+	}
+	return nil
+}
+
+func printEvent(ev dumps.Event) {
+	hdr := fmt.Sprintf("\033[36m[%s]\033[0m \033[35m%s\033[0m", ev.TS, ev.Ctx.Type)
+	if ev.Ctx.Site != "" {
+		hdr += " " + ev.Ctx.Site
+	}
+	if ev.Ctx.Request != "" {
+		hdr += " " + ev.Ctx.Request
+	}
+	if ev.Src.File != "" {
+		hdr += fmt.Sprintf(" \033[90m%s:%d\033[0m", ev.Src.File, ev.Src.Line)
+	}
+	fmt.Println(hdr)
+	if ev.Label != "" {
+		fmt.Printf("  \033[33m%s\033[0m\n", ev.Label)
+	}
+	if ev.Text != "" {
+		// Indent the dumper text by two spaces for readability.
+		for _, line := range strings.Split(strings.TrimRight(ev.Text, "\n"), "\n") {
+			fmt.Println("  " + line)
+		}
+	}
+	fmt.Println()
+}
+
+// statusResponse mirrors the JSON shape returned by GET /api/dumps?status=1.
+type statusResponse struct {
+	Enabled     bool   `json:"enabled"`
+	Listening   bool   `json:"listening"`
+	Addr        string `json:"addr"`
+	Count       int    `json:"count"`
+	Subscribers int    `json:"subscribers"`
+	LastTS      string `json:"last_ts"`
+}
+
+func fetchStatus() (*statusResponse, error) {
+	body, code, err := getUnix("/api/dumps/status")
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("status returned %d", code)
+	}
+	var st statusResponse
+	if err := json.Unmarshal(body, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// dialUnixHTTP opens a TCP-style net.Conn over the lerd-ui Unix socket. Used
+// for the SSE tail; we keep a raw connection so we can stream the response
+// body without a transport layer that buffers internally.
+func dialUnixHTTP(ctx context.Context) (net.Conn, error) {
+	d := net.Dialer{Timeout: 2 * time.Second}
+	return d.DialContext(ctx, "unix", config.UISocketPath())
+}
+
+func unixHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", config.UISocketPath())
+			},
+		},
+	}
+}
+
+func getUnix(path string) ([]byte, int, error) {
+	req, _ := http.NewRequest("GET", "http://lerd"+path, nil)
+	resp, err := unixHTTPClient().Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	return body, resp.StatusCode, err
+}
+
+func postUnix(path string, body []byte) ([]byte, int, error) {
+	req, _ := http.NewRequest("POST", "http://lerd"+path, strings.NewReader(string(body)))
+	resp, err := unixHTTPClient().Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	return got, resp.StatusCode, err
+}
+
+func isClosed(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed") || strings.Contains(msg, "EOF")
+}

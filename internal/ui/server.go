@@ -146,6 +146,11 @@ func Start(currentVersion string) error {
 	// the freshly rebuilt bytes to every connected browser.
 	go runSnapshotInvalidator()
 
+	// Loopback receiver for the PHP dump bridge. Bound unconditionally
+	// because the listener is essentially free and lets the dashboard
+	// pick up dumps the moment `lerd dump on` runs without a UI restart.
+	startDumpsServer()
+
 	// systemd transitions a worker to "failed" without telling lerd-ui (e.g.
 	// after start-limit-hit on a crash loop). The health watcher closes
 	// that gap by polling the cached detector on a slow tick and publishing
@@ -193,6 +198,11 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
 	mux.HandleFunc("/api/sites/", withCORS(publishAfter(handleSiteAction, eventbus.KindSites, eventbus.KindServices)))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
+	mux.HandleFunc("/api/dumps", withCORS(handleDumpsList))
+	mux.HandleFunc("/api/dumps/stream", withCORS(handleDumpsStream))
+	mux.HandleFunc("/api/dumps/status", withCORS(handleDumpsStatus))
+	mux.HandleFunc("/api/dumps/clear", withCORS(handleDumpsClear))
+	mux.HandleFunc("/api/dumps/toggle", withCORS(handleDumpsToggle))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
 	mux.HandleFunc("/api/horizon/", withCORS(handleHorizonLogs))
 	mux.HandleFunc("/api/stripe/", withCORS(handleStripeLogs))

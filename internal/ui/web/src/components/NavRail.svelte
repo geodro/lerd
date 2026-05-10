@@ -14,14 +14,16 @@
     dashboard: m.nav_dashboard(),
     sites: m.nav_sites(),
     services: m.nav_services(),
-    system: m.nav_system()
+    system: m.nav_system(),
+    dumps: m.nav_dumps()
   });
 
   const icons: Record<TabId, IconName> = {
     dashboard: 'dashboard',
     sites: 'sites',
     services: 'services',
-    system: 'system'
+    system: 'system',
+    dumps: 'terminal'
   };
 </script>
 

@@ -94,6 +94,7 @@ nav:
   - Features:
       - Web UI: features/web-ui.md
       - Tinker tab: features/tinker.md
+      - Dump viewer: features/dumps.md
       - System Tray: features/system-tray.md
       - HTTPS / TLS: features/https.md
       - DNS: features/dns.md

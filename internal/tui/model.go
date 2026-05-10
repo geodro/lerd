@@ -39,6 +39,7 @@ const (
 	detailSite detailMode = iota
 	detailSettings
 	detailHelp
+	detailDumps
 )
 
 // Model is the bubbletea root. Panes are all projections of snap plus small
@@ -107,6 +108,29 @@ type Model struct {
 	// when a newer release is available; rendered as a banner in the
 	// header so users see it without running lerd status.
 	updateAvailable string
+
+	// Buffer of recent dump events surfaced by the dumps pane (D key).
+	// Capped at dumpsBufferCap; new events arrive via dumpEventMsg from
+	// the goroutine started by Run when the program boots. Independent
+	// of the in-memory ring inside lerd-ui because the TUI runs in its
+	// own process and only sees what the SSE connection delivers.
+	dumps       []DumpEntry
+	dumpsCursor int
+	dumpsScroll int
+}
+
+// DumpEntry is a TUI-side mirror of dumps.Event with the fields rendering
+// needs cached as strings so the View path doesn't allocate per frame.
+type DumpEntry struct {
+	ID      string
+	TS      string
+	Type    string
+	Site    string
+	Request string
+	File    string
+	Line    int
+	Label   string
+	Text    string
 }
 
 // NewModel builds an initial model. The caller is expected to call
@@ -183,6 +207,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateCheckMsg:
 		m.updateAvailable = msg.Latest
 		return m, nil
+
+	case dumpEventMsg:
+		m.appendDump(DumpEntry(msg))
+		return m, nil
 	}
 	return m, nil
 }
@@ -244,6 +272,17 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailMode = detailSite
 		} else {
 			m.detailMode = detailHelp
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "D":
+		if m.detailMode == detailDumps {
+			m.detailMode = detailSite
+		} else {
+			m.detailMode = detailDumps
+			m.dumpsCursor = 0
+			m.dumpsScroll = 0
 			m.focus = paneDetail
 		}
 		return m, nil
@@ -655,6 +694,8 @@ func (m *Model) moveCursor(delta int) {
 			if m.helpScroll < 0 {
 				m.helpScroll = 0
 			}
+		case detailDumps:
+			m.dumpsCursor = clamp(m.dumpsCursor+delta, 0, max(0, len(m.dumps)-1))
 		default:
 			if s := m.currentSite(); s != nil {
 				nav := navigableRows(detailRows(s))
@@ -1063,6 +1104,13 @@ func Run(version string) error {
 		p.Send(refreshMsg{})
 	})
 	defer podman.Cache.SetOnChange(nil)
+
+	// Background goroutine streams dumps from lerd-ui into the program. If
+	// the daemon isn't running, runDumpsListener reconnects with backoff;
+	// the TUI keeps working without any dumps until lerd-ui comes back.
+	dumpsCtx, cancelDumps := context.WithCancel(context.Background())
+	defer cancelDumps()
+	go runDumpsListener(dumpsCtx, p)
 
 	_, err := p.Run()
 	return err

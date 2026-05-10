@@ -67,6 +67,7 @@ var helpReference = []helpSection{
 		rows: [][2]string{
 			{"v", "show / hide the services pane"},
 			{"S", "swap the detail pane for global Settings (LAN expose, autostart, Xdebug)"},
+			{"D", "swap the detail pane for the live dump() / dd() feed"},
 			{"?", "swap the detail pane for this help reference"},
 			{"esc", "close picker or return to site detail"},
 		},

@@ -480,10 +480,16 @@ func WriteFPMQuadlet(version string) error {
 	if err := EnsureXdebugIni(version); err != nil {
 		return fmt.Errorf("creating xdebug ini: %w", err)
 	}
+	if err := EnsureDumpAssets(); err != nil {
+		return fmt.Errorf("ensuring dump assets: %w", err)
+	}
 
 	if err := ensureFPMHostsFile(); err != nil {
 		return err
 	}
+
+	cfg, _ := config.LoadGlobal()
+	dumpsEnabled := cfg != nil && cfg.IsDumpsEnabled()
 
 	tmplContent, err := GetQuadletTemplate("lerd-php-fpm.container.tmpl")
 	if err != nil {
@@ -493,6 +499,7 @@ func WriteFPMQuadlet(version string) error {
 	content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
 	content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(version))
 	content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(version))
+	content = ApplyDumpVolumes(content, dumpsEnabled)
 	content = InjectExtraVolumes(content, ExtraVolumePaths())
 
 	// Skip the write and daemon-reload if the quadlet is already up to date.
@@ -520,6 +527,9 @@ func RewriteFPMQuadlets() error {
 	extraPaths := ExtraVolumePaths()
 	versions, _ := listInstalledPHPVersions()
 
+	cfg, _ := config.LoadGlobal()
+	dumpsEnabled := cfg != nil && cfg.IsDumpsEnabled()
+
 	var changedUnits []string
 
 	for _, v := range versions {
@@ -534,6 +544,7 @@ func RewriteFPMQuadlets() error {
 		content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
 		content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(v))
 		content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(v))
+		content = ApplyDumpVolumes(content, dumpsEnabled)
 		content = InjectExtraVolumes(content, extraPaths)
 
 		changed, writeErr := WriteQuadletDiff(unitName, content)

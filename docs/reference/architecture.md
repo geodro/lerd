@@ -50,6 +50,7 @@ On Linux, lerd requires systemd. Every container runs as a Podman Quadlet (syste
 | Services | Podman Quadlet containers |
 | DNS | dnsmasq container + NetworkManager or systemd-resolved integration |
 | TLS | [mkcert](https://github.com/FiloSottile/mkcert), locally trusted CA |
+| Dump bridge | `auto_prepend_file` PHP file in each FPM container, NDJSON over loopback TCP `127.0.0.1:9913` to an in-process receiver inside `lerd-ui`. See [features/dumps.md](../features/dumps.md). |
 
 ## Key design decisions
 

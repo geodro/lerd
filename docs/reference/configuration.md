@@ -23,6 +23,10 @@ services:
   meilisearch: { enabled: false, image: "docker.io/getmeili/meilisearch:v1.7",     port: 7700 }
   rustfs:      { enabled: false, image: "docker.io/rustfs/rustfs:latest",          port: 9000 }
   mailpit:     { enabled: false, image: "docker.io/axllent/mailpit:latest",        port: 1025 }
+dumps:
+  enabled: false   # toggle via `lerd dump on/off` — when true, every PHP-FPM container
+                   # gets the dump-bridge.php auto_prepend and dump()/dd() calls ship
+                   # to the dashboard via TCP loopback. See features/dumps.md.
 ```
 
 ---

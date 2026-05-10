@@ -938,6 +938,7 @@ func toolList() []mcpTool {
 		worktreeTool(),
 		dnsDiagnoseTool(),
 	)
+	tools = append(tools, dumpToolDefs()...)
 
 	return tools
 }
@@ -1226,6 +1227,15 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execPark(args)
 	case "unpark":
 		return execUnpark(args)
+
+	case "dumps_recent":
+		return execDumpsRecent(args)
+	case "dumps_status":
+		return execDumpsStatus(args)
+	case "dumps_clear":
+		return execDumpsClear(args)
+	case "dumps_toggle":
+		return execDumpsToggle(args)
 
 	default:
 		return toolErr("unknown tool: " + p.Name), nil

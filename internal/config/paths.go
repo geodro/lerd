@@ -109,6 +109,32 @@ func PHPUserIniFile(version string) string {
 	return filepath.Join(DataDir(), "php", version, "98-user.ini")
 }
 
+// DumpsAssetsDir returns the host directory holding the version-agnostic dump
+// bridge assets (PHP file + ini). Both files are bind-mounted read-only into
+// every FPM container when `lerd dump on` is active. Single shared copy
+// because the bridge is identical across PHP versions.
+func DumpsAssetsDir() string {
+	return filepath.Join(DataDir(), "php", "dumps")
+}
+
+// DumpsBridgeFile is the host path for dump-bridge.php (the auto-prepended
+// PHP file).
+func DumpsBridgeFile() string {
+	return filepath.Join(DumpsAssetsDir(), "dump-bridge.php")
+}
+
+// DumpsIniFile is the host path for the conf.d ini that turns the bridge on.
+func DumpsIniFile() string {
+	return filepath.Join(DumpsAssetsDir(), "97-lerd-dump.ini")
+}
+
+// DumpsSocketPath is the Unix socket lerd-ui binds for dump payloads. Kept
+// in RunDir so it sits alongside the UI socket and so the existing %h:%h
+// volume in every FPM container surfaces it at the same path inside.
+func DumpsSocketPath() string {
+	return filepath.Join(RunDir(), "lerd-dumps.sock")
+}
+
 // CustomServicesDir returns the directory for custom service YAML files.
 func CustomServicesDir() string {
 	return filepath.Join(ConfigDir(), "services")

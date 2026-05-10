@@ -448,5 +448,6 @@
   "workers_health_banner_heal": "Heal",
   "workers_health_banner_healing": "Healing…",
   "workers_health_banner_dismiss": "Dismiss",
-  "workers_health_banner_progress": "Healing {done} of {total}…"
+  "workers_health_banner_progress": "Healing {done} of {total}…",
+  "nav_dumps": "Dumps"
 }

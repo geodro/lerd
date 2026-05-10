@@ -137,6 +137,7 @@ func main() {
 	root.AddCommand(cli.NewDbCreateCmd())
 	root.AddCommand(cli.NewDbShellCmd())
 	root.AddCommand(cli.NewXdebugCmd())
+	root.AddCommand(cli.NewDumpCmd())
 	root.AddCommand(cli.NewPhpExtCmd())
 	root.AddCommand(cli.NewPhpIniCmd())
 	for _, cmd := range cli.NewStripeCmds() {

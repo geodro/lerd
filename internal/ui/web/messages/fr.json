@@ -448,5 +448,6 @@
   "workers_health_banner_heal": "Réparer",
   "workers_health_banner_healing": "Réparation…",
   "workers_health_banner_dismiss": "Masquer",
-  "workers_health_banner_progress": "Réparation {done} sur {total}…"
+  "workers_health_banner_progress": "Réparation {done} sur {total}…",
+  "nav_dumps": "Vidages"
 }

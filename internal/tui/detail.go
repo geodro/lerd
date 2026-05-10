@@ -409,6 +409,8 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 			m.helpScroll = max(0, len(all)-1)
 		}
 		content = all[m.helpScroll:]
+	case detailDumps:
+		content, cursorLine = dumpsContentLines(m, focused, contentW)
 	default:
 		site := m.currentSite()
 		if site == nil {

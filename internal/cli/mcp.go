@@ -940,6 +940,16 @@ Use ` + bt + `coverage` + bt + ` for ` + bt + `phpunit --coverage` + bt + ` / ` 
 
 ` + bt + `xdebug(action: "status")` + bt + ` returns the enabled/disabled state and the active ` + bt + `mode` + bt + ` for all installed PHP versions.
 
+### ` + bt + `dumps_recent` + bt + ` / ` + bt + `dumps_status` + bt + ` / ` + bt + `dumps_clear` + bt + ` / ` + bt + `dumps_toggle` + bt + `
+Capture and inspect ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` output via the lerd dump bridge. Off by default — enable globally with ` + bt + `dumps_toggle(enable: true)` + bt + `, then call ` + bt + `dumps_recent` + bt + ` to read what your last request produced.
+
+- ` + bt + `dumps_recent({ site?, ctx?, since?, limit? })` + bt + ` returns the buffered events as JSON (most-recent at the tail). Use ` + bt + `site` + bt + ` to scope to one site (matches ` + bt + `ctx.site` + bt + `), ` + bt + `ctx` + bt + ` (` + bt + `"fpm"` + bt + ` or ` + bt + `"cli"` + bt + `) to filter by source, ` + bt + `since` + bt + ` (event id) to skip events you've already seen, and ` + bt + `limit` + bt + ` to cap the result.
+- ` + bt + `dumps_status()` + bt + ` reports whether the bridge is enabled, whether the receiver is listening, the listener address, the buffered event count, and the timestamp of the most recent event.
+- ` + bt + `dumps_clear()` + bt + ` wipes the in-memory ring without disabling the bridge — handy before triggering a focused repro.
+- ` + bt + `dumps_toggle({ enable: true | false })` + bt + ` flips the global on/off. ` + bt + `enable: true` + bt + ` rewrites each FPM container quadlet to mount the bridge and restarts the affected units; ` + bt + `enable: false` + bt + ` strips the volumes and restarts.
+
+Events ship as JSON with ` + bt + `ts` + bt + ` (RFC3339Nano), ` + bt + `ctx` + bt + ` (type, site, request, pid), ` + bt + `src` + bt + ` (file:line of the dump call), ` + bt + `label` + bt + ` (the keyword arg name when present), and ` + bt + `text` + bt + ` (Symfony VarDumper's CliDumper output). Capacity is 500 events; older entries roll off.
+
 ### ` + bt + `queue` + bt + `
 Start or stop a queue worker for a site. Available for any framework that defines a ` + bt + `queue` + bt + ` worker (Laravel has it built-in). Runs the framework-defined command in the FPM container as a systemd service.
 
@@ -1434,6 +1444,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
 | ` + bt + `site_tls` + bt + ` | Enable or disable HTTPS for a site (mkcert) — ` + bt + `action` + bt + `: ` + bt + `enable` + bt + ` / ` + bt + `disable` + bt + `; updates APP_URL automatically |
 | ` + bt + `xdebug` + bt + ` | Manage Xdebug for a PHP version (port 9003) — ` + bt + `action` + bt + `: ` + bt + `on` + bt + ` / ` + bt + `off` + bt + ` / ` + bt + `status` + bt + `; optional ` + bt + `mode` + bt + ` on ` + bt + `on` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
+| ` + bt + `dumps_recent` + bt + ` / ` + bt + `dumps_status` + bt + ` / ` + bt + `dumps_clear` + bt + ` / ` + bt + `dumps_toggle` + bt + ` | Inspect / clear / toggle the lerd dump bridge that captures ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` calls. Off by default; enable with ` + bt + `dumps_toggle({enable: true})` + bt + ` |
 | ` + bt + `service_control` + bt + ` | Start, stop, pin, or unpin a built-in or custom service — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` / ` + bt + `pin` + bt + ` / ` + bt + `unpin` + bt + ` |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
 | ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, selenium, stripe-mock, …) with versions and install state |

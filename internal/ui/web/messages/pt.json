@@ -448,5 +448,6 @@
   "workers_health_banner_heal": "Reparar",
   "workers_health_banner_healing": "Reparando…",
   "workers_health_banner_dismiss": "Dispensar",
-  "workers_health_banner_progress": "Reparando {done} de {total}…"
+  "workers_health_banner_progress": "Reparando {done} de {total}…",
+  "nav_dumps": "Despejos"
 }
