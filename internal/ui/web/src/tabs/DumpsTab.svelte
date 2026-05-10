@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import {
     dumpGroups,
     dumpsConnected,
@@ -17,13 +17,40 @@
   import DumpEntry from '$components/DumpEntry.svelte';
   import EmptyState from '$components/EmptyState.svelte';
 
+  interface Props {
+    // siteScope locks the site filter to a fixed value and hides the site
+    // picker. Used when this tab is embedded in SiteDetail — the surrounding
+    // page already establishes site context.
+    siteScope?: string;
+  }
+  let { siteScope = '' }: Props = $props();
+  const scoped = $derived(siteScope !== '');
+
   onMount(() => {
     startDumpsStream();
     void refreshStatus();
+    if (scoped) {
+      // Snapshot whatever the global tab had selected so we can restore it
+      // when this scoped instance unmounts (otherwise the standalone view
+      // would inherit the per-site filter on next mount).
+      previousSite = untrack(() => $filterSite);
+      filterSite.set(siteScope);
+    }
   });
 
+  let previousSite = '';
+
   onDestroy(() => {
+    if (scoped) {
+      filterSite.set(previousSite);
+    }
     stopDumpsStream();
+  });
+
+  // Sync the store filter to siteScope changes (user switching sites in
+  // the SiteDetail nav). $effect re-runs whenever siteScope changes.
+  $effect(() => {
+    if (scoped) filterSite.set(siteScope);
   });
 
   let textInput = $state('');
@@ -82,15 +109,17 @@
       placeholder="Search label, file, value…"
       bind:value={textInput}
     />
-    <select
-      class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
-      bind:value={$filterSite}
-    >
-      <option value="">All sites</option>
-      {#each $knownSites as site}
-        <option value={site}>{site || '(unknown)'}</option>
-      {/each}
-    </select>
+    {#if !scoped}
+      <select
+        class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
+        bind:value={$filterSite}
+      >
+        <option value="">All sites</option>
+        {#each $knownSites as site}
+          <option value={site}>{site || '(unknown)'}</option>
+        {/each}
+      </select>
+    {/if}
     <select
       class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
       bind:value={$filterCtx}

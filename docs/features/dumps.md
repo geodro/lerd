@@ -11,10 +11,10 @@ Once enabled, lerd ships two files into every PHP-FPM container:
 - `/usr/local/etc/lerd/dump-bridge.php` — a small PHP file that defines `dump()` and `dd()` (taking precedence over Symfony's stock helpers via `function_exists` guards), and on each call ships the cloned variable as newline-delimited JSON over TCP to `host.containers.internal:9913`.
 - `/usr/local/etc/php/conf.d/97-lerd-dump.ini` — sets `auto_prepend_file=...dump-bridge.php` so the bridge is loaded before every request.
 
-The receiver is a loopback TCP listener that runs inside `lerd-ui`. It buffers the last 500 events in memory and fans them out to four surfaces:
+The receiver is a per-user Unix-socket listener that runs inside `lerd-ui`. It buffers the last 500 events in memory and fans them out to four surfaces:
 
-- **Web dashboard** — the **Dumps** tab in the side nav. Grouped by request, filterable by site and context, with a free-text search.
-- **TUI** — press **D** in `lerd tui` to swap the detail pane for the live dump feed.
+- **Web dashboard** — each site detail pane has a **Dumps** tab next to Overview and Tinker, pre-filtered to that site. Grouped by request, with a free-text search and a context (fpm/cli) filter.
+- **TUI** — press **D** in `lerd tui` to swap the detail pane for the live dump feed (global, all sites).
 - **CLI** — `lerd dump tail` streams events to your terminal, with `--site` and `--ctx` filters.
 - **MCP** — `dumps_recent`, `dumps_status`, `dumps_clear`, `dumps_toggle` for AI-agent access.
 

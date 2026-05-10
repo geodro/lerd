@@ -1,8 +1,8 @@
 import { writable, derived } from 'svelte/store';
 
-export type TabId = 'dashboard' | 'sites' | 'services' | 'system' | 'dumps';
+export type TabId = 'dashboard' | 'sites' | 'services' | 'system';
 
-export const TABS: TabId[] = ['dashboard', 'sites', 'services', 'system', 'dumps'];
+export const TABS: TabId[] = ['dashboard', 'sites', 'services', 'system'];
 
 export function parseHash(hash: string): { tab: TabId; rest: string } {
   const h = hash.startsWith('#') ? hash.slice(1) : hash;
