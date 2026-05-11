@@ -3,6 +3,7 @@
   import DumpView from './DumpView.svelte';
   import { parseDump, looksLikeDump } from '$lib/dump-parser';
   import { lastFlashId } from '$stores/dumps';
+  import { m } from '../paraglide/messages.js';
 
   interface Props {
     event: DumpEvent;
@@ -61,7 +62,7 @@
     <pre class="font-mono text-xs whitespace-pre-wrap text-gray-700 dark:text-gray-200">{event.text ?? ''}</pre>
   {/if}
   {#if event.trunc}
-    <div class="text-xs text-amber-600 dark:text-amber-400 mt-2">⚠ truncated by dumper caps</div>
+    <div class="text-xs text-amber-600 dark:text-amber-400 mt-2">{m.dumps_truncated()}</div>
   {/if}
 </div>
 

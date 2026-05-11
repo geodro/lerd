@@ -16,6 +16,7 @@
   } from '$stores/dumps';
   import DumpEntry from '$components/DumpEntry.svelte';
   import EmptyState from '$components/EmptyState.svelte';
+  import { m } from '../paraglide/messages.js';
 
   interface Props {
     // siteScope pins the site filter for this view. When set, the site
@@ -86,7 +87,7 @@
   <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-lerd-border flex-wrap">
     <input
       class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card flex-1 min-w-[140px]"
-      placeholder="Search label, file, value…"
+      placeholder={m.dumps_searchPlaceholder()}
       bind:value={textInput}
     />
     {#if !scoped}
@@ -94,9 +95,9 @@
         class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={$filterSite}
       >
-        <option value="">All sites</option>
+        <option value="">{m.dumps_filter_allSites()}</option>
         {#each $knownSites as site}
-          <option value={site}>{site || '(unknown)'}</option>
+          <option value={site}>{site || m.dumps_unknownSite()}</option>
         {/each}
       </select>
     {/if}
@@ -105,18 +106,18 @@
         class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={localCtx}
       >
-        <option value="">All contexts</option>
-        <option value="fpm">Web (fpm)</option>
-        <option value="cli">CLI</option>
+        <option value="">{m.dumps_filter_allContexts()}</option>
+        <option value="fpm">{m.dumps_filter_web()}</option>
+        <option value="cli">{m.dumps_filter_cli()}</option>
       </select>
     {:else}
       <select
         class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={$filterCtx}
       >
-        <option value="">All contexts</option>
-        <option value="fpm">Web (fpm)</option>
-        <option value="cli">CLI</option>
+        <option value="">{m.dumps_filter_allContexts()}</option>
+        <option value="fpm">{m.dumps_filter_web()}</option>
+        <option value="cli">{m.dumps_filter_cli()}</option>
       </select>
     {/if}
     <button
@@ -124,7 +125,7 @@
       class="text-xs rounded border border-gray-300 dark:border-lerd-border px-2 py-1 hover:bg-gray-50 dark:hover:bg-lerd-hover"
       onclick={onClear}
     >
-      Clear
+      {m.common_clear()}
     </button>
   </div>
 
@@ -132,9 +133,9 @@
     {#if groups.length === 0}
       {#if !$status?.enabled}
         <div class="px-4 py-10 text-center space-y-3">
-          <p class="text-sm text-gray-500 dark:text-gray-400">Dump bridge is disabled</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{m.dumps_disabled_title()}</p>
           <p class="text-[11px] text-gray-400 dark:text-gray-500">
-            Trigger a dump() or dd() and it will appear here once captures are on.
+            {m.dumps_disabled_body()}
           </p>
           <button
             type="button"
@@ -142,13 +143,13 @@
             onclick={onEnable}
             class="inline-flex items-center gap-1.5 text-xs rounded border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 hover:border-emerald-500 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:opacity-50"
           >
-            {enabling ? 'Enabling…' : 'Enable dump bridge'}
+            {enabling ? m.dumps_enabling() : m.dumps_enable()}
           </button>
         </div>
       {:else}
-        <EmptyState title="Waiting for dumps…">
+        <EmptyState title={m.dumps_waiting_title()}>
           {#snippet hint()}
-            Trigger a dump() or dd() in your PHP code and it will appear here.
+            {m.dumps_waiting_body()}
           {/snippet}
         </EmptyState>
       {/if}
@@ -157,7 +158,7 @@
         <section class="mb-4">
           <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-[1]">
             <span class="text-sm">{group.label}</span>
-            <span class="text-xs text-gray-400 ml-auto">{group.events.length} dump{group.events.length === 1 ? '' : 's'}</span>
+            <span class="text-xs text-gray-400 ml-auto">{m.dumps_groupCount({ count: group.events.length })}</span>
           </header>
           {#each group.events as ev (ev.id)}
             <DumpEntry event={ev} />

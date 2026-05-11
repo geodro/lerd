@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { status, refreshStatus, toggleDumps } from '$stores/dumps';
+  import { m } from '../paraglide/messages.js';
 
   // Compact antenna-style toggle for the Sites list header. Click to flip
   // the lerd dump bridge on/off — when on, every PHP-FPM container has
@@ -29,7 +30,7 @@
   }
 
   const title = $derived(
-    busy ? 'Toggling dump bridge…' : enabled ? 'Dump bridge is on, click to disable' : 'Dump bridge is off, click to enable'
+    busy ? m.dumps_toggle_busy() : enabled ? m.dumps_toggle_on() : m.dumps_toggle_off()
   );
 </script>
 

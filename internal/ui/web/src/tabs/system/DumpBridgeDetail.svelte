@@ -6,6 +6,7 @@
   import DetailButton from '$components/DetailButton.svelte';
   import DumpsTab from '$tabs/DumpsTab.svelte';
   import { status as dumpsStatusValue, refreshStatus, toggleDumps, togglePassthrough } from '$stores/dumps';
+  import { m } from '../../paraglide/messages.js';
 
   let toggling = $state(false);
   async function flip() {
@@ -39,30 +40,30 @@
 {#snippet pill()}
   {#if $dumpsStatusValue?.enabled}
     <div class="flex items-center gap-2">
-      <StatusPill tone="ok" label="Capturing" />
+      <StatusPill tone="ok" label={m.dumps_bridge_capturing()} />
       <DetailButton tone="secondary" disabled={toggling} loading={toggling} onclick={flip}>
-        Disable
+        {m.common_disable()}
       </DetailButton>
     </div>
   {:else}
     <div class="flex items-center gap-2">
-      <StatusPill tone="muted" label="Off" />
+      <StatusPill tone="muted" label={m.dumps_bridge_off()} />
       <DetailButton tone="success" disabled={toggling} loading={toggling} onclick={flip}>
-        Enable
+        {m.common_enable()}
       </DetailButton>
     </div>
   {/if}
 {/snippet}
 
 <DetailPanel>
-  <DetailHeader title="Dump bridge" trailing={pill} />
+  <DetailHeader title={m.dumps_bridge_title()} trailing={pill} />
   <div class="px-3 sm:px-5 py-2 space-y-2 shrink-0 text-xs text-gray-500 dark:text-gray-400">
     <p>
-      Captures every <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">dump()</code> / <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">dd()</code> call from PHP-FPM and CLI into the dashboard.
+      {m.dumps_bridge_description()}
       {#if $dumpsStatusValue}
-        Listener {$dumpsStatusValue.listening ? 'up' : 'down'} on <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">{$dumpsStatusValue.addr}</code>.
+        {m.dumps_bridge_listener({ state: $dumpsStatusValue.listening ? m.dumps_bridge_listenerUp() : m.dumps_bridge_listenerDown(), addr: $dumpsStatusValue.addr })}
         {#if $dumpsStatusValue.count > 0}
-          Buffered: <span class="font-mono">{$dumpsStatusValue.count}</span>{#if $dumpsStatusValue.last_ts}, last {new Date($dumpsStatusValue.last_ts).toLocaleTimeString()}{/if}.
+          {m.dumps_bridge_buffered({ count: $dumpsStatusValue.count })}{#if $dumpsStatusValue.last_ts}, {m.dumps_bridge_bufferedLast({ time: new Date($dumpsStatusValue.last_ts).toLocaleTimeString() })}{/if}.
         {/if}
       {/if}
     </p>
@@ -75,12 +76,12 @@
           disabled={switchingPassthrough}
           onchange={flipPassthrough}
         />
-        <span>Also print to response (passthrough)</span>
+        <span>{m.dumps_bridge_passthrough()}</span>
       </label>
       {#if switchingPassthrough}
-        <span class="text-[11px] text-amber-600 dark:text-amber-400">Restarting FPM containers…</span>
+        <span class="text-[11px] text-amber-600 dark:text-amber-400">{m.dumps_bridge_passthroughRestarting()}</span>
       {:else}
-        <span class="text-[11px] text-gray-400 dark:text-gray-500">Toggling restarts every <code class="font-mono">lerd-php*-fpm</code> unit.</span>
+        <span class="text-[11px] text-gray-400 dark:text-gray-500">{m.dumps_bridge_passthroughHint()}</span>
       {/if}
     </div>
   </div>
