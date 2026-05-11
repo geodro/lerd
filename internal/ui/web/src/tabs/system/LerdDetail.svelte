@@ -181,7 +181,7 @@
           on={$autostartEnabled}
           loading={autostartBusy}
           onclick={onToggleAutostart}
-          title={$autostartEnabled ? 'Disable autostart' : 'Enable autostart'}
+          title={$autostartEnabled ? m.system_autostart_toggleOff() : m.system_autostart_toggleOn()}
         />
       </div>
     </div>
@@ -349,7 +349,7 @@
               onclick={() => openRemoteControlModal()}
               disabled={$remoteControl.loading}
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors"
-            >Change credentials</button>
+            >{m.system_remote_changeCredentials()}</button>
             <button
               onclick={doDisableRemoteControl}
               disabled={$remoteControl.loading}
@@ -363,7 +363,7 @@
             onclick={exposeDashboardForLAN}
             disabled={$lan.loading}
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 disabled:opacity-50 transition-colors"
-          >Enable dashboard on LAN</button>
+          >{m.system_remote_enableDashboardLan()}</button>
         </div>
       {:else}
         <div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { dashboardOpen, closeDashboard } from '$stores/dashboard';
   import { dashboardIconSvg } from '$lib/dashboardIcons';
+  import { m } from '../paraglide/messages.js';
 </script>
 
 {#if $dashboardOpen}
@@ -25,11 +26,11 @@
           target="_blank"
           rel="noopener"
           class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors"
-        >Open in new tab</a>
+        >{m.common_openInNewTab()}</a>
         <button
           onclick={closeDashboard}
-          title="Close"
-          aria-label="Close dashboard"
+          title={m.common_close()}
+          aria-label={m.common_closeDashboard()}
           class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

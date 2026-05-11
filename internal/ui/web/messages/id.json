@@ -519,5 +519,12 @@
   "worktreeDb_cloneFromBranchDb": "Klon dari {branch} ({db})",
   "worktreeDb_cloningHint": "Kloning menjalankan mysqldump | mysql (atau pg_dump | psql) di dalam kontainer layanan.",
   "worktreeDb_isolateAction": "Isolasi",
-  "lanShare_qrAlt": "Kode QR"
+  "lanShare_qrAlt": "Kode QR",
+  "common_closeDashboard": "Tutup dasbor",
+  "palette_ariaLabel": "Palet perintah",
+  "system_php_xdebugModeTitle": "Mode Xdebug",
+  "system_remote_changeCredentials": "Ubah kredensial",
+  "system_remote_enableDashboardLan": "Aktifkan dasbor di LAN",
+  "sites_controls_workersFromMain": "Worker dijalankan dari main",
+  "sites_controls_workersFromMainTitle": "Queue, schedule, Horizon, dan Reverb hanya berjalan pada branch main. Beralih ke main untuk memulai atau menghentikannya."
 }

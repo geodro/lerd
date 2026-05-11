@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import { m } from '../paraglide/messages.js';
 
   interface Props {
     open: boolean;
@@ -28,7 +29,7 @@
   <div class="fixed inset-0 z-50 flex items-center justify-center">
     <button
       class="absolute inset-0 bg-black/50"
-      aria-label="Close"
+      aria-label={m.common_close()}
       onclick={onclose}
     ></button>
     <div
@@ -39,7 +40,7 @@
         <button
           onclick={onclose}
           class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          title="Close"
+          title={m.common_close()}
         >
           <Icon name="close" class="w-5 h-5" />
         </button>

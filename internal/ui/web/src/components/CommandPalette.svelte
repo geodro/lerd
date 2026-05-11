@@ -195,7 +195,7 @@
       class="w-full max-w-xl max-h-[70vh] flex flex-col bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-xl shadow-2xl overflow-hidden"
       role="dialog"
       aria-modal="true"
-      aria-label="Command palette"
+      aria-label={m.palette_ariaLabel()}
       tabindex="-1"
     >
       <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-lerd-border">

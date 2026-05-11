@@ -151,7 +151,7 @@
             onchange={onSetXdebugMode}
             disabled={xdebugBusy}
             class="text-xs bg-white dark:bg-lerd-muted border border-gray-200 dark:border-lerd-border rounded px-1.5 py-0.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50"
-            title="Xdebug mode"
+            title={m.system_php_xdebugModeTitle()}
           >
             {#each XDEBUG_MODES as mode (mode)}<option value={mode}>{mode}</option>{/each}
           </select>

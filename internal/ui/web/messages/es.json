@@ -519,5 +519,12 @@
   "worktreeDb_cloneFromBranchDb": "Clonar desde {branch} ({db})",
   "worktreeDb_cloningHint": "La clonación ejecuta mysqldump | mysql (o pg_dump | psql) dentro del contenedor del servicio.",
   "worktreeDb_isolateAction": "Aislar",
-  "lanShare_qrAlt": "Código QR"
+  "lanShare_qrAlt": "Código QR",
+  "common_closeDashboard": "Cerrar el panel",
+  "palette_ariaLabel": "Paleta de comandos",
+  "system_php_xdebugModeTitle": "Modo Xdebug",
+  "system_remote_changeCredentials": "Cambiar credenciales",
+  "system_remote_enableDashboardLan": "Activar el panel en la LAN",
+  "sites_controls_workersFromMain": "Los workers se ejecutan desde main",
+  "sites_controls_workersFromMainTitle": "Queue, schedule, Horizon y Reverb se ejecutan solo en la rama main. Cambia a main para iniciarlos o detenerlos."
 }

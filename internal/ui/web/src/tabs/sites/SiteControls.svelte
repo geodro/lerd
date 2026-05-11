@@ -273,9 +273,9 @@
       {#if wtWorkers.length === 0}
         <span
           class="text-[11px] text-gray-400 dark:text-gray-500 italic"
-          title="Queue, schedule, Horizon and Reverb run against the main branch only. Switch to main to start or stop them."
+          title={m.sites_controls_workersFromMainTitle()}
         >
-          Workers run from main
+          {m.sites_controls_workersFromMain()}
         </span>
       {:else}
         {#each wtWorkers as w (w.name)}
