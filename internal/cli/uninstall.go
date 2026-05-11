@@ -232,8 +232,31 @@ func readYes() bool {
 	return strings.EqualFold(ans, "y") || strings.EqualFold(ans, "yes")
 }
 
+// shellRCMarkers lists every marker comment lerd's install pipelines
+// ever wrote into a user shell rc, paired with the number of follow-up
+// lines belonging to that block. Each entry is a separate writer:
+//
+//   - "# Added by Lerd installer" → install.sh; 1 trailing line
+//     (`export PATH=...` or fish `fish_add_path …`)
+//   - "# Lerd"                    → install.go appendShellRC; 1 trailing
+//     line (`export PATH=...`)
+//   - "# Lerd completions"        → install.go ensureZshFpath; 2 trailing
+//     lines (`fpath=(...)` + `autoload -Uz compinit && compinit`)
+//
+// uninstall used to match only the first marker, which left the other
+// two blocks behind on every install path that went through `lerd
+// install` (which is most of them). User-visible: `# Lerd … export
+// PATH …` lingering in `~/.zshrc` after a clean uninstall.
+var shellRCMarkers = []struct {
+	marker     string
+	skipAfter  int
+}{
+	{"# Added by Lerd installer", 1},
+	{"# Lerd completions", 2}, // must be before "# Lerd" — longer prefix wins
+	{"# Lerd", 1},
+}
+
 func removeShellEntry() {
-	const marker = "# Added by Lerd installer"
 	home, _ := os.UserHomeDir()
 
 	candidates := []string{
@@ -243,12 +266,25 @@ func removeShellEntry() {
 	}
 
 	for _, rc := range candidates {
-		removeMarkedBlock(rc, marker)
+		for _, m := range shellRCMarkers {
+			removeMarkedBlock(rc, m.marker, m.skipAfter)
+		}
+		// The fish path is lerd-dedicated — if our removals left only
+		// whitespace behind, delete the file rather than leave an empty
+		// conf.d entry that fish still sources on every shell start.
+		if strings.HasSuffix(rc, "lerd.fish") {
+			if data, err := os.ReadFile(rc); err == nil && strings.TrimSpace(string(data)) == "" {
+				os.Remove(rc) //nolint:errcheck
+			}
+		}
 	}
 }
 
-// removeMarkedBlock removes the marker line and the line immediately after it.
-func removeMarkedBlock(path, marker string) {
+// removeMarkedBlock removes the marker line plus skipAfter follow-up
+// lines. The marker match is exact (after TrimSpace) so a comment that
+// happens to contain "# Lerd" as a substring (e.g. "# Lerd-related
+// notes") isn't touched.
+func removeMarkedBlock(path, marker string, skipAfter int) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -263,7 +299,7 @@ func removeMarkedBlock(path, marker string) {
 			continue
 		}
 		if strings.TrimSpace(line) == marker {
-			skip = 1 // also skip the next line (the PATH export)
+			skip = skipAfter
 			continue
 		}
 		out = append(out, line)
