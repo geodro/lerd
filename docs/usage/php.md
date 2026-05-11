@@ -191,6 +191,8 @@ lerd php:ext add swoole 8.3      # explicit version
 
 This rebuilds the FPM image with the extension installed and restarts the container. Extensions are persisted in `~/.config/lerd/config.yaml` so they survive `lerd php:rebuild`.
 
+After the rebuild, lerd checks that the extension actually loaded (`php -m`); if the PECL build failed, `lerd php:ext add` exits with an error and removes the extension from the config again, rather than reporting success for an extension that isn't there. Some extensions need extra Alpine packages to compile — lerd bundles the required ones for those it knows about (currently `imap`, which needs `imap-dev krb5-dev openssl-dev c-client`); if you hit a build failure for an extension that needs other packages, open an issue so it can be added.
+
 ```bash
 lerd php:ext list                # show custom extensions for current version
 lerd php:ext remove swoole       # remove and rebuild

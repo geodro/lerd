@@ -4985,6 +4985,12 @@ func execPHPExtAdd(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("rebuilding PHP %s image (%v):\n%s", version, err, out.String())), nil
 	}
 
+	if err := podman.VerifyExtensionLoaded(version, ext); err != nil {
+		cfg.RemoveExtension(version, ext)
+		_ = config.SaveGlobal(cfg)
+		return toolErr(fmt.Sprintf("extension %q was not installed for PHP %s (config reverted): %v", ext, version, err)), nil
+	}
+
 	short := strings.ReplaceAll(version, ".", "")
 	unit := "lerd-php" + short + "-fpm"
 	if err := podman.RestartUnit(unit); err != nil {

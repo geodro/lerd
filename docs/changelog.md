@@ -54,6 +54,17 @@ First beta of the 1.20.0 line. The headline is a deeper pass on git worktrees: p
 
 ---
 
+## [1.19.3] — 2026-05-11
+
+A small patch release: `lerd php:ext add` no longer reports success when the extension's build actually failed.
+
+### Fixed
+
+- **`lerd php:ext add <ext>` reported success even when the PECL build failed** (#334). The custom-extension RUN block ends in `|| true` so a broken build doesn't brick the whole image on later `lerd php:rebuild` runs, but that also meant `lerd php:ext add imap` printed `Extension "imap" installed` while `php -m` showed nothing. `lerd php:ext add` (and the MCP `php_ext` add action) now run `php -m` in the rebuilt image to confirm the extension loaded; if it didn't, the command exits with an error and removes the extension from `~/.config/lerd/config.yaml` again instead of leaving a phantom entry.
+- **Some extensions failed to build because their Alpine build deps weren't present** (#334). `imap` in particular needs `imap-dev krb5-dev openssl-dev c-client` or PECL aborts with `utf8_mime2text() has new signature, but U8T_CANONICAL is missing`. lerd now `apk add`s the required packages before `pecl install` for extensions it knows about (currently `imap`); the map is easy to extend for others.
+
+---
+
 ## [1.19.2] — 2026-05-11
 
 A one-fix patch release: locale-aware formatting now works inside the PHP-FPM containers.

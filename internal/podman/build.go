@@ -329,6 +329,15 @@ build:
 	return nil
 }
 
+// extApkDeps maps a custom PHP extension to the Alpine packages its build needs.
+// The standard bundle's -dev packages are already in the base image, so this only
+// lists extensions whose build deps aren't there; without them PECL fails (e.g.
+// imap's "U8T_CANONICAL is missing"). The "|| true" in the RUN block would then
+// hide the failure, so VerifyExtensionLoaded checks the result afterward.
+var extApkDeps = map[string][]string{
+	"imap": {"imap-dev", "krb5-dev", "openssl-dev", "c-client"},
+}
+
 // buildCustomExtBlock generates Dockerfile RUN blocks for user-configured extensions.
 func buildCustomExtBlock(exts []string) string {
 	if len(exts) == 0 {
@@ -337,12 +346,49 @@ func buildCustomExtBlock(exts []string) string {
 	var sb strings.Builder
 	sb.WriteString("# User-configured extensions\n")
 	for _, ext := range exts {
+		prefix := ""
+		if deps, ok := extApkDeps[ext]; ok {
+			prefix = "apk add --no-cache " + strings.Join(deps, " ") + " && "
+		}
+		// `yes ''` feeds default answers to interactive PECL prompts (imap asks
+		// for kerberos / c-client paths); harmless for extensions that don't ask.
 		sb.WriteString(fmt.Sprintf(
-			"RUN { (pecl install %s && docker-php-ext-enable %s) || docker-php-ext-install %s || true; } \\\n    && rm -rf /tmp/pear /var/cache/apk/*\n",
-			ext, ext, ext,
+			"RUN { %s(yes '' | pecl install %s && docker-php-ext-enable %s) || docker-php-ext-install %s || true; } \\\n    && rm -rf /tmp/pear /var/cache/apk/*\n",
+			prefix, ext, ext, ext,
 		))
 	}
 	return sb.String()
+}
+
+// phpExtensionLoaded reports whether ext appears in `php -m` output (case-insensitive).
+func phpExtensionLoaded(moduleOutput, ext string) bool {
+	want := strings.ToLower(strings.TrimSpace(ext))
+	if want == "" {
+		return false
+	}
+	for _, line := range strings.Split(moduleOutput, "\n") {
+		if strings.ToLower(strings.TrimSpace(line)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// VerifyExtensionLoaded checks that the freshly built FPM image for the given
+// version actually loads ext, by running `php -m` inside it. Returns an error if
+// it isn't loaded (the PECL build failed and was swallowed by the "|| true" guard
+// in the custom-extension RUN block).
+func VerifyExtensionLoaded(version, ext string) error {
+	short := strings.ReplaceAll(version, ".", "")
+	imageName := "lerd-php" + short + "-fpm:local"
+	out, err := exec.Command(PodmanBin(), "run", "--rm", imageName, "php", "-m").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("inspecting extensions in %s: %w\n%s", imageName, err, out)
+	}
+	if !phpExtensionLoaded(string(out), ext) {
+		return fmt.Errorf("extension %q did not load in the rebuilt image (its build likely failed; check the extension name is correct and that any required Alpine packages are known to lerd)", ext)
+	}
+	return nil
 }
 
 // validXdebugModes lists the xdebug.mode tokens accepted by NormaliseXdebugMode.

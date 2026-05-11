@@ -56,6 +56,14 @@ func newPhpExtAddCmd() *cobra.Command {
 				return err
 			}
 
+			if err := podman.VerifyExtensionLoaded(version, ext); err != nil {
+				cfg.RemoveExtension(version, ext)
+				if saveErr := config.SaveGlobal(cfg); saveErr != nil {
+					fmt.Printf("[WARN] reverting config: %v\n", saveErr)
+				}
+				return fmt.Errorf("extension %q was not installed (config reverted): %w", ext, err)
+			}
+
 			short := strings.ReplaceAll(version, ".", "")
 			unit := "lerd-php" + short + "-fpm"
 			if err := podman.RestartUnit(unit); err != nil {
