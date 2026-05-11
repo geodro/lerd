@@ -87,9 +87,7 @@ func runUnpark(_ *cobra.Command, args []string) error {
 	fmt.Printf("Unparked: %s (%d site(s) removed)\n", absDir, removed)
 
 	if removed > 0 {
-		if err := nginx.Reload(); err != nil {
-			fmt.Printf("  [WARN] nginx reload: %v\n", err)
-		}
+		nginx.ReloadOrWarn("  ")
 	}
 
 	// Rewrite FPM quadlets to remove volume mounts that are no longer needed.

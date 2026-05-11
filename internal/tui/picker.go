@@ -39,11 +39,51 @@ func (m *Model) openNodePicker(s *siteinfo.EnrichedSite) {
 	m.pickerCursor = indexOf(versions, s.NodeVersion)
 }
 
+// openWorktreePHPPicker mirrors openPHPPicker but scopes the apply to the
+// worktree's checkout via pickerWorktreePath, so the resulting .php-version
+// is written inside the worktree rather than the parent site.
+func (m *Model) openWorktreePHPPicker(s *siteinfo.EnrichedSite, row detailRow) {
+	wt := findWorktree(s, row.branch)
+	if wt == nil {
+		return
+	}
+	versions, err := phpPkg.ListInstalled()
+	if err != nil || len(versions) == 0 {
+		m.setStatus("no PHP versions installed", 3*time.Second)
+		return
+	}
+	m.pickerKind = kindWorktreePHP
+	m.pickerOptions = versions
+	m.pickerCursor = indexOf(versions, wt.PHPVersion)
+	m.pickerWorktreePath = row.branchPath
+	m.pickerWorktreeName = row.branch
+}
+
+// openWorktreeNodePicker is the Node analogue of openWorktreePHPPicker.
+func (m *Model) openWorktreeNodePicker(s *siteinfo.EnrichedSite, row detailRow) {
+	wt := findWorktree(s, row.branch)
+	if wt == nil {
+		return
+	}
+	versions := listNodeMajors()
+	if len(versions) == 0 {
+		m.setStatus("no Node versions installed (run 'lerd node install 20')", 3*time.Second)
+		return
+	}
+	m.pickerKind = kindWorktreeNode
+	m.pickerOptions = versions
+	m.pickerCursor = indexOf(versions, wt.NodeVersion)
+	m.pickerWorktreePath = row.branchPath
+	m.pickerWorktreeName = row.branch
+}
+
 // closePicker exits picker mode without applying a choice.
 func (m *Model) closePicker() {
 	m.pickerKind = kindInfo
 	m.pickerOptions = nil
 	m.pickerCursor = 0
+	m.pickerWorktreePath = ""
+	m.pickerWorktreeName = ""
 }
 
 // applyPicker runs `lerd isolate` or `lerd isolate:node` for the selected
@@ -72,6 +112,16 @@ func (m *Model) applyPicker() tea.Cmd {
 	case kindNode:
 		m.setStatus("switching "+s.Name+" to Node "+ver+"…", 5*time.Second)
 		return runLerd(s.Path, "isolate:node", ver)
+	case kindWorktreePHP:
+		path, branch := m.pickerWorktreePath, m.pickerWorktreeName
+		m.pickerWorktreePath, m.pickerWorktreeName = "", ""
+		m.setStatus("switching "+branch+" to PHP "+ver+"…", 5*time.Second)
+		return runLerd(path, "isolate", ver)
+	case kindWorktreeNode:
+		path, branch := m.pickerWorktreePath, m.pickerWorktreeName
+		m.pickerWorktreePath, m.pickerWorktreeName = "", ""
+		m.setStatus("switching "+branch+" to Node "+ver+"…", 5*time.Second)
+		return runLerd(path, "isolate:node", ver)
 	}
 	return nil
 }

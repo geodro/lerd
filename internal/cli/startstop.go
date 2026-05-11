@@ -13,6 +13,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
+	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -748,15 +749,16 @@ func restoreSiteInfrastructure() {
 		// file and let phase 2 of runStart launch it (macOS).
 		for _, w := range proj.Workers {
 			unitName := "lerd-" + w + "-" + s.Name
-			if services.Mgr.IsEnabled(unitName) {
-				continue
-			}
+			parentEnabled := services.Mgr.IsEnabled(unitName)
 			phpVersion := s.PHPVersion
 			if phpVersion == "" {
 				cfg, _ := config.LoadGlobal()
 				phpVersion = cfg.PHP.DefaultVersion
 			}
 			if w == "stripe" {
+				if parentEnabled {
+					continue
+				}
 				base := siteURL(s.Path)
 				if base != "" {
 					StripeRestoreUnit(s.Name, s.Path, base) //nolint:errcheck
@@ -764,10 +766,34 @@ func restoreSiteInfrastructure() {
 				continue
 			}
 			fwName := s.Framework
-			if fw, ok := config.GetFrameworkForDir(fwName, s.Path); ok && fw.Workers != nil {
-				if wDef, ok := fw.Workers[w]; ok {
-					restoreWorker(s.Name, s.Path, phpVersion, w, wDef)
+			fw, fwOK := config.GetFrameworkForDir(fwName, s.Path)
+			if !fwOK || fw.Workers == nil {
+				continue
+			}
+			wDef, ok := fw.Workers[w]
+			if !ok {
+				continue
+			}
+			if !parentEnabled {
+				restoreWorker(s.Name, s.Path, phpVersion, w, wDef)
+			}
+			// Per-worktree host workers: rewrite each worktree's unit so
+			// stop/start cycles don't leave them stale. The parent unit
+			// alone is not enough because PR #319 shipped per-worktree
+			// units (lerd-<w>-<site>-<wtBase>) with a separate lifecycle.
+			if !wDef.Host {
+				continue
+			}
+			worktrees, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+			if err != nil {
+				continue
+			}
+			for _, wt := range worktrees {
+				if services.Mgr.IsEnabled(workerUnitName(s.Name, wt.Path, w)) {
+					continue
 				}
+				wtPHP := config.WorktreePHPVersion(wt.Path, phpVersion)
+				restoreWorker(s.Name, wt.Path, wtPHP, w, wDef)
 			}
 		}
 	}

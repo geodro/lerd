@@ -150,7 +150,7 @@ func queueStartExplicit(siteName, sitePath, phpVersion, queue string, tries, tim
 	workerCopy := worker
 	workerCopy.Command = fmt.Sprintf("php artisan queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
 
-	return WorkerStartForSite(siteName, sitePath, phpVersion, "queue", workerCopy)
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "queue", workerCopy, true)
 }
 
 // QueueStartForSite starts a queue worker for the given site using the command
@@ -164,7 +164,7 @@ func QueueStartForSite(siteName, sitePath, phpVersion string) error {
 	if !ok {
 		return fmt.Errorf("framework %q has no worker named \"queue\"", fw.Label)
 	}
-	return WorkerStartForSite(siteName, sitePath, phpVersion, "queue", worker)
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "queue", worker, true)
 }
 
 // buildQueueUnit renders the systemd unit body for a queue worker. Pure
@@ -259,5 +259,5 @@ func QueueRestartForSite(siteName, sitePath, phpVersion string) error {
 
 // QueueStopForSite stops and removes the queue worker for the named site.
 func QueueStopForSite(siteName string) error {
-	return WorkerStopForSite(siteName, "queue")
+	return WorkerStopForSite(siteName, "", "queue")
 }

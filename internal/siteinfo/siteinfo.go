@@ -62,6 +62,12 @@ type WorktreeInfo struct {
 	FrameworkLabel      string
 	DBIsolated          bool
 	DBDatabase          string
+	// LANPort, when non-zero, means a per-worktree reverse proxy is
+	// listening on 0.0.0.0:LANPort. Independent of the parent's LAN port.
+	LANPort int
+	// Per-worktree worker state (lerd-<wname>-<site>-<wtBase>).
+	// queue/schedule/reverb/horizon are excluded; those bind to the parent.
+	FrameworkWorkers []WorkerInfo
 }
 
 // ConflictingDomain describes a domain declared in .lerd.yaml that is owned
@@ -475,6 +481,43 @@ func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
 	}
 }
 
+// enrichWorktreeWorkers returns running state for framework workers that the
+// framework yaml flags as per_worktree (default true; q/s/r/h default false).
+func enrichWorktreeWorkers(siteName, wtPath string, fw *config.Framework) []WorkerInfo {
+	if fw == nil || fw.Workers == nil {
+		return nil
+	}
+	wtBase := filepath.Base(wtPath)
+	names := make([]string, 0, len(fw.Workers))
+	for n, wDef := range fw.Workers {
+		if !wDef.IsPerWorktree() {
+			continue
+		}
+		if wDef.Check != nil && !config.MatchesRule(wtPath, *wDef.Check) {
+			continue
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]WorkerInfo, 0, len(names))
+	for _, wname := range names {
+		w := fw.Workers[wname]
+		unit := "lerd-" + wname + "-" + siteName + "-" + wtBase
+		status, _ := unitStatusFn(unit)
+		label := w.Label
+		if label == "" {
+			label = wname
+		}
+		out = append(out, WorkerInfo{
+			Name:    wname,
+			Label:   label,
+			Running: status == "active" || status == "activating",
+			Failing: status == "failed",
+		})
+	}
+	return out
+}
+
 func (e *EnrichedSite) enrichGit() {
 	e.Branch = gitpkg.MainBranch(e.Path)
 	if wts, err := gitpkg.DetectWorktrees(e.Path, e.PrimaryDomain()); err == nil {
@@ -498,9 +541,13 @@ func (e *EnrichedSite) enrichGit() {
 				info.DBIsolated = cfg.DBIsolated
 			}
 			info.DBDatabase = envfile.ReadKey(filepath.Join(wt.Path, ".env"), "DB_DATABASE")
+			if entry, ok, err := config.FindWorktreeLAN(e.Name, wt.Branch); err == nil && ok {
+				info.LANPort = entry.Port
+			}
 			if fw, ok := config.GetFrameworkForDir(e.FrameworkName, wt.Path); ok {
 				info.FrameworkVersion = fw.Version
 				info.FrameworkLabel = frameworkLabel(e.FrameworkName, wt.Path, fw, true)
+				info.FrameworkWorkers = enrichWorktreeWorkers(e.Name, wt.Path, fw)
 			} else {
 				info.FrameworkLabel = e.FrameworkLabel
 			}

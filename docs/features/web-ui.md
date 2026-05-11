@@ -82,7 +82,7 @@ Selecting a site opens the detail panel with:
 - **Stripe toggle**: start or stop the Stripe webhook listener
 - **Pause / Resume**: suspend a site's nginx vhost without unlinking it; the site stays registered and FPM keeps running
 - **Unlink button**: remove a site from nginx without touching the terminal
-- **Git Worktrees**: when the project uses git worktrees, each branch and its domain are listed with a direct open link
+- **Git Worktrees**: when the project uses git worktrees, each branch and its domain are listed with a direct open link. Each row exposes its own framework-worker toggles next to the parent toggles, so a per-worktree Vite dev server, queue, or schedule worker can be flipped on without affecting the parent. Worktree workers run under `lerd-<wname>-<site>-<wt>` units; the Workers group on the Services tab groups them under the same label as the parent site (e.g. "Vite Dev Server") with a `branch` chip per row
 - **Live PHP-FPM log**: streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
 - **Service badges**: beneath the path / git branch line, every service from the project's `.lerd.yaml` is shown as a small pill (green when running, grey when stopped). Click any badge to jump to that service's detail panel on the Services tab.
 

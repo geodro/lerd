@@ -150,6 +150,116 @@ func TestMigrateWorktreeVhosts_RewritesConfsAndEnv(t *testing.T) {
 	}
 }
 
+// TestMigrateSiteTLD_ReissuesCertForSecuredSiteWithWorktree pins the fix
+// for the regression where migrating a secured site's TLD regenerated the
+// worktree vhosts but never reissued the parent cert. SSL handshakes to
+// branch.<newPrimary> would fail because the cert SANs still carried the
+// old TLD's wildcard. The migration must produce a cert at the NEW primary
+// path that covers the renamed worktree subdomain.
+func TestMigrateSiteTLD_ReissuesCertForSecuredSiteWithWorktree(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	binDir := filepath.Join(tmp, "lerd", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Fake mkcert that writes its SAN list into the cert/key files so the
+	// test can assert the new TLD's wildcard SAN was passed.
+	fakeMkcert := `#!/bin/sh
+CRT=""
+KEY=""
+SANS=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -cert-file) shift; CRT="$1" ;;
+    -key-file) shift; KEY="$1" ;;
+    *) SANS="$SANS $1" ;;
+  esac
+  shift
+done
+echo "$SANS" > "$CRT"
+echo "FAKE-KEY" > "$KEY"
+`
+	if err := os.WriteFile(filepath.Join(binDir, "mkcert"), []byte(fakeMkcert), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(config.NginxConfD(), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a worktree via .git/worktrees/<entry>/ — DetectWorktrees
+	// reads gitdir + HEAD from the entry dir.
+	siteDir := filepath.Join(tmp, "alpha")
+	if err := os.MkdirAll(siteDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(tmp, "feat-x-checkout")
+	if err := os.MkdirAll(checkout, 0755); err != nil {
+		t.Fatal(err)
+	}
+	wtMeta := filepath.Join(siteDir, ".git", "worktrees", "feat-x")
+	os.MkdirAll(wtMeta, 0755)
+	os.WriteFile(filepath.Join(wtMeta, "HEAD"), []byte("ref: refs/heads/feat-x\n"), 0644)
+	os.WriteFile(filepath.Join(wtMeta, "gitdir"), []byte(filepath.Join(checkout, ".git")+"\n"), 0644)
+
+	if err := os.WriteFile(filepath.Join(siteDir, ".env"), []byte("APP_URL=https://alpha.test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".env"), []byte("APP_URL=https://feat-x.alpha.test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.AddSite(config.Site{
+		Name:       "alpha",
+		Path:       siteDir,
+		Domains:    []string{"alpha.test"},
+		PHPVersion: "8.4",
+		Secured:    true,
+	}); err != nil {
+		t.Fatalf("AddSite: %v", err)
+	}
+
+	// Seed an OLD cert at the old primary so we can verify it's torn down.
+	certsDir := filepath.Join(tmp, "lerd", "certs", "sites")
+	if err := os.MkdirAll(certsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(certsDir, "alpha.test.crt"), []byte("OLD-CERT"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(certsDir, "alpha.test.key"), []byte("OLD-KEY"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := migrateSiteTLD("test", "localhost", false)
+	if !slices.Equal(changed, []string{"alpha"}) {
+		t.Fatalf("changed = %v, want [alpha]", changed)
+	}
+
+	// New cert must exist at the new primary.
+	newCert := filepath.Join(certsDir, "alpha.localhost.crt")
+	body, err := os.ReadFile(newCert)
+	if err != nil {
+		t.Fatalf("expected cert at %s, got %v", newCert, err)
+	}
+	// Cert SANs must include the renamed worktree wildcard.
+	wantSAN := "*.feat-x.alpha.localhost"
+	if !contains(body, wantSAN) {
+		t.Errorf("cert %s missing SAN %q; got %q", newCert, wantSAN, body)
+	}
+	// Old cert files must be cleaned up so the certs/sites dir doesn't
+	// accumulate stale entries across migrations.
+	if _, err := os.Stat(filepath.Join(certsDir, "alpha.test.crt")); !os.IsNotExist(err) {
+		t.Errorf("old cert should be removed after migration; stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(certsDir, "alpha.test.key")); !os.IsNotExist(err) {
+		t.Errorf("old key should be removed after migration; stat err = %v", err)
+	}
+}
+
 func TestMigrateSiteTLD_NoOpWhenSameTLD(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)

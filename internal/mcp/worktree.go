@@ -19,7 +19,7 @@ import (
 func worktreeTool() mcpTool {
 	return mcpTool{
 		Name:        "worktree",
-		Description: "Manage git worktrees. list / add / remove / db_isolate (empty|main|<branch>) / db_share. Watcher auto-installs deps on add; remove keeps isolated DB unless keep_db=false.",
+		Description: "Manage git worktrees. list / add / remove / db_isolate (empty|main|<branch>) / db_share. Watcher auto-installs deps on add and presents a unified asset-worker / npm-build prompt (workers with replaces_build+per_worktree appear alongside npm scripts; picked workers start ad-hoc with persist=false). Worktrees on secured sites get *.branch.domain.test wildcard cert SANs and nginx server_name automatically. .lerd.yaml env_overrides ({{domain}}/{{scheme}}/{{site}} placeholders) layers per-worktree env vars on top of the APP_URL rewrite. Workers with per_worktree:true run under lerd-<wname>-<site>-<wt> units. Remove keeps isolated DB unless keep_db=false.",
 		InputSchema: mcpSchema{
 			Type: "object",
 			Properties: map[string]mcpProp{

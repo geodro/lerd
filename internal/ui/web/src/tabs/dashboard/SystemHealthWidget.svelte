@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import DashboardCard from './DashboardCard.svelte';
   import StatusPill from '$components/StatusPill.svelte';
   import StatusDot from '$components/StatusDot.svelte';
@@ -6,6 +7,14 @@
   import { sitesByPhp, sitesByNode } from '$stores/sites';
   import { goToTab } from '$stores/route';
   import { m } from '../../paraglide/messages.js';
+  import { status as dumpsStatus, refreshStatus as refreshDumpsStatus } from '$stores/dumps';
+
+  onMount(() => {
+    void refreshDumpsStatus();
+  });
+
+  const dumpsBuffered = $derived($dumpsStatus?.count ?? 0);
+  const dumpsOn = $derived(Boolean($dumpsStatus?.enabled));
 
   const nodeVersions = $derived.by(() => {
     const entries = [...$sitesByNode.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -44,6 +53,16 @@
   <div class="flex items-center justify-between text-sm">
     <span class="text-gray-600 dark:text-gray-300">{m.dashboard_health_watcher()}</span>
     <StatusDot color={$status.watcher_running ? 'green' : 'red'} />
+  </div>
+
+  <div class="flex items-center justify-between text-sm">
+    <span class="text-gray-600 dark:text-gray-300">Dump bridge</span>
+    <span class="flex items-center gap-1.5">
+      {#if dumpsOn && dumpsBuffered > 0}
+        <span class="text-[10px] font-mono text-gray-400 dark:text-gray-500">{dumpsBuffered}</span>
+      {/if}
+      <StatusDot color={dumpsOn ? 'green' : 'gray'} pulse={dumpsOn} />
+    </span>
   </div>
 
   {#if $status.php_fpms.length > 0}

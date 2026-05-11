@@ -4,6 +4,7 @@
   import SiteControls from './SiteControls.svelte';
   import SiteLogs from './SiteLogs.svelte';
   import SiteTinkerTab from './SiteTinkerTab.svelte';
+  import DumpsTab from '$tabs/DumpsTab.svelte';
   import type { Site } from '$stores/sites';
 
   interface Props {
@@ -11,13 +12,14 @@
   }
   let { site }: Props = $props();
 
-  type TabId = 'overview' | 'tinker';
+  type TabId = 'overview' | 'tinker' | 'dumps';
   const TAB_STORAGE_KEY = 'lerd:siteDetailTab';
 
   function readStoredTab(): TabId {
     if (typeof localStorage === 'undefined') return 'overview';
     const v = localStorage.getItem(TAB_STORAGE_KEY);
-    return v === 'tinker' ? 'tinker' : 'overview';
+    if (v === 'tinker' || v === 'dumps') return v;
+    return 'overview';
   }
 
   let active = $state<TabId>(readStoredTab());
@@ -53,6 +55,7 @@
   {#if canTinker}
     <button class={tabBtn('tinker', active === 'tinker')} onclick={() => (active = 'tinker')}>Tinker</button>
   {/if}
+  <button class={tabBtn('dumps', active === 'dumps')} onclick={() => (active = 'dumps')}>Dumps</button>
 {/snippet}
 
 <DetailPanel>
@@ -71,5 +74,7 @@
     {#key site.domain + '@' + activeWorktreeBranch}
       <SiteTinkerTab {site} branch={activeWorktreeBranch} />
     {/key}
+  {:else if active === 'dumps'}
+    <DumpsTab siteScope={site.name} />
   {/if}
 </DetailPanel>

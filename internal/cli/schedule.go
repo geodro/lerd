@@ -99,10 +99,10 @@ func ScheduleStartForSite(siteName, sitePath, phpVersion string) error {
 	if !ok {
 		return fmt.Errorf("framework %q has no worker named \"schedule\"", fw.Label)
 	}
-	return WorkerStartForSite(siteName, sitePath, phpVersion, "schedule", worker)
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "schedule", worker, true)
 }
 
 // ScheduleStopForSite stops and removes the scheduler unit for the named site.
 func ScheduleStopForSite(siteName string) error {
-	return WorkerStopForSite(siteName, "schedule")
+	return WorkerStopForSite(siteName, "", "schedule")
 }

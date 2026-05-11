@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
 	gitpkg "github.com/geodro/lerd/internal/git"
@@ -88,11 +89,25 @@ func migrateSiteTLD(oldTLD, newTLD string, forceUnsecure bool) []string {
 		}
 
 		removeStaleVhosts(oldPrimary)
-		if forceUnsecure {
-			removeStaleCerts(oldPrimary)
-		}
 		newPrimary := s.PrimaryDomain()
 		migrateWorktreeVhosts(worktrees, newPrimary, s.PHPVersion, s.Secured)
+
+		// Reissue the parent cert under the NEW primary so wildcard SANs
+		// cover the renamed worktree subdomains. Without this, SSL
+		// handshakes to branch.<newPrimary> fail because the old cert's
+		// SANs still reference the old TLD. Skip when forceUnsecure flips
+		// the site to plain HTTP — old certs go through removeStaleCerts.
+		if s.Secured {
+			if err := certs.ReissueCertForWorktree(s); err != nil {
+				fmt.Printf("    WARN: %s: reissue cert: %v\n", s.Name, err)
+			}
+		}
+		// Clean up the old cert files at the previous primary so the
+		// certs dir doesn't accumulate stale entries. Mirrors the
+		// nginx-vhost removeStaleVhosts path above.
+		if forceUnsecure || oldPrimary != newPrimary {
+			removeStaleCerts(oldPrimary)
+		}
 
 		scheme := "http"
 		if s.Secured {
@@ -120,12 +135,7 @@ func migrateWorktreeVhosts(worktrees []gitpkg.Worktree, newPrimary, phpVersion s
 		removeStaleVhosts(wt.Domain)
 		newWTDomain := wt.Branch + "." + newPrimary
 		effectivePHP := config.WorktreePHPVersion(wt.Path, phpVersion)
-		var err error
-		if secured {
-			err = nginx.GenerateWorktreeSSLVhost(newWTDomain, wt.Path, effectivePHP, newPrimary)
-		} else {
-			err = nginx.GenerateWorktreeVhost(newWTDomain, wt.Path, effectivePHP)
-		}
+		err := nginx.GenerateWorktreeVhostFor(newWTDomain, wt.Path, effectivePHP, newPrimary, secured)
 		if err != nil {
 			fmt.Printf("    WARN: worktree %s: regenerate vhost: %v\n", wt.Branch, err)
 		}

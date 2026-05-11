@@ -29,11 +29,15 @@ lerd worktree add --track -b feat-x origin/feat    # tracking branch
 After git completes, the wrapper:
 
 1. Polls until the watcher has installed dependencies (`composer install` + `npm ci`) and synced the worktree's `.env`. The `.env` is set up *before* installs so `npm` build steps that read `VITE_*` env vars compile against the right values.
-2. Prompts which production-build script to run (any of `build`, `prod`, `build:prod`, `build-prod`, `production` declared in `package.json` is offered). The default is **Skip — I'll run npm run dev (or build) myself**, since active development usually wants `npm run dev`'s hot reload.
+2. Prompts what should serve the worktree's frontend assets. The select lists every framework worker eligible to replace the build (asset workers with `replaces_build: true` and a passing `check`, e.g. `vite`), every production-build script declared in `package.json` (`build`, `prod`, `build:prod`, `build-prod`, `production`), and a Skip option. The default is the first asset worker that's already opted into the parent's `.lerd.yaml workers:`, then the first npm script, then skip. Picking an asset worker starts it as a per-worktree unit (with `persist=false`, so it doesn't get added to `workers:`); picking an npm script runs it once.
 3. Prompts how to set up the worktree's database — see [Per-worktree database](#per-worktree-database) below.
 4. If you pick "isolated empty", asks whether to run `php artisan migrate --force` against the new schema right away.
 
-Skipping the build step leaves the worktree without a Vite manifest, which means the first request will throw `ViteManifestNotFoundException` until you run `npm run dev` or `npm run build` yourself. That's intentional — the alternative is silently rendering main's compiled UI on the worktree, which is worse.
+The asset-worker option appears even when the worker isn't in the parent's `workers:` list — as long as the framework declares it and its `check` passes (e.g. `node_modules/vite` exists). That lets you opt into vite for a single worktree without editing the parent yaml. The choice is per-session: on a daemon restart only opted-in workers get auto-started by `scanWorktrees`, so an ad-hoc pick won't survive a `lerd stop && lerd start`. If you want it permanent, run `lerd setup` to add it to `workers:`.
+
+When an asset worker is opted-in on the parent, the watcher also auto-starts it as a per-worktree systemd unit independently of the prompt. Multiple worktrees can run Vite simultaneously — each gets its own unit (`lerd-vite-<site>-<branch>`) and Vite auto-increments ports. The same auto-start runs at daemon boot too, so per-worktree units recover after a host reboot or `lerd stop && lerd start` even when fsnotify hasn't fired. On `lerd worktree remove`, the matching units are stopped and their `.service` files removed before git tears the worktree down — without that step, systemd would restart-loop the unit against the deleted `WorkingDirectory`.
+
+Skipping both the asset worker and the npm script leaves the worktree without a Vite manifest, which means the first request will throw `ViteManifestNotFoundException` until you run `npm run dev` or `npm run build` yourself. That's intentional — the alternative is silently rendering main's compiled UI on the worktree, which is worse.
 
 ### `lerd worktree remove <git args>`
 
@@ -54,7 +58,7 @@ Whether you use `lerd worktree add` or the bare `git` command, the daemon's watc
 
 1. Wait for `HEAD` to be a final ref or SHA — git writes `gitdir`/`HEAD` over multiple steps and the watcher must avoid acting on a half-written detached state.
 2. Seed `vendor/` and `node_modules/` from the main repo when the worktree's `composer.lock` / JS lockfile matches main's, using reflinks where the filesystem supports them (btrfs, xfs-reflink, APFS) and a plain copy elsewhere.
-3. Sync `.env` from main with `APP_URL` rewritten to the worktree's vhost domain.
+3. Sync `.env` from main with `APP_URL` rewritten to the worktree's vhost domain. When `.lerd.yaml` defines `env_overrides`, those templates are resolved instead (see [env overrides](#env-overrides) below).
 4. Run `composer install` (skipped when the marker is at-or-newer than `composer.lock`) and `npm ci` / `pnpm install --frozen-lockfile` / `yarn install --immutable` / `bun install --frozen-lockfile` (skipped under the same marker rule).
 5. Generate the worktree's nginx vhost.
 
@@ -67,7 +71,7 @@ Frontend build (`npm run build`) is **not** part of the watcher pipeline — it'
 | `vendor/` | Reflink/copy from main when `composer.lock` matches; otherwise skip and let `composer install` build from scratch (no stale autoload entries). |
 | `node_modules/` | Same lockfile-match guard against `pnpm-lock.yaml` / `yarn.lock` / `bun.lock*` / `package-lock.json` / `npm-shrinkwrap.json` (whichever exists). |
 | `public/build/` | Not seeded. Run `npm run dev` (Vite dev server, hot reload) or `npm run build` (static manifest) inside the worktree. |
-| `.env` | Copied from main; `APP_URL` rewritten to `http(s)://<branch>.<site>.test`. Realigned on every subsequent watcher pass so a branch rename keeps the value current. |
+| `.env` | Copied from main; `APP_URL` rewritten to `http(s)://<branch>.<site>.test` (or resolved via `env_overrides` when defined). Realigned on every subsequent watcher pass so a branch rename keeps the value current. |
 
 ::: info Why not symlink?
 Earlier lerd versions symlinked `vendor/` to save disk. PHP resolves `__DIR__` through symlinks to the real path, so Composer's `ClassLoader` would initialise against the main repo and silently load stale classes. Real copies (or reflinks) avoid the problem at no meaningful disk cost on modern filesystems.
@@ -77,15 +81,40 @@ Earlier lerd versions symlinked `vendor/` to save disk. PHP resolves `__DIR__` t
 
 ## HTTPS
 
-If the parent site is secured with `lerd secure`, worktree subdomains inherit HTTPS automatically. Lerd reuses the parent's wildcard mkcert certificate (`*.myapp.test`).
+If the parent site is secured with `lerd secure`, worktree subdomains inherit HTTPS automatically. When a worktree is created on a secured site, lerd reissues the parent's mkcert certificate to include `*.branch.myapp.test` SANs, so deep subdomains (e.g. `app.feature-auth.myapp.test` for multi-tenant apps) are also covered. The worktree's nginx vhost includes `*.branch.myapp.test` in its `server_name` directive.
 
 ```bash
 lerd secure myapp
-# myapp.test                  → https
-# feature-auth.myapp.test     → https  (automatic)
+# myapp.test                          → https
+# feature-auth.myapp.test             → https  (automatic)
+# app.feature-auth.myapp.test         → https  (wildcard SAN)
 ```
 
 `APP_URL` in each worktree's `.env` is rewritten to `https://` when you secure the parent (and back to `http://` on `lerd unsecure`).
+
+## Env overrides
+
+By default lerd only rewrites `APP_URL` in worktree `.env` files. Multi-tenant apps and other projects that derive multiple env variables from the site domain can define `env_overrides` in `.lerd.yaml`:
+
+```yaml
+env_overrides:
+    APP_URL: "{{scheme}}://app.{{domain}}"
+    CENTRAL_DOMAIN: "{{domain}}"
+    DB_DATABASE: "{{parent}}_{{branch}}"
+    CACHE_DRIVER: redis
+```
+
+Values can use template placeholders or be plain static strings. When a worktree is created (or the watcher re-syncs), each value is resolved and written into the worktree's `.env`. Newlines or `\r` characters in a value are rejected so a malformed override can't inject a second key into `.env`; the same check rejects `=` or newline characters in keys.
+
+| Placeholder | Resolves to | Example |
+|-------------|-------------|---------|
+| `{{domain}}` | Worktree domain | `feature-branch.myapp.test` |
+| `{{scheme}}` | `http` or `https` | `https` |
+| `{{branch}}` | Worktree branch slug (no parent) | `feature-branch` |
+| `{{parent}}` | Parent site name, slugified | `myapp` |
+| `{{site}}` | Database-safe slug of the *full* worktree domain. Prefer `{{branch}}` / `{{parent}}` for clarity | `feature_branch_myapp_test` |
+
+When `APP_URL` is present in `env_overrides` it takes precedence over the default `scheme://domain` rewrite. Without `env_overrides`, behaviour is unchanged.
 
 ---
 
@@ -147,9 +176,10 @@ LAN share has a separate toggle that's worktree-aware: when a worktree is active
 
 When a worktree is removed (via `git worktree remove` directly or `lerd worktree remove`) the watcher tears state down in this order so that any earlier failure leaves the database intact:
 
-1. nginx vhost (URL stops resolving)
-2. LAN-share proxy + registry entry (port released)
-3. Isolated database — *only* via `lerd worktree remove`'s explicit prompt or the daemon's `scanWorktrees` startup sweep. Plain `git worktree remove` leaves the DB and its registry entry alone, so the user can recover by re-adding the worktree without losing migrations or seed data.
+1. Per-worktree host-worker units (`lerd-<worker>-<site>-<branch>.service`) — stopped and removed so systemd doesn't restart-loop them against the deleted `WorkingDirectory`.
+2. nginx vhost (URL stops resolving).
+3. LAN-share proxy + registry entry (port released).
+4. Isolated database — *only* via `lerd worktree remove`'s explicit prompt or the daemon's `scanWorktrees` startup sweep. Plain `git worktree remove` leaves the DB and its registry entry alone, so the user can recover by re-adding the worktree without losing migrations or seed data.
 
 The startup sweep also catches any registry entries whose worktree directory disappeared while the watcher was offline — restarting `lerd-watcher` reconciles state.
 

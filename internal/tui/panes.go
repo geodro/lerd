@@ -160,9 +160,48 @@ func (m *Model) renderHeader() string {
 		parts = append(parts, dimStyle.Render("watcher"))
 	}
 
+	if n := countFailingWorkers(m.snap); n > 0 {
+		parts = append(parts, failingStyle.Render(fmt.Sprintf("⚠ %d workers failing · H to heal", n)))
+	}
+
 	parts = append(parts, dimStyle.Render(time.Now().Format("15:04:05")))
 
 	return strings.Join(parts, "  ·  ")
+}
+
+// countFailingWorkers totals workers in the systemd "failed" state across
+// every site (built-ins + custom framework workers + per-worktree workers).
+// Used to surface a heal hint in the header so users see the H keybind is
+// relevant without drilling into individual site rows.
+func countFailingWorkers(snap Snapshot) int {
+	n := 0
+	for _, s := range snap.Sites {
+		if s.QueueFailing {
+			n++
+		}
+		if s.ScheduleFailing {
+			n++
+		}
+		if s.HorizonFailing {
+			n++
+		}
+		if s.ReverbFailing {
+			n++
+		}
+		for _, fw := range s.FrameworkWorkers {
+			if fw.Failing {
+				n++
+			}
+		}
+		for _, wt := range s.Worktrees {
+			for _, fw := range wt.FrameworkWorkers {
+				if fw.Failing {
+					n++
+				}
+			}
+		}
+	}
+	return n
 }
 
 func (m *Model) renderFooter() string {

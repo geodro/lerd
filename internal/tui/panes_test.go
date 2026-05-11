@@ -114,3 +114,47 @@ func TestViewport_ScrollsDownAsCursorAdvances(t *testing.T) {
 		t.Fatalf("scroll should advance to keep cursor visible, got %d", scroll)
 	}
 }
+
+// TestCountFailingWorkers_AggregatesAcrossSitesAndWorktrees pins the helper
+// the header pill uses: every failed worker (built-in, custom, per-worktree)
+// counts so the "press H to heal" hint never under-reports.
+func TestCountFailingWorkers_AggregatesAcrossSitesAndWorktrees(t *testing.T) {
+	snap := Snapshot{
+		Sites: []siteinfo.EnrichedSite{
+			{
+				QueueFailing:    true, // +1
+				ScheduleFailing: false,
+				FrameworkWorkers: []siteinfo.WorkerInfo{
+					{Name: "vite", Failing: true}, // +1
+					{Name: "messenger", Failing: false},
+				},
+				Worktrees: []siteinfo.WorktreeInfo{
+					{
+						Branch: "feat-x",
+						FrameworkWorkers: []siteinfo.WorkerInfo{
+							{Name: "vite", Failing: true}, // +1
+						},
+					},
+				},
+			},
+			{HorizonFailing: true}, // +1
+		},
+	}
+	if got := countFailingWorkers(snap); got != 4 {
+		t.Errorf("countFailingWorkers = %d, want 4", got)
+	}
+}
+
+// TestCountFailingWorkers_ZeroWhenAllHealthy keeps the header clean when
+// every worker is happy.
+func TestCountFailingWorkers_ZeroWhenAllHealthy(t *testing.T) {
+	snap := Snapshot{
+		Sites: []siteinfo.EnrichedSite{
+			{HasQueueWorker: true, QueueRunning: true},
+			{HasHorizon: true, HorizonRunning: true},
+		},
+	}
+	if got := countFailingWorkers(snap); got != 0 {
+		t.Errorf("countFailingWorkers = %d, want 0", got)
+	}
+}

@@ -146,6 +146,15 @@ workers:
       path: /ws
       port_env_key: WS_PORT
       default_port: 8080
+    host: false                   # run on the host via fnm instead of in the FPM
+                                  # container (optional, default: false). Used for
+                                  # HMR-sensitive Node tools (Vite, Tailwind watcher).
+    per_worktree: false           # run independently per git worktree under
+                                  # lerd-<wname>-<site>-<wt> (optional, default:
+                                  # false). Required for worktree auto-start.
+    replaces_build: false         # while running, provides the asset manifest;
+                                  # `lerd worktree add` skips the build prompt for
+                                  # opted-in workers (optional, default: false).
 
 # One-off setup commands
 setup:

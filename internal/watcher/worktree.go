@@ -4,10 +4,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// inFlightWorktrees serializes handleNewEntry per (sitePath, name). Git
+// worktree add fires multiple fsnotify events (worktrees/ create, entry
+// create, gitdir write) so without dedup three to four goroutines race
+// onAdded → composer install on the same vendor/ tree and corrupt the
+// extraction by clobbering each other's vendor/composer/tmp-*.zip files.
+var inFlightWorktrees sync.Map
 
 // WatchWorktrees monitors the .git/worktrees/ directory for each site returned
 // by getSites and calls onAdded/onRemoved when entries appear or disappear.
@@ -179,9 +187,19 @@ func WatchWorktrees(
 // poll closes a race where fsnotify fires Create on the entry dir before git
 // has finalised HEAD: lerd would otherwise read an empty HEAD, treat the
 // worktree as detached, and write a `detached.<site>.conf` vhost that
-// shadows the eventual `<branch>.<site>.conf`. Safe to call multiple times —
-// onAdded is idempotent.
+// shadows the eventual `<branch>.<site>.conf`.
+//
+// Concurrent invocations for the same (sitePath, name) are deduped: the
+// first goroutine claims the in-flight slot and runs to completion; the
+// rest return immediately. Late HEAD changes after the first goroutine
+// returned are caught by the entryDir HEAD watcher (onChanged path).
 func handleNewEntry(entryDir, sitePath, name string, onAdded func(string, string)) {
+	key := sitePath + "\x00" + name
+	if _, busy := inFlightWorktrees.LoadOrStore(key, struct{}{}); busy {
+		return
+	}
+	defer inFlightWorktrees.Delete(key)
+
 	// Wait up to 5s for gitdir to be written.
 	gitdirPath := filepath.Join(entryDir, "gitdir")
 	var checkoutPath string

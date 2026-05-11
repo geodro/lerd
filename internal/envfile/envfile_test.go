@@ -276,3 +276,86 @@ func TestSyncPrimaryDomain_noEnvFile_silent(t *testing.T) {
 		t.Errorf("expected no error for missing .env, got: %v", err)
 	}
 }
+
+// TestApplyUpdates_rejectsNewlineInValue pins the fix for the env-overrides
+// injection vector: a value containing \n could split a single .env line
+// into two, silently introducing an unrelated key. Refuse the write so the
+// caller surfaces a clean error instead of mutating .env in place.
+func TestApplyUpdates_rejectsNewlineInValue(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n")
+	err := ApplyUpdates(f, map[string]string{"APP_URL": "http://x.test\nADMIN_TOKEN=stolen"})
+	if err == nil {
+		t.Fatal("expected error for value containing newline, got nil")
+	}
+	if !strings.Contains(err.Error(), "newline") && !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("error should mention newline / invalid, got %v", err)
+	}
+	// .env must remain untouched.
+	got := readEnv(t, f)
+	if got != "APP_NAME=MyApp\n" {
+		t.Errorf(".env was mutated despite invalid input; got:\n%s", got)
+	}
+}
+
+// TestApplyUpdates_rejectsCarriageReturnInValue covers the same injection
+// surface using \r alone (some Windows tooling produces CR-only values).
+func TestApplyUpdates_rejectsCarriageReturnInValue(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n")
+	err := ApplyUpdates(f, map[string]string{"FOO": "bar\rBAZ=evil"})
+	if err == nil {
+		t.Fatal("expected error for value containing CR, got nil")
+	}
+}
+
+// TestApplyUpdates_rejectsNewlineInKey defends the same surface against
+// key-side injection. ApplyUpdates also has to reject a literal '=' in the
+// key, otherwise the resulting line still parses as the wrong key.
+func TestApplyUpdates_rejectsNewlineInKey(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n")
+	err := ApplyUpdates(f, map[string]string{"K1\nK2": "v"})
+	if err == nil {
+		t.Fatal("expected error for key containing newline, got nil")
+	}
+}
+
+// TestApplyUpdates_rejectsEqualsInKey ensures keys with '=' don't slip
+// through and corrupt the .env structure.
+func TestApplyUpdates_rejectsEqualsInKey(t *testing.T) {
+	f := writeEnv(t, "APP_NAME=MyApp\n")
+	err := ApplyUpdates(f, map[string]string{"K=hack": "v"})
+	if err == nil {
+		t.Fatal("expected error for key containing =, got nil")
+	}
+}
+
+// TestApplyUpdates_deterministicAppendOrder pins the fix for the map-range
+// nondeterminism: two runs with identical inputs against an empty .env
+// must produce identical bytes. Pre-fix the loop ranged over a Go map, so
+// the first write of N new keys produced different byte orderings each
+// run, defeating the "skip if unchanged" mtime guard on subsequent calls.
+func TestApplyUpdates_deterministicAppendOrder(t *testing.T) {
+	updates := map[string]string{
+		"ZZZ": "1",
+		"AAA": "2",
+		"MMM": "3",
+		"BBB": "4",
+		"YYY": "5",
+		"NNN": "6",
+	}
+	first := writeEnv(t, "APP_NAME=MyApp\n")
+	if err := ApplyUpdates(first, updates); err != nil {
+		t.Fatal(err)
+	}
+	firstOut := readEnv(t, first)
+
+	for i := 0; i < 10; i++ {
+		again := writeEnv(t, "APP_NAME=MyApp\n")
+		if err := ApplyUpdates(again, updates); err != nil {
+			t.Fatal(err)
+		}
+		againOut := readEnv(t, again)
+		if firstOut != againOut {
+			t.Fatalf("non-deterministic output on iteration %d:\nfirst:\n%s\nagain:\n%s", i, firstOut, againOut)
+		}
+	}
+}

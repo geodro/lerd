@@ -10,6 +10,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
+	nodeDet "github.com/geodro/lerd/internal/node"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 )
@@ -28,7 +29,10 @@ func removeWorkerExecArtifacts(_ string) {}
 // expression — the right shape for one-shot commands like Laravel 10's
 // `php artisan schedule:run`, which exit immediately and would otherwise
 // restart-loop every 5s under Restart=always.
-func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string) (bool, error) {
+func writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, schedule, fpmUnit string, host bool) (bool, error) {
+	if host {
+		return writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, restart)
+	}
 	container := fpmUnit
 
 	if schedule != "" {
@@ -89,6 +93,51 @@ WantedBy=default.target
 	return services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
 }
 
+const defaultNodeVersion = "22"
+
+// writeHostWorkerUnitFile writes a systemd service unit for a worker that runs
+// on the host via fnm rather than inside a container. Used for Node.js tools
+// like Vite that need direct host access for HMR.
+func writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, restart string) (bool, error) {
+	fnm := filepath.Join(config.BinDir(), "fnm")
+	nodeVersion, err := nodeDet.DetectVersion(sitePath)
+	if err != nil {
+		if cfg, _ := config.LoadGlobal(); cfg != nil {
+			nodeVersion = cfg.Node.DefaultVersion
+		}
+		if nodeVersion == "" {
+			nodeVersion = defaultNodeVersion
+		}
+	}
+
+	// Wrap the framework worker command in /bin/sh -c so shell features
+	// (&&, |, env-var expansion, redirects) work. systemd's ExecStart
+	// performs argv-style splitting on whitespace and execve's the result
+	// directly — without the wrapper, `npm run build && npm run preview`
+	// passes "&&" to fnm as a literal argument and silently fails. Single
+	// quotes inside the command are escaped via the standard '"'"' idiom
+	// so the wrapper survives any user-provided string verbatim.
+	shellCommand := fmt.Sprintf("%s exec --using=%s -- %s", fnm, nodeVersion, command)
+	escaped := strings.ReplaceAll(shellCommand, "'", `'"'"'`)
+	unit := fmt.Sprintf(`[Unit]
+Description=Lerd %s (%s)
+
+[Service]
+Type=simple
+Restart=%s
+RestartSec=5
+WorkingDirectory=%s
+SuccessExitStatus=1 130 143
+ExecStart=/bin/sh -c '%s'
+
+[Install]
+WantedBy=default.target
+`, label, siteName, restart, sitePath, escaped)
+
+	_ = services.Mgr.RemoveTimerUnit(unitName)
+	return services.Mgr.WriteServiceUnitIfChanged(unitName, unit)
+}
+
 // workerLogHint returns the hint for viewing worker logs on Linux.
 func workerLogHint(unitName string) string {
 	return "journalctl --user -u " + unitName + " -f"
@@ -111,14 +160,8 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 		command = command + " --port=" + port
 	}
 
-	var fpmUnit string
-	if site, _ := config.FindSite(siteName); site != nil && site.IsCustomContainer() {
-		fpmUnit = podman.CustomContainerName(siteName)
-	} else {
-		versionShort := strings.ReplaceAll(phpVersion, ".", "")
-		fpmUnit = "lerd-php" + versionShort + "-fpm"
-	}
-	unitName := "lerd-" + workerName + "-" + siteName
+	fpmUnit := resolveWorkerFPMUnit(siteName, phpVersion)
+	unitName, displaySite := workerNames(siteName, sitePath, workerName)
 
 	restart := w.Restart
 	if restart == "" {
@@ -129,7 +172,7 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, displaySite, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit, w.Host)
 	if err != nil {
 		fmt.Printf("[WARN] writing worker unit %s: %v\n", unitName, err)
 		return

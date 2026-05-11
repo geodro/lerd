@@ -89,7 +89,8 @@ type FrameworkFrankenPHP struct {
 }
 
 // FrameworkWorker describes a long-running process managed as a systemd service.
-// The Command is executed inside the PHP-FPM container for the site.
+// The Command is executed inside the PHP-FPM container for the site unless
+// Host is true, in which case it runs directly on the host via fnm.
 type FrameworkWorker struct {
 	Label         string         `yaml:"label,omitempty"`
 	Command       string         `yaml:"command"`
@@ -99,6 +100,22 @@ type FrameworkWorker struct {
 	ExcludeCheck  *FrameworkRule `yaml:"exclude_check,omitempty"`  // only show when check FAILS (e.g. queue is hidden when laravel/horizon is installed because horizon supersedes it)
 	ConflictsWith []string       `yaml:"conflicts_with,omitempty"` // workers to stop before starting this one (e.g. horizon conflicts_with queue)
 	Proxy         *WorkerProxy   `yaml:"proxy,omitempty"`          // WebSocket/HTTP proxy config for nginx
+	Host          bool           `yaml:"host,omitempty"`           // run on the host via fnm instead of inside the PHP-FPM container
+	// PerWorktree opts the worker into running independently per git worktree
+	// (lerd-<wname>-<site>-<wt>). Defaults to false; set true on workers that
+	// need a separate process per checkout (e.g. dev servers like vite).
+	PerWorktree *bool `yaml:"per_worktree,omitempty"`
+	// ReplacesBuild declares that, while this worker is running, the framework
+	// can render pages without a static asset build. Used by lerd worktree add
+	// and lerd setup to skip the npm run build step when the user opted into
+	// such a worker (vite is the canonical case).
+	ReplacesBuild bool `yaml:"replaces_build,omitempty"`
+}
+
+// IsPerWorktree reports whether this worker can run independently per git
+// worktree. Defaults to false; framework yamls opt in with per_worktree: true.
+func (w FrameworkWorker) IsPerWorktree() bool {
+	return w.PerWorktree != nil && *w.PerWorktree
 }
 
 // WorkerProxy describes an HTTP/WebSocket proxy that nginx should configure

@@ -144,6 +144,20 @@ Re-run `lerd xdebug on --mode <new>` at any time to swap modes without going thr
 
 ---
 
+## Dump bridge
+
+Calls to `dump()` and `dd()` can be captured into the lerd dashboard, TUI, and MCP tools instead of (or alongside) the response. Enable with:
+
+```bash
+lerd dump on        # touch the sentinel; next request captures
+lerd dump tail      # follow the live feed
+lerd dump off       # remove the sentinel; subsequent requests are no-ops
+```
+
+Toggling never restarts FPM or its workers. The bridge auto-prepend file and its conf.d ini are always mounted into every FPM container; the on/off state lives in a runtime sentinel the bridge stats on each request. By default the bridge captures only and the HTTP response stays clean. Set `dumps.passthrough: true` in `config.yaml` to also keep the original `sf-dump` output in the response. See the [Dump viewer feature page](../features/dumps.md) for the wire format, the surfaces (per-site tab, System sidebar, antenna toggle), and tuning knobs.
+
+---
+
 ## Pre-built images
 
 lerd ships pre-built PHP-FPM base images on ghcr.io for all supported versions (8.1–8.5), covering both `amd64` and `arm64`. When you run `lerd fetch` or `lerd php:rebuild`, lerd pulls the matching base image and layers just your mkcert CA certificate on top, bringing first-time build time from ~5 minutes down to ~30 seconds.

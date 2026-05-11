@@ -44,6 +44,7 @@ export interface Site {
     db_database?: string;
     lan_port?: number;
     lan_share_url?: string;
+    framework_workers?: FrameworkWorker[];
   }>;
   has_queue_worker?: boolean;
   has_schedule_worker?: boolean;
@@ -191,8 +192,11 @@ export const toggleReverb = (s: Site) =>
   postAction(site(s.domain, s.reverb_running ? 'reverb:stop' : 'reverb:start'));
 export const toggleStripe = (s: Site) =>
   postAction(site(s.domain, s.stripe_running ? 'stripe:stop' : 'stripe:start'));
-export const toggleWorker = (s: Site, w: FrameworkWorker) =>
-  postAction(site(s.domain, 'worker:' + w.name + (w.running ? ':stop' : ':start')));
+export const toggleWorker = (s: Site, w: FrameworkWorker, branch: string = '') =>
+  postAction(
+    site(s.domain, 'worker:' + w.name + (w.running ? ':stop' : ':start')) +
+      (branch ? `?branch=${encodeURIComponent(branch)}` : '')
+  );
 
 export type TinkerResponse = {
   ok: boolean;

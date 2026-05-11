@@ -11,6 +11,7 @@ import (
 
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
+	gitpkg "github.com/geodro/lerd/internal/git"
 )
 
 // WatchExecWorkers self-heals macOS framework workers when the configured
@@ -87,7 +88,7 @@ func WatchExecWorkers(interval time.Duration) {
 			cooldown[w.unit] = time.Now()
 			logger.Warn("self-healing exec-mode worker",
 				"unit", w.unit, "reason", reason)
-			if err := cli.WorkerStartForSite(w.site, w.sitePath, w.phpVersion, w.kind, w.def); err != nil {
+			if err := cli.WorkerStartForSite(w.site, w.sitePath, w.phpVersion, w.kind, w.def, true); err != nil {
 				logger.Error("self-heal failed",
 					"unit", w.unit, "err", err)
 			}
@@ -160,6 +161,36 @@ func expectedExecWorkers() []expectedExecWorker {
 				kind:       kind,
 				def:        def,
 			})
+		}
+
+		// Per-worktree host workers (vite, etc.) get a unit per worktree
+		// (lerd-<kind>-<site>-<wtBase>) under PR #319. The self-heal loop
+		// must enumerate them too — without this, a worktree unit booted
+		// out of launchd never recovers because the watcher pretends it
+		// doesn't exist.
+		wts, derr := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+		if derr != nil || len(wts) == 0 {
+			continue
+		}
+		for _, wt := range wts {
+			wtPHP := config.WorktreePHPVersion(wt.Path, php)
+			for _, kind := range cli.OptedInHostWorkers(&s, wt.Path) {
+				if paused[kind] {
+					continue
+				}
+				def, ok := fw.Workers[kind]
+				if !ok {
+					continue
+				}
+				out = append(out, expectedExecWorker{
+					unit:       "lerd-" + kind + "-" + s.Name + "-" + filepath.Base(wt.Path),
+					site:       s.Name,
+					sitePath:   wt.Path,
+					phpVersion: wtPHP,
+					kind:       kind,
+					def:        def,
+				})
+			}
 		}
 	}
 	return out

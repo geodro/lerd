@@ -899,10 +899,17 @@ func runSetupInit(cwd string, skipWizard bool) error {
 	hasExisting := statErr == nil
 
 	if !hasExisting && skipWizard {
-		// Non-interactive and no saved config — just link with auto-detection.
+		// CI path: link with auto-detection, then run env so the caller
+		// (lerd setup) doesn't have to do it itself.
 		linkSkipSetupPrompt = true
 		defer func() { linkSkipSetupPrompt = false }()
-		return runLink([]string{})
+		if err := runLink([]string{}); err != nil {
+			return err
+		}
+		if err := runEnv(nil, nil); err != nil {
+			fmt.Printf("[WARN] lerd env: %v\n", err)
+		}
+		return nil
 	}
 
 	if !hasExisting {

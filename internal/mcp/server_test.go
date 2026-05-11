@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 func TestStripANSI_removesColorCodes(t *testing.T) {
@@ -168,11 +170,9 @@ func TestExecEnvCheck_missingKeys(t *testing.T) {
 // context for the whole session; raise the ceiling only with a justified
 // content addition, not by accreting description verbosity.
 func TestToolList_underSizeCeiling(t *testing.T) {
-	// Raised from 17000 to 17500 in v1.19.0-beta.2 for the two new
-	// workers_heal / workers_health tools. Raised again to 18500 when
-	// the `worktree` tool landed (list/add/remove/db_isolate/db_share),
-	// then to 19000 for `dns_diagnose` (layered DNS chain walk).
-	const ceiling = 19000
+	// Bumped to 23000 for the four new dumps_* tools (recent/status/clear/toggle).
+	// Descriptions trimmed in dumpToolDefs to keep the delta as small as possible.
+	const ceiling = 23000
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)
@@ -213,5 +213,63 @@ func TestRunComposerInstallIfNeeded_vendorExistsIsNoop(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("expected empty buffer when vendor/ exists, got %q", buf.String())
+	}
+}
+
+// TestResolveWorkerCwd_noBranchReturnsSitePath pins the parent-site routing:
+// without a branch, lerd worker start/stop runs in site.Path so the CLI's
+// workerNames helper picks the parent unit (lerd-<worker>-<site>).
+func TestResolveWorkerCwd_noBranchReturnsSitePath(t *testing.T) {
+	site := &config.Site{Name: "demo", Path: "/srv/demo"}
+	cwd, errResp := resolveWorkerCwd(site, "")
+	if errResp != nil {
+		t.Fatalf("unexpected error response: %v", errResp)
+	}
+	if cwd != "/srv/demo" {
+		t.Errorf("expected site.Path, got %q", cwd)
+	}
+}
+
+// TestResolveWorkerCwd_unknownBranchErrors pins the failure path: a branch
+// that doesn't resolve to a worktree on disk surfaces a tool-error payload
+// instead of silently routing to the parent site (which would start the
+// wrong unit).
+func TestResolveWorkerCwd_unknownBranchErrors(t *testing.T) {
+	site := &config.Site{Name: "demo", Path: t.TempDir()}
+	cwd, errResp := resolveWorkerCwd(site, "missing-branch")
+	if errResp == nil {
+		t.Fatal("expected error response for unknown branch")
+	}
+	if cwd != "" {
+		t.Errorf("expected empty cwd on error, got %q", cwd)
+	}
+}
+
+// TestExecWorkersMode_RejectsBadAction pins the validation that keeps the
+// tool from silently no-op-ing on a typo'd action. Real exec paths shell
+// out to the lerd CLI, which we don't run from unit tests; the bad-arg
+// branch is what we can pin without an integration setup.
+func TestExecWorkersMode_RejectsBadAction(t *testing.T) {
+	resp, rpcErr := execWorkersMode(map[string]any{"action": "toggle"})
+	if rpcErr != nil {
+		t.Fatalf("rpc error: %v", rpcErr)
+	}
+	got, _ := json.Marshal(resp)
+	if !bytes.Contains(got, []byte("get or set")) {
+		t.Errorf("bad action should be rejected with hint, got %s", got)
+	}
+}
+
+// TestExecWorkersMode_SetRequiresValidMode verifies that `set` without a
+// valid mode value short-circuits before shelling out so a typo doesn't
+// reach the CLI as a real attempt.
+func TestExecWorkersMode_SetRequiresValidMode(t *testing.T) {
+	resp, rpcErr := execWorkersMode(map[string]any{"action": "set", "mode": "fast"})
+	if rpcErr != nil {
+		t.Fatalf("rpc error: %v", rpcErr)
+	}
+	got, _ := json.Marshal(resp)
+	if !bytes.Contains(got, []byte("exec or container")) {
+		t.Errorf("invalid mode should be rejected, got %s", got)
 	}
 }

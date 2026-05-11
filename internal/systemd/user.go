@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	gitpkg "github.com/geodro/lerd/internal/git"
 )
 
 // WriteService writes a systemd user service unit file.
@@ -95,6 +96,12 @@ func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
 	if err != nil {
 		return nil
 	}
+	// Pre-loaded so worktree units (lerd-<wname>-<parent>-<wt>.service) can
+	// be filtered out instead of mis-attributed as orphans of <wt>.
+	var sites []config.Site
+	if reg, err := config.LoadSites(); err == nil {
+		sites = reg.Sites
+	}
 	var orphans []string
 	for _, e := range entries {
 		name := e.Name()
@@ -115,6 +122,9 @@ func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
 		if known[workerName] {
 			continue
 		}
+		if UnitBelongsToOtherSiteWorktree(workerName, siteName, sites) {
+			continue
+		}
 		unitName := strings.TrimSuffix(name, ".service")
 		if IsServiceActiveOrRestarting(unitName) {
 			orphans = append(orphans, workerName)
@@ -122,4 +132,33 @@ func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
 	}
 	sort.Strings(orphans)
 	return orphans
+}
+
+// UnitBelongsToOtherSiteWorktree reports whether the parsed candidate
+// (workerName=<wname>-<parent>, thisSite=<wt>) is actually the worktree unit
+// lerd-<wname>-<parent>-<wt>.service of another registered site.
+func UnitBelongsToOtherSiteWorktree(workerName, thisSite string, sites []config.Site) bool {
+	if !strings.Contains(workerName, "-") {
+		return false
+	}
+	for off := 0; off < len(workerName); {
+		idx := strings.Index(workerName[off:], "-")
+		if idx == -1 {
+			return false
+		}
+		parentName := workerName[off+idx+1:]
+		off += idx + 1
+		for _, s := range sites {
+			if s.Name != parentName {
+				continue
+			}
+			wts, _ := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+			for _, wt := range wts {
+				if filepath.Base(wt.Path) == thisSite {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

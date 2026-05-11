@@ -495,13 +495,15 @@ func newFrameworkUpdateCmd() *cobra.Command {
 		Long: `Re-fetch framework definitions from the store.
 
 If a name is given, only that framework is updated.
-If no name is given, all locally installed store frameworks are updated.
+If no name is given, every cached version of every installed framework is
+re-fetched (e.g. laravel@10, @11, @12, @13 are all refreshed individually,
+not just the latest).
 Use --diff to preview changes before applying.
 
 Examples:
   lerd framework update symfony       # update to latest
   lerd framework update symfony@7     # update specific version
-  lerd framework update               # update all
+  lerd framework update               # update all (every cached version)
   lerd framework update --diff        # show what would change`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -561,37 +563,45 @@ func updateAllFrameworks(client *store.Client, showDiff bool) error {
 		if info.Source == config.SourceBuiltIn {
 			continue
 		}
+		// Refresh the same version that's cached; previously this fetched
+		// entry.Latest for every entry, so users with multiple versions
+		// (laravel@10..@13) ended up only refreshing the latest file and
+		// the others stayed stale forever.
+		inIndex := false
 		for _, entry := range idx.Frameworks {
-			if entry.Name != info.Name {
-				continue
+			if entry.Name == info.Name {
+				inIndex = true
+				break
 			}
-			remote, fetchErr := client.FetchFramework(entry.Name, entry.Latest)
-			if fetchErr != nil {
-				fmt.Printf("  [WARN] %s: %v\n", entry.Name, fetchErr)
-				continue
-			}
-
-			if showDiff {
-				changed, diffErr := showFrameworkDiff(entry.Name, info.Framework, remote)
-				if diffErr != nil {
-					fmt.Printf("  [WARN] %s: %v\n", entry.Name, diffErr)
-					continue
-				}
-				if !changed {
-					fmt.Printf("  %s@%s — up to date\n", entry.Name, versionOrLatest(remote))
-					continue
-				}
-			}
-
-			if saveErr := config.SaveStoreFramework(remote); saveErr != nil {
-				fmt.Printf("  [WARN] %s: %v\n", entry.Name, saveErr)
-				continue
-			}
-			config.RemoveUserFramework(entry.Name)
-			fmt.Printf("  Updated %s@%s\n", remote.Name, versionOrLatest(remote))
-			updated++
-			break
 		}
+		if !inIndex {
+			continue
+		}
+		remote, fetchErr := client.FetchFramework(info.Name, info.Version)
+		if fetchErr != nil {
+			fmt.Printf("  [WARN] %s@%s: %v\n", info.Name, info.Version, fetchErr)
+			continue
+		}
+
+		if showDiff {
+			changed, diffErr := showFrameworkDiff(info.Name, info.Framework, remote)
+			if diffErr != nil {
+				fmt.Printf("  [WARN] %s@%s: %v\n", info.Name, info.Version, diffErr)
+				continue
+			}
+			if !changed {
+				fmt.Printf("  %s@%s — up to date\n", info.Name, versionOrLatest(remote))
+				continue
+			}
+		}
+
+		if saveErr := config.SaveStoreFramework(remote); saveErr != nil {
+			fmt.Printf("  [WARN] %s@%s: %v\n", info.Name, info.Version, saveErr)
+			continue
+		}
+		config.RemoveUserFramework(info.Name)
+		fmt.Printf("  Updated %s@%s\n", remote.Name, versionOrLatest(remote))
+		updated++
 	}
 	if updated == 0 {
 		fmt.Println("No frameworks to update.")

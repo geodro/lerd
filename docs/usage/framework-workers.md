@@ -48,6 +48,29 @@ workers:
 
 Port assignment scans all proxy port env keys across all sites to prevent collisions between different workers and frameworks.
 
+**Host workers**: Workers that need to run on the host instead of inside the PHP-FPM container set `host: true`. The command runs via fnm at the project's pinned Node.js version. This is used for tools like Vite that need direct filesystem access for HMR:
+
+```yaml
+workers:
+  vite:
+    label: Vite Dev Server
+    command: npm run dev
+    restart: on-failure
+    host: true
+    check:
+      file: vite.config.js
+```
+
+The `command` is wrapped in `/bin/sh -c` so shell features (`&&`, `|`, env-var expansion, redirects) work as written. A composite command like `npm run build && npm run preview` runs end-to-end without quoting tricks.
+
+Host workers auto-start in three places:
+
+- when a worktree is created, with per-worktree systemd units (`lerd-vite-<site>-<branch>`) so multiple Vite instances can run simultaneously with auto-incremented ports.
+- at daemon boot, so worktree units recover after a host reboot or `lerd stop && lerd start` even when fsnotify hasn't fired.
+- on `lerd worktree remove`, the matching unit is stopped and its file removed; without this the unit would restart-loop against the deleted `WorkingDirectory`.
+
+Host workers are not yet supported on macOS — the watcher prints a one-line `[WARN]` and skips the lifecycle calls; container-mode workers remain unaffected.
+
 ## Project-specific custom workers
 
 Add workers to `.lerd.yaml` for project-specific needs that don't belong in the framework definition:

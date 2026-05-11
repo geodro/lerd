@@ -5,9 +5,11 @@ package cli
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 )
@@ -243,7 +245,7 @@ func restartWorkerByUnitName(unit string) error {
 	// hyphens ("custom-worker-mysite") while site names should not
 	// contain hyphens within the short registry form, but we match
 	// "<kind>-<siteName>" by matching the site name first.
-	kind, siteName, ok := splitWorkerUnit(rest)
+	kind, siteName, wtBase, ok := splitWorkerUnit(rest)
 	if !ok {
 		return fmt.Errorf("could not parse worker unit %q", unit)
 	}
@@ -259,24 +261,22 @@ func restartWorkerByUnitName(unit string) error {
 	if !ok {
 		return fmt.Errorf("worker %q not defined for framework %q", kind, fw.Label)
 	}
-	return WorkerStartForSite(siteName, site.Path, site.PHPVersion, kind, worker)
-}
-
-// splitWorkerUnit splits "<kind>-<siteName>" into (kind, siteName, ok).
-// Uses config.LoadSites to find a matching site, so kinds with hyphens
-// (e.g. "laravel-reverb") work as long as the site name itself is a
-// registered site.
-func splitWorkerUnit(rest string) (kind, siteName string, ok bool) {
-	reg, err := config.LoadSites()
-	if err != nil || reg == nil {
-		return "", "", false
-	}
-	for _, s := range reg.Sites {
-		suffix := "-" + s.Name
-		if strings.HasSuffix(rest, suffix) {
-			kind = strings.TrimSuffix(rest, suffix)
-			return kind, s.Name, kind != ""
+	// Preserve the worktree dimension on restart: a unit named
+	// lerd-vite-mysite-feat-x must be brought back at the worktree path,
+	// not the parent's, otherwise the migration silently rebinds the
+	// per-worktree unit to the parent's WorkingDirectory.
+	startPath := site.Path
+	startPHP := site.PHPVersion
+	if wtBase != "" {
+		if wts, derr := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); derr == nil {
+			for _, wt := range wts {
+				if filepath.Base(wt.Path) == wtBase {
+					startPath = wt.Path
+					startPHP = config.WorktreePHPVersion(wt.Path, site.PHPVersion)
+					break
+				}
+			}
 		}
 	}
-	return "", "", false
+	return WorkerStartForSite(siteName, startPath, startPHP, kind, worker, true)
 }

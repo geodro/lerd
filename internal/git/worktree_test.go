@@ -198,52 +198,6 @@ func TestDetectWorktrees_multipleWorktrees(t *testing.T) {
 	}
 }
 
-// ── rewriteAppURL ────────────────────────────────────────────────────────────
-
-func TestRewriteAppURL_replacesExisting(t *testing.T) {
-	tmp := t.TempDir()
-	envFile := filepath.Join(tmp, ".env")
-	os.WriteFile(envFile, []byte("APP_NAME=MyApp\nAPP_URL=http://old.test\nAPP_ENV=local\n"), 0644)
-
-	if err := rewriteAppURL(envFile, "https://new.test"); err != nil {
-		t.Fatal(err)
-	}
-
-	data, _ := os.ReadFile(envFile)
-	content := string(data)
-	if !strings.Contains(content, "APP_URL=https://new.test") {
-		t.Errorf("expected new APP_URL in:\n%s", content)
-	}
-	if strings.Contains(content, "APP_URL=http://old.test") {
-		t.Error("old APP_URL should have been replaced")
-	}
-	if !strings.Contains(content, "APP_NAME=MyApp") {
-		t.Error("unrelated lines should be preserved")
-	}
-}
-
-func TestRewriteAppURL_appendsWhenMissing(t *testing.T) {
-	tmp := t.TempDir()
-	envFile := filepath.Join(tmp, ".env")
-	os.WriteFile(envFile, []byte("APP_NAME=MyApp\n"), 0644)
-
-	if err := rewriteAppURL(envFile, "https://new.test"); err != nil {
-		t.Fatal(err)
-	}
-
-	data, _ := os.ReadFile(envFile)
-	if !strings.Contains(string(data), "APP_URL=https://new.test") {
-		t.Errorf("expected APP_URL to be appended, got:\n%s", string(data))
-	}
-}
-
-func TestRewriteAppURL_missingFile(t *testing.T) {
-	err := rewriteAppURL("/nonexistent/.env", "https://x.test")
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
-}
-
 // EnsureWorktreeDeps copies vendor/ and node_modules/ from the main repo
 // rather than symlinking, because PHP resolves __DIR__ through symlinks
 // and Composer's ClassLoader otherwise initialises against the main

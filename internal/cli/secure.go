@@ -17,7 +17,7 @@ import (
 func NewSecureCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "secure [name]",
-		Short: "Enable HTTPS for the current site using mkcert",
+		Short: "Enable HTTPS for the current site using mkcert (cert SANs cover *.<branch>.<site>.test for worktrees)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runSecure,
 	}
@@ -74,9 +74,7 @@ func runSecure(_ *cobra.Command, args []string) error {
 	updateEnvAppURL(site.Path, "https", site.PrimaryDomain())
 	_ = config.SetProjectSecured(site.Path, true)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 	restartStripeIfActive(site)
 	fmt.Printf("Secured: https://%s\n", site.PrimaryDomain())
 	return nil
@@ -107,9 +105,7 @@ func runUnsecure(_ *cobra.Command, args []string) error {
 	updateEnvAppURL(site.Path, "http", site.PrimaryDomain())
 	_ = config.SetProjectSecured(site.Path, false)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 	restartStripeIfActive(site)
 	fmt.Printf("Unsecured: http://%s\n", site.PrimaryDomain())
 	return nil
@@ -138,12 +134,13 @@ func restartStripeIfActive(site *config.Site) {
 	fmt.Printf("  Restarted stripe listener → %s/stripe/webhook\n", baseURL)
 }
 
-// updateEnvAppURL sets APP_URL in the project's .env to scheme://domain.
-// Silently does nothing if no .env exists.
+// updateEnvAppURL syncs APP_URL plus VITE_REVERB_HOST/SCHEME/PORT in the
+// project's .env to match the new TLS state, so a secure flip doesn't
+// leave Vite-baked browser Echo wedged on wss://host:80.
 func updateEnvAppURL(projectPath, scheme, domain string) {
-	if err := envfile.UpdateAppURL(projectPath, scheme, domain); err != nil {
-		fmt.Printf("  [WARN] could not update APP_URL in .env: %v\n", err)
+	if err := envfile.SyncPrimaryDomain(projectPath, domain, scheme == "https"); err != nil {
+		fmt.Printf("  [WARN] could not sync .env: %v\n", err)
 	} else {
-		fmt.Printf("  Updated APP_URL=%s://%s\n", scheme, domain)
+		fmt.Printf("  Updated APP_URL=%s://%s and VITE_REVERB_* in .env\n", scheme, domain)
 	}
 }

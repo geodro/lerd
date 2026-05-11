@@ -339,6 +339,24 @@ func TestProjectConfig_NoContainer(t *testing.T) {
 	}
 }
 
+func TestCloneProjectConfig_DeepCopiesEnvOverrides(t *testing.T) {
+	in := &ProjectConfig{
+		EnvOverrides: map[string]string{"APP_URL": "http://orig.test"},
+	}
+	out := cloneProjectConfig(in)
+	if out == nil {
+		t.Fatal("cloneProjectConfig returned nil")
+	}
+	out.EnvOverrides["APP_URL"] = "http://mutated.test"
+	if got := in.EnvOverrides["APP_URL"]; got != "http://orig.test" {
+		t.Errorf("clone shares EnvOverrides map; original mutated to %q", got)
+	}
+	out.EnvOverrides["NEW_KEY"] = "added"
+	if _, present := in.EnvOverrides["NEW_KEY"]; present {
+		t.Error("clone shares EnvOverrides map; new key leaked back into original")
+	}
+}
+
 func TestProjectConfig_OldFormatCompat(t *testing.T) {
 	// Old .lerd.yaml used services: [mysql, redis] — must still parse.
 	input := `php_version: "8.3"

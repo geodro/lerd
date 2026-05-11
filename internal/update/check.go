@@ -42,6 +42,12 @@ func CachedUpdateCheck(currentVersion string) (*UpdateInfo, error) {
 	if !VersionGreaterThan(lat, cur) {
 		return nil, nil
 	}
+	// Stable users should only be notified about stable updates. If the cached
+	// latest is a prerelease (timing window where /releases/latest redirected
+	// to a beta tag, or a release accidentally not marked prerelease), skip.
+	if IsPrerelease(lat) && !IsPrerelease(cur) {
+		return nil, nil
+	}
 
 	changelog, _ := FetchChangelog(cur, lat)
 	return &UpdateInfo{
@@ -197,4 +203,12 @@ func splitPrerelease(v string) (core, pre string) {
 		return v[:i], v[i+1:]
 	}
 	return v, ""
+}
+
+// IsPrerelease reports whether v carries a semver prerelease suffix (any "-"
+// trailer). The input should be StripV-cleaned; git-describe artifacts like
+// "1.20.0-3-gabc1234" must be StripGitDescribe'd first to avoid false positives.
+func IsPrerelease(v string) bool {
+	_, pre := splitPrerelease(v)
+	return pre != ""
 }

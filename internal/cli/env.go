@@ -35,7 +35,7 @@ func projectDBName(path string) string {
 			}
 		}
 	}
-	return strings.ReplaceAll(strings.ToLower(name), "-", "_")
+	return config.SiteSlug(name)
 }
 
 // NewEnvCmd returns the env command.

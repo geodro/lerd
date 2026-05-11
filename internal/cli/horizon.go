@@ -99,7 +99,7 @@ func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
 	if !ok {
 		return fmt.Errorf("framework %q has no worker named \"horizon\"", fw.Label)
 	}
-	return WorkerStartForSite(siteName, sitePath, phpVersion, "horizon", worker)
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "horizon", worker, true)
 }
 
 // buildHorizonUnit renders the Horizon systemd unit body. Horizon always
@@ -128,7 +128,7 @@ WantedBy=default.target
 
 // HorizonStopForSite stops and removes the Horizon unit for the named site.
 func HorizonStopForSite(siteName string) error {
-	return WorkerStopForSite(siteName, "horizon")
+	return WorkerStopForSite(siteName, "", "horizon")
 }
 
 // SiteHasHorizon returns true if composer.json lists laravel/horizon as a dependency.

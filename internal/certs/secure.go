@@ -21,8 +21,7 @@ func SecureSite(site config.Site) error {
 	if cfg, _ := config.LoadGlobal(); cfg != nil && !cfg.DNS.Enabled {
 		return ErrDNSDisabled
 	}
-	certsDir := filepath.Join(config.CertsDir(), "sites")
-	if err := IssueCert(site.PrimaryDomain(), site.Domains, certsDir); err != nil {
+	if err := issueCertWithWorktrees(site); err != nil {
 		return fmt.Errorf("issuing certificate: %w", err)
 	}
 
@@ -47,16 +46,54 @@ func SecureSite(site config.Site) error {
 		return fmt.Errorf("renaming SSL config: %w", err)
 	}
 
-	// Regenerate SSL vhosts and update APP_URL for any worktrees.
+	// Regenerate SSL vhosts and sync APP_URL + VITE_REVERB_* for worktrees.
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 			_ = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain())
-			envfile.UpdateAppURL(wt.Path, "https", wt.Domain) //nolint:errcheck
+			envfile.SyncPrimaryDomain(wt.Path, wt.Domain, true) //nolint:errcheck
 		}
 	}
 
 	return nil
+}
+
+// ReissueCertForWorktree reissues the site's TLS certificate to include
+// wildcard SANs for all current worktree domains (*.branch.domain.test).
+// Call this after a new worktree is created on a secured site so that
+// subdomains like app.branch.domain.test are covered by the certificate.
+func ReissueCertForWorktree(site config.Site) error {
+	return issueCertWithWorktrees(site)
+}
+
+// issueCertWithWorktrees detects all worktrees for the site and issues a
+// certificate covering the site's own domains plus *.worktreeDomain for each
+// worktree, so that deep subdomains (e.g. app.branch.domain.test) work. The
+// reissue is atomic: a transient mkcert failure leaves the existing cert
+// intact rather than tripping RepairVhosts into flipping the site to HTTP.
+func issueCertWithWorktrees(site config.Site) error {
+	certsDir := filepath.Join(config.CertsDir(), "sites")
+
+	var wtDomains []string
+	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
+		for _, wt := range worktrees {
+			wtDomains = append(wtDomains, wt.Domain)
+		}
+	}
+	domains := WorktreeCertDomains(site.Domains, wtDomains)
+
+	return IssueCertForce(site.PrimaryDomain(), domains, certsDir)
+}
+
+// WorktreeCertDomains builds the full domain list for a certificate that covers
+// the site's own domains plus all worktree domains. Each domain gets a wildcard
+// entry via IssueCert, so worktree domains like branch.myapp.test produce
+// *.branch.myapp.test SANs for deep subdomain coverage.
+func WorktreeCertDomains(siteDomains []string, worktreeDomains []string) []string {
+	domains := make([]string, len(siteDomains))
+	copy(domains, siteDomains)
+	domains = append(domains, worktreeDomains...)
+	return domains
 }
 
 // UnsecureSite regenerates a plain HTTP vhost for the site, removing TLS.
@@ -78,12 +115,12 @@ func UnsecureSite(site config.Site) error {
 		return fmt.Errorf("generating HTTP vhost: %w", err)
 	}
 
-	// Switch any worktree SSL vhosts back to plain HTTP and update APP_URL.
+	// Switch any worktree SSL vhosts back to plain HTTP and sync env.
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 			_ = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP)
-			envfile.UpdateAppURL(wt.Path, "http", wt.Domain) //nolint:errcheck
+			envfile.SyncPrimaryDomain(wt.Path, wt.Domain, false) //nolint:errcheck
 		}
 	}
 

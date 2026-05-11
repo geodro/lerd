@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/envfile"
 )
 
 // Worktree represents a git worktree checkout for a registered site.
@@ -213,23 +216,55 @@ func lockfilesMatch(mainRepoPath, worktreePath string, lockfiles []string) bool 
 
 // EnsureWorktreeEnv copies .env from the main repo when missing (gitignored,
 // so `git worktree add` never carries it across) and rewrites APP_URL to the
-// worktree domain. Idempotent and cheap; safe to call on every request.
+// worktree domain. When the main repo's .lerd.yaml defines env_overrides,
+// those values are resolved and layered on top — only keys declared in
+// env_overrides are touched, so partial overrides (e.g. SESSION_DOMAIN only)
+// don't suppress the default APP_URL rewrite. Idempotent and cheap; safe to
+// call on every request.
 func EnsureWorktreeEnv(mainRepoPath, worktreePath, worktreeDomain string, secured bool) {
 	scheme := "http"
 	if secured {
 		scheme = "https"
 	}
-	appURL := scheme + "://" + worktreeDomain
 	worktreeEnv := filepath.Join(worktreePath, ".env")
-	if _, err := os.Lstat(worktreeEnv); err == nil {
-		_ = rewriteAppURL(worktreeEnv, appURL)
-		return
+	if _, err := os.Lstat(worktreeEnv); err != nil {
+		mainEnv := filepath.Join(mainRepoPath, ".env")
+		if err := copyFile(mainEnv, worktreeEnv); err != nil {
+			return
+		}
 	}
-	mainEnv := filepath.Join(mainRepoPath, ".env")
-	if err := copyFile(mainEnv, worktreeEnv); err != nil {
-		return
+
+	updates := map[string]string{
+		"APP_URL": scheme + "://" + worktreeDomain,
 	}
-	_ = rewriteAppURL(worktreeEnv, appURL)
+
+	cfg, _ := config.LoadProjectConfig(mainRepoPath)
+	if cfg != nil && len(cfg.EnvOverrides) > 0 {
+		// {{site}}: legacy DB-safe slug of the FULL worktree domain, e.g.
+		// feat_a_acme_test. Kept for backward compatibility — new templates
+		// should prefer {{branch}} or {{parent}} which match user intent.
+		// {{branch}}: first segment of the worktree domain, e.g. "feat-a".
+		// {{parent}}: parent site name slug (DB-safe), e.g. "acme".
+		site := config.SiteSlug(worktreeDomain)
+		branch := worktreeDomain
+		if i := strings.IndexByte(worktreeDomain, '.'); i > 0 {
+			branch = worktreeDomain[:i]
+		}
+		parent := ""
+		if s, err := config.FindSiteByPath(mainRepoPath); err == nil && s != nil {
+			parent = config.SiteSlug(s.Name)
+		}
+		for k, v := range cfg.EnvOverrides {
+			v = strings.ReplaceAll(v, "{{domain}}", worktreeDomain)
+			v = strings.ReplaceAll(v, "{{scheme}}", scheme)
+			v = strings.ReplaceAll(v, "{{site}}", site)
+			v = strings.ReplaceAll(v, "{{branch}}", branch)
+			v = strings.ReplaceAll(v, "{{parent}}", parent)
+			updates[k] = v
+		}
+	}
+
+	_ = envfile.ApplyUpdates(worktreeEnv, updates)
 }
 
 func copyFile(src, dst string) error {
@@ -245,33 +280,6 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
-}
-
-// rewriteAppURL replaces APP_URL in the given .env file. The write is skipped
-// when the new contents match the existing file so dev-side watchers (vite,
-// IDE indexers, opcache) don't see mtime churn on no-op scans.
-func rewriteAppURL(envPath, appURL string) error {
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(line, "APP_URL=") || strings.HasPrefix(line, "APP_URL =") {
-			lines[i] = "APP_URL=" + appURL
-			found = true
-			break
-		}
-	}
-	if !found {
-		lines = append(lines, "APP_URL="+appURL)
-	}
-	out := []byte(strings.Join(lines, "\n"))
-	if bytes.Equal(out, data) {
-		return nil
-	}
-	return os.WriteFile(envPath, out, 0644)
 }
 
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9-]`)

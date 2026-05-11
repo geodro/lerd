@@ -194,6 +194,9 @@ func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 	if !strings.Contains(content, "server_name feat-x.myapp.test") {
 		t.Errorf("expected worktree domain in:\n%s", content)
 	}
+	if !strings.Contains(content, "*.feat-x.myapp.test") {
+		t.Errorf("expected wildcard server_name for worktree subdomains in:\n%s", content)
+	}
 	if !strings.Contains(content, "root /srv/myapp-feat/public") {
 		t.Errorf("expected worktree path in:\n%s", content)
 	}
@@ -210,12 +213,43 @@ func TestGenerateWorktreeSSLVhost_usesParentCert(t *testing.T) {
 	if !strings.Contains(content, "server_name feat-x.myapp.test") {
 		t.Errorf("expected worktree domain in:\n%s", content)
 	}
+	if !strings.Contains(content, "*.feat-x.myapp.test") {
+		t.Errorf("expected wildcard server_name for worktree subdomains in:\n%s", content)
+	}
 	// Must use parent domain's cert (wildcard *.myapp.test), not feat-x.myapp.test
 	if !strings.Contains(content, "myapp.test.crt") {
 		t.Errorf("expected parent domain cert in:\n%s", content)
 	}
 	if strings.Contains(content, "feat-x.myapp.test.crt") {
 		t.Error("worktree vhost must not reference its own cert file")
+	}
+}
+
+// ── GenerateWorktreeVhostFor ──────────────────────────────────────────────────
+
+// TestGenerateWorktreeVhostFor_routesByFlag pins the behaviour of the
+// shared wrapper that callers (scanWorktrees, syncWorktree, migrateTLD)
+// use to avoid repeating the secured-vs-plain branch around the two
+// underlying generators.
+func TestGenerateWorktreeVhostFor_routesByFlag(t *testing.T) {
+	confD := setupConfD(t)
+
+	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", false); err != nil {
+		t.Fatalf("HTTP wrapper: %v", err)
+	}
+	httpContent := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
+	if strings.Contains(httpContent, "ssl_certificate") {
+		t.Error("HTTP variant must not emit ssl_certificate")
+	}
+
+	// Re-run with secured=true; the same conf path should now point at
+	// the parent's wildcard cert.
+	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", true); err != nil {
+		t.Fatalf("HTTPS wrapper: %v", err)
+	}
+	sslContent := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
+	if !strings.Contains(sslContent, "myapp.test.crt") {
+		t.Errorf("HTTPS variant should reference parent cert, got:\n%s", sslContent)
 	}
 }
 

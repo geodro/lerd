@@ -123,9 +123,7 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
 	}
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	if site.PrimaryDomain() != oldPrimary {
 		if err := envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured); err != nil {
@@ -194,9 +192,7 @@ func runDomainRemove(_ *cobra.Command, args []string) error {
 		fmt.Printf("[WARN] updating container hosts file: %v\n", err)
 	}
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	if site.PrimaryDomain() != oldPrimary {
 		if err := envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured); err != nil {

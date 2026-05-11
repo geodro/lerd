@@ -20,7 +20,7 @@ func TestWriteWorkerUnitFile_ScheduleEmitsTimer(t *testing.T) {
 	changed, err := writeWorkerUnitFile(
 		"lerd-schedule-mysite", "Task Scheduler", "mysite",
 		"/srv/mysite", "8.3", "php artisan schedule:run",
-		"always", "minutely", "lerd-php83-fpm",
+		"always", "minutely", "lerd-php83-fpm", false,
 	)
 	if err != nil {
 		t.Fatalf("writeWorkerUnitFile: %v", err)
@@ -64,7 +64,7 @@ func TestWriteWorkerUnitFile_DaemonRemovesStaleTimer(t *testing.T) {
 	if _, err := writeWorkerUnitFile(
 		"lerd-queue-mysite", "Queue Worker", "mysite",
 		"/srv/mysite", "8.3", "php artisan queue:work",
-		"always", "minutely", "lerd-php83-fpm",
+		"always", "minutely", "lerd-php83-fpm", false,
 	); err != nil {
 		t.Fatalf("seed scheduled: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestWriteWorkerUnitFile_DaemonRemovesStaleTimer(t *testing.T) {
 	if _, err := writeWorkerUnitFile(
 		"lerd-queue-mysite", "Queue Worker", "mysite",
 		"/srv/mysite", "8.3", "php artisan queue:work",
-		"always", "", "lerd-php83-fpm",
+		"always", "", "lerd-php83-fpm", false,
 	); err != nil {
 		t.Fatalf("rewrite as daemon: %v", err)
 	}

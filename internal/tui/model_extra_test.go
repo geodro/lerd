@@ -220,6 +220,45 @@ func TestWorkerActionCmd_BuiltinWorker(t *testing.T) {
 	}
 }
 
+// TestActionServiceUpdate_focusGuards pins that update only fires from the
+// services pane (not sites/detail) and skips worker rows (which have no
+// upstream image to pull).
+func TestActionServiceUpdate_focusGuards(t *testing.T) {
+	m := NewModel("test")
+	m.snap = Snapshot{Services: []ServiceRow{{Name: "mysql"}}}
+	m.focus = paneSites
+	if cmd := m.actionServiceUpdate(); cmd != nil {
+		t.Errorf("update from sites pane should be nil")
+	}
+	m.focus = paneServices
+	if cmd := m.actionServiceUpdate(); cmd == nil {
+		t.Errorf("update on plain service should return a cmd")
+	}
+	m.snap.Services = []ServiceRow{{Name: "queue-alpha", WorkerKind: "queue"}}
+	if cmd := m.actionServiceUpdate(); cmd != nil {
+		t.Errorf("update on worker row should be nil")
+	}
+}
+
+// TestActionServiceRollback_focusGuards mirrors update — same paneServices
+// + non-worker constraint.
+func TestActionServiceRollback_focusGuards(t *testing.T) {
+	m := NewModel("test")
+	m.snap = Snapshot{Services: []ServiceRow{{Name: "mysql"}}}
+	m.focus = paneSites
+	if cmd := m.actionServiceRollback(); cmd != nil {
+		t.Errorf("rollback from sites pane should be nil")
+	}
+	m.focus = paneServices
+	if cmd := m.actionServiceRollback(); cmd == nil {
+		t.Errorf("rollback on plain service should return a cmd")
+	}
+	m.snap.Services = []ServiceRow{{Name: "queue-alpha", WorkerKind: "queue"}}
+	if cmd := m.actionServiceRollback(); cmd != nil {
+		t.Errorf("rollback on worker row should be nil")
+	}
+}
+
 func TestSiteByName(t *testing.T) {
 	m := NewModel("test")
 	m.snap = fakeSnap()

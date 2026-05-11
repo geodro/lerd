@@ -13,6 +13,7 @@ import (
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
+	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -53,7 +54,7 @@ func newWorkerStartCmd() *cobra.Command {
 			if worker.Check != nil && !config.MatchesRule(cwd, *worker.Check) {
 				return fmt.Errorf("worker %q requires a dependency that is not installed\nCheck the framework definition for required packages", workerName)
 			}
-			if err := WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker); err != nil {
+			if err := WorkerStartForSite(site.Name, cwd, phpVersion, workerName, worker, true); err != nil {
 				return err
 			}
 			if !site.Paused {
@@ -87,7 +88,7 @@ func newWorkerStopCmd() *cobra.Command {
 					return fmt.Errorf("framework %q has no worker named %q\nRun 'lerd worker list' to see available workers", fw.Label, workerName)
 				}
 			}
-			if err := WorkerStopForSite(site.Name, workerName); err != nil {
+			if err := WorkerStopForSite(site.Name, cwd, workerName); err != nil {
 				return err
 			}
 			if !site.Paused {
@@ -156,7 +157,11 @@ func newWorkerListCmd() *cobra.Command {
 func resolveSiteAndFramework(cwd string) (*config.Site, *config.Framework, string, error) {
 	site, err := config.FindSiteByPath(cwd)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+		if parent, ok := config.ParentSiteForWorktreeDir(cwd); ok {
+			site = parent
+		} else {
+			return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+		}
 	}
 
 	// Custom container sites may not have a framework. Build a synthetic
@@ -210,14 +215,28 @@ func requireFrameworkWorker(cwd, workerName string) error {
 // The unit name is lerd-{workerName}-{siteName}.
 // If the worker has a Proxy config, the proxy port is auto-assigned and the
 // nginx vhost is regenerated to include the WebSocket/HTTP proxy block.
-func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) error {
+// When persist is false the worker is not added to .lerd.yaml, used by the
+// auto-start path so worktree vite workers don't appear as user-opted entries.
+func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker, persist bool) error {
 	if err := workerStartPreflight(sitePath, workerName, w); err != nil {
 		return err
 	}
 
-	// Stop conflicting workers before starting.
+	// Skip lifecycle for worker shapes the current platform can't run.
+	// Without this gate macOS hosts proceed past writeWorkerUnitFile (which
+	// returns (false, nil) and prints a WARN) into podman.StartUnit on a
+	// unit that was never written, surfacing a confusing podman error
+	// behind the original WARN.
+	if ok, reason := workerSupportedOnPlatform(w); !ok {
+		fmt.Printf("[WARN] worker %s skipped: %s\n", workerName, reason)
+		return nil
+	}
+
+	// Stop conflicting workers before starting. Match the new worker's
+	// path so a per-worktree start tears down only the same worktree's
+	// conflicting unit and doesn't touch the parent's.
 	for _, conflict := range w.ConflictsWith {
-		WorkerStopForSite(siteName, conflict) //nolint:errcheck
+		WorkerStopForSite(siteName, sitePath, conflict) //nolint:errcheck
 	}
 
 	command := w.Command
@@ -233,21 +252,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		command = command + " --port=" + port
 	}
 
-	// Workers exec into the container that hosts the site's runtime:
-	//   - custom container sites → lerd-custom-<site>
-	//   - FrankenPHP sites       → lerd-fp-<site>
-	//   - shared FPM sites       → lerd-php<version>-fpm
-	var fpmUnit string
-	switch site, _ := config.FindSite(siteName); {
-	case site != nil && site.IsCustomContainer():
-		fpmUnit = podman.CustomContainerName(siteName)
-	case site != nil && site.IsFrankenPHP():
-		fpmUnit = podman.FrankenPHPContainerName(siteName)
-	default:
-		versionShort := strings.ReplaceAll(phpVersion, ".", "")
-		fpmUnit = "lerd-php" + versionShort + "-fpm"
-	}
-	unitName := "lerd-" + workerName + "-" + siteName
+	// Workers exec into the container that hosts the site's runtime —
+	// custom container, FrankenPHP, or shared FPM. resolveWorkerFPMUnit
+	// owns the per-runtime mapping; restoreWorker / writeWorkerExecUnit
+	// share the same helper.
+	fpmUnit := resolveWorkerFPMUnit(siteName, phpVersion)
+	unitName, unitSiteName := workerNames(siteName, sitePath, workerName)
 
 	restart := w.Restart
 	if restart == "" {
@@ -258,7 +268,7 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		label = workerName
 	}
 
-	changed, err := writeWorkerUnitFile(unitName, label, siteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit)
+	changed, err := writeWorkerUnitFile(unitName, label, unitSiteName, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit, w.Host)
 	if err != nil {
 		return fmt.Errorf("writing worker unit: %w", err)
 	}
@@ -297,10 +307,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 	}
 
 	// Persist this worker to .lerd.yaml so lerd install can restore it.
-	// Additive: other workers already in the list are not removed. This covers
-	// callers like setup and pause that start workers sequentially and must not
-	// clobber each other's entries.
-	_ = config.AddProjectWorker(sitePath, workerName)
+	// Additive: other workers already in the list are not removed. Skipped
+	// when persist is false (auto-start path) so worktree workers don't
+	// appear as user-opted entries.
+	if persist {
+		_ = config.AddProjectWorker(sitePath, workerName)
+	}
 
 	return nil
 }
@@ -426,7 +438,7 @@ func newWorkerRemoveCmd() *cobra.Command {
 			// Stop the worker if running.
 			unitName := "lerd-" + name + "-" + site.Name
 			if isServiceActiveOrRestarting(unitName) {
-				_ = WorkerStopForSite(site.Name, name)
+				_ = WorkerStopForSite(site.Name, site.Path, name)
 			}
 
 			if global {
@@ -473,16 +485,72 @@ func siteFrameworkName(siteName string) string {
 	return site.Framework
 }
 
-// WorkerStopForSite stops and removes the named worker unit for the given site.
-func WorkerStopForSite(siteName, workerName string) error {
-	unitName := "lerd-" + workerName + "-" + siteName
+// workerNames returns the systemd unit name and the human-readable display
+// site for the given (siteName, sitePath, workerName). When sitePath is a
+// worktree under the parent site, both values carry a "-<wtBase>" /
+// "/<wtBase>" suffix so per-worktree units don't collide with the parent's
+// and CLI output can tell them apart. Single config.FindSite call serves
+// both shapes — formerly two helpers each looked up independently.
+func workerNames(siteName, sitePath, workerName string) (unit, display string) {
+	unit = "lerd-" + workerName + "-" + siteName
+	display = siteName
+	if siteName == "" || workerName == "" || sitePath == "" {
+		return unit, display
+	}
+	s, _ := config.FindSite(siteName)
+	if s == nil || s.Path == "" || s.Path == sitePath {
+		return unit, display
+	}
+	wtBase := filepath.Base(sitePath)
+	return unit + "-" + wtBase, display + "/" + wtBase
+}
 
-	// Stop and disable both possible shapes (daemon .service and
-	// scheduled .timer + oneshot .service). We don't know up-front
-	// whether the worker was scheduled, and the framework yaml may
-	// have flipped between the two shapes since the unit was written,
-	// so we tear down both unconditionally — missing units are no-ops
-	// at this layer.
+// workerUnitName is a thin wrapper around workerNames for callers that only
+// need the unit name (legacy callers, mostly).
+func workerUnitName(siteName, sitePath, workerName string) string {
+	unit, _ := workerNames(siteName, sitePath, workerName)
+	return unit
+}
+
+// resolveWorkerFPMUnit returns the container name that workers for siteName
+// should `podman exec` into. Three cases:
+//
+//   - custom container site → its own dedicated container
+//   - FrankenPHP site       → its dunglas/frankenphp container
+//   - everything else       → shared lerd-php<v>-fpm
+//
+// Centralised here because restoreWorker (linux + darwin) and the macOS
+// writeWorker* helpers used to repeat the resolution and missed the
+// FrankenPHP branch — workers on FrankenPHP sites ended up exec'ing into
+// the shared FPM container that doesn't run their PHP at all.
+func resolveWorkerFPMUnit(siteName, phpVersion string) string {
+	if site, _ := config.FindSite(siteName); site != nil {
+		switch {
+		case site.IsCustomContainer():
+			return podman.CustomContainerName(siteName)
+		case site.IsFrankenPHP():
+			return podman.FrankenPHPContainerName(siteName)
+		}
+	}
+	return "lerd-php" + strings.ReplaceAll(phpVersion, ".", "") + "-fpm"
+}
+
+// WorkerStopForSite stops and removes the named worker unit for the given site.
+// When sitePath is a path under a worktree (i.e. differs from the registered
+// site path), the per-worktree unit is targeted instead of the parent's.
+// Pass site.Path (or any path on the parent site) to stop the parent unit.
+func WorkerStopForSite(siteName, sitePath, workerName string) error {
+	unitName, displaySite := workerNames(siteName, sitePath, workerName)
+	return stopWorkerUnit(unitName, workerName, displaySite)
+}
+
+// stopWorkerUnit tears down a fully-qualified unit name. Used by both the
+// per-site stop entry point and the worktree-removal cleanup pass. Disable
+// + Stop + RemoveTimerUnit + RemoveServiceUnit are run unconditionally so
+// the call works regardless of whether the worker was scheduled (.timer +
+// oneshot .service) or a long-running daemon (.service alone). Missing
+// units are no-ops at this layer.
+func stopWorkerUnit(unitName, label, displaySite string) error {
 	_ = services.Mgr.Disable(unitName + ".timer")
 	podman.StopUnit(unitName + ".timer") //nolint:errcheck
 	_ = services.Mgr.Disable(unitName)
@@ -502,9 +570,47 @@ func WorkerStopForSite(siteName, workerName string) error {
 		fmt.Printf("[WARN] daemon-reload: %v\n", err)
 	}
 
-	label := workerName
-	fmt.Printf("%s stopped for %s\n", label, siteName)
+	if label == "" {
+		label = unitName
+	}
+	if displaySite == "" {
+		displaySite = unitName
+	}
+	fmt.Printf("%s stopped for %s\n", label, displaySite)
 	return nil
+}
+
+// StopAllWorkersForWorktree stops every per-worktree worker unit attached
+// to the given (site, worktree) pair. Called from `lerd worktree remove`
+// and from the watcher's onRemoved hook so units don't restart-loop
+// against a deleted WorkingDirectory after the user tears down a worktree.
+// Returns the first underlying error so the caller can log it; siblings
+// keep being torn down regardless.
+func StopAllWorkersForWorktree(siteName, wtBase string) error {
+	if siteName == "" || wtBase == "" {
+		return nil
+	}
+	suffix := "-" + siteName + "-" + wtBase
+	pattern := "lerd-*" + suffix
+	units := services.Mgr.ListServiceUnits(pattern)
+	displaySite := siteName + "/" + wtBase
+	var firstErr error
+	for _, unit := range units {
+		// Defensive trim: globs can theoretically return false positives
+		// or the mgr may widen the result set. Skip anything that doesn't
+		// actually end in our suffix.
+		if !strings.HasSuffix(unit, suffix) {
+			continue
+		}
+		workerName := strings.TrimSuffix(strings.TrimPrefix(unit, "lerd-"), suffix)
+		if workerName == "" {
+			continue
+		}
+		if err := stopWorkerUnit(unit, workerName, displaySite); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // isServiceActiveOrRestarting returns true if the unit is active or activating.
@@ -518,6 +624,10 @@ func findOrphanedWorkers(siteName string, known map[string]bool) []string {
 	suffix := "-" + siteName
 	prefix := "lerd-"
 	units := services.Mgr.ListServiceUnits("lerd-*-" + siteName)
+	var sites []config.Site
+	if reg, err := config.LoadSites(); err == nil {
+		sites = reg.Sites
+	}
 	var orphans []string
 	for _, unit := range units {
 		workerName := strings.TrimPrefix(unit, prefix)
@@ -528,6 +638,9 @@ func findOrphanedWorkers(siteName string, known map[string]bool) []string {
 		switch workerName {
 		case "php84-fpm", "php83-fpm", "php82-fpm", "php81-fpm", "php80-fpm",
 			"nginx", "dns", "dns-forwarder", "watcher", "ui", "stripe":
+			continue
+		}
+		if lerdSystemd.UnitBelongsToOtherSiteWorktree(workerName, siteName, sites) {
 			continue
 		}
 		if isServiceActiveOrRestarting(unit) {

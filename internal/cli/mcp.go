@@ -606,11 +606,11 @@ In practice, you can almost always omit ` + bt + `path` + bt + ` — just open C
 - Services (MySQL, Redis, PostgreSQL, etc.) run as Podman containers via systemd quadlets
 - Custom services (MongoDB, RabbitMQ, …) can be added with ` + bt + `service_add` + bt + ` and managed identically to built-in ones
 - Node.js versions are managed by **fnm** (Fast Node Manager); pin per-project with a ` + bt + `.node-version` + bt + ` file
-- Framework workers (queue, schedule, reverb, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + ` (e.g. ` + bt + `lerd-queue-myapp` + bt + `, ` + bt + `lerd-messenger-myapp` + bt + `)
-- Worker commands are defined per-framework in YAML definitions; Laravel has built-in queue/schedule/reverb workers; custom frameworks can add any workers; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies
+- Framework workers (queue, schedule, reverb, messenger, vite, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + ` (e.g. ` + bt + `lerd-queue-myapp` + bt + `, ` + bt + `lerd-messenger-myapp` + bt + `). Workers with ` + bt + `per_worktree: true` + bt + ` get an extra ` + bt + `-<branch>` + bt + ` suffix when started on a worktree (e.g. ` + bt + `lerd-vite-myapp-feat-x` + bt + `) so each branch runs its own instance with its own auto-incremented ports
+- Worker commands are defined per-framework in YAML definitions; Laravel ships with queue/schedule/reverb/horizon and a ` + bt + `vite` + bt + ` host worker (runs ` + bt + `npm run dev` + bt + ` on the host via fnm for HMR); custom frameworks can add any workers; workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies. Per-worker flags: ` + bt + `host: true` + bt + ` runs on the host via fnm instead of inside FPM (used for HMR-sensitive Node tools); ` + bt + `per_worktree: true` + bt + ` lets the worker run independently per worktree; ` + bt + `replaces_build: true` + bt + ` declares the worker provides the asset manifest, so ` + bt + `lerd worktree add` + bt + ` skips the static ` + bt + `npm run build` + bt + ` step when this worker is opted into
 - Framework definitions can include ` + bt + `setup` + bt + ` commands (one-off bootstrap steps like migrations, storage links) shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed
 - **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port. Lerd builds a per-project image (` + bt + `lerd-custom-<sitename>:local` + bt + `), runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it. Workers exec into the custom container. Services are accessible by name (` + bt + `lerd-mysql` + bt + `, ` + bt + `lerd-redis` + bt + `, etc.) on the shared ` + bt + `lerd` + bt + ` Podman network.
-- Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
+- Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain (with deep ` + bt + `*.<branch>.<site>.test` + bt + ` wildcard cert + nginx ` + bt + `server_name` + bt + ` on secured sites); ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are populated from the main checkout. ` + bt + `.lerd.yaml` + bt + ` ` + bt + `env_overrides` + bt + ` declares templated env vars (placeholders ` + bt + `{{domain}}` + bt + `, ` + bt + `{{scheme}}` + bt + `, ` + bt + `{{site}}` + bt + `, plus plain strings) layered on top of the default ` + bt + `APP_URL` + bt + ` rewrite — useful for multi-tenant apps with per-branch session cookies, signed-URL hosts, or tenant routing
 - DNS resolves ` + bt + `*.test` + bt + ` to ` + bt + `127.0.0.1` + bt + ` via the lerd-dns dnsmasq container
 
 ## DNS modes
@@ -940,6 +940,16 @@ Use ` + bt + `coverage` + bt + ` for ` + bt + `phpunit --coverage` + bt + ` / ` 
 
 ` + bt + `xdebug(action: "status")` + bt + ` returns the enabled/disabled state and the active ` + bt + `mode` + bt + ` for all installed PHP versions.
 
+### ` + bt + `dumps_recent` + bt + ` / ` + bt + `dumps_status` + bt + ` / ` + bt + `dumps_clear` + bt + ` / ` + bt + `dumps_toggle` + bt + `
+Capture and inspect ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` output via the lerd dump bridge. Off by default — enable globally with ` + bt + `dumps_toggle(enable: true)` + bt + `, then call ` + bt + `dumps_recent` + bt + ` to read what your last request produced.
+
+- ` + bt + `dumps_recent({ site?, ctx?, since?, limit? })` + bt + ` returns the buffered events as JSON (most-recent at the tail). Use ` + bt + `site` + bt + ` to scope to one site (matches ` + bt + `ctx.site` + bt + `), ` + bt + `ctx` + bt + ` (` + bt + `"fpm"` + bt + ` or ` + bt + `"cli"` + bt + `) to filter by source, ` + bt + `since` + bt + ` (event id) to skip events you've already seen, and ` + bt + `limit` + bt + ` to cap the result.
+- ` + bt + `dumps_status()` + bt + ` reports whether the bridge is enabled, whether the receiver is listening, the listener address, the buffered event count, and the timestamp of the most recent event.
+- ` + bt + `dumps_clear()` + bt + ` wipes the in-memory ring without disabling the bridge — handy before triggering a focused repro.
+- ` + bt + `dumps_toggle({ enable: true | false })` + bt + ` flips the global on/off via a sentinel file inside the always-mounted bridge directory. ` + bt + `enable: true` + bt + ` touches the sentinel, ` + bt + `enable: false` + bt + ` removes it. No FPM container is restarted by either path.
+
+Events ship as JSON with ` + bt + `ts` + bt + ` (RFC3339Nano), ` + bt + `ctx` + bt + ` (type, site, request, pid), ` + bt + `src` + bt + ` (file:line of the dump call), ` + bt + `label` + bt + ` (the keyword arg name when present), and ` + bt + `text` + bt + ` (Symfony VarDumper's CliDumper output). Capacity is 500 events; older entries roll off.
+
 ### ` + bt + `queue` + bt + `
 Start or stop a queue worker for a site. Available for any framework that defines a ` + bt + `queue` + bt + ` worker (Laravel has it built-in). Runs the framework-defined command in the FPM container as a systemd service.
 
@@ -976,18 +986,27 @@ Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 
 ### ` + bt + `worker` + bt + `
-Start or stop any named framework worker for a site. Use this for workers that don't have a dedicated shortcut (e.g. ` + bt + `messenger` + bt + ` for Symfony, ` + bt + `pulse` + bt + ` for Laravel). The worker command is taken from the framework definition.
+Start or stop any named framework worker for a site. Use this for workers that don't have a dedicated shortcut (e.g. ` + bt + `messenger` + bt + ` for Symfony, ` + bt + `pulse` + bt + ` for Laravel, ` + bt + `vite` + bt + ` for Laravel HMR). The worker command is taken from the framework definition.
 
 Arguments:
 - ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
-- ` + bt + `worker` + bt + ` (required): worker name as defined in the framework (e.g. ` + bt + `"messenger"` + bt + `, ` + bt + `"horizon"` + bt + `)
+- ` + bt + `worker` + bt + ` (required): worker name as defined in the framework (e.g. ` + bt + `"messenger"` + bt + `, ` + bt + `"horizon"` + bt + `, ` + bt + `"vite"` + bt + `)
+- ` + bt + `branch` + bt + ` (optional): worktree branch name. Required to start a ` + bt + `per_worktree: true` + bt + ` worker on a specific worktree (targets ` + bt + `lerd-<worker>-<site>-<branch>` + bt + `). Without ` + bt + `branch` + bt + `, the parent-site unit is targeted (` + bt + `lerd-<worker>-<site>` + bt + `)
+
+Examples:
+` + "```" + `
+worker(action: "start", site: "myapp", worker: "vite")                       // parent site Vite
+worker(action: "start", site: "myapp", worker: "vite", branch: "feat-x")     // per-worktree Vite
+worker(action: "stop",  site: "myapp", worker: "vite", branch: "feat-x")     // stop just the worktree's instance
+` + "```" + `
 
 ### ` + bt + `worker_list` + bt + `
-List all workers defined for a site's framework, with their running status, command, unit name, and restart policy. Use this to discover available workers before calling ` + bt + `worker` + bt + `.
+List all workers defined for a site's framework, with their running status, command, unit name, restart policy, and per-worker flags (` + bt + `host` + bt + `, ` + bt + `per_worktree` + bt + `, ` + bt + `replaces_build` + bt + `). Use this to discover available workers before calling ` + bt + `worker` + bt + `.
 
 Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
+- ` + bt + `branch` + bt + ` (optional): worktree branch name. With ` + bt + `branch` + bt + `, status is reported for ` + bt + `lerd-<worker>-<site>-<branch>` + bt + ` units instead of the parent-site units
 
 ### ` + bt + `worker_add` + bt + `
 Add or update a custom worker for a project. Saves to ` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + ` by default, or to the global framework overlay (` + bt + `~/.config/lerd/frameworks/` + bt + `) with ` + bt + `global: true` + bt + `. Does not auto-start — use ` + bt + `worker(action: "start", ...)` + bt + ` afterwards.
@@ -1010,6 +1029,22 @@ Arguments:
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
 - ` + bt + `name` + bt + ` (required): worker name to remove
 - ` + bt + `global` + bt + `: remove from global framework overlay instead of ` + bt + `.lerd.yaml` + bt + `
+
+### ` + bt + `worktree` + bt + `
+Manage git worktrees for a site. Watcher auto-installs deps on add and presents a unified asset-worker / npm-build prompt (workers with ` + bt + `replaces_build` + bt + ` + ` + bt + `per_worktree` + bt + ` appear alongside npm scripts; picked workers start ad-hoc with ` + bt + `persist=false` + bt + `, leaving ` + bt + `.lerd.yaml workers:` + bt + ` as the source of truth). Worktrees on secured sites get ` + bt + `*.<branch>.<site>.test` + bt + ` wildcard cert SANs and nginx ` + bt + `server_name` + bt + ` automatically.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"list"` + bt + ` / ` + bt + `"add"` + bt + ` / ` + bt + `"remove"` + bt + ` / ` + bt + `"db_isolate"` + bt + ` / ` + bt + `"db_share"` + bt + `
+- ` + bt + `site` + bt + ` (optional): defaults to the site at cwd (or its parent for worktree paths)
+- ` + bt + `branch` + bt + ` (required for add / remove / db_isolate): branch name
+- ` + bt + `git_args` + bt + ` (array, optional): forwarded to ` + bt + `git worktree` + bt + `; use this to pass ` + bt + `-b new-branch` + bt + ` etc.
+- ` + bt + `force` + bt + ` (optional, remove): ` + bt + `--force` + bt + ` flag for ` + bt + `git worktree remove` + bt + `
+- ` + bt + `keep_db` + bt + ` (optional, remove): preserve isolated DB on removal (default ` + bt + `true` + bt + `)
+- ` + bt + `source` + bt + ` (optional, db_isolate): seed for the isolated DB (` + bt + `empty` + bt + ` / ` + bt + `main` + bt + ` / ` + bt + `<branch>` + bt + `)
+
+To toggle a per-worktree worker (e.g. Vite on branch ` + bt + `feat-x` + bt + `), call ` + bt + `worker(action: "start", site: "myapp", worker: "vite", branch: "feat-x")` + bt + `; this targets ` + bt + `lerd-vite-myapp-feat-x` + bt + ` rather than the parent unit.
+
+Multi-tenant ` + bt + `.env` + bt + ` per worktree: declare ` + bt + `env_overrides` + bt + ` in ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `{{domain}}` + bt + ` / ` + bt + `{{scheme}}` + bt + ` / ` + bt + `{{site}}` + bt + ` placeholders, e.g. ` + bt + `SESSION_DOMAIN: ".{{domain}}"` + bt + ` so cookies scope per branch.
 
 ### ` + bt + `project_new` + bt + `
 Scaffold a new PHP project using a framework's create command. For Laravel, runs ` + bt + `composer create-project --no-install --no-plugins --no-scripts laravel/laravel <path>` + bt + `. Other frameworks must have a ` + bt + `create` + bt + ` field in their YAML definition.
@@ -1073,11 +1108,32 @@ framework_add(
 Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only custom worker and setup command additions (built-in queue/schedule/reverb workers and storage:link/migrate/db:seed setup remain). Takes ` + bt + `name` + bt + ` (required).
 
 ### ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + `
-Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required) and ` + bt + `version` + bt + ` (required).
+Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required), ` + bt + `version` + bt + ` (required), and an optional ` + bt + `branch` + bt + ` (worktree).
 
 ` + bt + `site_php` + bt + ` writes a ` + bt + `.php-version` + bt + ` pin file to the project root, updates the site registry, and regenerates the nginx vhost. The FPM container for the target PHP version must be running — start it with ` + bt + `service_control(action: "start", name: "php<version>")` + bt + ` if needed.
 
 ` + bt + `site_node` + bt + ` writes a ` + bt + `.node-version` + bt + ` pin file and installs the version via fnm if it isn't already installed. Run ` + bt + `npm install` + bt + ` inside the project if dependencies need rebuilding against the new version.
+
+Pass ` + bt + `branch` + bt + ` to pin the version on a specific worktree instead of the parent site. The pin file is written inside the worktree's checkout, ` + bt + `php_version` + bt + ` / ` + bt + `node_version` + bt + ` is persisted to that worktree's ` + bt + `.lerd.yaml` + bt + ` (so the override travels with the branch in git), and only that worktree's nginx vhost is regenerated. The parent site's version stays unchanged.
+
+### ` + bt + `workers_mode` + bt + `
+Show or set the macOS worker runtime mode.
+
+Arguments:
+- ` + bt + `action` + bt + ` (required): ` + bt + `"get"` + bt + ` or ` + bt + `"set"` + bt + `
+- ` + bt + `mode` + bt + ` (required for set): ` + bt + `"exec"` + bt + ` (default; one ` + bt + `podman exec` + bt + ` per worker, supervised by launchd, lower memory) or ` + bt + `"container"` + bt + ` (one detached container per worker, 1:1 supervisor boundary, higher memory)
+
+Linux always uses exec under systemd — this setting is a no-op there. Setting on macOS stops each active worker in its old shape, cleans up the stale on-disk artifacts, and restarts it in the new shape.
+
+### ` + bt + `bug_report` + bt + `
+Generate a plain-text diagnostic report for a GitHub issue. Collects ` + bt + `lerd doctor` + bt + ` output, config files, systemd / podman state, recent service logs and a curated set of environment variables.
+
+Arguments:
+- ` + bt + `output` + bt + ` (optional): file path. Defaults to ` + bt + `./lerd-bug-report-<timestamp>.txt` + bt + `
+- ` + bt + `log_lines` + bt + ` (optional): lines per service / container log. Default 200.
+- ` + bt + `show_real_names` + bt + ` (optional): keep real site names, domains and parked-directory paths instead of replacing them with ` + bt + `site-1` + bt + ` / ` + bt + `$PARK_1` + bt + ` / etc. Use only for local debugging — anonymisation is on by default for issue posting.
+
+Returns the file path so the user can attach it to the issue.
 
 ### ` + bt + `site_control` + bt + `
 Pause, unpause, restart, or rebuild a site.
@@ -1292,6 +1348,7 @@ The ` + bt + `container.port` + bt + ` field is required. ` + bt + `container.co
 | ` + bt + `services` + bt + ` | Services to start (e.g. ` + bt + `[mysql, redis]` + bt + `) |
 | ` + bt + `workers` + bt + ` | Active worker names (e.g. ` + bt + `[queue, schedule]` + bt + `) — auto-synced by start/stop |
 | ` + bt + `app_url` + bt + ` | Override for APP_URL in ` + bt + `.env` + bt + ` |
+| ` + bt + `env_overrides` + bt + ` | Map of env var names → templated or static values applied to ` + bt + `.env` + bt + ` on ` + bt + `lerd setup` + bt + ` and to per-worktree ` + bt + `.env` + bt + ` files. Values may use ` + bt + `{{domain}}` + bt + `, ` + bt + `{{scheme}}` + bt + `, ` + bt + `{{site}}` + bt + ` placeholders or be plain strings. ` + bt + `APP_URL` + bt + ` here takes precedence over the default rewrite |
 
 ### Custom container fields
 
@@ -1330,6 +1387,9 @@ custom_workers:
 | ` + bt + `restart` + bt + ` | no | ` + bt + `always` + bt + ` (default) or ` + bt + `on-failure` + bt + ` |
 | ` + bt + `schedule` + bt + ` | no | systemd OnCalendar expression for cron-style workers (e.g. ` + bt + `minutely` + bt + `) |
 | ` + bt + `conflicts_with` + bt + ` | no | List of worker names to stop before starting this one |
+| ` + bt + `host` + bt + ` | no | ` + bt + `true` + bt + ` runs on the host via fnm instead of in the FPM container. For Node tools that need direct filesystem access for HMR (Vite, Tailwind watcher, etc.) |
+| ` + bt + `per_worktree` + bt + ` | no | ` + bt + `true` + bt + ` lets the worker run independently per git worktree under ` + bt + `lerd-<wname>-<site>-<wt>` + bt + `. Required for worktree auto-start |
+| ` + bt + `replaces_build` + bt + ` | no | ` + bt + `true` + bt + ` declares that, while running, the worker provides the asset manifest. ` + bt + `lerd worktree add` + bt + ` skips the static ` + bt + `npm run build` + bt + ` step when this worker is opted into |
 `
 
 // junieGuidelinesSection is the lerd block written into .junie/guidelines.md.
@@ -1345,12 +1405,12 @@ This project runs on **lerd**, a Podman-based Laravel development environment. T
 - Nginx routes ` + bt + `*.test` + bt + ` domains to the correct PHP-FPM container
 - Services (MySQL, Redis, PostgreSQL, etc.) and custom services run as Podman containers via systemd quadlets
 - Node.js versions are managed by fnm; per-project version is set via a ` + bt + `.node-version` + bt + ` file
-- Framework workers (queue, schedule, reverb, horizon, messenger, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML definitions; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed; both workers and setup commands support an optional ` + bt + `check` + bt + ` field (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) to conditionally show them based on project dependencies; workers with ` + bt + `conflicts_with` + bt + ` auto-stop conflicting workers on start and hide them from the UI
+- Framework workers (queue, schedule, reverb, horizon, messenger, vite, etc.) run as systemd user services named ` + bt + `lerd-<worker>-<sitename>` + bt + `; commands are defined per-framework in YAML; Laravel Horizon is auto-detected from ` + bt + `composer.json` + bt + ` and replaces the queue toggle when installed; Laravel ships with a ` + bt + `vite` + bt + ` host worker that runs ` + bt + `npm run dev` + bt + ` on the host via fnm for HMR; workers and setup commands support optional ` + bt + `check` + bt + ` (` + bt + `file` + bt + ` or ` + bt + `composer` + bt + `) for conditional visibility; workers with ` + bt + `conflicts_with` + bt + ` auto-stop conflicting workers on start. Per-worker flags: ` + bt + `host: true` + bt + ` (run on host via fnm instead of in FPM container — HMR-sensitive Node tools), ` + bt + `per_worktree: true` + bt + ` (worker runs independently per worktree under ` + bt + `lerd-<worker>-<site>-<branch>` + bt + `), ` + bt + `replaces_build: true` + bt + ` (worker provides asset manifest while running, so ` + bt + `lerd worktree add` + bt + ` skips the static ` + bt + `npm run build` + bt + ` step when this worker is opted in)
 - Custom workers can be added per-project (` + bt + `.lerd.yaml` + bt + ` ` + bt + `custom_workers` + bt + `) or globally (` + bt + `~/.config/lerd/frameworks/<name>.yaml` + bt + `); use ` + bt + `worker_add` + bt + ` / ` + bt + `worker_remove` + bt + ` — both survive framework store updates
 - Framework setup commands (one-off bootstrap steps like migrations, storage links) are defined in the framework YAML and shown in ` + bt + `lerd setup` + bt + `; Laravel has built-in storage:link/migrate/db:seed; custom frameworks can define their own
 - Service version placeholders (` + bt + `{{mysql_version}}` + bt + `, ` + bt + `{{postgres_version}}` + bt + `, ` + bt + `{{redis_version}}` + bt + `, ` + bt + `{{meilisearch_version}}` + bt + `) are available in framework env vars and are resolved from the service image tag at ` + bt + `lerd env` + bt + ` time
 - **Custom containers**: non-PHP sites (Node.js, Python, Go, etc.) can define a ` + bt + `Containerfile.lerd` + bt + ` and a ` + bt + `container:` + bt + ` section in ` + bt + `.lerd.yaml` + bt + ` with a port; lerd builds a per-project image, runs it as ` + bt + `lerd-custom-<sitename>` + bt + `, and nginx reverse-proxies to it; the project directory is volume-mounted at its host path with ` + bt + `--workdir` + bt + ` set automatically — do NOT add ` + bt + `WORKDIR` + bt + ` or ` + bt + `COPY` + bt + ` to the Containerfile; workers exec into the custom container; services are accessible by name on the shared ` + bt + `lerd` + bt + ` Podman network; **hot-reload file watchers must use polling on macOS** (inotify does not fire across Podman Machine's virtiofs mount) — nodemon: ` + bt + `--legacy-watch` + bt + `, Vite: ` + bt + `server.watch.usePolling: true` + bt + `, webpack: ` + bt + `watchOptions: { poll: 1000 }` + bt + `
-- Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain; ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are symlinked/copied from the main checkout
+- Git worktrees automatically get a ` + bt + `<branch>.<site>.test` + bt + ` subdomain (with deep ` + bt + `*.<branch>.<site>.test` + bt + ` wildcard cert + nginx ` + bt + `server_name` + bt + ` on secured sites); ` + bt + `vendor/` + bt + `, ` + bt + `node_modules/` + bt + `, and ` + bt + `.env` + bt + ` are populated from the main checkout. ` + bt + `.lerd.yaml` + bt + ` ` + bt + `env_overrides` + bt + ` declares templated env vars (placeholders ` + bt + `{{domain}}` + bt + `, ` + bt + `{{scheme}}` + bt + `, ` + bt + `{{site}}` + bt + `, plus plain strings) layered on top of the default ` + bt + `APP_URL` + bt + ` rewrite — useful for multi-tenant apps with per-branch session cookies, signed-URL hosts, or tenant routing
 
 ### DNS modes
 
@@ -1384,6 +1444,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `unpark` + bt + ` | Remove a parked directory and unlink all its sites |
 | ` + bt + `site_tls` + bt + ` | Enable or disable HTTPS for a site (mkcert) — ` + bt + `action` + bt + `: ` + bt + `enable` + bt + ` / ` + bt + `disable` + bt + `; updates APP_URL automatically |
 | ` + bt + `xdebug` + bt + ` | Manage Xdebug for a PHP version (port 9003) — ` + bt + `action` + bt + `: ` + bt + `on` + bt + ` / ` + bt + `off` + bt + ` / ` + bt + `status` + bt + `; optional ` + bt + `mode` + bt + ` on ` + bt + `on` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
+| ` + bt + `dumps_recent` + bt + ` / ` + bt + `dumps_status` + bt + ` / ` + bt + `dumps_clear` + bt + ` / ` + bt + `dumps_toggle` + bt + ` | Inspect / clear / toggle the lerd dump bridge that captures ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` calls. Off by default; enable with ` + bt + `dumps_toggle({enable: true})` + bt + ` |
 | ` + bt + `service_control` + bt + ` | Start, stop, pin, or unpin a built-in or custom service — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` / ` + bt + `pin` + bt + ` / ` + bt + `unpin` + bt + ` |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
 | ` + bt + `service_preset_list` + bt + ` | List bundled service presets (phpmyadmin, pgadmin, mongo, mongo-express, selenium, stripe-mock, …) with versions and install state |
@@ -1398,16 +1459,19 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `horizon` + bt + ` | Start or stop Laravel Horizon for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` (use instead of ` + bt + `queue` + bt + ` when laravel/horizon is installed) |
 | ` + bt + `reverb` + bt + ` | Start or stop the Reverb WebSocket server for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
 | ` + bt + `schedule` + bt + ` | Start or stop the task scheduler for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
-| ` + bt + `worker` + bt + ` | Start or stop any named framework worker (e.g. messenger, pulse) — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
-| ` + bt + `worker_list` + bt + ` | List all workers defined for a site's framework with running status |
+| ` + bt + `worker` + bt + ` | Start or stop any named framework worker (e.g. messenger, pulse, vite) — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + `; pass ` + bt + `branch` + bt + ` to target a per-worktree unit |
+| ` + bt + `worker_list` + bt + ` | List all workers for a site's framework with running status, host/per_worktree/replaces_build flags; pass ` + bt + `branch` + bt + ` for per-worktree unit state |
 | ` + bt + `worker_add` + bt + ` | Add a custom worker to a project or global framework overlay |
 | ` + bt + `worker_remove` + bt + ` | Remove a custom worker; stops it if running |
+| ` + bt + `worktree` + bt + ` | Manage git worktrees — ` + bt + `action` + bt + `: ` + bt + `list` + bt + ` / ` + bt + `add` + bt + ` / ` + bt + `remove` + bt + ` / ` + bt + `db_isolate` + bt + ` / ` + bt + `db_share` + bt + `; secured sites get auto wildcard cert + ` + bt + `server_name` + bt + ` for ` + bt + `*.<branch>.<site>.test` + bt + ` |
 | ` + bt + `project_new` + bt + ` | Scaffold a new PHP project (runs the framework's create command); follow with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` |
 | ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers and setup commands |
 | ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers or setup commands to Laravel |
 | ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker and setup additions |
-| ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost |
-| ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed |
+| ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost; pass ` + bt + `branch` + bt + ` to pin per-worktree (writes inside the worktree, persists to its ` + bt + `.lerd.yaml` + bt + `) |
+| ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed; pass ` + bt + `branch` + bt + ` to pin per-worktree |
+| ` + bt + `workers_mode` + bt + ` | Show or set the macOS worker runtime mode (exec / container); no-op on Linux |
+| ` + bt + `bug_report` + bt + ` | Generate a diagnostic report for GitHub issues — anonymises site names / domains / parked paths by default; returns the file path |
 | ` + bt + `site_control` + bt + ` | Pause, unpause, restart, or rebuild a site — ` + bt + `action` + bt + `: ` + bt + `pause` + bt + ` / ` + bt + `unpause` + bt + ` / ` + bt + `restart` + bt + ` / ` + bt + `rebuild` + bt + ` (pause replaces vhost with landing page; rebuild only for custom containers) |
 | ` + bt + `site_runtime` + bt + ` | Switch between shared PHP-FPM and per-site FrankenPHP runtime (supports worker mode) |
 | ` + bt + `stripe` + bt + ` | Start or stop a Stripe webhook listener for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |

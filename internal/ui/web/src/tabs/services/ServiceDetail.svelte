@@ -27,7 +27,10 @@
     if (svc.stripe_listener_site) return `/api/stripe/${svc.stripe_listener_site}/logs`;
     if (svc.schedule_worker_site) return `/api/schedule/${svc.schedule_worker_site}/logs`;
     if (svc.reverb_site) return `/api/reverb/${svc.reverb_site}/logs`;
-    if (svc.worker_site && svc.worker_name) return `/api/worker/${svc.worker_site}/${svc.worker_name}/logs`;
+    if (svc.worker_site && svc.worker_name) {
+      const site = svc.worker_worktree ? `${svc.worker_site}-${svc.worker_worktree}` : svc.worker_site;
+      return `/api/worker/${site}/${svc.worker_name}/logs`;
+    }
     return `/api/logs/lerd-${svc.name}`;
   });
 

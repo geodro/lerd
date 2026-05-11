@@ -301,6 +301,17 @@ func GenerateCustomSSLVhost(site config.Site) error {
 	return os.WriteFile(confPath, buf.Bytes(), 0644)
 }
 
+// GenerateWorktreeVhostFor picks GenerateWorktreeSSLVhost or GenerateWorktreeVhost
+// based on the secured flag, so callers (scanWorktrees, syncWorktree,
+// migrateWorktreeVhosts) don't repeat the if/else around the two
+// underlying generators. parentDomain is consulted only on the SSL path.
+func GenerateWorktreeVhostFor(domain, path, phpVersion, parentDomain string, secured bool) error {
+	if secured {
+		return GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain)
+	}
+	return GenerateWorktreeVhost(domain, path, phpVersion)
+}
+
 // GenerateWorktreeVhost renders the HTTP vhost template for a worktree checkout
 // and writes it to conf.d/<domain>.conf.
 func GenerateWorktreeVhost(domain, path, phpVersion string) error {
@@ -316,7 +327,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 
 	data := VhostData{
 		Domain:          domain,
-		ServerNames:     domain,
+		ServerNames:     domain + " *." + domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
@@ -350,7 +361,7 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 
 	data := VhostData{
 		Domain:          domain,
-		ServerNames:     domain,
+		ServerNames:     domain + " *." + domain,
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),

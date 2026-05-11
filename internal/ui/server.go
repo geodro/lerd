@@ -146,11 +146,22 @@ func Start(currentVersion string) error {
 	// the freshly rebuilt bytes to every connected browser.
 	go runSnapshotInvalidator()
 
+	// Loopback receiver for the PHP dump bridge. Bound unconditionally
+	// because the listener is essentially free and lets the dashboard
+	// pick up dumps the moment `lerd dump on` runs without a UI restart.
+	startDumpsServer()
+
 	// systemd transitions a worker to "failed" without telling lerd-ui (e.g.
 	// after start-limit-hit on a crash loop). The health watcher closes
 	// that gap by polling the cached detector on a slow tick and publishing
 	// KindSites only when the unhealthy set actually changes.
 	go runWorkerHealthWatcher()
+
+	// WatchDNS lives in the lerd-watcher process; its eventbus publishes
+	// don't cross over here. This in-process probe surfaces DNS transitions
+	// (notably lerd-dns coming up after a boot where the dashboard opened
+	// before resolver was ready) to live WebSocket clients.
+	go runDNSStatusWatcher()
 
 	mux := http.NewServeMux()
 
@@ -187,6 +198,12 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
 	mux.HandleFunc("/api/sites/", withCORS(publishAfter(handleSiteAction, eventbus.KindSites, eventbus.KindServices)))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
+	mux.HandleFunc("/api/dumps", withCORS(handleDumpsList))
+	mux.HandleFunc("/api/dumps/stream", withCORS(handleDumpsStream))
+	mux.HandleFunc("/api/dumps/status", withCORS(handleDumpsStatus))
+	mux.HandleFunc("/api/dumps/clear", withCORS(handleDumpsClear))
+	mux.HandleFunc("/api/dumps/toggle", withCORS(handleDumpsToggle))
+	mux.HandleFunc("/api/dumps/passthrough", withCORS(handleDumpsPassthrough))
 	mux.HandleFunc("/api/queue/", withCORS(handleQueueLogs))
 	mux.HandleFunc("/api/horizon/", withCORS(handleHorizonLogs))
 	mux.HandleFunc("/api/stripe/", withCORS(handleStripeLogs))
@@ -579,19 +596,20 @@ func buildStatusJSON() []byte { return []byte(mustJSON(buildStatus())) }
 // PHP/NodeVersion are the effective values; *Override flags signal whether
 // the worktree's .lerd.yaml set them explicitly or it's inherited.
 type WorktreeResponse struct {
-	Branch              string `json:"branch"`
-	Domain              string `json:"domain"`
-	Path                string `json:"path"`
-	PHPVersion          string `json:"php_version,omitempty"`
-	NodeVersion         string `json:"node_version,omitempty"`
-	PHPVersionOverride  bool   `json:"php_version_override,omitempty"`
-	NodeVersionOverride bool   `json:"node_version_override,omitempty"`
-	FrameworkVersion    string `json:"framework_version,omitempty"`
-	FrameworkLabel      string `json:"framework_label,omitempty"`
-	DBIsolated          bool   `json:"db_isolated,omitempty"`
-	DBDatabase          string `json:"db_database,omitempty"`
-	LANPort             int    `json:"lan_port,omitempty"`
-	LANShareURL         string `json:"lan_share_url,omitempty"`
+	Branch              string         `json:"branch"`
+	Domain              string         `json:"domain"`
+	Path                string         `json:"path"`
+	PHPVersion          string         `json:"php_version,omitempty"`
+	NodeVersion         string         `json:"node_version,omitempty"`
+	PHPVersionOverride  bool           `json:"php_version_override,omitempty"`
+	NodeVersionOverride bool           `json:"node_version_override,omitempty"`
+	FrameworkVersion    string         `json:"framework_version,omitempty"`
+	FrameworkLabel      string         `json:"framework_label,omitempty"`
+	DBIsolated          bool           `json:"db_isolated,omitempty"`
+	DBDatabase          string         `json:"db_database,omitempty"`
+	LANPort             int            `json:"lan_port,omitempty"`
+	LANShareURL         string         `json:"lan_share_url,omitempty"`
+	FrameworkWorkers    []WorkerStatus `json:"framework_workers,omitempty"`
 }
 
 // WorkerStatus represents a single framework worker and its running state.
@@ -701,6 +719,15 @@ func buildSites() []SiteResponse {
 				lanPort = entry.Port
 				lanURL = cli.LANShareURL(entry.Port)
 			}
+			var wtWorkers []WorkerStatus
+			for _, fw := range wt.FrameworkWorkers {
+				wtWorkers = append(wtWorkers, WorkerStatus{
+					Name:    fw.Name,
+					Label:   fw.Label,
+					Running: fw.Running,
+					Failing: fw.Failing,
+				})
+			}
 			worktreeResponses = append(worktreeResponses, WorktreeResponse{
 				Branch:              wt.Branch,
 				Domain:              wt.Domain,
@@ -715,6 +742,7 @@ func buildSites() []SiteResponse {
 				DBDatabase:          wt.DBDatabase,
 				LANPort:             lanPort,
 				LANShareURL:         lanURL,
+				FrameworkWorkers:    wtWorkers,
 			})
 		}
 		if worktreeResponses == nil {
@@ -791,11 +819,16 @@ type ServiceResponse struct {
 	HorizonSite        string            `json:"horizon_site,omitempty"`
 	WorkerSite         string            `json:"worker_site,omitempty"`
 	WorkerName         string            `json:"worker_name,omitempty"`
-	UpdateStrategy     string            `json:"update_strategy,omitempty"`
-	UpdateAvailable    bool              `json:"update_available,omitempty"`
-	LatestVersion      string            `json:"latest_version,omitempty"`
-	UpgradeVersion     string            `json:"upgrade_version,omitempty"`
-	PreviousVersion    string            `json:"previous_version,omitempty"`
+	WorkerLabel        string            `json:"worker_label,omitempty"`
+	// Set when this worker entry is for a per-worktree unit
+	// (lerd-<wname>-<site>-<wt>); empty for parent-site workers.
+	WorkerWorktree       string `json:"worker_worktree,omitempty"`
+	WorkerWorktreeDomain string `json:"worker_worktree_domain,omitempty"`
+	UpdateStrategy       string `json:"update_strategy,omitempty"`
+	UpdateAvailable      bool   `json:"update_available,omitempty"`
+	LatestVersion        string `json:"latest_version,omitempty"`
+	UpgradeVersion       string `json:"upgrade_version,omitempty"`
+	PreviousVersion      string `json:"previous_version,omitempty"`
 	// MigrationSupported and CanRollback intentionally drop omitempty so the
 	// false case still appears in the JSON. The UI uses === to distinguish
 	// "field missing" (no avail check ran) from "explicitly false".
@@ -1009,40 +1042,99 @@ func buildServicesList() []ServiceResponse {
 			HorizonSite: siteName,
 		})
 	}
-	// Custom framework workers (non-builtin: not queue/schedule/reverb)
+	// GetFrameworkForDir reads the versioned store YAML; plain GetFramework
+	// returns the built-in skeleton and misses store-defined workers like vite.
 	if reg2, err2 := config.LoadSites(); err2 == nil {
 		for _, s := range reg2.Sites {
 			if s.Ignored {
 				continue
 			}
 			fwN := s.Framework
-			fw2, ok2 := config.GetFramework(fwN)
+			fw2, ok2 := config.GetFrameworkForDir(fwN, s.Path)
 			if !ok2 || fw2.Workers == nil {
 				continue
 			}
-			for wname, w := range fw2.Workers {
-				switch wname {
-				case "queue", "schedule", "reverb":
-					continue
-				}
-				unitStatus, _ := podman.UnitStatus("lerd-" + wname + "-" + s.Name)
-				if unitStatus == "active" {
-					label := w.Label
-					if label == "" {
-						label = wname
-					}
-					services = append(services, ServiceResponse{
-						Name:       wname + "-" + s.Name,
-						Status:     "active",
-						EnvVars:    map[string]string{},
-						WorkerSite: s.Name,
-						WorkerName: wname,
-					})
-				}
-			}
+			services = append(services, frameworkWorkerServicesForSite(s, fw2, frameworkUnitStatus, gitpkg.DetectWorktrees)...)
 		}
 	}
 	return services
+}
+
+// frameworkUnitStatus is the production status lookup; tests swap this with a
+// fake to drive the framework worker enumeration without systemd.
+var frameworkUnitStatus = podman.UnitStatus
+
+// frameworkWorkerTarget describes one (parent or worktree) target the worker
+// enumeration walks. wtBase is the worktree directory basename, empty for the
+// parent. domain is the worktree's full FQDN, empty for the parent.
+type frameworkWorkerTarget struct {
+	wtBase string
+	domain string
+}
+
+// frameworkWorkerServicesForSite enumerates active framework workers for one
+// site (parent + worktrees), excluding queue/schedule/reverb which surface
+// through their own loops. statusFn/detectWorktrees are injected for tests.
+func frameworkWorkerServicesForSite(
+	s config.Site,
+	fw *config.Framework,
+	statusFn func(string) (string, error),
+	detectWorktrees func(string, string) ([]gitpkg.Worktree, error),
+) []ServiceResponse {
+	if fw == nil || fw.Workers == nil {
+		return nil
+	}
+	// Worktree units follow lerd-<wname>-<site>-<wtBase>; parent uses wtBase="".
+	targets := []frameworkWorkerTarget{{}}
+	if wts, _ := detectWorktrees(s.Path, s.PrimaryDomain()); len(wts) > 0 {
+		for _, wt := range wts {
+			targets = append(targets, frameworkWorkerTarget{
+				wtBase: filepath.Base(wt.Path),
+				domain: wt.Domain,
+			})
+		}
+	}
+	var out []ServiceResponse
+	for wname, w := range fw.Workers {
+		switch wname {
+		case "queue", "schedule", "reverb":
+			continue
+		}
+		perWT := w.IsPerWorktree()
+		label := w.Label
+		if label == "" {
+			label = wname
+		}
+		for _, t := range targets {
+			if t.wtBase != "" && !perWT {
+				continue
+			}
+			unitName := "lerd-" + wname + "-" + s.Name
+			respName := wname + "-" + s.Name
+			if t.wtBase != "" {
+				unitName += "-" + t.wtBase
+				respName += "-" + t.wtBase
+			}
+			unitStatus, _ := statusFn(unitName)
+			if unitStatus != "active" {
+				continue
+			}
+			resp := ServiceResponse{
+				Name:        respName,
+				Status:      "active",
+				EnvVars:     map[string]string{},
+				WorkerSite:  s.Name,
+				WorkerName:  wname,
+				WorkerLabel: label,
+			}
+			if t.wtBase != "" {
+				resp.WorkerWorktree = t.wtBase
+				resp.WorkerWorktreeDomain = t.domain
+			}
+			out = append(out, resp)
+		}
+	}
+	return out
 }
 
 // PresetResponse describes a bundled service preset for the web UI.
@@ -1403,8 +1495,8 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle custom framework worker services: name is {workerName}-{siteName}.
-	// Detect by looking for a matching registered site + framework worker.
+	// Custom framework workers: {workerName}-{siteName} or
+	// {workerName}-{siteName}-{wtBase} for the worktree variant.
 	if action == "stop" {
 		if reg3, err3 := config.LoadSites(); err3 == nil {
 			for _, s := range reg3.Sites {
@@ -1412,7 +1504,7 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				fwN3 := s.Framework
-				fw3, ok3 := config.GetFramework(fwN3)
+				fw3, ok3 := config.GetFrameworkForDir(fwN3, s.Path)
 				if !ok3 || fw3.Workers == nil {
 					continue
 				}
@@ -1421,8 +1513,9 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 					case "queue", "schedule", "reverb":
 						continue
 					}
-					if wname+"-"+s.Name == name {
-						opErr := cli.WorkerStopForSite(s.Name, wname)
+					prefix := wname + "-" + s.Name
+					if name == prefix {
+						opErr := cli.WorkerStopForSite(s.Name, s.Path, wname)
 						resp := ServiceActionResponse{
 							ServiceResponse: ServiceResponse{Name: name, Status: "inactive", EnvVars: map[string]string{}, WorkerSite: s.Name, WorkerName: wname},
 							OK:              opErr == nil,
@@ -1434,6 +1527,35 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 						writeJSON(w, resp)
 						return
 					}
+					if !strings.HasPrefix(name, prefix+"-") {
+						continue
+					}
+					wtBase := strings.TrimPrefix(name, prefix+"-")
+					wts, _ := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+					var wtPath string
+					for _, wt := range wts {
+						if filepath.Base(wt.Path) == wtBase {
+							wtPath = wt.Path
+							break
+						}
+					}
+					if wtPath == "" {
+						continue
+					}
+					opErr := cli.WorkerStopForSite(s.Name, wtPath, wname)
+					resp := ServiceActionResponse{
+						ServiceResponse: ServiceResponse{
+							Name: name, Status: "inactive", EnvVars: map[string]string{},
+							WorkerSite: s.Name, WorkerName: wname, WorkerWorktree: wtBase,
+						},
+						OK: opErr == nil,
+					}
+					if opErr != nil {
+						resp.Error = opErr.Error()
+						resp.Status = "active"
+					}
+					writeJSON(w, resp)
+					return
 				}
 			}
 		}
@@ -1649,13 +1771,21 @@ type VersionResponse struct {
 
 func handleVersion(w http.ResponseWriter, _ *http.Request, currentVersion string) {
 	info, _ := lerdUpdate.CachedUpdateCheck(currentVersion)
+	writeJSON(w, buildVersionResponse(currentVersion, info))
+}
+
+// buildVersionResponse builds the wire payload for /api/version. The
+// dashboard banner template already prepends "v" so the Latest field
+// must be stripped of any leading v from the GitHub tag, otherwise
+// users see "vv1.20.0" in the banner.
+func buildVersionResponse(currentVersion string, info *lerdUpdate.UpdateInfo) VersionResponse {
 	resp := VersionResponse{Current: currentVersion}
 	if info != nil {
-		resp.Latest = info.LatestVersion
+		resp.Latest = lerdUpdate.StripV(info.LatestVersion)
 		resp.HasUpdate = true
 		resp.Changelog = info.Changelog
 	}
-	writeJSON(w, resp)
+	return resp
 }
 
 func handlePHPVersions(w http.ResponseWriter, _ *http.Request) {
@@ -1795,7 +1925,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.Secured = true
-		envfile.UpdateAppURL(site.Path, "https", site.PrimaryDomain()) //nolint:errcheck
+		envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), true) //nolint:errcheck
 		_ = config.SetProjectSecured(site.Path, true)
 		needsReload = true
 	case "unsecure":
@@ -1804,7 +1934,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.Secured = false
-		envfile.UpdateAppURL(site.Path, "http", site.PrimaryDomain()) //nolint:errcheck
+		envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), false) //nolint:errcheck
 		_ = config.SetProjectSecured(site.Path, false)
 		needsReload = true
 	case "php":
@@ -2301,23 +2431,34 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, resp)
 		return
 	default:
-		// Handle framework worker actions: worker:{name}:start or worker:{name}:stop
+		// worker:{name}:start|stop. ?branch=<wt> targets the worktree unit
+		// lerd-<wname>-<site>-<wtBase> instead of the parent's lerd-<wname>-<site>.
 		if strings.HasPrefix(action, "worker:") {
 			parts := strings.SplitN(action, ":", 3)
 			if len(parts) == 3 && (parts[2] == "start" || parts[2] == "stop") {
 				workerName := parts[1]
+				branch := r.URL.Query().Get("branch")
+				targetPath := site.Path
+				if branch != "" {
+					wtPath := resolveSitePath(site, branch)
+					if wtPath == "" {
+						writeJSON(w, SiteActionResponse{Error: "unknown worktree branch"})
+						return
+					}
+					targetPath = wtPath
+				}
 				if parts[2] == "stop" {
-					// Allow stopping orphaned workers that have no definition.
-					if err := cli.WorkerStopForSite(site.Name, workerName); err != nil {
+					// Stops orphans without a framework definition too.
+					if err := cli.WorkerStopForSite(site.Name, targetPath, workerName); err != nil {
 						writeJSON(w, SiteActionResponse{Error: err.Error()})
 						return
 					}
-					if !site.Paused {
+					if branch == "" && !site.Paused {
 						_ = config.SetProjectWorkers(site.Path, cli.CollectRunningWorkerNames(site))
 					}
 				} else {
 					fwN := site.Framework
-					fw, ok := config.GetFrameworkForDir(fwN, site.Path)
+					fw, ok := config.GetFrameworkForDir(fwN, targetPath)
 					if !ok || fw.Workers == nil {
 						writeJSON(w, SiteActionResponse{Error: "framework has no workers defined"})
 						return
@@ -2328,11 +2469,15 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					phpVersion := site.PHPVersion
-					if detected, err := phpPkg.DetectVersion(site.Path); err == nil && detected != "" {
+					if detected, err := phpPkg.DetectVersion(targetPath); err == nil && detected != "" {
 						phpVersion = detected
 					}
-					go cli.WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
-					go syncLerdYAMLWorkersDelayed(site)
+					// WorkerStartForSite appends the worktree suffix when
+					// sitePath != site.Path — pass parent name + worktree path.
+					go cli.WorkerStartForSite(site.Name, targetPath, phpVersion, workerName, worker, branch == "") //nolint:errcheck
+					if branch == "" {
+						go syncLerdYAMLWorkersDelayed(site)
+					}
 				}
 				writeJSON(w, SiteActionResponse{OK: true})
 				return
@@ -2760,19 +2905,29 @@ func handleLerdQuit(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLerdUpdateTerminal opens the user's terminal emulator running
-// `lerd update`, with a "press Enter to close" tail so the user can read
-// the output. Loopback-only — listed in loopbackOnlyRoutes.
+// `lerd update`. Loopback-only. Uses os.Executable() because the spawned
+// `sh -c` doesn't source .bashrc, so ~/.local/bin is off PATH otherwise.
 func handleLerdUpdateTerminal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	script := `lerd update; echo; read -rp "Press Enter to close..."`
-	if err := openTerminalCommand(script); err != nil {
+	self, err := os.Executable()
+	if err != nil || self == "" {
+		self = "lerd"
+	}
+	if err := openTerminalCommand(buildUpdateScript(self)); err != nil {
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// buildUpdateScript returns the sh -c payload the spawned terminal runs.
+// Extracted so tests can pin the absolute-path quoting without launching
+// a real terminal emulator.
+func buildUpdateScript(executable string) string {
+	return shQuote(executable) + ` update; echo; read -rp "Press Enter to close..."`
 }
 
 // openTerminalCommand opens the user's terminal emulator and runs the given

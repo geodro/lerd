@@ -108,12 +108,12 @@ func ReverbStartForSite(siteName, sitePath, phpVersion string) error {
 	if !ok {
 		return fmt.Errorf("framework %q has no worker named \"reverb\"", fw.Label)
 	}
-	return WorkerStartForSite(siteName, sitePath, phpVersion, "reverb", worker)
+	return WorkerStartForSite(siteName, sitePath, phpVersion, "reverb", worker, true)
 }
 
 // ReverbStopForSite stops and removes the Reverb unit for the named site.
 func ReverbStopForSite(siteName string) error {
-	return WorkerStopForSite(siteName, "reverb")
+	return WorkerStopForSite(siteName, "", "reverb")
 }
 
 // regenNginxVhost regenerates the nginx vhost for the site so proxy blocks are updated.

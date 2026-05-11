@@ -80,6 +80,8 @@ lerd framework update                 # update all installed frameworks
 lerd framework update --diff          # show changes before applying
 ```
 
+When run without arguments, every cached version of every framework is refreshed individually. A user with `laravel@10/11/12/13` cached gets all four files re-fetched, not just the latest.
+
 ### Auto-detection and auto-fetch
 
 When any command needs a framework definition that isn't installed locally, lerd fetches it from the store automatically. The version is resolved from `composer.lock`, so a Laravel 11 project gets `laravel@11.yaml` and a Laravel 12 project gets `laravel@12.yaml`.

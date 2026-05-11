@@ -83,6 +83,13 @@ func runSetup(allSteps, skipOpen bool) error {
 	}
 
 	site, _ := config.FindSiteByPath(cwd)
+	// Worktrees aren't registered as sites; fall back to the parent so
+	// setup steps (workers, framework cmds) still apply against cwd.
+	if site == nil {
+		if parent, _, ok := findOwningWorktree(cwd); ok {
+			site = parent
+		}
+	}
 
 	// Load saved workers from .lerd.yaml to pre-select them in the step selector.
 	projCfg, _ := config.LoadProjectConfig(cwd)
@@ -101,13 +108,15 @@ func runSetup(allSteps, skipOpen bool) error {
 	_, shrinkMissing := os.Stat(cwd + "/npm-shrinkwrap.json")
 	hasLockFile := lockMissing == nil || shrinkMissing == nil
 	buildScript := detectBuildScript(cwd + "/package.json")
-
-	// Always run lerd env first — it configures .env, starts services, and
-	// creates databases before any other step that may depend on them.
-	fmt.Println("\n→ Running: lerd env")
-	if err := runEnv(nil, nil); err != nil {
-		fmt.Printf("  [WARN] lerd env: %v\n", err)
+	// If the user opted into a worker that replaces the build (vite et al),
+	// pre-disable the build step. Still toggleable in the chooser.
+	buildReplaced := false
+	if site != nil {
+		buildReplaced = len(OptedInBuildReplacers(site, cwd)) > 0
 	}
+
+	// runSetupInit -> applyProjectConfig already ran `lerd env`; do not
+	// duplicate it here.
 
 	steps := []setupStep{
 		{
@@ -136,7 +145,7 @@ func runSetup(allSteps, skipOpen bool) error {
 		},
 		{
 			label:   "npm run " + buildScript,
-			enabled: hasPackageJSON && buildScript != "",
+			enabled: hasPackageJSON && buildScript != "" && !buildReplaced,
 			run: func() error {
 				if _, err := os.Stat(cwd + "/node_modules"); os.IsNotExist(err) {
 					fmt.Println("  node_modules not found.")
@@ -169,7 +178,7 @@ func runSetup(allSteps, skipOpen bool) error {
 		if fwName == "" {
 			fwName, _ = config.DetectFrameworkForDir(cwd)
 		}
-		if fw, ok := config.GetFramework(fwName); ok {
+		if fw, ok := config.GetFrameworkForDir(fwName, cwd); ok {
 			for _, sc := range fw.Setup {
 				// Skip commands whose check doesn't pass.
 				if sc.Check != nil && !config.MatchesRule(cwd, *sc.Check) {
@@ -215,7 +224,7 @@ func runSetup(allSteps, skipOpen bool) error {
 				label:   on + ":stop (orphaned)",
 				enabled: true,
 				run: func() error {
-					return WorkerStopForSite(site.Name, on)
+					return WorkerStopForSite(site.Name, site.Path, on)
 				},
 			})
 		}
@@ -229,7 +238,7 @@ func runSetup(allSteps, skipOpen bool) error {
 		if fwName == "" {
 			fwName, _ = config.DetectFrameworkForDir(cwd)
 		}
-		if fw, ok := config.GetFramework(fwName); ok && fw.Workers != nil {
+		if fw, ok := config.GetFrameworkForDir(fwName, cwd); ok && fw.Workers != nil {
 			suppressed := map[string]bool{}
 			for _, wDef := range fw.Workers {
 				if wDef.Check != nil && !config.MatchesRule(cwd, *wDef.Check) {
@@ -249,15 +258,12 @@ func runSetup(allSteps, skipOpen bool) error {
 				}
 				wn := wName
 				wd := wDef
+				ownerSite := site
 				steps = append(steps, setupStep{
 					label:   wn + ":start",
 					enabled: savedWorkers[wn],
 					run: func() error {
-						s, err := config.FindSiteByPath(cwd)
-						if err != nil {
-							return fmt.Errorf("site not registered: %w", err)
-						}
-						phpVersion := s.PHPVersion
+						phpVersion := ownerSite.PHPVersion
 						if phpVersion == "" {
 							if detected, detErr := phpDet.DetectVersion(cwd); detErr == nil {
 								phpVersion = detected
@@ -267,30 +273,27 @@ func runSetup(allSteps, skipOpen bool) error {
 							}
 						}
 						for _, conflict := range wd.ConflictsWith {
-							WorkerStopForSite(s.Name, conflict) //nolint:errcheck
+							WorkerStopForSite(ownerSite.Name, cwd, conflict) //nolint:errcheck
 						}
-						return WorkerStartForSite(s.Name, cwd, phpVersion, wn, wd)
+						return WorkerStartForSite(ownerSite.Name, cwd, phpVersion, wn, wd, true)
 					},
 				})
 			}
 		}
 	}
 
-	// Stripe listener (not a framework worker — still special-cased).
-	if siteHasStripeSecret(cwd) {
+	// Stripe listener (not a framework worker, still special-cased).
+	if site != nil && siteHasStripeSecret(cwd) {
+		ownerSite := site
 		steps = append(steps, setupStep{
 			label:   "stripe:listen",
-			enabled: siteHasStripeSecret(cwd),
+			enabled: true,
 			run: func() error {
-				s, err := config.FindSiteByPath(cwd)
-				if err != nil {
-					return fmt.Errorf("site not registered: %w", err)
-				}
 				base := siteURL(cwd)
 				if base == "" {
-					return fmt.Errorf("could not resolve site URL — run 'lerd link' first")
+					return fmt.Errorf("could not resolve site URL, run 'lerd link' first")
 				}
-				return StripeStartForSite(s.Name, cwd, base)
+				return StripeStartForSite(ownerSite.Name, cwd, base)
 			},
 		})
 	}

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"net/http"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
@@ -136,6 +137,7 @@ func main() {
 	root.AddCommand(cli.NewDbCreateCmd())
 	root.AddCommand(cli.NewDbShellCmd())
 	root.AddCommand(cli.NewXdebugCmd())
+	root.AddCommand(cli.NewDumpCmd())
 	root.AddCommand(cli.NewPhpExtCmd())
 	root.AddCommand(cli.NewPhpIniCmd())
 	for _, cmd := range cli.NewStripeCmds() {
@@ -380,18 +382,25 @@ func newWatchCmd() *cobra.Command {
 							eventbus.Default.Publish(eventbus.KindSites)
 						}
 					},
-					func(sitePath, _ string) {
+					func(sitePath, worktreeName string) {
 						site, err := config.FindSiteByPath(sitePath)
 						if err != nil {
 							return
 						}
 						// Cleanup order on plain `git worktree remove`:
-						// vhost first (URL stops resolving), then LAN
-						// share. Isolated databases are intentionally NOT
-						// dropped here — `lerd worktree remove` prompts
-						// the user about the DB explicitly, and the
-						// daemon's startup `scanWorktrees` pass catches
-						// any orphans left by direct git users.
+						// stop per-worktree worker units first so they
+						// don't restart-loop against the deleted dir, then
+						// vhost (URL stops resolving), then LAN share.
+						// Isolated databases are intentionally NOT dropped
+						// here — `lerd worktree remove` prompts the user
+						// about the DB explicitly, and the daemon's
+						// startup scanWorktrees pass catches any orphans
+						// left by direct git users.
+						if worktreeName != "" {
+							if err := cli.StopAllWorkersForWorktree(site.Name, worktreeName); err != nil {
+								fmt.Printf("[WARN] stopping worktree workers for %s/%s: %v\n", site.Name, worktreeName, err)
+							}
+						}
 						if cleanupWorktreeVhosts(site) {
 							if err := nginx.Reload(); err != nil {
 								fmt.Printf("[WARN] nginx reload: %v\n", err)
@@ -590,20 +599,29 @@ func scanWorktrees() bool {
 		if len(worktrees) == 0 {
 			continue
 		}
+		// Reissue once per site so the cert covers the wildcard SAN for every
+		// worktree even after a daemon restart that picked up worktrees added
+		// before the wildcard-SAN feature shipped.
+		if s.Secured {
+			if reissueErr := certs.ReissueCertForWorktree(s); reissueErr != nil {
+				fmt.Printf("[WARN] reissue cert for %s: %v\n", s.PrimaryDomain(), reissueErr)
+			}
+		}
 		for _, wt := range worktrees {
 			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
-			var vhostErr error
-			if s.Secured {
-				vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain())
-			} else {
-				vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, s.PHPVersion)
-			}
+			vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain(), s.Secured)
 			if vhostErr != nil {
 				fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
 				continue
 			}
 			fmt.Printf("Worktree vhost: %s -> %s\n", wt.Branch, wt.Domain)
 			generated = true
+
+			// Per-worktree host workers (e.g. vite) need to be (re)started
+			// at daemon boot too, not just when fsnotify fires onAdded.
+			// Without this, units stopped during downtime never come back.
+			effectivePHP := config.WorktreePHPVersion(wt.Path, s.PHPVersion)
+			cli.AutoStartOptedInWorktreeWorkers(&site, wt.Path, effectivePHP)
 		}
 	}
 	return generated
@@ -630,17 +648,23 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 		}
 		gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
-		var vhostErr error
+		vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Secured)
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain())
-		} else {
-			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP)
+			if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
+				fmt.Printf("[WARN] reissue cert for worktree %s: %v\n", wt.Domain, reissueErr)
+			}
 		}
 		if vhostErr != nil {
 			fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
 			return false
 		}
 		fmt.Printf("Worktree %s: %s -> %s\n", action, wt.Branch, wt.Domain)
+
+		// Auto-start only the host workers the user opted into via
+		// .lerd.yaml workers:. Worktrees inherit the parent's project
+		// intent rather than every host:true worker the framework defines.
+		cli.AutoStartOptedInWorktreeWorkers(site, wt.Path, effectivePHP)
+
 		return true
 	}
 	return false
@@ -652,6 +676,13 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 func cleanupWorktreeVhosts(site *config.Site) bool {
 	changed := removeWorktreeVhosts(site)
 	worktrees, _ := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
+	// Shrink the cert SAN list to just the surviving worktrees so removed
+	// branches drop their wildcard SAN.
+	if site.Secured {
+		if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
+			fmt.Printf("[WARN] reissue cert for %s: %v\n", site.PrimaryDomain(), reissueErr)
+		}
+	}
 	for _, wt := range worktrees {
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 		var vhostErr error

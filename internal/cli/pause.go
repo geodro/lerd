@@ -95,9 +95,7 @@ func PauseSite(name string) error {
 
 	pauseWorktrees(site)
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	fmt.Printf("Paused: %s (%s)\n", name, site.PrimaryDomain())
 	if len(running) > 0 {
@@ -189,9 +187,7 @@ func UnpauseSite(name string) error {
 		unpauseWorktrees(site, phpVersion)
 	}
 
-	if err := nginx.Reload(); err != nil {
-		fmt.Printf("[WARN] nginx reload: %v\n", err)
-	}
+	nginx.ReloadOrWarn("")
 
 	startServicesForSite(site.Path)
 
@@ -324,7 +320,7 @@ func stopWorkerByName(site *config.Site, workerName string) {
 		StripeStopForSite(site.Name) //nolint:errcheck
 		return
 	}
-	WorkerStopForSite(site.Name, workerName) //nolint:errcheck
+	WorkerStopForSite(site.Name, site.Path, workerName) //nolint:errcheck
 }
 
 // resumeWorkerByName restarts a single named worker for the site.
@@ -345,7 +341,7 @@ func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
 	if !ok {
 		return
 	}
-	WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker) //nolint:errcheck
+	WorkerStartForSite(site.Name, site.Path, phpVersion, workerName, worker, true) //nolint:errcheck
 }
 
 // pausedPageHTML is the static HTML for the shared paused-site landing page.

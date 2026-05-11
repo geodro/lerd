@@ -9,6 +9,52 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// resolveSiteAndFramework must fall back to the parent site when cwd is a
+// git worktree checkout under a registered repo, so `lerd worker start`
+// commands invoked from inside a worktree don't error with "not a registered
+// site". This pins the new ParentSiteForWorktreeDir branch.
+func TestResolveSiteAndFramework_worktreeFallback(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	sitePath := filepath.Join(tmp, "acme")
+	if err := os.MkdirAll(filepath.Join(sitePath, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(t.TempDir(), "feat-x-checkout")
+	if err := os.Mkdir(checkout, 0755); err != nil {
+		t.Fatal(err)
+	}
+	wtMeta := filepath.Join(sitePath, ".git", "worktrees", "feat-x")
+	os.MkdirAll(wtMeta, 0755)
+	os.WriteFile(filepath.Join(wtMeta, "HEAD"), []byte("ref: refs/heads/feat-x\n"), 0644)
+	os.WriteFile(filepath.Join(wtMeta, "gitdir"), []byte(filepath.Join(checkout, ".git")+"\n"), 0644)
+
+	if err := config.AddSite(config.Site{
+		Name: "acme", Path: sitePath, Domains: []string{"acme.test"},
+		PHPVersion: "8.4", Framework: "no-such-framework",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	site, _, _, err := resolveSiteAndFramework(checkout)
+	// We expect the framework lookup to fail (no such framework registered),
+	// not the "not a registered site" branch. A non-nil site on the err side
+	// would also be acceptable, but the key signal is that we got past the
+	// FindSiteByPath miss via the worktree fallback.
+	if err == nil {
+		// Framework happened to resolve; the fallback worked and the rest succeeded.
+		if site == nil || site.Name != "acme" {
+			t.Errorf("expected fallback to return parent site acme, got %+v", site)
+		}
+		return
+	}
+	if strings.Contains(err.Error(), "not a registered site") {
+		t.Errorf("worktree fallback did not fire; got registered-site error: %v", err)
+	}
+}
+
 func TestWorkerAdd_Project(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("framework: laravel\n"), 0644)

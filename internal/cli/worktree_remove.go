@@ -50,8 +50,25 @@ func newWorktreeRemoveCmd() *cobra.Command {
 				}
 			}
 
+			// Snapshot the worktree dir basename before git removes the
+			// worktree — once the directory is gone we can't derive it
+			// reliably from the user's positional arg.
+			var wtBase string
+			if last := lastNonFlag(args); last != "" {
+				wtBase = filepath.Base(last)
+			}
+
 			if err := runGitWorktreeRemove(args); err != nil {
 				return err
+			}
+
+			// Stop any per-worktree worker units before they restart-loop
+			// against the now-deleted WorkingDirectory. Best-effort — a
+			// failure here is a warning, not a hard error.
+			if wtBase != "" {
+				if err := StopAllWorkersForWorktree(site.Name, wtBase); err != nil {
+					fmt.Printf("[WARN] stopping worktree workers: %v\n", err)
+				}
 			}
 
 			if branch != "" {
@@ -152,6 +169,17 @@ func runGitWorktreeRemove(args []string) error {
 		return fmt.Errorf("aborted")
 	}
 	return runGit(append([]string{"worktree", "remove", "--force"}, args...), true)
+}
+
+// lastNonFlag returns the trailing positional argument from a git command,
+// which is the worktree path or basename. Returns "" if every arg is a flag.
+func lastNonFlag(args []string) string {
+	for i := len(args) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i]
+		}
+	}
+	return ""
 }
 
 func hasForceFlag(args []string) bool {

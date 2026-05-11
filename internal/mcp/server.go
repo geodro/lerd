@@ -16,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/envfile"
+	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -695,24 +696,26 @@ func toolList() []mcpTool {
 	tools = append(tools,
 		mcpTool{
 			Name:        "worker",
-			Description: "Start or stop a framework-defined worker. Call worker_list first.",
+			Description: "Start or stop a framework-defined worker. Call worker_list first. Pass branch=<name> to target a per-worktree unit (lerd-<worker>-<site>-<branch>) for workers with per_worktree:true (e.g. vite). Without branch, the parent site's unit is targeted.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"action": {Type: "string", Enum: []string{"start", "stop"}},
 					"site":   {Type: "string"},
-					"worker": {Type: "string", Description: "e.g. messenger, horizon, pulse."},
+					"worker": {Type: "string", Description: "e.g. messenger, horizon, vite."},
+					"branch": {Type: "string", Description: "Optional. Worktree branch name. Required to start a per_worktree:true worker on a specific worktree."},
 				},
 				Required: []string{"action", "site", "worker"},
 			},
 		},
 		mcpTool{
 			Name:        "worker_list",
-			Description: "List workers defined for a site's framework, including running status.",
+			Description: "List workers defined for a site's framework, including running status. Pass branch=<name> to see per-worktree unit status; without branch, parent-site units are reported.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
-					"site": {Type: "string", Description: "Site name (from sites)."},
+					"site":   {Type: "string", Description: "Site name (from sites)."},
+					"branch": {Type: "string", Description: "Optional. Worktree branch — reports lerd-<worker>-<site>-<branch> unit state and host/per_worktree/replaces_build flags."},
 				},
 				Required: []string{"site"},
 			},
@@ -764,6 +767,30 @@ func toolList() []mcpTool {
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"unit": {Type: "string", Description: "Full unit name (lerd-<worker>-<site>). Omit to heal all."},
+				},
+			},
+		},
+		mcpTool{
+			Name:        "workers_mode",
+			Description: "Show or set the macOS worker runtime mode. exec=one podman exec per worker, supervised by launchd (default; lower memory). container=one detached container per worker (1:1 supervisor boundary). Linux always uses exec under systemd, this setting is a no-op there. Setting on macOS restarts active workers in the new shape.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"action": {Type: "string", Enum: []string{"get", "set"}, Description: "get reports current mode; set switches to `mode`."},
+					"mode":   {Type: "string", Enum: []string{"exec", "container"}, Description: "Required for set. exec or container."},
+				},
+				Required: []string{"action"},
+			},
+		},
+		mcpTool{
+			Name:        "bug_report",
+			Description: "Generate a plain-text diagnostic report (lerd doctor + config + systemd / podman state + recent logs + env vars) for attaching to a GitHub issue. Site names, domains and parked-directory paths are anonymised by default. Returns the file path.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"output":          {Type: "string", Description: "Output file path. Defaults to ./lerd-bug-report-<timestamp>.txt"},
+					"log_lines":       {Type: "integer", Description: "Lines per service / container log. Default 200."},
+					"show_real_names": {Type: "boolean", Description: "Skip anonymisation. Use only for local debugging."},
 				},
 			},
 		},
@@ -853,7 +880,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_php",
-			Description: "Change a site's PHP version. Writes .php-version and regenerates the nginx vhost.",
+			Description: "Change a site's PHP version. Writes .php-version and regenerates the nginx vhost. Pass branch=<name> to pin the version on a specific worktree (writes .php-version + .lerd.yaml override inside the worktree's checkout, regenerates only that worktree's vhost) instead of the parent site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -862,13 +889,14 @@ func toolList() []mcpTool {
 						Type:        "string",
 						Description: "PHP version (e.g. 8.4, 8.3).",
 					},
+					"branch": {Type: "string", Description: "Optional. Worktree branch — writes .php-version inside the worktree and persists php_version to its .lerd.yaml so the override travels with the branch."},
 				},
 				Required: []string{"site", "version"},
 			},
 		},
 		mcpTool{
 			Name:        "site_node",
-			Description: "Change a site's Node.js version. Writes .node-version; installs via fnm if needed.",
+			Description: "Change a site's Node.js version. Writes .node-version; installs via fnm if needed. Pass branch=<name> to pin the version on a specific worktree (writes .node-version + .lerd.yaml override inside the worktree's checkout) instead of the parent site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -877,6 +905,7 @@ func toolList() []mcpTool {
 						Type:        "string",
 						Description: "Node.js version (e.g. 22, 20, lts).",
 					},
+					"branch": {Type: "string", Description: "Optional. Worktree branch — writes .node-version inside the worktree and persists node_version to its .lerd.yaml."},
 				},
 				Required: []string{"site", "version"},
 			},
@@ -909,6 +938,7 @@ func toolList() []mcpTool {
 		worktreeTool(),
 		dnsDiagnoseTool(),
 	)
+	tools = append(tools, dumpToolDefs()...)
 
 	return tools
 }
@@ -1042,6 +1072,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execWorkersHealth()
 	case "workers_heal":
 		return execWorkersHeal(args)
+	case "workers_mode":
+		return execWorkersMode(args)
+	case "bug_report":
+		return execBugReport(args)
 
 	case "logs":
 		return execLogs(args)
@@ -1193,6 +1227,15 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execPark(args)
 	case "unpark":
 		return execUnpark(args)
+
+	case "dumps_recent":
+		return execDumpsRecent(args)
+	case "dumps_status":
+		return execDumpsStatus(args)
+	case "dumps_clear":
+		return execDumpsClear(args)
+	case "dumps_toggle":
+		return execDumpsToggle(args)
 
 	default:
 		return toolErr("unknown tool: " + p.Name), nil
@@ -3796,6 +3839,21 @@ func execFrameworkAdd(args map[string]any) (any, *rpcError) {
 	return toolOK(fmt.Sprintf("Framework %q saved. Use site_link to register a project using this framework.", name)), nil
 }
 
+// resolveWorkerCwd picks the cwd to shell `lerd worker` into: site.Path for
+// parent, worktree path when branch is set. The CLI's workerNames helper
+// keys off cwd to pick parent vs per-worktree unit names.
+func resolveWorkerCwd(site *config.Site, branch string) (string, map[string]any) {
+	if branch == "" {
+		return site.Path, nil
+	}
+	sanitized := gitpkg.SanitizeBranch(branch)
+	wtPath := worktreePathFor(site, sanitized)
+	if wtPath == "" {
+		return "", toolErr(fmt.Sprintf("worktree branch %q not found on site %q", branch, site.Name))
+	}
+	return wtPath, nil
+}
+
 func execWorkerStart(args map[string]any) (any, *rpcError) {
 	siteName := strArg(args, "site")
 	if siteName == "" {
@@ -3805,73 +3863,23 @@ func execWorkerStart(args map[string]any) (any, *rpcError) {
 	if workerName == "" {
 		return toolErr("worker is required"), nil
 	}
-
 	site, err := config.FindSite(siteName)
 	if err != nil {
 		return toolErr("site not found: " + siteName), nil
 	}
-
-	fwName := site.Framework
-	if fwName == "" {
-		return toolErr("site has no framework assigned — run lerd link first"), nil
+	cwd, errResp := resolveWorkerCwd(site, strArg(args, "branch"))
+	if errResp != nil {
+		return errResp, nil
 	}
-	fw, ok := config.GetFrameworkForDir(fwName, site.Path)
-	if !ok {
-		return toolErr("framework not found: " + fwName), nil
+	out, err := runIn(cwd, "lerd", "worker", "start", workerName)
+	if err != nil {
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return toolErr(fmt.Sprintf("starting worker %q: %s", workerName, msg)), nil
 	}
-	worker, ok := fw.Workers[workerName]
-	if !ok {
-		return toolErr(fmt.Sprintf("worker %q not found in framework %q — use worker_list to see available workers", workerName, fwName)), nil
-	}
-
-	if worker.Check != nil && !config.MatchesRule(site.Path, *worker.Check) {
-		return toolErr(fmt.Sprintf("worker %q requires a dependency that is not installed (check the framework definition for required packages)", workerName)), nil
-	}
-
-	phpVersion := site.PHPVersion
-	if detected, err := phpDet.DetectVersion(site.Path); err == nil && detected != "" {
-		phpVersion = detected
-	}
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
-	unitName := "lerd-" + workerName + "-" + siteName
-
-	label := worker.Label
-	if label == "" {
-		label = workerName
-	}
-	restart := worker.Restart
-	if restart == "" {
-		restart = "always"
-	}
-
-	unit := fmt.Sprintf(`[Unit]
-Description=Lerd %s (%s)
-After=network.target %s.service
-BindsTo=%s.service
-
-[Service]
-Type=simple
-Restart=%s
-RestartSec=5
-ExecStart=%s exec -w %s %s %s
-
-[Install]
-WantedBy=default.target
-`, label, siteName, fpmUnit, fpmUnit, restart, podman.PodmanBin(), site.Path, container, worker.Command)
-
-	if err := lerdSystemd.WriteService(unitName, unit); err != nil {
-		return toolErr("writing service unit: " + err.Error()), nil
-	}
-	if err := podman.DaemonReloadFn(); err != nil {
-		return toolErr("daemon-reload: " + err.Error()), nil
-	}
-	_ = lerdSystemd.EnableService(unitName)
-	if err := lerdSystemd.StartService(unitName); err != nil {
-		return toolErr(fmt.Sprintf("starting %s: %v", workerName, err)), nil
-	}
-	return toolOK(fmt.Sprintf("%s started for %s\nLogs: journalctl --user -u %s -f", label, siteName, unitName)), nil
+	return toolOK(out), nil
 }
 
 func execWorkerStop(args map[string]any) (any, *rpcError) {
@@ -3883,15 +3891,23 @@ func execWorkerStop(args map[string]any) (any, *rpcError) {
 	if workerName == "" {
 		return toolErr("worker is required"), nil
 	}
-	unitName := "lerd-" + workerName + "-" + siteName
-	unitFile := filepath.Join(config.SystemdUserDir(), unitName+".service")
-	_ = lerdSystemd.DisableService(unitName)
-	_ = podman.StopUnit(unitName)
-	if err := os.Remove(unitFile); err != nil && !os.IsNotExist(err) {
-		return toolErr("removing unit file: " + err.Error()), nil
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return toolErr("site not found: " + siteName), nil
 	}
-	_ = podman.DaemonReloadFn()
-	return toolOK(fmt.Sprintf("%s worker stopped for %s", workerName, siteName)), nil
+	cwd, errResp := resolveWorkerCwd(site, strArg(args, "branch"))
+	if errResp != nil {
+		return errResp, nil
+	}
+	out, err := runIn(cwd, "lerd", "worker", "stop", workerName)
+	if err != nil {
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return toolErr(fmt.Sprintf("stopping worker %q: %s", workerName, msg)), nil
+	}
+	return toolOK(out), nil
 }
 
 func execWorkerList(args map[string]any) (any, *rpcError) {
@@ -3916,21 +3932,35 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 		return toolOK(string(data)), nil
 	}
 
+	branchArg := strArg(args, "branch")
+	var unitSuffix string
+	if branchArg != "" {
+		sanitized := gitpkg.SanitizeBranch(branchArg)
+		if worktreePathFor(site, sanitized) == "" {
+			return toolErr(fmt.Sprintf("worktree branch %q not found on site %q", branchArg, siteName)), nil
+		}
+		unitSuffix = "-" + sanitized
+	}
+
 	type workerInfo struct {
-		Name     string `json:"name"`
-		Label    string `json:"label"`
-		Command  string `json:"command"`
-		Restart  string `json:"restart"`
-		Running  bool   `json:"running"`
-		Unit     string `json:"unit"`
-		Orphaned bool   `json:"orphaned,omitempty"`
+		Name          string `json:"name"`
+		Label         string `json:"label"`
+		Command       string `json:"command"`
+		Restart       string `json:"restart"`
+		Running       bool   `json:"running"`
+		Unit          string `json:"unit"`
+		Branch        string `json:"branch,omitempty"`
+		Host          bool   `json:"host,omitempty"`
+		PerWorktree   bool   `json:"per_worktree,omitempty"`
+		ReplacesBuild bool   `json:"replaces_build,omitempty"`
+		Orphaned      bool   `json:"orphaned,omitempty"`
 	}
 
 	known := make(map[string]bool, len(fw.Workers))
 	var result []workerInfo
 	for wname, w := range fw.Workers {
 		known[wname] = true
-		unitName := "lerd-" + wname + "-" + siteName
+		unitName := "lerd-" + wname + "-" + siteName + unitSuffix
 		status, _ := podman.UnitStatus(unitName)
 		label := w.Label
 		if label == "" {
@@ -3941,26 +3971,33 @@ func execWorkerList(args map[string]any) (any, *rpcError) {
 			restart = "always"
 		}
 		result = append(result, workerInfo{
-			Name:    wname,
-			Label:   label,
-			Command: w.Command,
-			Restart: restart,
-			Running: status == "active",
-			Unit:    unitName,
+			Name:          wname,
+			Label:         label,
+			Command:       w.Command,
+			Restart:       restart,
+			Running:       status == "active",
+			Unit:          unitName,
+			Branch:        branchArg,
+			Host:          w.Host,
+			PerWorktree:   w.IsPerWorktree(),
+			ReplacesBuild: w.ReplacesBuild,
 		})
 	}
 
-	// Detect orphaned workers — running units with no framework definition.
-	orphans := lerdSystemd.FindOrphanedWorkers(siteName, known)
-	for _, wname := range orphans {
-		unitName := "lerd-" + wname + "-" + siteName
-		result = append(result, workerInfo{
-			Name:     wname,
-			Label:    wname + " (orphaned)",
-			Running:  true,
-			Unit:     unitName,
-			Orphaned: true,
-		})
+	// Skip orphan detection when scoped to a worktree — FindOrphanedWorkers
+	// walks the parent site only.
+	if branchArg == "" {
+		orphans := lerdSystemd.FindOrphanedWorkers(siteName, known)
+		for _, wname := range orphans {
+			unitName := "lerd-" + wname + "-" + siteName
+			result = append(result, workerInfo{
+				Name:     wname,
+				Label:    wname + " (orphaned)",
+				Running:  true,
+				Unit:     unitName,
+				Orphaned: true,
+			})
+		}
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -4005,6 +4042,71 @@ func execWorkersHeal(args map[string]any) (any, *rpcError) {
 	}
 	data, _ := json.MarshalIndent(out, "", "  ")
 	return toolOK(string(data)), nil
+}
+
+// execWorkersMode shells out to `lerd workers mode` so the same migration
+// path that restarts active workers in their new shape on macOS runs from
+// MCP too. Linux is a no-op at the CLI layer.
+func execWorkersMode(args map[string]any) (any, *rpcError) {
+	action := strArg(args, "action")
+	switch action {
+	case "get":
+		out, err := runIn("", "lerd", "workers", "mode")
+		if err != nil {
+			msg := strings.TrimSpace(out)
+			if msg == "" {
+				msg = err.Error()
+			}
+			return toolErr("workers mode: " + msg), nil
+		}
+		return toolOK(out), nil
+	case "set":
+		mode := strArg(args, "mode")
+		if mode != "exec" && mode != "container" {
+			return toolErr("mode must be exec or container"), nil
+		}
+		out, err := runIn("", "lerd", "workers", "mode", mode)
+		if err != nil {
+			msg := strings.TrimSpace(out)
+			if msg == "" {
+				msg = err.Error()
+			}
+			return toolErr("workers mode " + mode + ": " + msg), nil
+		}
+		return toolOK(out), nil
+	default:
+		return toolErr("action must be get or set"), nil
+	}
+}
+
+// execBugReport shells out to `lerd bug-report` rather than re-implementing
+// the doctor-output / config-collection logic. Returns the file path so the
+// agent can read or upload it; flags map 1:1 onto the CLI.
+func execBugReport(args map[string]any) (any, *rpcError) {
+	cmd := []string{"bug-report"}
+	if out := strArg(args, "output"); out != "" {
+		cmd = append(cmd, "--output", out)
+	}
+	if v, ok := args["log_lines"]; ok {
+		switch n := v.(type) {
+		case float64:
+			cmd = append(cmd, "--log-lines", fmt.Sprintf("%d", int(n)))
+		case int:
+			cmd = append(cmd, "--log-lines", fmt.Sprintf("%d", n))
+		}
+	}
+	if v, ok := args["show_real_names"].(bool); ok && v {
+		cmd = append(cmd, "--show-real-names")
+	}
+	output, err := runIn("", "lerd", cmd...)
+	if err != nil {
+		msg := strings.TrimSpace(output)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return toolErr("bug-report: " + msg), nil
+	}
+	return toolOK(output), nil
 }
 
 func execWorkerAdd(args map[string]any) (any, *rpcError) {
@@ -4412,6 +4514,22 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 		return toolErr("custom container sites do not use PHP versions — the container defines its own runtime"), nil
 	}
 
+	if branch := strArg(args, "branch"); branch != "" {
+		cwd, errResp := resolveWorkerCwd(site, branch)
+		if errResp != nil {
+			return errResp, nil
+		}
+		out, runErr := runIn(cwd, "lerd", "isolate", version)
+		if runErr != nil {
+			msg := strings.TrimSpace(out)
+			if msg == "" {
+				msg = runErr.Error()
+			}
+			return toolErr(fmt.Sprintf("isolate PHP %s on %s: %s", version, branch, msg)), nil
+		}
+		return toolOK(out), nil
+	}
+
 	// Write .php-version pin file (keeps CLI php and other tools in sync).
 	phpVersionFile := filepath.Join(site.Path, ".php-version")
 	if err := os.WriteFile(phpVersionFile, []byte(version+"\n"), 0644); err != nil {
@@ -4472,6 +4590,22 @@ func execSiteNode(args map[string]any) (any, *rpcError) {
 	site, err := config.FindSite(siteName)
 	if err != nil {
 		return toolErr(fmt.Sprintf("site %q not found — run sites to list registered sites", siteName)), nil
+	}
+
+	if branch := strArg(args, "branch"); branch != "" {
+		cwd, errResp := resolveWorkerCwd(site, branch)
+		if errResp != nil {
+			return errResp, nil
+		}
+		out, runErr := runIn(cwd, "lerd", "isolate:node", version)
+		if runErr != nil {
+			msg := strings.TrimSpace(out)
+			if msg == "" {
+				msg = runErr.Error()
+			}
+			return toolErr(fmt.Sprintf("isolate Node %s on %s: %s", version, branch, msg)), nil
+		}
+		return toolOK(out), nil
 	}
 
 	// Write .node-version pin file in the project.
@@ -4685,7 +4819,7 @@ func execDBCreate(args map[string]any) (any, *rpcError) {
 			dbName = env.database
 		} else {
 			base := filepath.Base(projectPath)
-			dbName = strings.ToLower(strings.ReplaceAll(base, "-", "_"))
+			dbName = config.SiteSlug(base)
 		}
 	}
 

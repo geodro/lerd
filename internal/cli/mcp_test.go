@@ -506,12 +506,9 @@ func TestIsLerdBuiltImage_matchers(t *testing.T) {
 // and globally; drift upward gets expensive fast. Raise the ceiling only
 // when adding content that justifies the bytes.
 func TestClaudeSkillContent_underSizeCeiling(t *testing.T) {
-	// Raised from 41000 → 42000 to fit the bootstrap / clone / debug
-	// workflows added so agents can stand up a site end-to-end without
-	// trial-and-error. Bumped to 43000 for the disabled-DNS / *.localhost
-	// mode block so agents do not hardcode .test or propose site_tls when
-	// HTTPS is unavailable. Any further growth needs a justified bump here.
-	const ceiling = 43000
+	// Bumped to 50000 for the four new dumps_* tool sections and the dump
+	// bridge entry in the quick-reference table.
+	const ceiling = 50000
 	if got := len(claudeSkillContent); got > ceiling {
 		t.Errorf("claudeSkillContent is %d bytes, ceiling is %d — trim before raising", got, ceiling)
 	}
