@@ -71,7 +71,7 @@
       <div class="flex flex-wrap gap-2">
         {#each $status.php_fpms as fpm (fpm.version)}
           {@const count = $sitesByPhp.get(fpm.version) ?? 0}
-          <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
+          <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-sm bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
             <StatusDot color={fpm.running ? 'green' : 'gray'} size="xs" />
             {fpm.version}
             {#if count > 0}
@@ -88,7 +88,7 @@
       <div class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">{m.dashboard_health_node()}</div>
       <div class="flex flex-wrap gap-2">
         {#each nodeVersions as [version, count] (version)}
-          <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
+          <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-sm bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
             <StatusDot color={version === $status.node_default ? 'emerald' : 'gray'} size="xs" />
             {version}
             <span class="text-gray-400 dark:text-gray-500">· {count}</span>

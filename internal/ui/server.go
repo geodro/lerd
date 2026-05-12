@@ -195,6 +195,8 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/node-versions/install", withCORS(publishAfter(handleInstallNodeVersion, eventbus.KindStatus)))
 	mux.HandleFunc("/api/node-versions/", withCORS(publishAfter(handleNodeVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/link", withCORS(publishAfter(handleSiteLink, eventbus.KindSites)))
+	mux.HandleFunc("/api/sites/worktree-options", withCORS(handleSiteWorktreeOptions))
+	mux.HandleFunc("/api/sites/worktree-add", withCORS(publishAfter(handleSiteWorktreeAdd, eventbus.KindSites)))
 	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
 	mux.HandleFunc("/api/sites/", withCORS(publishAfter(handleSiteAction, eventbus.KindSites, eventbus.KindServices)))
 	mux.HandleFunc("/api/logs/", withCORS(handleLogs))
@@ -2430,6 +2432,21 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, resp)
 		return
+	case "worktree:remove":
+		branch := r.URL.Query().Get("branch")
+		if branch == "" {
+			writeJSON(w, SiteActionResponse{Error: "branch parameter required"})
+			return
+		}
+		force := r.URL.Query().Get("force") == "1" || r.URL.Query().Get("force") == "true"
+		dropDB := r.URL.Query().Get("drop_db") == "1" || r.URL.Query().Get("drop_db") == "true"
+		if err := cli.RemoveWorktreeAndCleanup(site, branch, force, dropDB, nil); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		_ = nginx.Reload()
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
 	default:
 		// worker:{name}:start|stop. ?branch=<wt> targets the worktree unit
 		// lerd-<wname>-<site>-<wtBase> instead of the parent's lerd-<wname>-<site>.
@@ -3374,6 +3391,238 @@ func handleSiteLink(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(map[string]any{"ok": true, "domain": site.PrimaryDomain()}))
 	flusher.Flush()
+}
+
+type labeledOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// worktreeBuildOptions enumerates the asset-build choices the dashboard's "Add
+// worktree" form should offer for site: "Automatic", every framework worker
+// eligible to replace the build at the parent checkout, every package.json
+// build script, and "Skip". The parent path is used as a proxy for the
+// not-yet-created worktree (a fresh worktree is a checkout of the same tree).
+func worktreeBuildOptions(site *config.Site) []labeledOption {
+	opts := []labeledOption{{Value: "auto", Label: "Automatic (recommended)"}}
+	var workers map[string]config.FrameworkWorker
+	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok {
+		workers = fw.Workers
+	}
+	for _, name := range cli.EligibleBuildReplacers(site, site.Path) {
+		label := name
+		if w, ok := workers[name]; ok && w.Label != "" {
+			label = w.Label
+		}
+		opts = append(opts, labeledOption{Value: "worker:" + name, Label: "Use " + label + " (asset worker)"})
+	}
+	for _, s := range cli.AvailableBuildScripts(site.Path) {
+		opts = append(opts, labeledOption{Value: "script:" + s, Label: "npm run " + s})
+	}
+	opts = append(opts, labeledOption{Value: "skip", Label: "Skip, I'll build the assets myself"})
+	return opts
+}
+
+// worktreeDBOptions enumerates the database choices for the "Add worktree"
+// form. Without a branch it returns the generic set (share / isolated empty /
+// clone from main / clone from each isolated worktree). With a branch it
+// mirrors `lerd worktree add`'s prompt: when a preserved isolated DB exists
+// for that branch it adds "reuse" and "reset" and drops the plain "empty".
+func worktreeDBOptions(site *config.Site, branch string) []labeledOption {
+	var opts []labeledOption
+	var preserved config.WorktreeDBEntry
+	hasPreserved := false
+	if branch != "" {
+		if e, ok, _ := config.FindWorktreeDB(site.Name, branch); ok {
+			preserved, hasPreserved = e, true
+		}
+	}
+	if hasPreserved {
+		opts = append(opts,
+			labeledOption{Value: "reuse", Label: "Reuse preserved isolated DB " + preserved.DBName},
+			labeledOption{Value: "reset", Label: "Reset preserved DB " + preserved.DBName + " to a fresh empty schema (drops data)"},
+		)
+	}
+	opts = append(opts, labeledOption{Value: "share", Label: "Share parent's database"})
+	if !hasPreserved {
+		opts = append(opts, labeledOption{Value: "empty", Label: "Isolated database, empty schema"})
+	}
+	opts = append(opts, labeledOption{Value: "clone-main", Label: "Isolated database, cloned from main"})
+	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
+		for _, wt := range worktrees {
+			if wt.Branch == branch {
+				continue
+			}
+			if _, ok, _ := config.FindWorktreeDB(site.Name, wt.Branch); ok {
+				opts = append(opts, labeledOption{Value: "clone-" + wt.Branch, Label: "Isolated database, cloned from " + wt.Branch})
+			}
+		}
+	}
+	return opts
+}
+
+// worktreeBranchCandidates returns the branches a new worktree can target:
+// local branches not already checked out in some worktree, plus remote-tracking
+// branches that don't yet have a local counterpart (git dwims `worktree add
+// <path> origin/x` into a new local branch `x`). It also returns the branch
+// HEAD currently points at in the main checkout. Both slices are non-nil so the
+// JSON response is always an array, never null.
+func worktreeBranchCandidates(sitePath string) (local []string, remote []string, current string) {
+	local, remote = []string{}, []string{}
+	current = strings.TrimSpace(runGitOutput(sitePath, "symbolic-ref", "--short", "-q", "HEAD"))
+
+	checkedOut := map[string]bool{}
+	for _, line := range strings.Split(runGitOutput(sitePath, "worktree", "list", "--porcelain"), "\n") {
+		if b := strings.TrimPrefix(line, "branch refs/heads/"); b != line {
+			checkedOut[strings.TrimSpace(b)] = true
+		}
+	}
+	localSet := map[string]bool{}
+	for _, b := range strings.Split(runGitOutput(sitePath, "for-each-ref", "--format=%(refname:short)", "refs/heads/"), "\n") {
+		b = strings.TrimSpace(b)
+		if b == "" {
+			continue
+		}
+		localSet[b] = true
+		if !checkedOut[b] {
+			local = append(local, b)
+		}
+	}
+	for _, b := range strings.Split(runGitOutput(sitePath, "for-each-ref", "--format=%(refname:short)", "refs/remotes/"), "\n") {
+		b = strings.TrimSpace(b)
+		// Skip the remote's symbolic HEAD (e.g. "origin" or "origin/HEAD")
+		// and any remote whose tracking name already exists locally.
+		if b == "" || strings.HasSuffix(b, "/HEAD") || !strings.Contains(b, "/") {
+			continue
+		}
+		if localSet[b[strings.LastIndex(b, "/")+1:]] {
+			continue
+		}
+		remote = append(remote, b)
+	}
+	return local, remote, current
+}
+
+func runGitOutput(dir string, args ...string) string {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// handleSiteWorktreeOptions answers GET /api/sites/worktree-options?domain=...
+// [&branch=...] with the choices the "Add worktree" modal needs.
+func handleSiteWorktreeOptions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	site, err := config.FindSiteByDomain(r.URL.Query().Get("domain"))
+	if err != nil {
+		writeJSON(w, map[string]any{"error": "site not found"})
+		return
+	}
+	branch := ""
+	if raw := r.URL.Query().Get("branch"); raw != "" {
+		branch = gitpkg.SanitizeBranch(raw)
+	}
+	localBranches, remoteBranches, currentBranch := worktreeBranchCandidates(site.Path)
+	canMigrate := false
+	if _, statErr := os.Stat(filepath.Join(site.Path, "artisan")); statErr == nil {
+		canMigrate = true
+	}
+	writeJSON(w, map[string]any{
+		"local_branches":       localBranches,
+		"remote_branches":      remoteBranches,
+		"default_branch_label": currentBranch,
+		"build_options":        worktreeBuildOptions(site),
+		"build_default":        "auto",
+		"db_options":           worktreeDBOptions(site, branch),
+		"can_migrate":          canMigrate,
+	})
+}
+
+// sseLineWriter buffers writes into newline-delimited SSE `data:` frames so
+// arbitrary git/composer output streams cleanly to the browser.
+type sseLineWriter struct {
+	w   http.ResponseWriter
+	f   http.Flusher
+	buf []byte
+}
+
+func (s *sseLineWriter) Write(p []byte) (int, error) {
+	s.buf = append(s.buf, p...)
+	for {
+		i := bytes.IndexByte(s.buf, '\n')
+		if i < 0 {
+			break
+		}
+		s.emit(string(s.buf[:i]))
+		s.buf = s.buf[i+1:]
+	}
+	return len(p), nil
+}
+
+func (s *sseLineWriter) emit(line string) {
+	line = strings.TrimRight(line, "\r")
+	fmt.Fprintf(s.w, "data: %s\n\n", strings.ReplaceAll(line, "\\", "\\\\"))
+	s.f.Flush()
+}
+
+func (s *sseLineWriter) flushTail() {
+	if len(s.buf) > 0 {
+		s.emit(string(s.buf))
+		s.buf = nil
+	}
+}
+
+// handleSiteWorktreeAdd answers POST /api/sites/worktree-add?domain=... by
+// creating a git worktree and running lerd's setup pipeline, streaming
+// progress as SSE and finishing with an `event: done` payload.
+func handleSiteWorktreeAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	q := r.URL.Query()
+	site, err := config.FindSiteByDomain(q.Get("domain"))
+	if err != nil {
+		writeJSON(w, SiteActionResponse{Error: "site not found"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	req := cli.WorktreeAddRequest{
+		NewBranch:      strings.TrimSpace(q.Get("new_branch")),
+		ExistingBranch: strings.TrimSpace(q.Get("existing_branch")),
+		BaseRef:        strings.TrimSpace(q.Get("base_ref")),
+		DBChoice:       q.Get("db"),
+		RunMigrations:  q.Get("migrate") == "1" || q.Get("migrate") == "true",
+		Build:          q.Get("build"),
+	}
+	done := func(payload map[string]any) {
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(payload))
+		flusher.Flush()
+	}
+	sw := &sseLineWriter{w: w, f: flusher}
+	branch, _, addErr := cli.RunWorktreeAdd(site, req, sw)
+	sw.flushTail()
+	if addErr != nil {
+		done(map[string]any{"ok": false, "error": addErr.Error()})
+		return
+	}
+	done(map[string]any{"ok": true, "branch": branch, "domain": branch + "." + site.PrimaryDomain()})
 }
 
 // syncLerdYAMLWorkersDelayed waits briefly for the worker unit to start, then syncs.

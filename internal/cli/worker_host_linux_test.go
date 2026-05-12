@@ -24,7 +24,7 @@ func TestWriteHostWorkerUnitFile_useFnmExec(t *testing.T) {
 	os.WriteFile(filepath.Join(sitePath, ".node-version"), []byte("20"), 0644)
 
 	changed, err := writeWorkerUnitFile(
-		"lerd-vite-mysite", "Vite Dev Server", "mysite",
+		"lerd-vite-mysite", "Vite", "mysite",
 		sitePath, "8.4", "npm run dev",
 		"on-failure", "", "lerd-php84-fpm", true,
 	)
@@ -190,7 +190,7 @@ func TestWorkerStartForSite_worktreeUnitNaming(t *testing.T) {
 	os.WriteFile(filepath.Join(binDir, "fnm"), []byte("#!/bin/sh"), 0755)
 
 	w := config.FrameworkWorker{
-		Label:   "Vite Dev Server",
+		Label:   "Vite",
 		Command: "npm run dev",
 		Restart: "on-failure",
 		Host:    true,

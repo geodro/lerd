@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,8 +73,8 @@ func newWorktreeAddCmd() *cobra.Command {
 			}
 
 			fmt.Println("Waiting for lerd to install dependencies (composer + JS)...")
-			if err := waitForWorktreeReady(worktreePath, 5*time.Minute); err != nil {
-				fmt.Printf("[WARN] %v — you can rerun setup later by editing the worktree.\n", err)
+			if err := WaitForWorktreeReady(worktreePath, 5*time.Minute); err != nil {
+				fmt.Printf("[WARN] %v, you can rerun setup later by editing the worktree.\n", err)
 			} else {
 				fmt.Println("Dependencies installed.")
 			}
@@ -81,21 +82,7 @@ func newWorktreeAddCmd() *cobra.Command {
 			if optedIn := OptedInHostWorkers(site, worktreePath); len(optedIn) > 0 {
 				fmt.Printf("Auto-starting opted-in workers: %s\n", strings.Join(optedIn, ", "))
 			}
-			switch choice := promptWorktreeBuild(site, worktreePath); choice.kind {
-			case "worker":
-				if err := WorkerStartForSite(site.Name, worktreePath, site.PHPVersion, choice.value, choice.worker, false); err != nil {
-					fmt.Printf("[WARN] failed to start %s: %v — assets will not be served, run `lerd worker start %s` or `npm run build` manually.\n", choice.value, err, choice.value)
-				} else {
-					fmt.Printf("Started %s, skipping build — it will provide assets.\n", choice.value)
-				}
-			case "script":
-				fmt.Printf("Running npm run %s...\n", choice.value)
-				if err := gitpkg.RunNpmScript(worktreePath, choice.value); err != nil {
-					fmt.Printf("[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.\n", choice.value, err)
-				} else {
-					fmt.Println("Frontend built.")
-				}
-			}
+			ApplyWorktreeBuildChoice(site, worktreePath, promptWorktreeBuild(site, worktreePath), os.Stdout)
 
 			if err := promptDBIsolation(site, branch); err != nil {
 				fmt.Printf("[WARN] DB setup skipped: %v\n", err)
@@ -123,6 +110,27 @@ type worktreeBuildChoice struct {
 	worker config.FrameworkWorker
 }
 
+// ApplyWorktreeBuildChoice acts on a worktreeBuildChoice: starts the asset
+// worker (kind "worker"), runs `npm run <value>` (kind "script"), or does
+// nothing (kind "skip"). Progress is written to log (may be nil).
+func ApplyWorktreeBuildChoice(site *config.Site, worktreePath string, choice worktreeBuildChoice, log io.Writer) {
+	switch choice.kind {
+	case "worker":
+		if err := WorkerStartForSite(site.Name, worktreePath, site.PHPVersion, choice.value, choice.worker, false); err != nil {
+			logf(log, "[WARN] failed to start %s: %v, run `lerd worker start %s` or `npm run build` manually.", choice.value, err, choice.value)
+		} else {
+			logf(log, "Started %s, skipping build, it will provide assets.", choice.value)
+		}
+	case "script":
+		logf(log, "Running npm run %s...", choice.value)
+		if err := gitpkg.RunNpmScript(worktreePath, choice.value); err != nil {
+			logf(log, "[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.", choice.value, err)
+		} else {
+			logf(log, "Frontend built.")
+		}
+	}
+}
+
 // promptWorktreeBuild merges the asset-worker decision and the npm-build
 // decision into one select. Options include every framework worker eligible
 // to replace the build for this worktree (per_worktree + replaces_build +
@@ -132,8 +140,8 @@ type worktreeBuildChoice struct {
 // that aren't opted in still appear so the user can start them ad-hoc for
 // this worktree without editing parent yaml.
 func promptWorktreeBuild(site *config.Site, worktreePath string) worktreeBuildChoice {
-	eligible := eligibleBuildReplacers(site, worktreePath)
-	scripts := availableBuildScripts(worktreePath)
+	eligible := EligibleBuildReplacers(site, worktreePath)
+	scripts := AvailableBuildScripts(worktreePath)
 	if len(eligible) == 0 && len(scripts) == 0 {
 		return worktreeBuildChoice{kind: "skip"}
 	}
@@ -191,10 +199,10 @@ func promptWorktreeBuild(site *config.Site, worktreePath string) worktreeBuildCh
 	}
 }
 
-// availableBuildScripts returns the production-build-style scripts declared
+// AvailableBuildScripts returns the production-build-style scripts declared
 // in package.json, in preference order. `dev` is intentionally excluded —
 // it's a long-running watcher, not a one-shot the wrapper should spawn.
-func availableBuildScripts(worktreePath string) []string {
+func AvailableBuildScripts(worktreePath string) []string {
 	pkgScripts := readPackageScripts(worktreePath)
 	if pkgScripts == nil {
 		return nil
@@ -276,11 +284,11 @@ func newestWorktree(sitePath string) (string, string, error) {
 	return checkout, branch, nil
 }
 
-// waitForWorktreeReady polls until the worktree's vendor + node_modules +
+// WaitForWorktreeReady polls until the worktree's vendor + node_modules +
 // .env are in place, signalling that lerd's watcher-driven install pipeline
 // has finished. The frontend build is no longer part of this wait — `lerd
 // worktree add` invokes RunFrontendBuild explicitly after installs succeed.
-func waitForWorktreeReady(worktreePath string, deadline time.Duration) error {
+func WaitForWorktreeReady(worktreePath string, deadline time.Duration) error {
 	end := time.Now().Add(deadline)
 	hasComposer := fileExistsAt(filepath.Join(worktreePath, "composer.json"))
 	hasJS := fileExistsAt(filepath.Join(worktreePath, "package.json"))
@@ -358,42 +366,53 @@ func promptDBIsolation(site *config.Site, branch string) error {
 		return err
 	}
 
+	if err := ApplyWorktreeDBChoice(site, branch, string(picked), os.Stdout); err != nil {
+		return err
+	}
+	if dbChoiceYieldsEmptySchema(string(picked)) {
+		// An empty schema is rarely useful on its own: Laravel apps need
+		// at least the migrations table populated. Offer to run them now.
+		return promptRunMigrations(site, branch)
+	}
+	return nil
+}
+
+// ApplyWorktreeDBChoice configures the worktree's database for branch per
+// choice: "share"/"" (no isolation), "empty" (isolated empty schema), "reset"
+// (drop any preserved isolated DB first, then empty schema), "reuse"
+// (reconnect to a preserved isolated DB without touching its data),
+// "clone-main", or "clone-<branch>". Progress is written to log (may be nil).
+func ApplyWorktreeDBChoice(site *config.Site, branch, choice string, log io.Writer) error {
 	switch {
-	case picked == share:
+	case choice == "" || choice == "share":
 		return nil
-	case picked == reuse:
+	case choice == "reuse":
 		// CreateDatabase inside SetWorktreeDBIsolated is a no-op when the
-		// schema already exists, so calling with source="empty" simply
-		// reconnects the worktree to its preserved data without touching
-		// any tables.
+		// schema already exists, so source="empty" simply reconnects the
+		// worktree to its preserved data without touching any tables.
+		logf(log, "Reconnecting worktree to its preserved isolated database.")
 		return SetWorktreeDBIsolated(site, branch, true, "empty")
-	case picked == reset:
-		// Drop the preserved DB so SetWorktreeDBIsolated's CREATE produces
-		// a truly empty schema, then offer migrations like the standard
-		// empty path.
-		if hasPreserved {
+	case choice == "reset":
+		if preserved, ok, _ := config.FindWorktreeDB(site.Name, branch); ok {
 			if _, err := DropDatabase(preserved.Service, preserved.DBName); err != nil {
 				return fmt.Errorf("dropping preserved DB %q: %w", preserved.DBName, err)
 			}
 			_, _, _ = config.RemoveWorktreeDB(site.Name, branch)
 		}
-		if err := SetWorktreeDBIsolated(site, branch, true, "empty"); err != nil {
-			return err
-		}
-		return promptRunMigrations(site, branch)
-	case picked == empty:
-		if err := SetWorktreeDBIsolated(site, branch, true, "empty"); err != nil {
-			return err
-		}
-		// An empty schema is rarely useful on its own — Laravel apps need
-		// at least the migrations table populated. Offer to run them now.
-		return promptRunMigrations(site, branch)
-	case picked == cloneMain:
+		logf(log, "Creating a fresh isolated database (empty schema).")
+		return SetWorktreeDBIsolated(site, branch, true, "empty")
+	case choice == "empty":
+		logf(log, "Creating an isolated database (empty schema).")
+		return SetWorktreeDBIsolated(site, branch, true, "empty")
+	case choice == "clone-main":
+		logf(log, "Creating an isolated database cloned from main.")
 		return SetWorktreeDBIsolated(site, branch, true, "main")
-	default:
-		// "clone-<branch>"
-		src := strings.TrimPrefix(string(picked), "clone-")
+	case strings.HasPrefix(choice, "clone-"):
+		src := strings.TrimPrefix(choice, "clone-")
+		logf(log, "Creating an isolated database cloned from %s.", src)
 		return SetWorktreeDBIsolated(site, branch, true, src)
+	default:
+		return fmt.Errorf("unknown database choice %q", choice)
 	}
 }
 
@@ -414,7 +433,7 @@ func promptRunMigrations(site *config.Site, branch string) error {
 		huh.NewSelect[string]().
 			Title("Run database migrations on the new isolated database?").
 			Options(
-				huh.NewOption("Skip — I'll run migrations myself", ""),
+				huh.NewOption("Skip, I'll run migrations myself", ""),
 				huh.NewOption("Run `php artisan migrate --force` now", "migrate"),
 			).
 			Value(&picked),
@@ -425,11 +444,23 @@ func promptRunMigrations(site *config.Site, branch string) error {
 	if picked != "migrate" {
 		return nil
 	}
+	return RunWorktreeMigrations(site, branch, os.Stdout)
+}
 
+// RunWorktreeMigrations runs `php artisan migrate --force` inside the
+// worktree's checkout (via the FPM container's php shim). It's a no-op when
+// the worktree isn't a Laravel project or has disappeared. Output is written
+// to log (may be nil).
+func RunWorktreeMigrations(site *config.Site, branch string, log io.Writer) error {
+	wtPath, err := worktreePathForBranch(site, branch)
+	if err != nil || !fileExistsAt(filepath.Join(wtPath, "artisan")) {
+		return nil
+	}
+	logf(log, "Running php artisan migrate --force...")
 	cmd := exec.Command(filepath.Join(config.BinDir(), "php"), "artisan", "migrate", "--force")
 	cmd.Dir = wtPath
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = log
+	cmd.Stderr = log
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("artisan migrate: %w", err)
 	}
@@ -452,13 +483,13 @@ func worktreePathForBranch(site *config.Site, branch string) (string, error) {
 	return "", fmt.Errorf("worktree %q not found", branch)
 }
 
-// eligibleBuildReplacers returns every framework worker eligible to provide
+// EligibleBuildReplacers returns every framework worker eligible to provide
 // assets at the given path: replaces_build:true, per_worktree:true (when
 // path is a worktree), and Check rule matches. Unlike OptedInBuildReplacers
 // it does NOT require the worker to be in the parent's .lerd.yaml workers:
 // list, so the worktree-add prompt can offer asset workers the user hasn't
 // explicitly opted into yet.
-func eligibleBuildReplacers(site *config.Site, path string) []string {
+func EligibleBuildReplacers(site *config.Site, path string) []string {
 	if site.Framework == "" {
 		return nil
 	}

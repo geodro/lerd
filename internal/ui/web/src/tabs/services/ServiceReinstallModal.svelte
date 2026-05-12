@@ -52,7 +52,7 @@
       <input
         type="checkbox"
         bind:checked={resetData}
-        class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-bg text-lerd-red focus:ring-lerd-red/40 cursor-pointer"
+        class="mt-0.5 w-4 h-4 rounded-sm border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-bg text-lerd-red focus:ring-lerd-red/40 cursor-pointer"
       />
       <span>
         {m.services_reinstall_resetLabel()}
@@ -63,7 +63,7 @@
     </label>
 
     {#if resetData && dependents > 0}
-      <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 rounded px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+      <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 rounded-sm px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
         {m.services_reinstall_wipeWarn({ count: dependents })}
       </div>
     {/if}
@@ -77,7 +77,7 @@
           id="reinstall-confirm-name"
           type="text"
           bind:value={typedName}
-          class="w-full text-sm bg-white dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red/50"
+          class="w-full text-sm bg-white dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded-sm px-2.5 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:border-lerd-red/50"
           autocomplete="off"
         />
       </div>
@@ -87,13 +87,13 @@
     <button
       type="button"
       onclick={onclose}
-      class="text-xs px-3 py-1.5 rounded border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+      class="text-xs px-3 py-1.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
     >{m.common_cancel()}</button>
     <button
       type="button"
       onclick={confirm}
       disabled={!canConfirm}
-      class="text-xs px-3 py-1.5 rounded {resetData ? 'bg-lerd-red hover:bg-lerd-redhov' : 'bg-lerd-red/80 hover:bg-lerd-red'} text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      class="text-xs px-3 py-1.5 rounded-sm {resetData ? 'bg-lerd-red hover:bg-lerd-redhov' : 'bg-lerd-red/80 hover:bg-lerd-red'} text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >{submitting ? m.services_reinstall_submitting() : resetData ? m.services_reinstall_withReset() : m.services_reinstall_action()}</button>
   {/snippet}
 </Modal>

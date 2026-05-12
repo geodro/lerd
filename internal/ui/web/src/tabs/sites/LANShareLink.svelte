@@ -44,7 +44,7 @@
   {#if show}
     <div
       style="position:fixed; left:{x}px; top:{y}px; z-index:9999"
-      class="p-1.5 bg-white dark:bg-lerd-card rounded shadow-lg border border-gray-200 dark:border-lerd-border"
+      class="p-1.5 bg-white dark:bg-lerd-card rounded-sm shadow-lg border border-gray-200 dark:border-lerd-border"
     >
       <img src={qrSrc} width="160" height="160" alt={m.lanShare_qrAlt()} />
     </div>

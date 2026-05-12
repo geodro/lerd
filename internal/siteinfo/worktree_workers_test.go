@@ -8,7 +8,7 @@ import (
 
 func vitePerWT() config.FrameworkWorker {
 	tr := true
-	return config.FrameworkWorker{Label: "Vite Dev Server", Command: "npm run dev", PerWorktree: &tr}
+	return config.FrameworkWorker{Label: "Vite", Command: "npm run dev", PerWorktree: &tr}
 }
 
 func TestEnrichWorktreeWorkers_skipsParentOnlyWorkers(t *testing.T) {
@@ -55,8 +55,8 @@ func TestEnrichWorktreeWorkers_unitNamePerWorktree(t *testing.T) {
 	if got[0].Name != "vite" || !got[0].Running || got[0].Failing {
 		t.Errorf("vite worker not reported running: %+v", got[0])
 	}
-	if got[0].Label != "Vite Dev Server" {
-		t.Errorf("label = %q, want Vite Dev Server", got[0].Label)
+	if got[0].Label != "Vite" {
+		t.Errorf("label = %q, want Vite", got[0].Label)
 	}
 }
 

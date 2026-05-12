@@ -40,7 +40,7 @@
   }
 </script>
 
-<div class="rounded border border-gray-200 dark:border-lerd-border p-3 mb-2 bg-white dark:bg-lerd-card text-sm" class:lerd-dump-flash={flashing}>
+<div class="rounded-sm border border-gray-200 dark:border-lerd-border p-3 mb-2 bg-white dark:bg-lerd-card text-sm" class:lerd-dump-flash={flashing}>
   <div class="flex items-baseline gap-2 mb-2 flex-wrap">
     <span class="font-mono text-xs text-gray-500">{timeOnly(event.ts)}</span>
     {#if event.label}

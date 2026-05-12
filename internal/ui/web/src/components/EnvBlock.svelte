@@ -30,7 +30,7 @@
 
 <div class="rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden">
   <div
-    class="flex items-center justify-between bg-gray-50 dark:bg-white/[0.03] px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border"
+    class="flex items-center justify-between bg-gray-50 dark:bg-white/3 px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border"
   >
     <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
     <button

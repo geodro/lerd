@@ -103,7 +103,7 @@ describe('DumpsTab', () => {
     expect(get(filterSite)).toBe('previously-selected');
   });
 
-  it('shows an Enable button when the bridge is off and the ring is empty', async () => {
+  it('shows an Enable button when the bridge is off and the ring-3 is empty', async () => {
     status.set({
       enabled: false,
       passthrough: false,

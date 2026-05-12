@@ -93,7 +93,7 @@
           </span>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400">
-          {@html m.system_lerd_updateHint({ cmd: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">lerd update</code>' })}
+          {@html m.system_lerd_updateHint({ cmd: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">lerd update</code>' })}
         </p>
         {#if $accessMode.loopback}
           <div class="flex items-center gap-2">
@@ -123,7 +123,7 @@
         {#if $version.changelog}
           <div>
             <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{m.system_lerd_whatsNew()}</p>
-            <pre class="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/[0.03] rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed border border-gray-100 dark:border-lerd-border">{$version.changelog}</pre>
+            <pre class="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/3 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed border border-gray-100 dark:border-lerd-border">{$version.changelog}</pre>
           </div>
         {/if}
       </div>
@@ -198,15 +198,15 @@
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
         {#if $lan.exposed}
           {@html m.system_lan_exposedDescription({
-            ip: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">' + $lan.lanIP + '</code>',
-            pattern: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">*.test</code>',
-            loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">127.0.0.1</code>',
-            loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">::1</code>'
+            ip: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">' + $lan.lanIP + '</code>',
+            pattern: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">*.test</code>',
+            loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">127.0.0.1</code>',
+            loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">::1</code>'
           })}
         {:else}
           {@html m.system_lan_loopbackDescription({
-            loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">127.0.0.1</code>',
-            loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">::1</code>'
+            loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">127.0.0.1</code>',
+            loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">::1</code>'
           })}
         {/if}
       </p>
@@ -240,8 +240,8 @@
       {#if $lan.exposed && $accessMode.loopback}
         <div class="mt-3 space-y-3">
           <div class="text-xs text-gray-600 dark:text-gray-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-3 space-y-1">
-            <p>{@html m.system_lan_postExpose_resolver({ addr: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">' + $lan.lanIP + ':5300</code>', unit: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">lerd-dns-forwarder.service</code>' })}</p>
-            <p>{@html m.system_lan_postExpose_dnsmasq({ pattern: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">*.test</code>', ip: $lan.lanIP })}</p>
+            <p>{@html m.system_lan_postExpose_resolver({ addr: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">' + $lan.lanIP + ':5300</code>', unit: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">lerd-dns-forwarder.service</code>' })}</p>
+            <p>{@html m.system_lan_postExpose_dnsmasq({ pattern: '<code class="bg-white/60 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">*.test</code>', ip: $lan.lanIP })}</p>
             <p><strong>{m.system_lan_postExpose_firewall()}</strong></p>
           </div>
 
@@ -268,7 +268,7 @@
             {:else}
               <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3 text-xs text-gray-600 dark:text-gray-400">
-                  <span>{@html m.system_lan_remote_codeLabel({ code: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono text-sm">' + $lan.setupCode + '</code>' })}</span>
+                  <span>{@html m.system_lan_remote_codeLabel({ code: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono text-sm">' + $lan.setupCode + '</code>' })}</span>
                   {#if $lan.setupExpiresIn}<span>{m.system_lan_remote_expiresIn({ time: $lan.setupExpiresIn })}</span>{/if}
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_lan_remote_runOnMachine()}</p>
@@ -278,11 +278,11 @@
                   <li>{m.system_lan_remote_bullet3()}</li>
                 </ul>
                 <div class="relative">
-                  <pre class="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-lerd-border rounded-lg p-3 pr-12 overflow-x-auto font-mono whitespace-pre">{$lan.setupCurl}</pre>
+                  <pre class="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-white/3 border border-gray-100 dark:border-lerd-border rounded-lg p-3 pr-12 overflow-x-auto font-mono whitespace-pre">{$lan.setupCurl}</pre>
                   <button
                     onclick={copySetupCurl}
                     title={$lan.setupCopied ? m.system_lan_remote_copyTooltip_copied() : m.system_lan_remote_copyTooltip_copy()}
-                    class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                    class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
                   >
                     {#if $lan.setupCopied}
                       <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -328,16 +328,16 @@
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
         {#if $status.dns?.enabled === false}
-          DNS is disabled, so the dashboard is the only thing remote devices can use lerd for. Enable to set HTTP Basic credentials and bind the dashboard at <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">{$lan.lanIP || '<lan-ip>'}:7073</code>. Sites need per-site <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">lerd lan:share</code> to be reachable.
+          DNS is disabled, so the dashboard is the only thing remote devices can use lerd for. Enable to set HTTP Basic credentials and bind the dashboard at <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">{$lan.lanIP || '<lan-ip>'}:7073</code>. Sites need per-site <code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">lerd lan:share</code> to be reachable.
         {:else}
-          {@html m.system_remote_description({ loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">127.0.0.1</code>', loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">::1</code>' })}
+          {@html m.system_remote_description({ loop4: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">127.0.0.1</code>', loop6: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">::1</code>' })}
         {/if}
       </p>
 
       {#if $remoteControl.enabled}
         <div class="space-y-2">
           <p class="text-xs text-gray-600 dark:text-gray-400">
-            {@html m.system_remote_usernameRow({ username: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono">' + $remoteControl.username + '</code>' })}
+            {@html m.system_remote_usernameRow({ username: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">' + $remoteControl.username + '</code>' })}
           </p>
           {#if !$lan.exposed && $status.dns?.enabled !== false}
             <p class="text-xs text-amber-600 dark:text-amber-400">

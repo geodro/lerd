@@ -53,7 +53,7 @@ Port assignment scans all proxy port env keys across all sites to prevent collis
 ```yaml
 workers:
   vite:
-    label: Vite Dev Server
+    label: Vite
     command: npm run dev
     restart: on-failure
     host: true

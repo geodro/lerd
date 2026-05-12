@@ -36,7 +36,7 @@
   {title}
   {onclick}
   {disabled}
-  class="w-6 h-6 flex items-center justify-center rounded transition-colors disabled:opacity-40 {toneClass[tone]}"
+  class="w-6 h-6 flex items-center justify-center rounded-sm transition-colors disabled:opacity-40 {toneClass[tone]}"
 >
   {#if loading}
     <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">

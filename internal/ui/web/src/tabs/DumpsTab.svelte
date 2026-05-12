@@ -86,13 +86,13 @@
 <div class="flex flex-col h-full overflow-hidden">
   <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-lerd-border flex-wrap">
     <input
-      class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card flex-1 min-w-[140px]"
+      class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card flex-1 min-w-[140px]"
       placeholder={m.dumps_searchPlaceholder()}
       bind:value={textInput}
     />
     {#if !scoped}
       <select
-        class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
+        class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={$filterSite}
       >
         <option value="">{m.dumps_filter_allSites()}</option>
@@ -103,7 +103,7 @@
     {/if}
     {#if scoped}
       <select
-        class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
+        class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={localCtx}
       >
         <option value="">{m.dumps_filter_allContexts()}</option>
@@ -112,7 +112,7 @@
       </select>
     {:else}
       <select
-        class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
+        class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card"
         bind:value={$filterCtx}
       >
         <option value="">{m.dumps_filter_allContexts()}</option>
@@ -122,7 +122,7 @@
     {/if}
     <button
       type="button"
-      class="text-xs rounded border border-gray-300 dark:border-lerd-border px-2 py-1 hover:bg-gray-50 dark:hover:bg-lerd-hover"
+      class="text-xs rounded-sm border border-gray-300 dark:border-lerd-border px-2 py-1 hover:bg-gray-50 dark:hover:bg-lerd-hover"
       onclick={onClear}
     >
       {m.common_clear()}
@@ -141,7 +141,7 @@
             type="button"
             disabled={enabling}
             onclick={onEnable}
-            class="inline-flex items-center gap-1.5 text-xs rounded border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 hover:border-emerald-500 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:opacity-50"
+            class="inline-flex items-center gap-1.5 text-xs rounded-sm border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 hover:border-emerald-500 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:opacity-50"
           >
             {enabling ? m.dumps_enabling() : m.dumps_enable()}
           </button>
@@ -156,7 +156,7 @@
     {:else}
       {#each groups as group (group.key)}
         <section class="mb-4">
-          <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-[1]">
+          <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-1">
             <span class="text-sm">{group.label}</span>
             <span class="text-xs text-gray-400 ml-auto">{m.dumps_groupCount({ count: group.events.length })}</span>
           </header>

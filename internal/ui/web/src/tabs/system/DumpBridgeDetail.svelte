@@ -71,7 +71,7 @@
       <label class="inline-flex items-center gap-2 cursor-pointer select-none">
         <input
           type="checkbox"
-          class="rounded border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card text-lerd-red focus:ring-lerd-red"
+          class="rounded-sm border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card text-lerd-red focus:ring-lerd-red"
           checked={Boolean($dumpsStatusValue?.passthrough)}
           disabled={switchingPassthrough}
           onchange={flipPassthrough}

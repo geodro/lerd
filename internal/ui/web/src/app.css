@@ -1,6 +1,37 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@source './**/*.{svelte,ts,js}';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-lerd-red: #ff2d20;
+  --color-lerd-redhov: #e02419;
+  --color-lerd-bg: #0d0d0d;
+  --color-lerd-card: #161616;
+  --color-lerd-border: #262626;
+  --color-lerd-muted: #404040;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 @layer base {
   ::-webkit-scrollbar {
@@ -23,4 +54,8 @@
   .dark ::-webkit-scrollbar-thumb:hover {
     background: #444;
   }
+}
+
+button {
+  cursor: pointer;
 }

@@ -28,7 +28,7 @@
   <select
     value={$locale}
     onchange={onChange}
-    class="text-xs bg-white dark:bg-lerd-muted border border-gray-200 dark:border-lerd-border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 cursor-pointer transition-colors"
+    class="text-xs bg-white dark:bg-lerd-muted border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-hidden focus:border-lerd-red/50 cursor-pointer transition-colors"
   >
     {#each LOCALES as l (l)}
       <option value={l}>{LOCALE_LABELS[l]}</option>

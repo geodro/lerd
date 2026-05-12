@@ -190,7 +190,7 @@
 <div class="px-3 sm:px-5 py-3 border-b border-gray-100 dark:border-lerd-border shrink-0">
   <div class="flex items-center gap-4 overflow-x-auto">
     {#if site.custom_container}
-      <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded px-2 py-1">
+      <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
         {(site.container_image || 'container') + ' :' + site.container_port}
       </span>
     {:else if $phpVersions.length > 0}
@@ -199,13 +199,13 @@
         onchange={onPhpChange}
         disabled={versionBusy}
         title={phpInherited ? 'Inherits from main' : ''}
-        class="text-xs bg-white dark:bg-lerd-bg border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors {phpInherited ? 'border-dashed border-violet-300 dark:border-violet-700' : 'border-gray-200 dark:border-lerd-border'}"
+        class="text-xs bg-white dark:bg-lerd-bg border rounded-sm px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-hidden focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors {phpInherited ? 'border-dashed border-violet-300 dark:border-violet-700' : 'border-gray-200 dark:border-lerd-border'}"
       >
         <option value="" disabled class="bg-white text-gray-700 dark:bg-lerd-bg dark:text-gray-300">{m.sites_controls_phpPlaceholder()}</option>
         {#each $phpVersions as v (v)}<option value={v} class="bg-white text-gray-700 dark:bg-lerd-bg dark:text-gray-300">PHP {v}{activeWorktreeBranch && v === effectivePhp && phpInherited ? ' (inherited)' : ''}</option>{/each}
       </select>
     {:else}
-      <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded px-2 py-1 opacity-50">PHP ...</span>
+      <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1 opacity-50">PHP ...</span>
     {/if}
 
     {#if $status.node_managed_by_lerd && $nodeVersions.length > 0}
@@ -214,7 +214,7 @@
         onchange={onNodeChange}
         disabled={versionBusy}
         title={nodeInherited ? 'Inherits from main' : ''}
-        class="text-xs bg-white dark:bg-lerd-bg border rounded px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-none focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors {nodeInherited ? 'border-dashed border-violet-300 dark:border-violet-700' : 'border-gray-200 dark:border-lerd-border'}"
+        class="text-xs bg-white dark:bg-lerd-bg border rounded-sm px-2 py-1 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-lerd-muted focus:outline-hidden focus:border-lerd-red/50 disabled:opacity-50 cursor-pointer transition-colors {nodeInherited ? 'border-dashed border-violet-300 dark:border-violet-700' : 'border-gray-200 dark:border-lerd-border'}"
       >
         <option value="" class="bg-white text-gray-700 dark:bg-lerd-bg dark:text-gray-300">{m.sites_controls_nodeDefault()}</option>
         {#each $nodeVersions as v (v)}<option value={v} class="bg-white text-gray-700 dark:bg-lerd-bg dark:text-gray-300">Node {v}{activeWorktreeBranch && v === effectiveNode && nodeInherited ? ' (inherited)' : ''}</option>{/each}

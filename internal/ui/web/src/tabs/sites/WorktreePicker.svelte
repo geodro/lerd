@@ -75,9 +75,6 @@
       class="flex items-center gap-1 text-violet-500 dark:text-violet-400 hover:text-lerd-red dark:hover:text-lerd-red transition-colors"
       title={m.sites_gitWorktrees()}
     >
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-        <path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/>
-      </svg>
       <span class="font-mono">git:({active.branch})</span>
       <span class="text-[10px] text-gray-400 dark:text-gray-500">{entries.length}</span>
       <svg class="w-3 h-3 transition-transform {open ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,16 +83,13 @@
     </button>
   {:else if site.branch}
     <span class="flex items-center gap-1 text-violet-500 dark:text-violet-400">
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-        <path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/>
-      </svg>
       <span class="font-mono">git:({site.branch})</span>
     </span>
   {/if}
 
   {#if open && hasWorktrees}
     <div
-      class="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[20rem] max-w-[28rem] rounded border border-gray-200 dark:border-lerd-border bg-white dark:bg-lerd-bg shadow-lg overflow-hidden"
+      class="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[20rem] max-w-md rounded-sm border border-gray-200 dark:border-lerd-border bg-white dark:bg-lerd-bg shadow-lg overflow-hidden"
     >
       <div class="max-h-72 overflow-y-auto py-1">
         {#each entries as e (e.isMain ? '__main__' : e.branch)}

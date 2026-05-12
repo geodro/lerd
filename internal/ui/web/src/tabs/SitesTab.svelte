@@ -45,7 +45,7 @@
 {/snippet}
 
 {#snippet parkHint()}
-  {@html m.sites_emptyHint({ cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded">lerd park</code>' })}
+  {@html m.sites_emptyHint({ cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">lerd park</code>' })}
 {/snippet}
 
 <ListPanel title={m.sites_title()} {actions}>
@@ -59,7 +59,7 @@
         onclick={() => select(s)}
         class="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50 {selected === s.domain
           ? 'bg-lerd-red/10 text-lerd-red'
-          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.03]'}"
+          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/3'}"
       >
         <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
           {#if s.custom_container}
@@ -67,7 +67,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
             </svg>
           {:else if s.has_favicon}
-            <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-sm object-contain" loading="lazy" alt="" />
+            <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-xs object-contain" loading="lazy" alt="" />
           {:else}
             <StatusDot color={s.fpm_running ? 'green' : 'gray'} />
           {/if}
@@ -100,7 +100,7 @@
             onclick={() => select(s)}
             class="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-t border-gray-50 dark:border-lerd-border/50 {selected === s.domain
               ? 'bg-lerd-red/10 text-lerd-red'
-              : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.03]'}"
+              : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-white/3'}"
           >
             <svg class="w-3 h-3 shrink-0 opacity-60" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6 5h4v14H6zM14 5h4v14h-4z"/>

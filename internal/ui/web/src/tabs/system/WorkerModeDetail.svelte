@@ -104,9 +104,9 @@
         onclick={() => pick('exec')}
         disabled={$workerModeLoading}
         aria-pressed={draft === 'exec'}
-        class="w-full text-left flex items-start gap-3 p-3 rounded border-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed {draft === 'exec'
+        class="w-full text-left flex items-start gap-3 p-3 rounded-sm border-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed {draft === 'exec'
           ? 'border-emerald-500 dark:border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-500/20'
-          : 'border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/[0.03]'}"
+          : 'border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/3'}"
       >
         <span
           class="mt-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full border-2 shrink-0 {draft === 'exec'
@@ -128,9 +128,9 @@
         onclick={() => pick('container')}
         disabled={$workerModeLoading}
         aria-pressed={draft === 'container'}
-        class="w-full text-left flex items-start gap-3 p-3 rounded border-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed {draft === 'container'
+        class="w-full text-left flex items-start gap-3 p-3 rounded-sm border-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed {draft === 'container'
           ? 'border-sky-500 dark:border-sky-400 bg-sky-50 dark:bg-sky-500/10 ring-1 ring-sky-500/20'
-          : 'border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/[0.03]'}"
+          : 'border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/3'}"
       >
         <span
           class="mt-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full border-2 shrink-0 {draft === 'container'
@@ -147,7 +147,7 @@
         </span>
       </button>
 
-      <div class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-lerd-card/50 rounded px-3 py-2 border border-gray-200 dark:border-lerd-border">
+      <div class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-lerd-card/50 rounded-sm px-3 py-2 border border-gray-200 dark:border-lerd-border">
         <span class="font-medium text-gray-700 dark:text-gray-300">{m.system_workerMode_note_label()}</span>
         {m.system_workerMode_note_body()}
       </div>

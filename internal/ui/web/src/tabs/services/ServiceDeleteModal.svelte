@@ -42,7 +42,7 @@
 <Modal {open} {onclose} title={m.services_delete_title({ name: svc.name })} size="sm">
   <div class="px-5 py-4 space-y-3">
     {#if requiresTypedConfirm}
-      <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 rounded px-3 py-2 text-xs text-red-700 dark:text-red-300">
+      <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 rounded-sm px-3 py-2 text-xs text-red-700 dark:text-red-300">
         <p class="font-medium mb-1">{m.services_delete_dependentsWarn({ count: dependents })}</p>
         {#if svc.site_domains && svc.site_domains.length > 0}
           <ul class="list-disc list-inside space-y-0.5">
@@ -63,7 +63,7 @@
       <input
         type="checkbox"
         bind:checked={removeData}
-        class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-bg text-lerd-red focus:ring-lerd-red/40 cursor-pointer"
+        class="mt-0.5 w-4 h-4 rounded-sm border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-bg text-lerd-red focus:ring-lerd-red/40 cursor-pointer"
       />
       <span>
         {m.services_delete_removeDataLabel()}
@@ -82,7 +82,7 @@
           id="confirm-name"
           type="text"
           bind:value={typedName}
-          class="w-full text-sm bg-white dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red/50"
+          class="w-full text-sm bg-white dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded-sm px-2.5 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:border-lerd-red/50"
           autocomplete="off"
         />
       </div>
@@ -92,13 +92,13 @@
     <button
       type="button"
       onclick={onclose}
-      class="text-xs px-3 py-1.5 rounded border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+      class="text-xs px-3 py-1.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
     >{m.common_cancel()}</button>
     <button
       type="button"
       onclick={confirm}
       disabled={!canConfirm}
-      class="text-xs px-3 py-1.5 rounded bg-lerd-red hover:bg-lerd-redhov text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      class="text-xs px-3 py-1.5 rounded-sm bg-lerd-red hover:bg-lerd-redhov text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >{submitting ? m.services_delete_submitting() : m.common_remove()}</button>
   {/snippet}
 </Modal>

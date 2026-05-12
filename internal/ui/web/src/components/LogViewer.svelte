@@ -88,7 +88,7 @@
       >{m.common_clear()}</button>
       <button
         onclick={reconnect}
-        class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded px-2 py-1 transition-colors"
+        class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded-sm px-2 py-1 transition-colors"
       >{m.common_reconnect()}</button>
     </div>
   </div>

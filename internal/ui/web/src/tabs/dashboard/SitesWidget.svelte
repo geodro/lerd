@@ -48,18 +48,18 @@
 
   {#if $sitesLoaded && total === 0}
     <p class="text-sm text-gray-500 dark:text-gray-400">
-      {@html m.sites_emptyHint({ cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded font-mono">lerd park</code>' })}
+      {@html m.sites_emptyHint({ cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm font-mono">lerd park</code>' })}
     </p>
   {:else}
     <div class="space-y-0.5">
       {#each sorted as s (s.domain)}
         <button
           onclick={() => goToTab('sites', s.domain)}
-          class="group w-full flex items-center gap-2 px-1.5 py-1.5 rounded-md text-left hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"
+          class="group w-full flex items-center gap-2 px-1.5 py-1.5 rounded-md text-left hover:bg-gray-50 dark:hover:bg-white/4 transition-colors"
         >
           <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
             {#if s.has_favicon}
-              <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-sm object-contain" loading="lazy" alt="" />
+              <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-xs object-contain" loading="lazy" alt="" />
             {:else}
               <StatusDot color={s.paused ? 'amber' : s.fpm_running ? 'green' : 'gray'} />
             {/if}
@@ -85,7 +85,7 @@
             title={m.dashboard_sites_openInBrowser()}
             onclick={(e) => onOpen(s, e)}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(s, e); }}
-            class="shrink-0 w-7 h-7 inline-flex items-center justify-center rounded text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            class="shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-sm text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
           >
             <Icon name="globe" class="w-3.5 h-3.5" />
           </span>

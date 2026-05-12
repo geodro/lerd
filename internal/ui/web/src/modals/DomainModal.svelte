@@ -108,7 +108,7 @@
         <div class="flex-1 min-w-0 flex items-center gap-1.5">
           <span class="text-sm font-mono text-gray-500 dark:text-gray-400 truncate line-through">{c.domain}</span>
           {#if c.owned_by}
-            <span class="text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded shrink-0">{m.domains_conflict_usedBy({ owner: c.owned_by })}</span>
+            <span class="text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-sm shrink-0">{m.domains_conflict_usedBy({ owner: c.owned_by })}</span>
           {/if}
         </div>
         <button
@@ -131,7 +131,7 @@
             <span class="text-sm font-mono text-gray-700 dark:text-gray-300 truncate">{dom}</span>
             <span class="text-sm text-gray-400 dark:text-gray-500 shrink-0">.{tld}</span>
             {#if i === 0}
-              <span class="text-[10px] font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded shrink-0">{m.domains_primary()}</span>
+              <span class="text-[10px] font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-sm shrink-0">{m.domains_primary()}</span>
             {/if}
           </div>
           <button
@@ -162,7 +162,7 @@
               if (e.key === 'Enter') saveEdit(i);
               if (e.key === 'Escape') cancelEdit();
             }}
-            class="flex-1 text-sm font-mono bg-transparent border border-lerd-red/50 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red"
+            class="flex-1 text-sm font-mono bg-transparent border border-lerd-red/50 rounded-sm px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:border-lerd-red"
             disabled={loading}
           />
           <span class="text-sm text-gray-400 shrink-0">.{tld}</span>
@@ -185,7 +185,7 @@
         placeholder={m.domains_add()}
         onkeydown={(e) => e.key === 'Enter' && add()}
         disabled={loading}
-        class="flex-1 text-sm font-mono bg-transparent border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-lerd-red/50"
+        class="flex-1 text-sm font-mono bg-transparent border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-hidden focus:border-lerd-red/50"
       />
       <span class="text-sm text-gray-400 shrink-0">.{tld}</span>
       <DetailButton tone="primary" onclick={add} disabled={loading || !newDomain.trim()}>{m.common_add()}</DetailButton>

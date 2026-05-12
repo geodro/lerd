@@ -72,7 +72,7 @@
               <div class="flex items-center gap-2">
                 <span class="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</span>
                 {#if (p.installed_tags || []).length > 0}
-                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
                     {m.services_preset_installedTag({ tags: (p.installed_tags || []).join(', ') })}
                   </span>
                 {/if}
@@ -97,7 +97,7 @@
               <select
                 value={p.selected_version ?? ''}
                 onchange={(e) => setSelectedVersion(p.name, (e.target as HTMLSelectElement).value)}
-                class="shrink-0 text-xs bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-lerd-red/50"
+                class="shrink-0 text-xs bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1.5 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:border-lerd-red/50"
               >
                 {#each availableVersions(p) as v (v.tag)}
                   <option value={v.tag}>{v.label || v.tag}</option>

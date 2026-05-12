@@ -1,7 +1,14 @@
 import { writable } from 'svelte/store';
 import type { Site } from './sites';
 
-export type ModalKind = 'domain' | 'link' | 'preset' | 'remoteControl' | 'lanProgress' | null;
+export type ModalKind =
+  | 'domain'
+  | 'link'
+  | 'preset'
+  | 'remoteControl'
+  | 'lanProgress'
+  | 'worktree'
+  | null;
 
 export type LANAction = 'expose' | 'unexpose';
 
@@ -32,6 +39,10 @@ export function openRemoteControlModal(onSuccess?: () => void) {
 
 export function openLANProgressModal(lanAction: LANAction) {
   modal.set({ kind: 'lanProgress', lanAction });
+}
+
+export function openWorktreeModal(site: Site) {
+  modal.set({ kind: 'worktree', site });
 }
 
 export function closeModal() {

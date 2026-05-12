@@ -20,7 +20,7 @@
   <span class="text-xs text-gray-400">{m.services_dependsOn()}</span>
   {#each entries as dep (dep.name)}
     <span
-      class="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border"
+      class="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-sm bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-lerd-border"
     >
       <StatusDot color={dep.active ? 'green' : 'gray'} size="xs" />
       {dep.name}

@@ -189,7 +189,7 @@ func TestDetailRows_WorktreesEmitWorkerAndDBRows(t *testing.T) {
 			{
 				Branch: "feat-x", Path: "/srv/alpha/.worktrees/feat-x",
 				FrameworkWorkers: []siteinfo.WorkerInfo{
-					{Name: "vite", Label: "Vite Dev Server"},
+					{Name: "vite", Label: "Vite"},
 				},
 			},
 		},

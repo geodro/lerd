@@ -58,7 +58,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
       </svg>
       <span class="text-xs">{m.dashboard_search()}</span>
-      <kbd class="text-[10px] font-mono bg-white dark:bg-white/10 border border-gray-200 dark:border-lerd-border rounded px-1 py-px">⌘K</kbd>
+      <kbd class="text-[10px] font-mono bg-white dark:bg-white/10 border border-gray-200 dark:border-lerd-border rounded-sm px-1 py-px">⌘K</kbd>
     </button>
   </div>
 

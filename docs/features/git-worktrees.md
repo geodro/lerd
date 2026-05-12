@@ -131,6 +131,13 @@ Picking a branch re-scopes the rest of the detail view to that worktree:
 - Worker toggles (queue, schedule, Horizon, Reverb, custom workers) collapse into a "Workers run from main" pill — those run against main's checkout regardless of which worktree is active. Switch to main to start or stop them.
 - The domain-edit pencil disappears (worktree domains are derived from the parent's primary).
 
+### Manage worktrees modal
+
+Next to the branch picker is a worktrees icon that opens a modal for adding and removing worktrees without dropping to a terminal. Each row in the list links to the worktree's URL (the link honours the parent site's secure toggle, since worktree subdomains inherit its cert).
+
+- **Remove** (the trash icon on a row) expands an inline confirm with a *Discard uncommitted changes* checkbox (passes `--force` to `git worktree remove`) and, when the worktree has an isolated database, an *Also drop database* checkbox (off by default, matching `lerd worktree remove`, so the data survives a re-add). After git tears the worktree down, the per-worktree worker units are stopped and, if requested, the isolated DB is dropped; the watcher cleans up the vhost and LAN-share port asynchronously.
+- **Add worktree** opens a form with the same choices `lerd worktree add` asks for: a new branch (with an optional base ref) or an existing branch (the dropdown lists local branches not already checked out plus remote-tracking branches, which git dwims into a fresh local branch); the database (share the parent's, isolated empty schema, isolated cloned from main, isolated cloned from another worktree, or, when a preserved isolated DB exists for that branch, reuse/reset it); a *Run migrations* checkbox shown when the database starts empty and the project is Laravel; and the frontend-asset choice (an eligible asset worker, an `npm run` build script, or skip). The checkout directory is chosen automatically as a sibling of the project, `<project-path>-<sanitized-branch>`. Submitting streams the `git worktree add` + dependency-install + build + DB-setup progress live in the modal.
+
 ### Per-worktree PHP and Node versions
 
 Each worktree can pin its own PHP or Node version without affecting the parent site — the natural way to test a runtime upgrade on a feature branch.

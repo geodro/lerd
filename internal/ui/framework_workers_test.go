@@ -26,7 +26,7 @@ func fakeWorktrees(wts []gitpkg.Worktree) func(string, string) ([]gitpkg.Worktre
 
 func vitePerWT() config.FrameworkWorker {
 	tr := true
-	return config.FrameworkWorker{Label: "Vite Dev Server", Command: "npm run dev", PerWorktree: &tr}
+	return config.FrameworkWorker{Label: "Vite", Command: "npm run dev", PerWorktree: &tr}
 }
 
 func TestFrameworkWorkerServicesForSite_parentOnly(t *testing.T) {
@@ -37,7 +37,7 @@ func TestFrameworkWorkerServicesForSite_parentOnly(t *testing.T) {
 	}
 	fw := &config.Framework{
 		Workers: map[string]config.FrameworkWorker{
-			"vite": {Label: "Vite Dev Server", Command: "npm run dev"},
+			"vite": {Label: "Vite", Command: "npm run dev"},
 		},
 	}
 	got := frameworkWorkerServicesForSite(
@@ -52,7 +52,7 @@ func TestFrameworkWorkerServicesForSite_parentOnly(t *testing.T) {
 	if r.Name != "vite-whitewaters" {
 		t.Errorf("Name = %q, want vite-whitewaters", r.Name)
 	}
-	if r.WorkerSite != "whitewaters" || r.WorkerName != "vite" || r.WorkerLabel != "Vite Dev Server" {
+	if r.WorkerSite != "whitewaters" || r.WorkerName != "vite" || r.WorkerLabel != "Vite" {
 		t.Errorf("worker fields = %+v", r)
 	}
 	if r.WorkerWorktree != "" || r.WorkerWorktreeDomain != "" {

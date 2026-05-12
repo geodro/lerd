@@ -93,7 +93,7 @@
     <div class="flex items-center gap-3">
       <span class="font-semibold text-gray-900 dark:text-white text-base">{m.system_nodeJs()}</span>
       {#if !$status.node_managed_by_lerd}
-        <span class="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded px-1.5 py-0.5">{m.system_system()}</span>
+        <span class="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-sm px-1.5 py-0.5">{m.system_system()}</span>
       {/if}
     </div>
   </div>
@@ -149,7 +149,7 @@
                 <span class="text-sm font-semibold text-gray-900 dark:text-white">Node {v}</span>
               </button>
               {#if isDefault}
-                <span class="text-[10px] font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded">{m.common_default()}</span>
+                <span class="text-[10px] font-medium text-lerd-red bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-sm">{m.common_default()}</span>
               {/if}
               <span class="text-xs text-gray-400 dark:text-gray-500">
                 {siteCount} {siteCount === 1 ? m.common_site() : m.common_sites()}
@@ -199,10 +199,10 @@
       </div>
     {/if}
 
-    <div class="border border-dashed border-gray-200 dark:border-lerd-border rounded-lg p-3 bg-gray-50/50 dark:bg-white/[0.02]">
+    <div class="border border-dashed border-gray-200 dark:border-lerd-border rounded-lg p-3 bg-gray-50/50 dark:bg-white/2">
       <p class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">{m.system_node_installNewTitle()}</p>
       <p class="text-xs text-gray-400 mb-2">
-        {@html m.system_node_installNewHint({ major: '<code class="font-mono bg-gray-100 dark:bg-white/5 px-1 rounded">22</code>', specific: '<code class="font-mono bg-gray-100 dark:bg-white/5 px-1 rounded">22.12.0</code>' })}
+        {@html m.system_node_installNewHint({ major: '<code class="font-mono bg-gray-100 dark:bg-white/5 px-1 rounded-sm">22</code>', specific: '<code class="font-mono bg-gray-100 dark:bg-white/5 px-1 rounded-sm">22.12.0</code>' })}
       </p>
       <div class="flex items-center gap-2">
         <input
@@ -212,7 +212,7 @@
           placeholder={m.system_node_installPlaceholder()}
           disabled={installBusy || !$status.node_managed_by_lerd}
           title={!$status.node_managed_by_lerd ? m.system_node_managedBySystem() : ''}
-          class="text-sm bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 w-28 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-lerd-red/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="text-sm bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 w-28 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-hidden focus:border-lerd-red/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         />
         <DetailButton
           tone="primary"

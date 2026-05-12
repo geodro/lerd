@@ -31,13 +31,13 @@
 </script>
 
 {#if visible}
-  <div class="relative rounded-xl bg-gradient-to-br from-lerd-red/10 via-lerd-red/5 to-transparent dark:from-lerd-red/15 dark:via-lerd-red/5 border border-lerd-red/20 dark:border-lerd-red/30 px-5 py-5 sm:py-6">
+  <div class="relative rounded-xl bg-linear-to-br from-lerd-red/10 via-lerd-red/5 to-transparent dark:from-lerd-red/15 dark:via-lerd-red/5 border border-lerd-red/20 dark:border-lerd-red/30 px-5 py-5 sm:py-6">
     <button
       type="button"
       onclick={dismiss}
       title={m.onboarding_dismiss()}
       aria-label={m.onboarding_dismiss()}
-      class="absolute top-3 right-3 w-7 h-7 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-white/40 dark:hover:bg-white/10 transition-colors"
+      class="absolute top-3 right-3 w-7 h-7 inline-flex items-center justify-center rounded-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-white/40 dark:hover:bg-white/10 transition-colors"
     >
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -56,7 +56,7 @@
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{m.onboarding_park_title()}</span>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{m.onboarding_park_body()}</p>
-        <code class="block text-xs font-mono bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 rounded px-2 py-1.5 overflow-x-auto">lerd park ~/Code</code>
+        <code class="block text-xs font-mono bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 rounded-sm px-2 py-1.5 overflow-x-auto">lerd park ~/Code</code>
       </div>
 
       <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-4 py-3.5 flex flex-col">

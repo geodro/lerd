@@ -440,7 +440,7 @@
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span
-        class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-gray-200 dark:border-lerd-border text-gray-500 dark:text-gray-400"
+        class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 dark:text-gray-400"
         title={result?.mode === 'tinker' ? m.tinker_mode_tinkerTitle() : m.tinker_mode_phpTitle()}
       >
         {result?.mode ?? (site.is_laravel ? 'tinker' : 'php')}
@@ -453,13 +453,13 @@
       <button
         onclick={clearAll}
         disabled={!code && !result}
-        class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40"
+        class="text-xs px-2 py-1 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40"
         title={m.tinker_clearTitle()}
       >{m.common_clear()}</button>
       <button
         onclick={run}
         disabled={running || !code.trim()}
-        class="text-xs px-3 py-1 rounded bg-lerd-red hover:bg-lerd-redhov text-white disabled:opacity-40 transition-colors"
+        class="text-xs px-3 py-1 rounded-sm bg-lerd-red hover:bg-lerd-redhov text-white disabled:opacity-40 transition-colors"
         title={m.tinker_runTitle()}
       >
         {running ? m.tinker_running() : m.tinker_run()}
@@ -476,7 +476,7 @@
         <button
           onclick={() => copyText(code)}
           title={m.tinker_copyEditorTitle()}
-          class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-lerd-border bg-white/90 dark:bg-lerd-card/90 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity"
+          class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border bg-white/90 dark:bg-lerd-card/90 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity"
         >{m.common_copy()}</button>
       {/if}
     </div>
@@ -508,7 +508,7 @@
                 {/if}
               {:else if block.kind === 'error'}
                 <div class="flex items-start gap-2">
-                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 shrink-0">{block.type}</span>
+                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 shrink-0">{block.type}</span>
                   <pre class="whitespace-pre-wrap text-red-700 dark:text-red-300">{block.message}</pre>
                 </div>
               {:else}
@@ -522,7 +522,7 @@
                   block.kind === 'error' ? block.raw : block.text
                 )}
               title={m.tinker_copyOutputTitle()}
-              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0"
+              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0"
             >{m.common_copy()}</button>
           </div>
         {/each}

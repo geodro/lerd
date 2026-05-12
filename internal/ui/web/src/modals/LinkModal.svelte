@@ -85,7 +85,7 @@
         {#each dirs as d (d.path)}
           <button
             onclick={() => browse(d.path)}
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm rounded hover:bg-gray-50 dark:hover:bg-white/5 transition-colors {d.name === '..' ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}"
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm rounded-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors {d.name === '..' ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}"
           >
             <svg class="w-4 h-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>

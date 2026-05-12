@@ -22,13 +22,13 @@
     <InfoRow label={m.system_tld()} value={'.' + $status.dns.tld} />
     {#if $status.dns?.enabled === false}
       <p class="text-xs text-gray-400">
-        lerd-dns is disabled. Sites resolve through the system resolver via *.{$status.dns.tld} (RFC 6761). HTTPS is unavailable in this mode. To re-enable, set <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">dns.enabled: true</code> in <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">~/.config/lerd/config.yaml</code> and run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded">lerd install</code>.
+        lerd-dns is disabled. Sites resolve through the system resolver via *.{$status.dns.tld} (RFC 6761). HTTPS is unavailable in this mode. To re-enable, set <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">dns.enabled: true</code> in <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">~/.config/lerd/config.yaml</code> and run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">lerd install</code>.
       </p>
     {:else if !$status.dns.ok}
       <p class="text-xs text-gray-400">
         {@html m.system_dns_fixHint({
           start: '<strong class="text-gray-500">' + m.common_start() + '</strong>',
-          cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded text-gray-500">lerd install</code>'
+          cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm text-gray-500">lerd install</code>'
         })}
       </p>
     {/if}

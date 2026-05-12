@@ -36,7 +36,7 @@
 <DetailPanel>
   <DetailHeader title={m.system_watcher()} trailing={pill} />
   <p class="px-3 sm:px-5 py-3 text-xs text-gray-400 shrink-0">
-    {@html m.system_watcher_description({ env: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded">LERD_DEBUG=1</code>' })}
+    {@html m.system_watcher_description({ env: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">LERD_DEBUG=1</code>' })}
   </p>
   <LogViewer path="/api/watcher/logs" emptyLabel={m.system_watcher_quiet()} />
 </DetailPanel>

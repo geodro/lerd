@@ -32,7 +32,7 @@
         bind:value={username}
         placeholder={m.system_remoteModal_username()}
         autocomplete="off"
-        class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:border-lerd-red/50"
+        class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded-sm px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-hidden focus:border-lerd-red/50"
       />
       <input
         type="password"
@@ -40,7 +40,7 @@
         placeholder={m.system_remoteModal_password()}
         autocomplete="new-password"
         onkeydown={(e) => e.key === 'Enter' && confirm()}
-        class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:border-lerd-red/50"
+        class="w-full text-sm bg-gray-50 dark:bg-lerd-bg border border-gray-200 dark:border-lerd-border rounded-sm px-2.5 py-1.5 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-hidden focus:border-lerd-red/50"
       />
     </div>
     {#if error}

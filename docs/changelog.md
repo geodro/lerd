@@ -7,6 +7,18 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Manage git worktrees from the site dashboard.** The site detail panel's path line gains a worktrees icon next to the branch picker that opens a modal for adding and removing worktrees, so the picker is no longer read-only. The modal lists each worktree with a link to its URL (https when the parent site is secured) and a trash button; *Remove* expands an inline confirm with *Discard uncommitted changes* (`--force`) and, for isolated worktrees, *Also drop database* (off by default, matching `lerd worktree remove`). *Add worktree* presents the same choices as the `lerd worktree add` prompts: a new branch (with optional base ref) or an existing branch (the dropdown lists local branches not already checked out plus remote-tracking branches, which git dwims into a fresh local branch), the database (share parent / isolated empty / cloned from main / cloned from another worktree / reuse-or-reset a preserved DB), a Laravel migrations checkbox, and the frontend-asset choice (asset worker / `npm run <script>` / skip), and it streams the `git worktree add` + dependency-install + build + DB-setup output live. The checkout directory is picked automatically (`<project-path>-<branch>`). Backed by extracted non-interactive helpers in `internal/cli` (`RunWorktreeAdd`, `RemoveWorktreeAndCleanup`, `ApplyWorktreeDBChoice`, `ApplyWorktreeBuildChoice`, `RunWorktreeMigrations`) shared with the CLI prompts, new HTTP endpoints `GET /api/sites/worktree-options`, `POST /api/sites/worktree-add` (SSE), a `worktree:remove` site action, and new locale strings across all seven languages. The site detail header also got a mobile-layout pass: the path and `git:(branch)` picker stack on separate rows on narrow screens, and the pause / unlink / open / terminal buttons move into a left-aligned full-width row instead of crowding the top-right corner.
+
+### Changed
+
+- **Upgraded the dashboard to Tailwind CSS v4.** CSS-first config (`@theme` in `app.css`, no `tailwind.config.js`), the v4 PostCSS plugin (`@tailwindcss/postcss`, `autoprefixer` dropped), class-based dark mode preserved via `@custom-variant`, and the v3-compat border-color base layer. All utility renames applied across the component tree (`outline-none` → `outline-hidden`, `rounded` → `rounded-sm`, `ring` → `ring-3`, `shadow-sm` → `shadow-xs`, etc.).
+
+---
+
 ## [1.20.0-beta.2] — 2026-05-11
 
 Second beta of the 1.20.0 line. The TUI catches up to the dashboard: service update / rollback keybinds, a failing-workers header pill, and per-worktree controls (workers, isolated DB, LAN share, PHP / Node pickers) in the site detail pane. PHP 7.4 and 8.0 land as a frozen legacy tier for old apps, `lerd php:ext add` learns `--apk-deps` for extensions that need extra Alpine build packages, the dashboard ships in German, Indonesian and Dutch (plus a wide i18n pass across all seven locales), and the MCP server gains `workers_mode`, `bug_report`, and a `branch` param on the PHP / Node version tools. Plus the dashboard update-banner fixes from the post-beta.1 queue.

@@ -74,7 +74,7 @@
         onclick={install}
         disabled={Boolean($suggestion.installing)}
         title={$suggestion.installingMessage || ''}
-        class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded px-3 py-1.5 transition-colors disabled:opacity-50"
+        class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded-sm px-3 py-1.5 transition-colors disabled:opacity-50"
       >
         {#if $suggestion.installing}
           <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">

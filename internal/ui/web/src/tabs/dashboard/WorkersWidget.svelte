@@ -85,7 +85,7 @@
               <button
                 type="button"
                 onclick={() => jumpToSite(item)}
-                class="group w-full flex items-center gap-2 px-1 py-0.5 -mx-1 rounded text-left text-xs hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors"
+                class="group w-full flex items-center gap-2 px-1 py-0.5 -mx-1 rounded-sm text-left text-xs hover:bg-gray-50 dark:hover:bg-white/3 transition-colors"
               >
                 <StatusDot
                   color={failing ? 'red' : item.status === 'active' ? 'green' : 'gray'}

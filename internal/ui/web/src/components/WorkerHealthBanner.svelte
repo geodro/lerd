@@ -50,7 +50,7 @@
 </script>
 
 {#if visible}
-  <div class="fixed bottom-3 left-1/2 -translate-x-1/2 z-[60] w-[min(92vw,640px)] rounded-lg border-l-4 border border-amber-400 dark:border-amber-500/50 border-l-amber-500 bg-white/85 dark:bg-lerd-card/80 backdrop-blur-md shadow-2xl overflow-hidden">
+  <div class="fixed bottom-3 left-1/2 -translate-x-1/2 z-60 w-[min(92vw,640px)] rounded-lg border-l-4 border border-amber-400 dark:border-amber-500/50 border-l-amber-500 bg-white/85 dark:bg-lerd-card/80 backdrop-blur-md shadow-2xl overflow-hidden">
     {#if $healLoading}
       <div class="h-1 bg-amber-200/40 dark:bg-amber-500/20">
         <div
@@ -93,7 +93,7 @@
       <button
         onclick={onHeal}
         disabled={$healLoading}
-        class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded px-3 py-1.5 transition-colors disabled:opacity-50"
+        class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-sm px-3 py-1.5 transition-colors disabled:opacity-50"
       >
         {#if $healLoading}
           {m.workers_health_banner_healing()}
