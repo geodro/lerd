@@ -129,8 +129,10 @@ func InstallDependencies(projectPath string) error {
 // RunNpmScript executes `<package-manager> run <script>` in projectPath,
 // using the lerd npm shim for npm projects so fnm's current Node version
 // wins and falling back to PATH for pnpm/yarn/bun. Exported for callers like
-// `lerd worktree add` that opt into a build step interactively.
-func RunNpmScript(projectPath, script string) error {
+// `lerd worktree add` that opt into a build step interactively. out receives
+// both stdout and stderr from the build; pass os.Stdout for CLI use or an
+// SSE writer to surface vite/webpack failures in the dashboard modal.
+func RunNpmScript(projectPath, script string, out io.Writer) error {
 	name, _ := jsPackageManager(projectPath)
 	var bin string
 	if name == "npm" {
@@ -140,7 +142,14 @@ func RunNpmScript(projectPath, script string) error {
 	} else {
 		return fmt.Errorf("%s not found on PATH", name)
 	}
-	return runIn(projectPath, bin, "run", script)
+	if out == nil {
+		out = os.Stdout
+	}
+	cmd := exec.Command(bin, "run", script)
+	cmd.Dir = projectPath
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return cmd.Run()
 }
 
 // composerNeedsInstall reports whether composer install must run for the

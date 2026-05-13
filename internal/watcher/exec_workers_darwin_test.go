@@ -84,3 +84,95 @@ func units(ws []expectedExecWorker) []string {
 	}
 	return out
 }
+
+// Locks in the LaunchAgents file-name convention: workerNeedsHealing must
+// read `~/Library/LaunchAgents/<unit>.plist`, NOT `lerd.<unit>.plist`. The
+// `com.lerd.` prefix lives only on the launchd Label inside the plist (see
+// services.plistPath / plistLabel). The earlier prefixed form mistook every
+// healthy worker for a missing plist, so the heal loop restarted them each
+// cooldown.
+func TestWorkerNeedsHealing_PlistFileName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	laDir := filepath.Join(tmp, "Library", "LaunchAgents")
+	if err := os.MkdirAll(laDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const unit = "lerd-horizon-acme"
+
+	if got := workerNeedsHealing(unit); got != "plist missing" {
+		t.Fatalf("no plist present: got %q, want \"plist missing\"", got)
+	}
+
+	// Old buggy form only — the function must NOT match this, otherwise the
+	// path-prefix regression slips back in unnoticed.
+	legacy := filepath.Join(laDir, "lerd."+unit+".plist")
+	if err := os.WriteFile(legacy, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := workerNeedsHealing(unit); got != "plist missing" {
+		t.Fatalf("legacy lerd.<unit>.plist only: got %q, want \"plist missing\"", got)
+	}
+
+	// Correct form. The function should advance past the plist check —
+	// launchctl won't have our fake unit registered so we expect either
+	// "not loaded in launchd" or "loaded but no live process", but never
+	// "plist missing".
+	correct := filepath.Join(laDir, unit+".plist")
+	if err := os.WriteFile(correct, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := workerNeedsHealing(unit); got == "plist missing" {
+		t.Fatalf("<unit>.plist present: got \"plist missing\", expected to advance past the plist check")
+	}
+}
+
+// sweepOrphanWorkerArtifacts must keep .sh / .pid files whose plist still
+// exists on disk under the unit-name convention. The earlier `lerd.`+unit
+// path looked for a file that never existed, so the sweep happily deleted
+// guard scripts for healthy workers mid-launch.
+func TestSweepOrphanWorkerArtifacts_KeepsArtifactsWhenPlistPresent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	workersDir := filepath.Join(config.RunDir(), "workers")
+	if err := os.MkdirAll(workersDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	laDir := filepath.Join(tmp, "Library", "LaunchAgents")
+	if err := os.MkdirAll(laDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const unit = "lerd-horizon-acme"
+	shPath := filepath.Join(workersDir, unit+".sh")
+	pidPath := filepath.Join(workersDir, unit+".pid")
+	for _, p := range []string{shPath, pidPath} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(laDir, unit+".plist"), []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty expected set + plist present → both artifacts must survive.
+	sweepOrphanWorkerArtifacts(map[string]bool{})
+	for _, p := range []string{shPath, pidPath} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("artifact %q deleted despite plist present: %v", filepath.Base(p), err)
+		}
+	}
+
+	// Plist gone → with empty expected set, both artifacts should be swept.
+	if err := os.Remove(filepath.Join(laDir, unit+".plist")); err != nil {
+		t.Fatal(err)
+	}
+	sweepOrphanWorkerArtifacts(map[string]bool{})
+	for _, p := range []string{shPath, pidPath} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("artifact %q survived sweep with plist absent and unit not expected: stat err = %v", filepath.Base(p), err)
+		}
+	}
+}

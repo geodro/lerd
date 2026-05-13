@@ -123,7 +123,7 @@ func ApplyWorktreeBuildChoice(site *config.Site, worktreePath string, choice wor
 		}
 	case "script":
 		logf(log, "Running npm run %s...", choice.value)
-		if err := gitpkg.RunNpmScript(worktreePath, choice.value); err != nil {
+		if err := gitpkg.RunNpmScript(worktreePath, choice.value, log); err != nil {
 			logf(log, "[WARN] npm run %s failed: %v, first request will throw ViteManifestNotFoundException; rerun manually after fixing.", choice.value, err)
 		} else {
 			logf(log, "Frontend built.")
