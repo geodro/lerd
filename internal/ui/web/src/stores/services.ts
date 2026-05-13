@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { apiJson, apiFetch } from '$lib/api';
 import { wsMessage } from '$lib/ws';
+import { sites } from './sites';
 
 export interface Service {
   name: string;
@@ -369,7 +370,13 @@ export function parentSiteDomain(s: Service): string | null {
     s.reverb_site ||
     s.stripe_listener_site ||
     s.worker_site;
-  return n ? n + '.test' : null;
+  if (!n) return null;
+  // Use the actual registered domain from the sites store rather than
+  // constructing <name>.test, which silently breaks for sites with custom
+  // TLDs or non-default subdomains.
+  const site = get(sites).find((x) => x.name === n);
+  if (site && site.domain) return site.domain;
+  return null;
 }
 
 export function detailLabel(s: Service): string {

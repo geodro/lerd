@@ -3,6 +3,8 @@
   import StatusPill from '$components/StatusPill.svelte';
   import StatusDot from '$components/StatusDot.svelte';
   import { workerGroups, workerSiteName, parentSiteDomain, type Service } from '$stores/services';
+  import { sites } from '$stores/sites';
+  import { get } from 'svelte/store';
   import {
     unhealthyWorkers,
     healAll,
@@ -31,7 +33,14 @@
       goToTab('sites', domain);
       return;
     }
-    goToTab('sites', workerSiteName(item) + '.test');
+    // Last-chance lookup: scan the sites store directly. Hard-coding
+    // a TLD here breaks for custom-domain sites and for users running
+    // on a non-default .test TLD.
+    const name = workerSiteName(item).split('/')[0];
+    const site = get(sites).find((x) => x.name === name);
+    if (site && site.domain) {
+      goToTab('sites', site.domain);
+    }
   }
 
   async function onHeal() {
