@@ -2,6 +2,8 @@
 
 Every PHP site in the lerd dashboard has a **Tinker** tab pinned to the bottom-right of the site header, next to **Overview**. It is an in-browser PHP REPL with autocomplete, live syntax checking, and an editor-like output panel: write code, hit Run, see the value of every statement instantly.
 
+![Tinker tab](/assets/screenshots/site-detail-tinker.png)
+
 Useful for the things you'd otherwise do in `php artisan tinker` or a `bin/console` session: one-off model lookups, data fixes, snippet experiments, regex sanity checks, expression evaluation against a real database.
 
 ## How a run works

@@ -2,6 +2,8 @@
 
 `dump()` and `dd()` are the fastest way to inspect a value in PHP, but the output gets lost the moment it ships through Blade, a queue worker, or an XHR response. lerd's dump viewer captures every `dump()` / `dd()` call and streams it to the dashboard, the System sidebar, the TUI, and the MCP tools, so the value is always one click away even when the response itself isn't readable.
 
+![Dump viewer on a site's Dumps tab](/assets/screenshots/site-detail-dumps.png)
+
 The feature is **off by default**. Enable it with `lerd dump on`, the antenna toggle in the Sites sidebar, the Enable button on a per-site Dumps tab, or `dumps_toggle` via MCP. All of these flip the same global flag.
 
 ## How it works
@@ -24,6 +26,9 @@ The receiver's transport depends on the host:
 - **Web dashboard** — three places:
   - Each site detail pane has a **Dumps** tab next to Overview and Tinker, pre-filtered to that site.
   - **System > Dump bridge** opens a global view with the listener address, the buffered count, an Enable/Disable button, and every dump across every project.
+
+    ![System Dump bridge detail](/assets/screenshots/system-dump-bridge.png)
+
   - The Sites list header has a small antenna toggle. Pulsing emerald dot when capturing, grey when off.
   - The System Health card on the dashboard shows the bridge state alongside DNS / nginx / watcher.
 - **TUI** — press **D** in `lerd tui` to swap the detail pane for the live dump feed (global).

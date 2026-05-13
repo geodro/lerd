@@ -42,9 +42,13 @@ On mobile the dashboard, list, and detail panels are full-screen with a bottom t
 
 The dashboard ships in seven languages: English, German, Spanish, French, Indonesian, Dutch, and Portuguese. The first time you open the dashboard, the language is autodetected from your browser's preferred locale (Paraglide reads `navigator.language` and picks the closest match, falling back to English). To change it later, open **System → Lerd** and use the language picker in the settings section; the choice persists in `localStorage` so subsequent sessions open in the same language. Strings are wired through Paraglide; new keys fall back to English when a locale hasn't been translated yet.
 
+![System → Lerd settings with the language picker](/assets/screenshots/system-lerd.png)
+
 ---
 
 ## Dashboard
+
+![Dashboard root page](/assets/screenshots/dashboard.png)
 
 The Dashboard is the root page (`#dashboard`) and the default destination when the UI loads. It hides the middle list panel and fills the main pane with a responsive grid of widgets:
 
@@ -57,6 +61,8 @@ The Dashboard is the root page (`#dashboard`) and the default destination when t
 Every widget is driven by the same Svelte stores that power the rest of the dashboard, so all values stay live over the WebSocket without polling.
 
 ### Command palette
+
+![Command palette overlay](/assets/screenshots/command-palette.png)
 
 Press **`Cmd+K`** (macOS) / **`Ctrl+K`** (Linux/Windows), or **`/`** anywhere outside an input, to open a global command palette overlay. It searches across:
 
@@ -75,6 +81,8 @@ Use `↑` / `↓` to move the selection, `↵` to execute, `esc` to close. The p
 
 The middle panel lists all registered projects. Active sites show a status dot (green when FPM is running), domain name, and small indicator dots for running workers (amber for queue/horizon, sky for reverb, emerald for schedule, violet for custom workers). Paused sites appear in a separate collapsible section.
 
+![Site detail with the Overview tab open](/assets/screenshots/site-detail-overview.png)
+
 Selecting a site opens the detail panel with:
 
 - **HTTPS toggle**: enable or disable TLS with one click; updates `APP_URL` in `.env` automatically
@@ -85,10 +93,23 @@ Selecting a site opens the detail panel with:
 - **Framework worker toggles**: additional workers defined by the site's framework (e.g. Symfony `messenger`, Laravel `horizon`) appear as indigo toggles
 - **Stripe toggle**: start or stop the Stripe webhook listener
 - **Pause / Resume**: suspend a site's nginx vhost without unlinking it; the site stays registered and FPM keeps running. When a paused site is selected, the detail pane hides the overview/tinker/dumps tabs and shows a centered Resume placeholder so it's obvious the site is offline on purpose rather than broken
+
+  ![Paused site detail with the Resume placeholder](/assets/screenshots/site-detail-paused.png)
+
+- **Link site**: a CTA on the dashboard Sites widget and a **+** button next to the Sites list header open the Link Site modal, which lets you pick a directory below your home folder. Submitting it runs `lerd link <path>` and the new site shows up immediately.
+
+  ![Link Site modal](/assets/screenshots/link-site-modal.png)
+
 - **Unlink button**: remove a site from nginx without touching the terminal
 - **Git Worktrees**: when the project uses git worktrees, each branch and its domain are listed with a direct open link. Each row exposes its own framework-worker toggles next to the parent toggles, so a per-worktree Vite dev server, queue, or schedule worker can be flipped on without affecting the parent. Worktree workers run under `lerd-<wname>-<site>-<wt>` units; the Workers group on the Services tab groups them under the same label as the parent site (e.g. "Vite") with a `branch` chip per row
 - **Worktree management modal**: the worktrees icon next to the branch picker opens a modal for adding and removing worktrees without dropping to the CLI. Adding asks for a new branch or existing branch, the database choice (share parent / isolated empty / clone main / clone another worktree / reuse a preserved isolated DB), an optional Run migrations checkbox, and the frontend-asset build choice (Automatic / asset worker / npm script / skip). Removing each worktree row inline-confirms with a *Discard uncommitted changes* checkbox and, when isolated, an *Also drop database* checkbox. Submission streams the underlying `lerd worktree add/remove` output live in the modal, including the `Automatic: ...` resolution line so the picked build path is never silent
 - **Live PHP-FPM log**: streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
+
+  ![Live PHP-FPM log tab](/assets/screenshots/site-detail-phpfpm.png)
+
+- **App logs tab**: parses every `*.log` file the framework declares (Laravel: `storage/logs/*.log`) into level-coloured entries with click-to-expand stack traces and a live-search box. The dropdown switches between log files; the Latest / All toggle controls how many entries to fetch.
+
+  ![App Logs tab on the site detail](/assets/screenshots/site-detail-applogs.png)
 - **Service badges**: beneath the path / git branch line, every service from the project's `.lerd.yaml` is shown as a small pill (green when running, grey when stopped). Click any badge to jump to that service's detail panel on the Services tab.
 
 ## Services
@@ -98,6 +119,8 @@ Selecting a site opens the detail panel with:
 The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit), any installed preset alternates (e.g. MySQL 5.7, MariaDB 11, MongoDB) and admin UIs (phpMyAdmin, pgAdmin, Mongo Express), plus grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
 The header has a **+** button that opens the **preset picker modal**: a one-click installer for the bundled service presets. Multi-version presets like `mysql` and `mariadb` show a version dropdown next to the **Add** button. Already-installed entries are filtered out.
+
+![Service preset picker modal](/assets/screenshots/preset-picker-modal.png)
 
 Selecting a service opens the detail panel with Start, Stop, and Restart controls, status, and the correct `.env` connection values with a one-click copy button. Restart is available for every built-in and custom service and wraps `podman restart` (clears the paused flag on success); the grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb) remain start/stop only. Database service detail panels (mysql, postgres, mongo, and any installed alternate like `mysql-5-7`) get two extras:
 

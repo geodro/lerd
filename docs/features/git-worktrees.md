@@ -124,6 +124,8 @@ When `APP_URL` is present in `env_overrides` it takes precedence over the defaul
 
 In the Sites tab, the site detail panel's path line carries an inline branch picker (`/path/to/project · git:(main) 3 ▾`) instead of stacking a row per worktree. The chevron opens a dropdown listing main + every active worktree, each with its derived domain and an open-in-browser shortcut.
 
+![Worktree branch picker dropdown](/assets/screenshots/worktree-picker-open.png)
+
 Picking a branch re-scopes the rest of the detail view to that worktree:
 
 - The site title and the **Open** / **Terminal** buttons target the worktree's domain and checkout path.
@@ -137,8 +139,12 @@ Picking a branch re-scopes the rest of the detail view to that worktree:
 
 Next to the branch picker is a worktrees icon that opens a modal for adding and removing worktrees without dropping to a terminal. Each row in the list links to the worktree's URL (the link honours the parent site's secure toggle, since worktree subdomains inherit its cert).
 
+![Worktree management modal, list view](/assets/screenshots/worktree-management-modal.png)
+
 - **Remove** (the trash icon on a row) expands an inline confirm with a *Discard uncommitted changes* checkbox (passes `--force` to `git worktree remove`) and, when the worktree has an isolated database, an *Also drop database* checkbox (off by default, matching `lerd worktree remove`, so the data survives a re-add). After git tears the worktree down, the per-worktree worker units are stopped and, if requested, the isolated DB is dropped; the watcher cleans up the vhost and LAN-share port asynchronously.
 - **Add worktree** opens a form with the same choices `lerd worktree add` asks for: a new branch (with an optional base ref) or an existing branch (the dropdown lists local branches not already checked out plus remote-tracking branches, which git dwims into a fresh local branch); the database (share the parent's, isolated empty schema, isolated cloned from main, isolated cloned from another worktree, or, when a preserved isolated DB exists for that branch, reuse/reset it); a *Run migrations* checkbox shown when the database starts empty and the project is Laravel; and the frontend-asset choice (Automatic, an eligible asset worker, an `npm run` build script, or skip). The checkout directory is chosen automatically as a sibling of the project, `<project-path>-<sanitized-branch>`. Submitting streams the `git worktree add` + dependency-install + build + DB-setup progress live in the modal. When the frontend-asset choice is *Automatic*, the modal log emits an `Automatic: ...` line explaining which branch the resolver took (asset worker started, npm script run, or nothing-to-do), so the picked path is never silent. Skip picks also log a one-liner so the modal never goes quiet after the dependency-install phase.
+
+![Add worktree form inside the modal](/assets/screenshots/worktree-add-form.png)
 
 ### Per-worktree PHP and Node versions
 
