@@ -84,11 +84,23 @@ namespace Lerd\DumpBridge {
         @\fclose($sock);
     }
 
+    // Read a tagging variable lerd may set either as a fastcgi_param (which
+    // lands in $_SERVER) or as a real environment variable (CLI/tinker via
+    // `podman exec --env`). $_SERVER first since FPM is the common case.
+    function lerd_var(string $key): string
+    {
+        if (!empty($_SERVER[$key])) {
+            return (string) $_SERVER[$key];
+        }
+        $env = getenv($key);
+        return $env === false ? '' : $env;
+    }
+
     function detect_site(): string
     {
-        $env = getenv('LERD_SITE');
-        if ($env !== false && $env !== '') {
-            return $env;
+        $v = lerd_var('LERD_SITE');
+        if ($v !== '') {
+            return $v;
         }
         if (\PHP_SAPI === 'cli') {
             $cwd = @getcwd();
@@ -98,6 +110,11 @@ namespace Lerd\DumpBridge {
             return basename(dirname($_SERVER['DOCUMENT_ROOT']));
         }
         return '';
+    }
+
+    function detect_branch(): string
+    {
+        return lerd_var('LERD_BRANCH');
     }
 
     function ulid(): string
@@ -140,6 +157,7 @@ namespace Lerd\DumpBridge {
         return [
             'type'    => \PHP_SAPI === 'cli' ? 'cli' : 'fpm',
             'site'    => detect_site(),
+            'branch'  => detect_branch(),
             'domain'  => isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '',
             'request' => isset($_SERVER['REQUEST_METHOD'])
                 ? $_SERVER['REQUEST_METHOD'].' '.($_SERVER['REQUEST_URI'] ?? '')

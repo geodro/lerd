@@ -12,6 +12,7 @@ export interface DumpSource {
 export interface DumpContext {
   type: 'fpm' | 'cli' | string;
   site?: string;
+  branch?: string;
   domain?: string;
   request?: string;
   pid?: number;

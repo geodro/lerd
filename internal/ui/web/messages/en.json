@@ -547,5 +547,7 @@
   "worktreeMgr_assetsHeading": "Frontend assets",
   "worktreeMgr_create": "Create worktree",
   "worktreeMgr_creating": "Creating…",
-  "worktreeMgr_createFailed": "Could not create worktree"
+  "worktreeMgr_createFailed": "Could not create worktree",
+  "worktreeMgr_completedWithWarnings": "Completed with warnings",
+  "worktreeMgr_backToList": "Back to list"
 }

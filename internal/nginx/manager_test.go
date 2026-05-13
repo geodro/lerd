@@ -187,7 +187,7 @@ func TestGenerateVhost_confFileNamedAfterPrimary(t *testing.T) {
 
 func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 	confD := setupConfD(t)
-	if err := GenerateWorktreeVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3"); err != nil {
+	if err := GenerateWorktreeVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp", "feat-x"); err != nil {
 		t.Fatalf("GenerateWorktreeVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
@@ -206,7 +206,7 @@ func TestGenerateWorktreeVhost_createsConfFile(t *testing.T) {
 
 func TestGenerateWorktreeSSLVhost_usesParentCert(t *testing.T) {
 	confD := setupConfD(t)
-	if err := GenerateWorktreeSSLVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test"); err != nil {
+	if err := GenerateWorktreeSSLVhost("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", "myapp", "feat-x"); err != nil {
 		t.Fatalf("GenerateWorktreeSSLVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
@@ -234,7 +234,7 @@ func TestGenerateWorktreeSSLVhost_usesParentCert(t *testing.T) {
 func TestGenerateWorktreeVhostFor_routesByFlag(t *testing.T) {
 	confD := setupConfD(t)
 
-	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", false); err != nil {
+	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", "myapp", "feat-x", false); err != nil {
 		t.Fatalf("HTTP wrapper: %v", err)
 	}
 	httpContent := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))
@@ -244,7 +244,7 @@ func TestGenerateWorktreeVhostFor_routesByFlag(t *testing.T) {
 
 	// Re-run with secured=true; the same conf path should now point at
 	// the parent's wildcard cert.
-	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", true); err != nil {
+	if err := GenerateWorktreeVhostFor("feat-x.myapp.test", "/srv/myapp-feat", "8.3", "myapp.test", "myapp", "feat-x", true); err != nil {
 		t.Fatalf("HTTPS wrapper: %v", err)
 	}
 	sslContent := readConf(t, filepath.Join(confD, "feat-x.myapp.test.conf"))

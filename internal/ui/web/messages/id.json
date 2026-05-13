@@ -547,5 +547,7 @@
   "worktreeMgr_assetsHeading": "Aset frontend",
   "worktreeMgr_create": "Buat worktree",
   "worktreeMgr_creating": "Membuat…",
-  "worktreeMgr_createFailed": "Tidak dapat membuat worktree"
+  "worktreeMgr_createFailed": "Tidak dapat membuat worktree",
+  "worktreeMgr_completedWithWarnings": "Selesai dengan peringatan",
+  "worktreeMgr_backToList": "Kembali ke daftar"
 }

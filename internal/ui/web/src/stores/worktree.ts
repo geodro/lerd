@@ -63,6 +63,7 @@ export interface WorktreeAddEvent {
   branch?: string;
   domain?: string;
   error?: string;
+  warnings?: string[];
 }
 
 // streamWorktreeAdd POSTs to the SSE endpoint and invokes onEvent for each
@@ -105,8 +106,16 @@ export async function streamWorktreeAdd(
               branch?: string;
               domain?: string;
               error?: string;
+              warnings?: string[];
             };
-            onEvent({ done: true, ok: Boolean(r.ok), branch: r.branch, domain: r.domain, error: r.error });
+            onEvent({
+              done: true,
+              ok: Boolean(r.ok),
+              branch: r.branch,
+              domain: r.domain,
+              error: r.error,
+              warnings: Array.isArray(r.warnings) ? r.warnings : []
+            });
           } catch {
             onEvent({ done: true, ok: false, error: 'bad done payload' });
           }

@@ -609,7 +609,7 @@ func scanWorktrees() bool {
 		}
 		for _, wt := range worktrees {
 			gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured)
-			vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain(), s.Secured)
+			vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain(), s.Name, wt.Branch, s.Secured)
 			if vhostErr != nil {
 				fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
 				continue
@@ -648,7 +648,7 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 		}
 		gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured)
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
-		vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Secured)
+		vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Name, wt.Branch, site.Secured)
 		if site.Secured {
 			if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
 				fmt.Printf("[WARN] reissue cert for worktree %s: %v\n", wt.Domain, reissueErr)
@@ -687,9 +687,9 @@ func cleanupWorktreeVhosts(site *config.Site) bool {
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 		var vhostErr error
 		if site.Secured {
-			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain())
+			vhostErr = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Name, wt.Branch)
 		} else {
-			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP)
+			vhostErr = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP, site.Name, wt.Branch)
 		}
 		if vhostErr != nil {
 			fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)

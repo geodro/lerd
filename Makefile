@@ -14,15 +14,18 @@ LDFLAGS    = -s -w \
 
 .PHONY: build build-tray build-ui install-ui-deps test-ui install install-installer test clean release release-snapshot
 
-install-ui-deps:
-	@if [ ! -d "$(UI_DIR)/node_modules" ]; then \
-		cd $(UI_DIR) && npm ci; \
-	fi
+UI_INSTALL_STAMP = $(UI_DIR)/node_modules/.package-lock.json
 
-build-ui: install-ui-deps
+install-ui-deps: $(UI_INSTALL_STAMP)
+
+$(UI_INSTALL_STAMP): $(UI_DIR)/package-lock.json $(UI_DIR)/package.json
+	cd $(UI_DIR) && npm ci
+	@touch $@
+
+build-ui: $(UI_INSTALL_STAMP)
 	cd $(UI_DIR) && npm run build
 
-test-ui: install-ui-deps
+test-ui: $(UI_INSTALL_STAMP)
 	cd $(UI_DIR) && npm test
 
 build: build-ui

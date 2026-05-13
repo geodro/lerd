@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,35 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	gitpkg "github.com/geodro/lerd/internal/git"
 )
+
+// warningCapturingWriter forwards every write to the underlying writer while
+// scanning for lines prefixed with "[WARN]" so RunWorktreeAdd can return them
+// to the caller. RunWorktreeAdd treats most failures (timeout waiting for
+// installs, build script error, db setup skipped) as soft warnings and keeps
+// going — the dashboard needs to know they happened so it doesn't auto-close
+// the modal on a half-finished setup.
+type warningCapturingWriter struct {
+	w        io.Writer
+	buf      []byte
+	warnings []string
+}
+
+func (c *warningCapturingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.buf = append(c.buf, p[:n]...)
+	for {
+		i := bytes.IndexByte(c.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(c.buf[:i]), "\r")
+		c.buf = c.buf[i+1:]
+		if strings.HasPrefix(strings.TrimSpace(line), "[WARN]") {
+			c.warnings = append(c.warnings, line)
+		}
+	}
+	return n, err
+}
 
 // WorktreeAddRequest carries the choices the dashboard (or any non-interactive
 // caller) makes for `lerd worktree add`, mirroring what the CLI's huh prompts
@@ -148,8 +178,12 @@ func normalizeAddRequest(sitePath string, req WorktreeAddRequest) WorktreeAddReq
 // RunWorktreeAdd creates a git worktree for site, waits for lerd's watcher to
 // install dependencies, applies the build choice, configures the database, and
 // optionally runs migrations. Progress lines are written to log (may be nil).
-// Returns the sanitized branch name and the checkout path.
-func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (string, string, error) {
+// Returns the sanitized branch name, the checkout path, and any "[WARN]" lines
+// emitted along the way so callers (e.g. the dashboard) can keep the modal
+// open and surface them instead of silently treating the setup as success.
+func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (string, string, []string, error) {
+	capturer := &warningCapturingWriter{w: log}
+	log = capturer
 	req = normalizeAddRequest(site.Path, req)
 	branchInput := req.NewBranch
 	if branchInput == "" {
@@ -160,7 +194,7 @@ func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (s
 
 	gitArgs, err := buildWorktreeAddGitArgs(req, checkoutPath)
 	if err != nil {
-		return "", "", err
+		return "", "", capturer.warnings, err
 	}
 	logf(log, "Running: git %s", strings.Join(gitArgs, " "))
 	gitCmd := exec.Command("git", gitArgs...)
@@ -168,7 +202,7 @@ func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (s
 	gitCmd.Stdout = log
 	gitCmd.Stderr = log
 	if err := gitCmd.Run(); err != nil {
-		return "", "", fmt.Errorf("git worktree add: %w", err)
+		return "", "", capturer.warnings, fmt.Errorf("git worktree add: %w", err)
 	}
 
 	logf(log, "Waiting for lerd to install dependencies (composer + JS)...")
@@ -193,7 +227,7 @@ func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (s
 		scheme = "https"
 	}
 	logf(log, "Worktree ready: %s://%s.%s", scheme, branch, site.PrimaryDomain())
-	return branch, checkoutPath, nil
+	return branch, checkoutPath, capturer.warnings, nil
 }
 
 // applyWorktreeBuildRequest resolves the UI build request against what's

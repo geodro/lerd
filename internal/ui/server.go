@@ -2418,7 +2418,7 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		ensureWorktreeEnvIfBranch(site, branch)
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		res, err := cli.RunTinker(ctx, tinkerPath, body.Code)
+		res, err := cli.RunTinker(ctx, tinkerPath, site.Name, branch, body.Code)
 		resp := map[string]any{
 			"ok":          err == nil && res.ExitCode == 0,
 			"stdout":      res.Stdout,
@@ -3133,9 +3133,9 @@ func setWorktreePHPVersion(site *config.Site, branch, version string) error {
 			continue
 		}
 		if site.Secured {
-			return nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, version, site.PrimaryDomain())
+			return nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, version, site.PrimaryDomain(), site.Name, wt.Branch)
 		}
-		return nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, version)
+		return nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, version, site.Name, wt.Branch)
 	}
 	return fmt.Errorf("worktree %s not found", branch)
 }
@@ -3616,13 +3616,13 @@ func handleSiteWorktreeAdd(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	sw := &sseLineWriter{w: w, f: flusher}
-	branch, _, addErr := cli.RunWorktreeAdd(site, req, sw)
+	branch, _, warnings, addErr := cli.RunWorktreeAdd(site, req, sw)
 	sw.flushTail()
 	if addErr != nil {
-		done(map[string]any{"ok": false, "error": addErr.Error()})
+		done(map[string]any{"ok": false, "error": addErr.Error(), "warnings": warnings})
 		return
 	}
-	done(map[string]any{"ok": true, "branch": branch, "domain": branch + "." + site.PrimaryDomain()})
+	done(map[string]any{"ok": true, "branch": branch, "domain": branch + "." + site.PrimaryDomain(), "warnings": warnings})
 }
 
 // syncLerdYAMLWorkersDelayed waits briefly for the worker unit to start, then syncs.

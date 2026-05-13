@@ -243,7 +243,12 @@ func conflictingWorkerRunning(w expectedExecWorker) bool {
 // means the worker looks healthy.
 func workerNeedsHealing(unit string) string {
 	home, _ := os.UserHomeDir()
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", "lerd."+unit+".plist")
+	// Plist file name mirrors the unit name (e.g. "lerd-horizon-acme.plist") —
+	// only the launchd Label inside the plist gets the "com.lerd." prefix
+	// (see services.plistPath / plistLabel). The earlier "lerd."+unit form
+	// looked for a file that never existed, so the heal loop fired every
+	// cooldown and pointlessly restarted healthy workers.
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", unit+".plist")
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
 		return "plist missing"
 	}
@@ -324,9 +329,11 @@ func sweepOrphanWorkerArtifacts(expected map[string]bool) {
 			continue
 		}
 		// Also keep artifacts whose plist still exists — sweeping those
-		// would race a freshly-bootstrapped worker mid-launch.
+		// would race a freshly-bootstrapped worker mid-launch. Plist file
+		// is named after the unit (no "lerd." prefix; that lives on the
+		// launchd Label only).
 		home, _ := os.UserHomeDir()
-		if _, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "lerd."+unit+".plist")); err == nil {
+		if _, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", unit+".plist")); err == nil {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, name))

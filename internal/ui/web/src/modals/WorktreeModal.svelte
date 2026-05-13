@@ -66,6 +66,8 @@
   let migrate = $state(false);
   let build = $state('auto');
   let creating = $state(false);
+  let finished = $state(false);
+  let warnings = $state<string[]>([]);
   let logs = $state<string[]>([]);
   let scrollEl: HTMLDivElement | null = $state(null);
   let optsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -107,11 +109,21 @@
     view = 'add';
     error = '';
     logs = [];
+    warnings = [];
+    finished = false;
     branchMode = 'new';
     newBranch = '';
     db = 'share';
     migrate = false;
     void loadOpts();
+  }
+
+  function backToList() {
+    view = 'list';
+    finished = false;
+    error = '';
+    warnings = [];
+    logs = [];
   }
 
   // When the new-branch name changes, refetch db options for that branch
@@ -123,12 +135,14 @@
 
   async function create() {
     creating = true;
+    finished = false;
     error = '';
+    warnings = [];
     logs = [];
     try {
-      const box: { result: { ok?: boolean; branch?: string; error?: string } | null } = {
-        result: null
-      };
+      const box: {
+        result: { ok?: boolean; branch?: string; error?: string; warnings?: string[] } | null;
+      } = { result: null };
       await streamWorktreeAdd(
         cur.domain,
         {
@@ -141,7 +155,12 @@
         },
         (ev) => {
           if (ev.done) {
-            box.result = { ok: ev.ok, branch: ev.branch, error: ev.error };
+            box.result = {
+              ok: ev.ok,
+              branch: ev.branch,
+              error: ev.error,
+              warnings: ev.warnings
+            };
             return;
           }
           if (ev.line !== undefined) {
@@ -153,14 +172,24 @@
         }
       );
       const result = box.result;
+      await loadSites();
+      warnings = result?.warnings ?? [];
       if (!result || !result.ok) {
         error = result?.error || m.worktreeMgr_createFailed();
+        finished = true;
         return;
       }
-      await loadSites();
+      // Stay on the logs view when anything emitted a [WARN] so the user
+      // can read the messages instead of the modal silently jumping back
+      // to the list with a half-finished setup.
+      if (warnings.length > 0) {
+        finished = true;
+        return;
+      }
       view = 'list';
     } catch (e) {
       error = e instanceof Error ? e.message : m.common_failed();
+      finished = true;
     } finally {
       creating = false;
     }
@@ -243,7 +272,7 @@
         </div>
       {/if}
     </div>
-  {:else if !creating}
+  {:else if !creating && !finished}
     <div class="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
       <!-- branch -->
       <div class="space-y-1.5">
@@ -331,7 +360,16 @@
       </div>
     </div>
   {:else}
-    <div class="px-5 py-3">
+    <div class="px-5 py-3 space-y-2">
+      {#if finished && error}
+        <div class="rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      {:else if finished && warnings.length > 0}
+        <div class="rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          {m.worktreeMgr_completedWithWarnings()}
+        </div>
+      {/if}
       <div
         bind:this={scrollEl}
         class="bg-gray-50 dark:bg-black/30 rounded-lg p-3 max-h-72 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-400 space-y-0.5"
@@ -346,14 +384,16 @@
     </div>
   {/if}
 
-  {#if error}
+  {#if error && !finished}
     <div class="px-5 pb-1"><p class="text-xs text-red-500">{error}</p></div>
   {/if}
 
   {#snippet footer()}
     {#if view === 'list'}
       <DetailButton onclick={closeModal}>{m.common_close()}</DetailButton>
-      <DetailButton tone="primary" onclick={startAdd}>{m.worktreeMgr_add()}</DetailButton>
+      <DetailButton tone="primary" onclick={startAdd} disabled={confirmBranch !== ''}>{m.worktreeMgr_add()}</DetailButton>
+    {:else if finished}
+      <DetailButton tone="primary" onclick={backToList}>{m.worktreeMgr_backToList()}</DetailButton>
     {:else}
       {#if !creating}
         <DetailButton onclick={() => (view = 'list')}>{m.common_cancel()}</DetailButton>

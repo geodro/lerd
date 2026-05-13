@@ -547,5 +547,7 @@
   "worktreeMgr_assetsHeading": "Frontend-assets",
   "worktreeMgr_create": "Worktree aanmaken",
   "worktreeMgr_creating": "Aanmaken…",
-  "worktreeMgr_createFailed": "Kan worktree niet aanmaken"
+  "worktreeMgr_createFailed": "Kan worktree niet aanmaken",
+  "worktreeMgr_completedWithWarnings": "Voltooid met waarschuwingen",
+  "worktreeMgr_backToList": "Terug naar de lijst"
 }

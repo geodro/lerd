@@ -59,6 +59,11 @@ type VhostData struct {
 	CustomContainer string // container name for custom container sites (e.g. "lerd-custom-nestapp")
 	CustomPort      int    // port the app listens on inside the custom container
 	BackendSSL      bool   // proxy to the container via HTTPS (app serves TLS on its own port)
+	// LerdSite / LerdBranch surface the parent site name and (for worktrees)
+	// the branch to PHP via fastcgi_param so the dump bridge can tag events
+	// with stable identifiers instead of guessing from DOCUMENT_ROOT.
+	LerdSite   string
+	LerdBranch string
 }
 
 // phpShort converts "8.4" → "84".
@@ -117,6 +122,7 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 		Proxy:           hasProxy,
 		ProxyPath:       proxyPath,
 		ProxyPort:       proxyPort,
+		LerdSite:        site.Name,
 	}
 
 	var buf bytes.Buffer
@@ -158,6 +164,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 		Proxy:           hasProxy,
 		ProxyPath:       proxyPath,
 		ProxyPort:       proxyPort,
+		LerdSite:        site.Name,
 	}
 
 	var buf bytes.Buffer
@@ -305,16 +312,18 @@ func GenerateCustomSSLVhost(site config.Site) error {
 // based on the secured flag, so callers (scanWorktrees, syncWorktree,
 // migrateWorktreeVhosts) don't repeat the if/else around the two
 // underlying generators. parentDomain is consulted only on the SSL path.
-func GenerateWorktreeVhostFor(domain, path, phpVersion, parentDomain string, secured bool) error {
+// siteName + branch are forwarded so the worktree's PHP requests get tagged
+// with LERD_SITE / LERD_BRANCH for dump grouping.
+func GenerateWorktreeVhostFor(domain, path, phpVersion, parentDomain, siteName, branch string, secured bool) error {
 	if secured {
-		return GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain)
+		return GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain, siteName, branch)
 	}
-	return GenerateWorktreeVhost(domain, path, phpVersion)
+	return GenerateWorktreeVhost(domain, path, phpVersion, siteName, branch)
 }
 
 // GenerateWorktreeVhost renders the HTTP vhost template for a worktree checkout
 // and writes it to conf.d/<domain>.conf.
-func GenerateWorktreeVhost(domain, path, phpVersion string) error {
+func GenerateWorktreeVhost(domain, path, phpVersion, siteName, branch string) error {
 	tmplData, err := GetTemplate("vhost.conf.tmpl")
 	if err != nil {
 		return err
@@ -332,6 +341,8 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
 		PublicDir:       "public",
+		LerdSite:        siteName,
+		LerdBranch:      branch,
 	}
 
 	var buf bytes.Buffer
@@ -348,7 +359,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion string) error {
 
 // GenerateWorktreeSSLVhost renders the SSL vhost template for a worktree checkout,
 // reusing the parent site's wildcard certificate (*.parentDomain).
-func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) error {
+func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain, siteName, branch string) error {
 	tmplData, err := GetTemplate("vhost-ssl.conf.tmpl")
 	if err != nil {
 		return err
@@ -367,6 +378,8 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain string) err
 		PHPVersionShort: phpShort(phpVersion),
 		CertDomain:      parentDomain,
 		PublicDir:       "public",
+		LerdSite:        siteName,
+		LerdBranch:      branch,
 	}
 
 	var buf bytes.Buffer

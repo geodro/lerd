@@ -547,5 +547,7 @@
   "worktreeMgr_assetsHeading": "Recursos del frontend",
   "worktreeMgr_create": "Crear worktree",
   "worktreeMgr_creating": "Creando…",
-  "worktreeMgr_createFailed": "No se pudo crear el worktree"
+  "worktreeMgr_createFailed": "No se pudo crear el worktree",
+  "worktreeMgr_completedWithWarnings": "Completado con advertencias",
+  "worktreeMgr_backToList": "Volver a la lista"
 }

@@ -90,7 +90,7 @@ func migrateSiteTLD(oldTLD, newTLD string, forceUnsecure bool) []string {
 
 		removeStaleVhosts(oldPrimary)
 		newPrimary := s.PrimaryDomain()
-		migrateWorktreeVhosts(worktrees, newPrimary, s.PHPVersion, s.Secured)
+		migrateWorktreeVhosts(worktrees, newPrimary, s.PHPVersion, s.Name, s.Secured)
 
 		// Reissue the parent cert under the NEW primary so wildcard SANs
 		// cover the renamed worktree subdomains. Without this, SSL
@@ -130,12 +130,12 @@ func migrateSiteTLD(oldTLD, newTLD string, forceUnsecure bool) []string {
 // <branch>.<newPrimary> domain, and rewrites the worktree's .env APP_URL.
 // Worktree errors are warnings, not fatal; the parent site rename has already
 // landed and partial worktree state is preferable to abandoning the migration.
-func migrateWorktreeVhosts(worktrees []gitpkg.Worktree, newPrimary, phpVersion string, secured bool) {
+func migrateWorktreeVhosts(worktrees []gitpkg.Worktree, newPrimary, phpVersion, siteName string, secured bool) {
 	for _, wt := range worktrees {
 		removeStaleVhosts(wt.Domain)
 		newWTDomain := wt.Branch + "." + newPrimary
 		effectivePHP := config.WorktreePHPVersion(wt.Path, phpVersion)
-		err := nginx.GenerateWorktreeVhostFor(newWTDomain, wt.Path, effectivePHP, newPrimary, secured)
+		err := nginx.GenerateWorktreeVhostFor(newWTDomain, wt.Path, effectivePHP, newPrimary, siteName, wt.Branch, secured)
 		if err != nil {
 			fmt.Printf("    WARN: worktree %s: regenerate vhost: %v\n", wt.Branch, err)
 		}

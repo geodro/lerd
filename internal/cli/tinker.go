@@ -61,7 +61,12 @@ type TinkerResult struct {
 // `tinker:` block when present, with a plain-`php` fallback. The mode
 // label returned in the response is the framework name (e.g. "laravel")
 // or "php" for the fallback.
-func RunTinker(ctx context.Context, sitePath, code string) (TinkerResult, error) {
+//
+// siteName + branch are forwarded to the container as LERD_SITE / LERD_BRANCH
+// env vars so the dump bridge tags `dump()` / `dd()` events with the same
+// identifiers FPM requests use (otherwise tinker dumps land under the
+// worktree's directory basename rather than the parent site).
+func RunTinker(ctx context.Context, sitePath, siteName, branch, code string) (TinkerResult, error) {
 	res := TinkerResult{}
 	if strings.TrimSpace(code) == "" {
 		return res, fmt.Errorf("code is empty")
@@ -108,6 +113,12 @@ func RunTinker(ctx context.Context, sitePath, code string) (TinkerResult, error)
 
 	dumpFn := detectDumpFunction(sitePath, mode)
 	envArgs := tinkerEnvArgs(sitePath, home, composerHome)
+	if siteName != "" {
+		envArgs = append(envArgs, "--env", "LERD_SITE="+siteName)
+	}
+	if branch != "" {
+		envArgs = append(envArgs, "--env", "LERD_BRANCH="+branch)
+	}
 
 	var argv []string
 	var stdinPipe string

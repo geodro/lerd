@@ -22,9 +22,13 @@ type Source struct {
 
 // Context describes where a dump came from. Type is "fpm" (web request) or
 // "cli" (artisan, tinker, queue worker). Empty fields are omitted on the wire.
+// Branch is non-empty only when the event originated inside a git worktree
+// (set by the bridge from LERD_BRANCH, injected by nginx for worktree vhosts
+// and by lerd's CLI helpers when shelling into a worktree path).
 type Context struct {
 	Type    string `json:"type"`
 	Site    string `json:"site,omitempty"`
+	Branch  string `json:"branch,omitempty"`
 	Domain  string `json:"domain,omitempty"`
 	Request string `json:"request,omitempty"`
 	PID     int    `json:"pid,omitempty"`

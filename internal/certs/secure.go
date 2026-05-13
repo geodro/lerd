@@ -50,7 +50,7 @@ func SecureSite(site config.Site) error {
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
-			_ = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain())
+			_ = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Name, wt.Branch)
 			envfile.SyncPrimaryDomain(wt.Path, wt.Domain, true) //nolint:errcheck
 		}
 	}
@@ -119,7 +119,7 @@ func UnsecureSite(site config.Site) error {
 	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
-			_ = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP)
+			_ = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP, site.Name, wt.Branch)
 			envfile.SyncPrimaryDomain(wt.Path, wt.Domain, false) //nolint:errcheck
 		}
 	}

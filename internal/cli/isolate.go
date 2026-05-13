@@ -76,9 +76,9 @@ func regenerateWorktreeVhost(site *config.Site, branch, phpVersion string) error
 			continue
 		}
 		if site.Secured {
-			return nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain())
+			return nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, phpVersion, site.PrimaryDomain(), site.Name, wt.Branch)
 		}
-		return nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion)
+		return nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, phpVersion, site.Name, wt.Branch)
 	}
 	return fmt.Errorf("worktree %q not found", branch)
 }

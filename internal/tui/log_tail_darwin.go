@@ -41,7 +41,7 @@ func workerLogCmd(ctx context.Context, unit string) *exec.Cmd {
 //     infrastructure containers (FPM, nginx, services) are never misclassified.
 func isExecModeUnit(unit string) bool {
 	home, _ := os.UserHomeDir()
-	plist, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", "lerd."+unit+".plist"))
+	plist, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", unit+".plist"))
 	if err == nil {
 		return strings.Contains(string(plist), "<key>RunAtLoad</key>")
 	}
