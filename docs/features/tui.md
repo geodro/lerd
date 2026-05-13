@@ -10,7 +10,7 @@ This is the terminal-native counterpart to the [Web UI](/features/web-ui) and th
 
 ## Layout
 
-- **Header** shows the lerd version, DNS / nginx / FPM status, watcher state, the wall clock, and an `update: vX.Y.Z` banner when a newer release is available (populated from the same 24-hour cache `lerd status` and `lerd doctor` use, so no extra network on startup).
+- **Header** shows the lerd version, DNS / nginx / FPM status, watcher state, the wall clock, and an `update: vX.Y.Z` banner when a newer release is available (populated from the same 24-hour cache `lerd status` and `lerd doctor` use, so no extra network on startup). When any framework worker is failing a red `⚠ N` pill appears alongside the clock; press `H` to fire `lerd worker heal` and clear it.
 - **Sites pane (left column, top)** lists every linked site by its primary domain, with an FPM running dot, PHP version, and worker glyphs (`q` queue, `s` schedule, `v` reverb, `h` horizon, plus a dot per custom framework worker). Paused sites are dimmed and marked. Columns line up across rows regardless of how many workers each site runs.
 - **Services pane (left column, bottom)** is a compact list of built-in services (mysql, redis, postgres, meilisearch, rustfs, mailpit), custom services, and every site-owned worker (`queue-<site>`, `schedule-<site>`, `horizon-<site>`, `reverb-<site>`, and custom framework workers). Each row shows a running dot, how many sites use it, and `pinned` / `custom` tags where applicable.
 - **Site detail (right column, full height)** always mirrors the focused site and shows primary domain, internal name, disk path, all domains, services used (with live state), workers, git worktrees, HTTPS / LAN share toggles, and PHP / Node version pickers. `S` swaps it for global Settings, `?` swaps it for the Keybindings reference.
@@ -51,6 +51,9 @@ Dots follow the same convention everywhere: green `●` running, grey `○` stop
 | `r` | Restart the focused site / service / worker |
 | `p` | Pause / unpause toggle for a site |
 | `t` | Open an interactive shell inside the focused container (FPM or custom for sites, the service container for services, the owning site's FPM for worker rows) |
+| `u` | Run `lerd service update <name>` for the focused service so a presets bump or version pin lands without leaving the TUI. The action is in-strategy and reversible. |
+| `b` | Run `lerd service rollback <name>` to swap the focused service back to its previous version; pairs with `u` as the symmetric undo |
+| `H` | Run `lerd worker heal` to restart every failing framework worker in one pass. The header pill shows the count and the keybind is most relevant when it's lit |
 
 ### Logs
 
@@ -75,6 +78,7 @@ Available when focus is on the Detail pane with the cursor on a domain row.
 | --- | --- |
 | `v` | Show / hide the Services pane |
 | `S` | Swap the Detail pane for global Settings (LAN expose, autostart, Xdebug) and focus it |
+| `D` | Swap the Detail pane for the live `dump()` / `dd()` feed. New events ring-flash as they arrive; the buffer is independent of the lerd-ui ring because the TUI runs in its own process and only sees what the SSE connection delivers |
 | `?` | Swap the Detail pane for this Keybindings reference |
 | `esc` | Close picker, return to Site detail |
 
@@ -106,7 +110,7 @@ Sections, top to bottom:
 - **PHP / Node / framework / git branch** — one-line summary.
 - **Services used** — every service referenced in `.lerd.yaml` with its live state, so you can see at a glance whether redis / mysql / etc. are up for this site.
 - **Workers** — queue, schedule, horizon, reverb, and any custom framework workers, each with a running / failing indicator. `space` on a worker row toggles it (calls `lerd queue start/stop`, etc.).
-- **Worktrees** — every git worktree with its branch, domain, and path when the site uses them.
+- **Worktrees** — every git worktree with its branch, domain, and path when the site uses them. Each worktree row carries its own controls — PHP / Node version pickers, LAN-share toggle, isolated-DB toggle, and per-worktree framework worker toggles (e.g. vite) — so a branch's runtime can be tuned without affecting the parent. `space` on a worktree-scoped row toggles the matching state via the same CLI commands the parent rows use, just with the worktree's path threaded through.
 - **Toggles** — HTTPS (runs `lerd secure` / `lerd unsecure`), LAN share (runs `lerd lan share` / `unshare` — shows the full `http://<lan-ip>:<port>` URL when enabled), PHP version (opens an inline picker from installed versions → `lerd isolate <ver>`), Node version (picker backed by `fnm list` → `lerd isolate:node <ver>`).
 
 ## Settings view
