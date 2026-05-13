@@ -116,6 +116,8 @@ Values can use template placeholders or be plain static strings. When a worktree
 
 When `APP_URL` is present in `env_overrides` it takes precedence over the default `scheme://domain` rewrite. Without `env_overrides`, behaviour is unchanged.
 
+`DB_DATABASE` is the one templated key the worktree-DB isolation flow owns: when the worktree is marked `db_isolated: true` in its own `.lerd.yaml` (set by `lerd db:isolate` or the dashboard's Isolated DB toggle), the watcher leaves the `DB_DATABASE` value alone on subsequent ticks instead of re-rendering it from the parent's `env_overrides` template. Switching isolation back off restores the parent's value and the template applies again on the next pass.
+
 ---
 
 ## Web UI

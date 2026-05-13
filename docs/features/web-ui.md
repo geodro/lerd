@@ -80,7 +80,7 @@ Selecting a site opens the detail panel with:
 - **Reverb toggle**: start or stop the Reverb WebSocket server; only shown when the project uses Reverb (detected via composer or `.env`)
 - **Framework worker toggles**: additional workers defined by the site's framework (e.g. Symfony `messenger`, Laravel `horizon`) appear as indigo toggles
 - **Stripe toggle**: start or stop the Stripe webhook listener
-- **Pause / Resume**: suspend a site's nginx vhost without unlinking it; the site stays registered and FPM keeps running
+- **Pause / Resume**: suspend a site's nginx vhost without unlinking it; the site stays registered and FPM keeps running. When a paused site is selected, the detail pane hides the overview/tinker/dumps tabs and shows a centered Resume placeholder so it's obvious the site is offline on purpose rather than broken
 - **Unlink button**: remove a site from nginx without touching the terminal
 - **Git Worktrees**: when the project uses git worktrees, each branch and its domain are listed with a direct open link. Each row exposes its own framework-worker toggles next to the parent toggles, so a per-worktree Vite dev server, queue, or schedule worker can be flipped on without affecting the parent. Worktree workers run under `lerd-<wname>-<site>-<wt>` units; the Workers group on the Services tab groups them under the same label as the parent site (e.g. "Vite") with a `branch` chip per row
 - **Live PHP-FPM log**: streams FPM output for the selected site; tab switches to queue/horizon/schedule/reverb logs when those workers are running
