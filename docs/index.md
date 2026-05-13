@@ -8,7 +8,7 @@ hero:
   text: Local PHP development for Linux
   tagline: Nginx + PHP on rootless Podman. Drop any project in for automatic .test domains and HTTPS, no config files, no Docker daemon, no sudo. First-class on Arch, Ubuntu, Fedora, and Debian; macOS supported too.
   image:
-    src: /assets/screenshots/app-1.png
+    src: /assets/screenshots/tour.gif
     alt: Lerd dashboard
   actions:
     - theme: brand

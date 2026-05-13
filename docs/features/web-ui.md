@@ -71,7 +71,7 @@ Use `↑` / `↓` to move the selection, `↵` to execute, `esc` to close. The p
 
 ## Sites
 
-![Sites tab](/assets/screenshots/app-1.png)
+![Sites tab](/assets/screenshots/sites-list.png)
 
 The middle panel lists all registered projects. Active sites show a status dot (green when FPM is running), domain name, and small indicator dots for running workers (amber for queue/horizon, sky for reverb, emerald for schedule, violet for custom workers). Paused sites appear in a separate collapsible section.
 
@@ -93,7 +93,7 @@ Selecting a site opens the detail panel with:
 
 ## Services
 
-![Services tab](/assets/screenshots/app-2.png)
+![Services tab](/assets/screenshots/services-list.png)
 
 The middle panel lists core infrastructure services (MySQL, Redis, PostgreSQL, Meilisearch, RustFS, Mailpit), any installed preset alternates (e.g. MySQL 5.7, MariaDB 11, MongoDB) and admin UIs (phpMyAdmin, pgAdmin, Mongo Express), plus grouped per-site workers (Queues, Horizon, Schedules, Workers, Stripe, Reverb).
 
@@ -107,7 +107,7 @@ Selecting a service opens the detail panel with Start, Stop, and Restart control
 
 ## System
 
-![System tab](/assets/screenshots/app-3.png)
+![System tab](/assets/screenshots/system.png)
 
 The middle panel lists individual system components: DNS, Nginx, Watcher, each installed PHP-FPM version, each installed Node.js version, the Node install form, Autostart toggle, and the Lerd version entry.
 
