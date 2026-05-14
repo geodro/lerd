@@ -143,6 +143,7 @@ export default defineConfig({
             { text: 'System Tray', link: '/features/system-tray' },
             { text: 'AI Integration (MCP)', link: '/features/mcp' },
             { text: 'Tinker tab', link: '/features/tinker' },
+            { text: 'Dump viewer', link: '/features/dumps' },
           ],
         },
         {
