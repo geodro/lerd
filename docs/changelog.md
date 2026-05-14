@@ -7,6 +7,16 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.20.1] — 2026-05-14
+
+A 1.20.0 follow-up for the `curl|bash` / `wget|bash` install path. When the installer script is piped through bash the script's own stdin is the pipe, not the terminal, and that pipe was inherited by `lerd install` so its `[Y/n]` prompts hit EOF the moment they were issued. The Node-management and DNS questions flashed past without ever showing up to the user, both silently defaulted to yes, and the mkcert step then jumped straight to a sudo password request that looked like it came out of nowhere. `lerd install` now reopens `/dev/tty` for its prompts whenever stdin is not itself a TTY, and `install.sh` separately redirects `lerd install`'s stdin from `/dev/tty` when one is available, so the prompts reach the user from either side of the pipe. If neither a TTY stdin nor `/dev/tty` is available (unattended CI, containers without a controlling terminal) the prompts now print `(no terminal, defaulting to yes/no)` instead of vanishing.
+
+### Fixed
+
+- **Install prompts no longer skipped when piping the installer through bash** (Ubuntu and other distros). `lerd install` falls back to `/dev/tty` when stdin is a pipe, and `install.sh` hands `/dev/tty` to `lerd install` so the Node-management and DNS questions actually reach the user during `curl … | bash` / `wget … | bash` installs.
+
+---
+
 ## [1.20.0] — 2026-05-14
 
 The 1.20.0 line makes git worktrees a first-class concept throughout the stack. Per-worktree workers are surfaced in CLI, dashboard, and TUI; a built-in Vite dev server worker runs on the host with auto-start per worktree; wildcard cert SANs cover deep subdomains; `env_overrides` templating handles multi-tenant apps; per-worktree dump tagging keeps the live viewer accurate; and the dashboard ships a manage-worktrees modal alongside an upgrade to Tailwind CSS v4. The TUI catches up to the dashboard with service update and rollback keybinds, a failing-workers header pill, and per-worktree controls in the site detail pane. PHP 7.4 and 8.0 land as a frozen legacy tier, `lerd php:ext add` learns `--apk-deps` for extensions that need extra Alpine build packages, the dashboard ships in German, Indonesian, and Dutch with a wide i18n pass across all seven locales, and MCP gains `workers_mode`, `bug_report`, and a `branch` parameter across its per-worktree CLI wrappers. The post-beta fix queue covers macOS phantom launchd workers restarting healthy units every cooldown, dashboard update-banner glitches, and the worktree-add modal's "Automatic" resolver now announcing what it picked instead of going silent.

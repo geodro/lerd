@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -500,5 +501,93 @@ func TestAddShellShims_OptOutWhenNoNodeShims(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(binDir, "php")); err != nil {
 		t.Errorf("php shim should still be written: %v", err)
+	}
+}
+
+// withSilencedStdout pipes os.Stdout to a discarded sink for the duration of
+// f, so prompt prints don't pollute test output.
+func withSilencedStdout(t *testing.T, f func()) {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, r)
+		close(done)
+	}()
+	defer func() {
+		_ = w.Close()
+		<-done
+		os.Stdout = orig
+	}()
+	f()
+}
+
+func TestReadConfirmAnswer(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		defaultYes bool
+		want       bool
+	}{
+		{"empty defaults yes", "\n", true, true},
+		{"empty defaults no", "\n", false, false},
+		{"eof defaults yes", "", true, true},
+		{"eof defaults no", "", false, false},
+		{"y", "y\n", false, true},
+		{"yes", "yes\n", false, true},
+		{"Y", "Y\n", false, true},
+		{"n", "n\n", true, false},
+		{"no", "no\n", true, false},
+		{"NO", "NO\n", true, false},
+		{"whitespace defaults yes", "  \n", true, true},
+		{"random falls back to yes", "maybe\n", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			withSilencedStdout(t, func() {
+				got = readConfirmAnswer(strings.NewReader(tc.input), "test?", tc.defaultYes)
+			})
+			if got != tc.want {
+				t.Errorf("readConfirmAnswer(%q, default=%v) = %v, want %v",
+					tc.input, tc.defaultYes, got, tc.want)
+			}
+		})
+	}
+}
+
+// When stdin is a pipe (not a TTY) and /dev/tty isn't accessible either,
+// promptSource must report no terminal so confirmInstallPromptDefault can
+// fall back to the default rather than reading EOF from the pipe.
+func TestPromptSource_PipedStdinFallsBackToTTY(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	src, closer, ok := promptSource()
+	if closer != nil {
+		_ = closer.Close()
+	}
+
+	// On a developer machine /dev/tty usually opens fine, so we accept either
+	// outcome but assert the invariants: when ok is true, src must not be the
+	// piped stdin (since stdin isn't a character device here).
+	if ok && src == os.Stdin {
+		t.Fatal("promptSource returned piped stdin as the prompt source")
+	}
+	if !ok && src != nil {
+		t.Fatal("promptSource reported no source but returned non-nil reader")
 	}
 }

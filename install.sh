@@ -386,7 +386,14 @@ cmd_install() {
   echo ""
   info "Running 'lerd install' to complete setup ..."
   echo ""
-  "${INSTALL_DIR}/${BINARY}" install
+  # When this script is piped through `curl|bash`, our own stdin is the pipe
+  # and lerd's prompts would silently hit EOF. Hand it /dev/tty when one is
+  # available so [Y/n] questions reach the user.
+  if [ -r /dev/tty ]; then
+    "${INSTALL_DIR}/${BINARY}" install </dev/tty
+  else
+    "${INSTALL_DIR}/${BINARY}" install
+  fi
   star_note
 }
 

@@ -1122,14 +1122,46 @@ func confirmInstallPrompt(question string) bool {
 
 // confirmInstallPromptDefault is like confirmInstallPrompt but lets the caller
 // pick the default for an empty answer, so re-running install can mirror the
-// user's previous choice.
+// user's previous choice. Falls back to /dev/tty when stdin is not a TTY so
+// prompts still work when lerd is piped, e.g. `curl ... | bash` -> `lerd install`.
 func confirmInstallPromptDefault(question string, defaultYes bool) bool {
+	src, closer, ok := promptSource()
+	if !ok {
+		hint := "[Y/n]"
+		ans := "yes"
+		if !defaultYes {
+			hint = "[y/N]"
+			ans = "no"
+		}
+		fmt.Printf("  --> %s %s (no terminal, defaulting to %s)\n", question, hint, ans)
+		return defaultYes
+	}
+	if closer != nil {
+		defer closer.Close()
+	}
+	return readConfirmAnswer(src, question, defaultYes)
+}
+
+// promptSource returns a reader suitable for interactive prompts. It prefers
+// os.Stdin when it is a TTY, otherwise opens /dev/tty. The returned closer is
+// non-nil only for /dev/tty and must be closed by the caller.
+func promptSource() (io.Reader, io.Closer, bool) {
+	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
+		return os.Stdin, nil, true
+	}
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		return tty, tty, true
+	}
+	return nil, nil, false
+}
+
+func readConfirmAnswer(r io.Reader, question string, defaultYes bool) bool {
 	hint := "[Y/n]"
 	if !defaultYes {
 		hint = "[y/N]"
 	}
 	fmt.Printf("  --> %s %s ", question, hint)
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(r)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer == "" {
