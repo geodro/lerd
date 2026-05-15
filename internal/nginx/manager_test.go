@@ -581,17 +581,49 @@ func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	}
 }
 
+// writeLerdCert touches the dashboard cert and key files so EnsureLerdVhost
+// emits the SSL server block. The certs package owns the actual mkcert call;
+// the nginx layer only writes the config and assumes the cert exists on disk.
+func writeLerdCert(t *testing.T) {
+	t.Helper()
+	sitesDir := filepath.Join(config.CertsDir(), "sites")
+	if err := os.MkdirAll(sitesDir, 0755); err != nil {
+		t.Fatalf("mkdir sites: %v", err)
+	}
+	for _, suffix := range []string{".crt", ".key"} {
+		if err := os.WriteFile(filepath.Join(sitesDir, "lerd.localhost"+suffix), []byte("stub"), 0600); err != nil {
+			t.Fatalf("writing %s: %v", suffix, err)
+		}
+	}
+}
+
 func TestEnsureLerdVhost_linuxProxiesUnixSocket(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("Linux uses the unix socket vhost; macOS uses TCP via host.containers.internal")
 	}
 	confD := setupConfD(t)
+	writeLerdCert(t)
 	if err := EnsureLerdVhost(); err != nil {
 		t.Fatalf("EnsureLerdVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
 
-	// On Linux the vhost MUST proxy via the unix socket. host.containers.internal
+	// HTTP-to-HTTPS redirect: port 80 must 301 to https — dashboard is HTTPS-only.
+	if !strings.Contains(content, "return 301 https://$host$request_uri") {
+		t.Errorf("expected HTTP-to-HTTPS 301 redirect in:\n%s", content)
+	}
+	// SSL server block must listen on 443 with cert paths under /etc/nginx/certs/sites/.
+	if !strings.Contains(content, "listen 443 ssl") {
+		t.Errorf("expected SSL listen 443 in:\n%s", content)
+	}
+	if !strings.Contains(content, "ssl_certificate /etc/nginx/certs/lerd.localhost.crt") {
+		t.Errorf("expected ssl_certificate path in:\n%s", content)
+	}
+	if !strings.Contains(content, "ssl_certificate_key /etc/nginx/certs/lerd.localhost.key") {
+		t.Errorf("expected ssl_certificate_key path in:\n%s", content)
+	}
+
+	// On Linux the SSL block MUST proxy via the unix socket. host.containers.internal
 	// is the failure mode the fix removes; if a future refactor reintroduces
 	// it on Linux, this test catches the regression.
 	want := "proxy_pass http://unix:" + config.UISocketPath()
@@ -605,6 +637,24 @@ func TestEnsureLerdVhost_linuxProxiesUnixSocket(t *testing.T) {
 	// /api/* must remain closed — the dashboard JS hits :7073 directly.
 	if !strings.Contains(content, "return 444") {
 		t.Errorf("expected catch-all 'return 444' in:\n%s", content)
+	}
+}
+
+func TestEnsureLerdVhost_fallsBackToHTTPWhenCertMissing(t *testing.T) {
+	// Fresh installs hit EnsureLerdVhost before mkcert has issued the
+	// lerd.localhost cert. Without graceful fallback nginx would refuse to
+	// start with a missing-cert error; the vhost must stay HTTP-only until
+	// the next start picks up the freshly issued cert.
+	confD := setupConfD(t)
+	if err := EnsureLerdVhost(); err != nil {
+		t.Fatalf("EnsureLerdVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
+	if strings.Contains(content, "listen 443") {
+		t.Errorf("vhost should be HTTP-only when cert is missing, got:\n%s", content)
+	}
+	if strings.Contains(content, "return 301 https") {
+		t.Errorf("vhost should not redirect to HTTPS when cert is missing, got:\n%s", content)
 	}
 }
 
@@ -775,12 +825,24 @@ func TestEnsureLerdVhost_darwinProxiesHostContainersInternal(t *testing.T) {
 		t.Skip("macOS uses TCP via host.containers.internal because unix sockets don't traverse the podman-machine virtio-fs boundary as functional sockets")
 	}
 	confD := setupConfD(t)
+	writeLerdCert(t)
 	if err := EnsureLerdVhost(); err != nil {
 		t.Fatalf("EnsureLerdVhost: %v", err)
 	}
 	content := readConf(t, filepath.Join(confD, "lerd.localhost.conf"))
 
-	// On macOS the vhost MUST proxy via TCP to host.containers.internal:7073
+	// HTTP-to-HTTPS redirect on port 80.
+	if !strings.Contains(content, "return 301 https://$host$request_uri") {
+		t.Errorf("expected HTTP-to-HTTPS 301 redirect in:\n%s", content)
+	}
+	if !strings.Contains(content, "listen 443 ssl") {
+		t.Errorf("expected SSL listen 443 in:\n%s", content)
+	}
+	if !strings.Contains(content, "ssl_certificate /etc/nginx/certs/lerd.localhost.crt") {
+		t.Errorf("expected ssl_certificate path in:\n%s", content)
+	}
+
+	// On macOS the SSL block MUST proxy via TCP to host.containers.internal:7073
 	// and MUST inject the X-Lerd-Trust header so lerd-ui's gate sees the
 	// proxied request as loopback (it arrives via the bridge, not 127.0.0.1).
 	if !strings.Contains(content, "proxy_pass http://host.containers.internal:7073") {

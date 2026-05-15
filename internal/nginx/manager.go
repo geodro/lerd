@@ -850,66 +850,52 @@ func EnsureLerdVhost() error {
 		return err
 	}
 
+	// SSL is the desired state: every other lerd site gets HTTPS by default,
+	// and shipping the dashboard over plain HTTP leaks the auth cookie to
+	// anything that can sniff loopback (rare but trivial). On a fresh install
+	// EnsureLerdVhost runs before mkcert has issued the cert, so fall back to
+	// HTTP-only until the next start picks up the freshly issued files —
+	// otherwise nginx refuses to start with a missing-cert error and the
+	// whole stack is wedged.
+	sslEnabled := lerdCertExists()
+
 	var content string
 	if runtime.GOOS == "darwin" {
 		token, err := LoadOrGenerateTrustToken()
 		if err != nil {
 			return fmt.Errorf("loading trust token: %w", err)
 		}
-		content = fmt.Sprintf(`server {
-    listen 80;
-    listen [::]:80;
-    server_name lerd.localhost;
-
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Lerd-Trust %s;
-
-    location = / {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location ^~ /icons/ {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location ^~ /assets/ {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location = /manifest.webmanifest {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location = /sw.js {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location = /offline.html {
-        proxy_pass http://host.containers.internal:7073;
-    }
-
-    location / {
-        return 444;
-    }
-}
-`, token)
+		content = darwinLerdVhost(token, sslEnabled)
 	} else {
-		content = fmt.Sprintf(`server {
-    listen 80;
-    listen [::]:80;
-    server_name lerd.localhost;
+		content = linuxLerdVhost(config.UISocketPath(), sslEnabled)
+	}
+	return os.WriteFile(filepath.Join(config.NginxConfD(), "lerd.localhost.conf"), []byte(content), 0644)
+}
 
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+// lerdCertExists reports whether mkcert has already issued the dashboard
+// cert and key. Used to decide between the HTTPS vhost (preferred) and the
+// HTTP-only fallback (fresh install before mkcert ran).
+func lerdCertExists() bool {
+	sitesDir := filepath.Join(config.CertsDir(), "sites")
+	if _, err := os.Stat(filepath.Join(sitesDir, "lerd.localhost.crt")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(sitesDir, "lerd.localhost.key")); err != nil {
+		return false
+	}
+	return true
+}
 
-    location = / {
+// Cert paths inside the lerd-nginx container — the host's CertsDir is
+// bind-mounted to /etc/nginx/certs in the quadlet, so nginx sees them here
+// regardless of the host's XDG layout.
+const (
+	lerdCertContainerPath = "/etc/nginx/certs/lerd.localhost.crt"
+	lerdKeyContainerPath  = "/etc/nginx/certs/lerd.localhost.key"
+)
+
+func linuxLerdVhost(socketPath string, ssl bool) string {
+	locations := fmt.Sprintf(`    location = / {
         proxy_pass http://unix:%[1]s:;
     }
 
@@ -935,11 +921,123 @@ func EnsureLerdVhost() error {
 
     location / {
         return 444;
-    }
+    }`, socketPath)
+
+	if !ssl {
+		return fmt.Sprintf(`server {
+    listen 80;
+    listen [::]:80;
+    server_name lerd.localhost;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+%s
 }
-`, config.UISocketPath())
+`, locations)
 	}
-	return os.WriteFile(filepath.Join(config.NginxConfD(), "lerd.localhost.conf"), []byte(content), 0644)
+
+	return fmt.Sprintf(`server {
+    listen 80;
+    listen [::]:80;
+    server_name lerd.localhost;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name lerd.localhost;
+
+    ssl_certificate %s;
+    ssl_certificate_key %s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+%s
+}
+`, lerdCertContainerPath, lerdKeyContainerPath, locations)
+}
+
+func darwinLerdVhost(token string, ssl bool) string {
+	locations := `    location = / {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location ^~ /icons/ {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location ^~ /assets/ {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location = /manifest.webmanifest {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location = /sw.js {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location = /offline.html {
+        proxy_pass http://host.containers.internal:7073;
+    }
+
+    location / {
+        return 444;
+    }`
+
+	if !ssl {
+		return fmt.Sprintf(`server {
+    listen 80;
+    listen [::]:80;
+    server_name lerd.localhost;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Lerd-Trust %s;
+
+%s
+}
+`, token, locations)
+	}
+
+	return fmt.Sprintf(`server {
+    listen 80;
+    listen [::]:80;
+    server_name lerd.localhost;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name lerd.localhost;
+
+    ssl_certificate %s;
+    ssl_certificate_key %s;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Lerd-Trust %s;
+
+%s
+}
+`, lerdCertContainerPath, lerdKeyContainerPath, token, locations)
 }
 
 // EnsureNginxConfig copies the base nginx.conf to the data dir if it is missing.
