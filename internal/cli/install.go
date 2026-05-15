@@ -276,6 +276,12 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	if err := nginx.EnsureDefaultVhost(); err != nil {
 		return err
 	}
+	// Issue the dashboard TLS cert before writing the vhost so the SSL block
+	// is emitted on first install. Best-effort: a transient mkcert failure
+	// leaves an HTTP-only vhost, which the next start re-attempts.
+	if err := certs.IssueCert("lerd.localhost", []string{"lerd.localhost"}, filepath.Join(config.CertsDir(), "sites")); err != nil {
+		fmt.Printf("  WARN: lerd cert: %v\n", err)
+	}
 	if err := nginx.EnsureLerdVhost(); err != nil {
 		return err
 	}

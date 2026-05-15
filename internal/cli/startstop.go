@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	gitpkg "github.com/geodro/lerd/internal/git"
@@ -436,6 +437,12 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// Rewrite nginx.conf so any config changes in new binary versions take effect.
 	if err := nginx.EnsureNginxConfig(); err != nil {
 		fmt.Printf("  WARN: nginx config: %v\n", err)
+	}
+	// Issue the dashboard TLS cert before writing the vhost so the SSL block
+	// is emitted on the first start after upgrade. IssueCert is a no-op when
+	// the cert already exists, so this is cheap on subsequent starts.
+	if err := certs.IssueCert("lerd.localhost", []string{"lerd.localhost"}, filepath.Join(config.CertsDir(), "sites")); err != nil {
+		fmt.Printf("  WARN: lerd cert: %v\n", err)
 	}
 	if err := nginx.EnsureLerdVhost(); err != nil {
 		fmt.Printf("  WARN: lerd vhost: %v\n", err)
