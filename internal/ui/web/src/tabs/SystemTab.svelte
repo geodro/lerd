@@ -16,6 +16,7 @@
   import { lerdStart, lerdStop, lerdStarting, lerdStopping } from '$stores/lerdLifecycle';
   import { workerExecMode, workerModeApplies, loadWorkerMode } from '$stores/workerMode';
   import { status as dumpsStatusValue, refreshStatus as refreshDumpsStatus } from '$stores/dumps';
+  import { notifyPrefs, permissionState, autoSubscribeDisabled } from '$lib/notify';
   import { onMount } from 'svelte';
   import { m } from '../paraglide/messages.js';
 
@@ -25,6 +26,9 @@
   });
 
   const selected = $derived($routeRest || 'lerd');
+  const notifyEffectiveOn = $derived(
+    $permissionState === 'granted' && !$autoSubscribeDisabled && $notifyPrefs.enabled
+  );
 
   function select(id: string) {
     goToTab('system', id);
@@ -72,7 +76,7 @@
     {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
 
-    {#snippet notifyDot()}<StatusDot color="sky" />{/snippet}
+    {#snippet notifyDot()}<StatusDot color={notifyEffectiveOn ? 'green' : 'red'} />{/snippet}
     <ListRow active={selected === 'notifications'} onclick={() => select('notifications')} leading={notifyDot}>
       {m.notify_settings_title()}
     </ListRow>

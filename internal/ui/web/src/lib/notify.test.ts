@@ -178,3 +178,177 @@ describe('notify dispatcher', () => {
     expect(cur.kinds.dump).toBe(false);
   });
 });
+
+describe('forgetCurrentBrowser', () => {
+  interface FakeSub {
+    endpoint: string;
+    unsubscribe: ReturnType<typeof vi.fn>;
+  }
+  let fakeSub: FakeSub | null = null;
+  let subscribeMock: ReturnType<typeof vi.fn>;
+
+  function installPushMock(endpoint: string | null) {
+    fakeSub = endpoint
+      ? { endpoint, unsubscribe: vi.fn(async () => true) }
+      : null;
+    subscribeMock = vi.fn(async () => ({
+      endpoint: 'https://push.example/new',
+      toJSON: () => ({
+        endpoint: 'https://push.example/new',
+        keys: { p256dh: 'p', auth: 'a' }
+      })
+    }));
+    const reg = {
+      showNotification: vi.fn(),
+      pushManager: {
+        getSubscription: vi.fn(async () => fakeSub),
+        subscribe: subscribeMock
+      }
+    };
+    Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+      configurable: true,
+      value: { ready: Promise.resolve(reg), addEventListener: vi.fn() }
+    });
+    // PushManager presence is the gate ensurePushSubscription checks.
+    (globalThis as unknown as { PushManager?: object }).PushManager = function PushManager() {};
+  }
+
+  beforeEach(() => {
+    MockNotification.permission = 'granted';
+    // @ts-expect-error test double
+    globalThis.Notification = MockNotification;
+    localStorage.clear();
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    // @ts-expect-error reset
+    delete globalThis.Notification;
+    delete (globalThis as unknown as { PushManager?: object }).PushManager;
+    delete (globalThis.navigator as unknown as { serviceWorker?: unknown }).serviceWorker;
+  });
+
+  it('unsubscribes and sets the flag when endpoint matches the current sub', async () => {
+    installPushMock('https://push.example/mine');
+    const { forgetCurrentBrowser, autoSubscribeDisabled } = await import('./notify');
+
+    const result = await forgetCurrentBrowser('https://push.example/mine');
+
+    expect(result).toBe(true);
+    expect(fakeSub?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('lerd:notify:auto-subscribe')).toBe('0');
+    expect(get(autoSubscribeDisabled)).toBe(true);
+  });
+
+  it('is a no-op when endpoint does not match', async () => {
+    installPushMock('https://push.example/mine');
+    const { forgetCurrentBrowser, autoSubscribeDisabled } = await import('./notify');
+
+    const result = await forgetCurrentBrowser('https://push.example/somebody-else');
+
+    expect(result).toBe(false);
+    expect(fakeSub?.unsubscribe).not.toHaveBeenCalled();
+    expect(localStorage.getItem('lerd:notify:auto-subscribe')).toBeNull();
+    expect(get(autoSubscribeDisabled)).toBe(false);
+  });
+
+  it('is a no-op when the browser has no subscription', async () => {
+    installPushMock(null);
+    const { forgetCurrentBrowser, autoSubscribeDisabled } = await import('./notify');
+
+    const result = await forgetCurrentBrowser('https://push.example/anything');
+
+    expect(result).toBe(false);
+    expect(get(autoSubscribeDisabled)).toBe(false);
+  });
+
+  it('initNotify skips ensurePushSubscription when the flag is set', async () => {
+    installPushMock('https://push.example/mine');
+    localStorage.setItem('lerd:notify:auto-subscribe', '0');
+
+    const reg = await navigator.serviceWorker!.ready;
+    const getSub = (reg as unknown as { pushManager: { getSubscription: ReturnType<typeof vi.fn> } })
+      .pushManager.getSubscription;
+
+    const { initNotify } = await import('./notify');
+    initNotify();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getSub).not.toHaveBeenCalled();
+  });
+
+  it('enableNotifications clears the flag and triggers a re-subscribe', async () => {
+    installPushMock(null);
+    localStorage.setItem('lerd:notify:auto-subscribe', '0');
+
+    const { enableNotifications, autoSubscribeDisabled } = await import('./notify');
+    // apiFetch will try to hit /api/push/vapid-public-key — stub fetch so
+    // ensurePushSubscription's branch returns silently instead of throwing.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 404 })
+    );
+
+    const res = await enableNotifications();
+    await Promise.resolve();
+
+    expect(res).toBe('granted');
+    expect(localStorage.getItem('lerd:notify:auto-subscribe')).toBeNull();
+    expect(get(autoSubscribeDisabled)).toBe(false);
+
+    fetchSpy.mockRestore();
+  });
+});
+
+describe('detectBrowserFamily', () => {
+  it('classifies Chrome as chromium', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(
+      detectBrowserFamily(
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+      )
+    ).toBe('chromium');
+  });
+
+  it('classifies Edge as chromium', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(
+      detectBrowserFamily(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
+      )
+    ).toBe('chromium');
+  });
+
+  it('classifies Opera as chromium', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(
+      detectBrowserFamily(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 OPR/115.0.0.0'
+      )
+    ).toBe('chromium');
+  });
+
+  it('classifies Firefox as firefox', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(
+      detectBrowserFamily(
+        'Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0'
+      )
+    ).toBe('firefox');
+  });
+
+  it('classifies Safari (without Chrome) as safari', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(
+      detectBrowserFamily(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+      )
+    ).toBe('safari');
+  });
+
+  it('falls back to other for empty or unknown UAs', async () => {
+    const { detectBrowserFamily } = await import('./notify');
+    expect(detectBrowserFamily('')).toBe('other');
+    expect(detectBrowserFamily('SomeCustomBot/1.0')).toBe('other');
+  });
+});

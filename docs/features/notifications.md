@@ -1,4 +1,4 @@
-# Desktop notifications
+# Notifications
 
 The dashboard can pop OS-level notifications for events you'd otherwise have to keep an eye on a tab to catch: a captured email, a worker that just crashed, a long-running service operation that finished, a new image tag available for a service, or a `ray()`/`dump()` arriving from a site you're debugging. Notifications fire even when the dashboard tab is minimised, in the background, or fully closed — they're delivered via Web Push, which wakes the registered service worker through your browser vendor's push infrastructure (FCM for Chrome/Brave/Edge, Mozilla autopush for Firefox).
 
@@ -14,7 +14,7 @@ Lerd ships notifications **off by default**. The first time you open the dashboa
 | `update_available` | The registry has a newer image tag for an installed service | on | low |
 | `dump` | A `ray()` / `dump()` / var-dump packet arrives | **off** | low |
 
-Each category can be toggled individually under **System → Desktop notifications**, along with a master switch that turns every category off in one click. Preferences are stored client-side in `localStorage` and mirrored to the server via the push subscription — closed-PWA push respects the toggles even when the dashboard isn't running.
+Each category can be toggled individually under **System → Notifications**, along with a master switch that turns every category off in one click. Preferences are stored client-side in `localStorage` and mirrored to the server via the push subscription — closed-PWA push respects the toggles even when the dashboard isn't running.
 
 Clicking a notification focuses the dashboard (or launches the PWA if closed) and deep-links to the relevant view: the captured email in the Mailpit overlay, the failing worker's site detail, the finished service's tile, the Dumps tab.
 
@@ -42,7 +42,7 @@ Subscriptions that the push service retires (HTTP 410 Gone, 404 Not Found) are p
 
 ## Settings panel
 
-**System → Desktop notifications** is the canonical control surface:
+**System → Notifications** is the canonical control surface:
 
 - *Master switch* — overrides every per-category toggle.
 - *Per-category toggles* — one row per kind with a short description.
@@ -65,7 +65,7 @@ All endpoints sit behind the standard `withRemoteControlGate` (loopback-only by 
 
 Three layers; each is enough on its own:
 
-- Toggle off in **System → Desktop notifications** (per-category or master).
+- Toggle off in **System → Notifications** (per-category or master).
 - Reset the browser's notification permission for the dashboard origin (Brave / Chrome / Firefox → site settings).
 - `rm ~/.local/share/lerd/push-subscriptions.json` — server-side wipe; the browser will silently re-subscribe on the next page load if permission is still granted, so combine with the first two options if you want a permanent uninstall.
 

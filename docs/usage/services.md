@@ -88,9 +88,9 @@ Additional UIs:
 - RustFS console: `http://127.0.0.1:9001`
 - Mailpit web UI: `http://127.0.0.1:8025`
 
-### Mailpit desktop notifications
+### Mailpit notifications
 
-Captured emails can pop a desktop notification with the subject and sender; clicking the notification opens the captured message in the Mailpit overlay. This is one of several notification kinds the dashboard supports — see [Desktop notifications](../features/notifications.md) for the full list (worker failures, finished service operations, service updates, dumps) and how to configure them under **System → Desktop notifications**.
+Captured emails can pop a notification with the subject and sender; clicking the notification opens the captured message in the Mailpit overlay. This is one of several notification kinds the dashboard supports — see [Notifications](../features/notifications.md) for the full list (worker failures, finished service operations, service updates, dumps) and how to configure them under **System → Notifications**.
 
 ### RustFS, per-site buckets
 

@@ -8,6 +8,7 @@
   import { goToTab } from '$stores/route';
   import { m } from '../../paraglide/messages.js';
   import { status as dumpsStatus, refreshStatus as refreshDumpsStatus } from '$stores/dumps';
+  import { notifyPrefs, permissionState, autoSubscribeDisabled } from '$lib/notify';
 
   onMount(() => {
     void refreshDumpsStatus();
@@ -15,6 +16,9 @@
 
   const dumpsBuffered = $derived($dumpsStatus?.count ?? 0);
   const dumpsOn = $derived(Boolean($dumpsStatus?.enabled));
+  const notifyOn = $derived(
+    $permissionState === 'granted' && !$autoSubscribeDisabled && $notifyPrefs.enabled
+  );
 
   const nodeVersions = $derived.by(() => {
     const entries = [...$sitesByNode.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -63,6 +67,11 @@
       {/if}
       <StatusDot color={dumpsOn ? 'green' : 'gray'} pulse={dumpsOn} />
     </span>
+  </div>
+
+  <div class="flex items-center justify-between text-sm">
+    <span class="text-gray-600 dark:text-gray-300">{m.notify_settings_title()}</span>
+    <StatusDot color={notifyOn ? 'green' : 'red'} />
   </div>
 
   {#if $status.php_fpms.length > 0}

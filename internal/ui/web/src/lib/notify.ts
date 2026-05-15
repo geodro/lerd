@@ -5,6 +5,11 @@ import { m } from '../paraglide/messages.js';
 
 const PREFS_KEY = 'lerd:notify:prefs';
 const DISMISS_KEY = 'lerd:notify:dismissed';
+// AUTO_SUB_KEY records "user has forgotten this browser; don't silently
+// re-subscribe on next mount". Set to "0" by forgetCurrentBrowser, cleared
+// by enableNotifications. Without it, ensurePushSubscription would re-post
+// the same endpoint right after Forget undeleted the row from the server.
+const AUTO_SUB_KEY = 'lerd:notify:auto-subscribe';
 
 // NotifyKind is the canonical set of notification categories the user can
 // toggle. The list lives client-side because the page-context dispatcher is
@@ -74,6 +79,20 @@ export const permissionState = writable<NotificationPermission | 'unsupported'>(
 export const dismissed = writable<boolean>(
   typeof localStorage !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1'
 );
+export const autoSubscribeDisabled = writable<boolean>(isAutoSubscribeDisabled());
+
+function isAutoSubscribeDisabled(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(AUTO_SUB_KEY) === '0';
+}
+
+function setAutoSubscribeDisabled(off: boolean) {
+  if (typeof localStorage !== 'undefined') {
+    if (off) localStorage.setItem(AUTO_SUB_KEY, '0');
+    else localStorage.removeItem(AUTO_SUB_KEY);
+  }
+  autoSubscribeDisabled.set(off);
+}
 
 export function setNotifyPref(kind: NotifyKind, on: boolean) {
   notifyPrefs.update((p) => {
@@ -173,7 +192,13 @@ export function initNotify() {
   // Re-register the push subscription on every mount when permission is
   // already granted so the server's subscription list stays in sync after
   // a browser reset, sub expiry, or pref change made while offline.
-  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+  // Skipped when the user has clicked Forget on this browser — otherwise
+  // the row they just deleted would reappear on the next page load.
+  if (
+    typeof Notification !== 'undefined' &&
+    Notification.permission === 'granted' &&
+    !isAutoSubscribeDisabled()
+  ) {
     void ensurePushSubscription();
   }
 }
@@ -182,6 +207,19 @@ export function shouldShowOptIn(): boolean {
   if (typeof Notification === 'undefined') return false;
   if (Notification.permission !== 'default') return false;
   return !get(dismissed);
+}
+
+// BrowserFamily is the smallest classification we need for picking the right
+// "how to unblock notifications" copy. Edge / Brave / Opera all collapse into
+// chromium because their site-permissions UI is the lock/icon flow.
+export type BrowserFamily = 'chromium' | 'firefox' | 'safari' | 'other';
+
+export function detectBrowserFamily(ua: string): BrowserFamily {
+  if (!ua) return 'other';
+  if (/Firefox\//.test(ua)) return 'firefox';
+  if (/Edg\/|OPR\/|Chrome\//.test(ua)) return 'chromium';
+  if (/Safari\//.test(ua)) return 'safari';
+  return 'other';
 }
 
 export async function enableNotifications(): Promise<NotificationPermission | 'unsupported'> {
@@ -193,8 +231,34 @@ export async function enableNotifications(): Promise<NotificationPermission | 'u
     result = await Notification.requestPermission();
   }
   permissionState.set(result);
-  if (result === 'granted') void ensurePushSubscription();
+  if (result === 'granted') {
+    // Explicit user opt-in clears any prior Forget — without this the
+    // user could click "Subscribe this browser" forever and nothing would
+    // happen because initNotify already skipped ensurePushSubscription.
+    setAutoSubscribeDisabled(false);
+    void ensurePushSubscription();
+  }
   return result;
+}
+
+// forgetCurrentBrowser is called by the settings panel's Forget button when
+// the removed device matches the current browser. It revokes the live
+// PushSubscription so the browser's push service stops hitting our endpoint,
+// then sets the auto-subscribe-disabled flag so initNotify on the next
+// mount doesn't silently re-register the same browser.
+export async function forgetCurrentBrowser(endpoint: string): Promise<boolean> {
+  if (!('serviceWorker' in navigator)) return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub || sub.endpoint !== endpoint) return false;
+    await sub.unsubscribe();
+    setAutoSubscribeDisabled(true);
+    return true;
+  } catch (err) {
+    console.warn('[lerd] forget current browser failed:', err);
+    return false;
+  }
 }
 
 // urlBase64ToArrayBuffer decodes a base64url VAPID public key into the
@@ -276,6 +340,7 @@ export function _resetNotifyForTest() {
   lastTag = null;
   notifyPrefs.set(clonePrefs(DEFAULTS));
   dismissed.set(false);
+  autoSubscribeDisabled.set(false);
   if (typeof Notification !== 'undefined') {
     permissionState.set(Notification.permission);
   }
