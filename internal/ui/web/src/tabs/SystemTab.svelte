@@ -72,6 +72,11 @@
     {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
 
+    {#snippet notifyDot()}<StatusDot color="sky" />{/snippet}
+    <ListRow active={selected === 'notifications'} onclick={() => select('notifications')} leading={notifyDot}>
+      {m.notify_settings_title()}
+    </ListRow>
+
     {#snippet dumpBridgeDot()}<StatusDot color={$dumpsStatusValue?.enabled ? 'green' : 'gray'} pulse={Boolean($dumpsStatusValue?.enabled)} />{/snippet}
     {#snippet dumpBridgeTrailing()}
       {#if $dumpsStatusValue?.enabled && ($dumpsStatusValue?.count ?? 0) > 0}

@@ -1,12 +1,30 @@
 import { writable } from 'svelte/store';
 import { wsUrl } from './api';
 
+// NotificationEvent is the kind-agnostic shape every push or WS-delivered
+// notification carries. Mirrors push.Notification in the Go backend. The SW
+// uses title/body directly (English fallback); the page resolves title_key
+// / body_key via Paraglide with params.
+export interface NotificationEvent {
+  kind: string;
+  title?: string;
+  title_key?: string;
+  body?: string;
+  body_key?: string;
+  params?: Record<string, string>;
+  tag?: string;
+  url?: string;
+  icon?: string;
+  data?: Record<string, string>;
+}
+
 export interface WsMessage {
   type: string;
   sites?: unknown;
   services?: unknown;
   status?: unknown;
   unhealthy_workers?: unknown;
+  notification?: NotificationEvent;
 }
 
 export const wsConnected = writable<boolean>(false);

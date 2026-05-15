@@ -110,6 +110,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		snapshots.Services(),
 		snapshots.Status(),
 		snapshots.UnhealthyWorkers(),
+		nil,
 		[]string{"snapshot"},
 	)
 	if err := ws.WriteText(initial); err != nil {
@@ -175,7 +176,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			frame := assembleSnapshot(msg.Sites, msg.Services, msg.Status, msg.UnhealthyWorkers, msg.Kinds)
+			frame := assembleSnapshot(msg.Sites, msg.Services, msg.Status, msg.UnhealthyWorkers, msg.Notification, msg.Kinds)
 			if err := ws.WriteText(frame); err != nil {
 				return
 			}
@@ -191,10 +192,10 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 // assembleSnapshot builds a JSON object of the form:
 //
-//	{"type":"<type>","sites":<sites>,"services":<services>,"status":<status>,"unhealthy_workers":<unhealthy>}
+//	{"type":"<type>","sites":<sites>,"services":<services>,"status":<status>,"unhealthy_workers":<unhealthy>,"notification":<notification>}
 //
 // Any nil slice is omitted so clients can treat missing keys as "unchanged".
-func assembleSnapshot(sites, services, status, unhealthy []byte, kinds []string) []byte {
+func assembleSnapshot(sites, services, status, unhealthy, notification []byte, kinds []string) []byte {
 	var buf bytes.Buffer
 	buf.WriteString(`{"type":"`)
 	if len(kinds) == 1 {
@@ -218,6 +219,10 @@ func assembleSnapshot(sites, services, status, unhealthy []byte, kinds []string)
 	if len(unhealthy) > 0 {
 		buf.WriteString(`,"unhealthy_workers":`)
 		buf.Write(unhealthy)
+	}
+	if len(notification) > 0 {
+		buf.WriteString(`,"notification":`)
+		buf.Write(notification)
 	}
 	buf.WriteByte('}')
 	return buf.Bytes()

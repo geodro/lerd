@@ -5,6 +5,9 @@ export interface DashboardRef {
   name: string;
   label?: string;
   dashboard: string;
+  // extraPath is appended to dashboard for the iframe src, used to deep-link
+  // a service overlay (e.g. mailpit's /view/{id} for a captured email).
+  extraPath?: string;
 }
 
 // The currently-open dashboard, either a real service or the synthetic 'docs' ref.
@@ -40,6 +43,22 @@ export function openDashboard(svc: Service) {
   location.hash = 'service/' + svc.name;
 }
 
+// openMailpitMessage opens the mailpit dashboard overlay with the iframe
+// pointed at /view/<id> so a clicked email notification lands the user on
+// the captured message instead of mailpit's inbox.
+export function openMailpitMessage(id: string) {
+  const mp = get(services).find((s) => s.name === 'mailpit');
+  if (!mp?.dashboard) return;
+  const safeId = encodeURIComponent(id);
+  dashboardOpen.set({
+    name: 'mailpit',
+    label: 'Mailpit',
+    dashboard: mp.dashboard,
+    extraPath: '/view/' + safeId
+  });
+  location.hash = 'service/mailpit/view/' + safeId;
+}
+
 export function openDocs() {
   const cur = get(dashboardOpen);
   if (cur && cur.name === 'docs') {
@@ -65,8 +84,21 @@ function refFromHash(): DashboardRef | null {
   const h = location.hash.slice(1);
   if (h === 'docs') return DOCS_REF;
   if (h.startsWith('service/')) {
-    const name = h.slice('service/'.length);
-    const svc = get(services).find((x) => x.name === name);
+    const rest = h.slice('service/'.length);
+    // service/mailpit/view/<id> deep-links into a specific captured email.
+    const mpDeep = rest.match(/^mailpit\/view\/(.+)$/);
+    if (mpDeep) {
+      const mp = get(services).find((x) => x.name === 'mailpit');
+      if (mp?.dashboard) {
+        return {
+          name: 'mailpit',
+          label: 'Mailpit',
+          dashboard: mp.dashboard,
+          extraPath: '/view/' + mpDeep[1]
+        };
+      }
+    }
+    const svc = get(services).find((x) => x.name === rest);
     if (svc?.dashboard) return { name: svc.name, label: svc.name, dashboard: svc.dashboard };
   }
   return null;

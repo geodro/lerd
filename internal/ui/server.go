@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -168,6 +170,12 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/sites", withCORS(handleSites))
 	mux.HandleFunc("/api/services", withCORS(handleServices))
 	mux.HandleFunc("/api/ws", handleWS)
+	mux.HandleFunc("/api/webhooks/mailpit", handleMailpitWebhook)
+	mux.HandleFunc("/api/push/vapid-public-key", withCORS(handlePushVAPIDPublicKey))
+	mux.HandleFunc("/api/push/subscribe", withCORS(handlePushSubscribe))
+	mux.HandleFunc("/api/push/unsubscribe", withCORS(handlePushUnsubscribe))
+	mux.HandleFunc("/api/push/devices", withCORS(handlePushDevices))
+	mux.HandleFunc("/api/push/test", withCORS(handlePushTest))
 	mux.HandleFunc("/api/lan-qr/", withCORS(handleLANQR))
 
 	// Cross-process notifier for CLI/MCP. Loopback-only. PollNow in a
@@ -259,7 +267,9 @@ func Start(currentVersion string) error {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(iconMaskable512PNG) //nolint:errcheck
 	})
-	swBody := bytes.ReplaceAll(swJS, []byte("{{LERD_VERSION}}"), []byte(version.Version+"-"+version.Commit))
+	swHash := sha256.Sum256(swJS)
+	swVersion := version.Version + "-" + version.Commit + "-" + hex.EncodeToString(swHash[:6])
+	swBody := bytes.ReplaceAll(swJS, []byte("{{LERD_VERSION}}"), []byte(swVersion))
 	mux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -1229,12 +1239,14 @@ func handleServicePresetInstall(w http.ResponseWriter, r *http.Request) {
 	version := r.URL.Query().Get("version")
 
 	writeLine, _ := startNDJSONStream(w, r)
+	start := time.Now()
 
 	svc, err := serviceops.InstallPresetStreaming(name, version, func(ev serviceops.PhaseEvent) {
 		writeLine(ev)
 	})
 	if err != nil {
 		writeLine(map[string]any{"phase": "error", "error": err.Error()})
+		dispatchNotification(notificationForServiceOp("install", name, start, err))
 		return
 	}
 	cli.RegenerateFamilyConsumersForService(svc.Name)
@@ -1244,6 +1256,7 @@ func handleServicePresetInstall(w http.ResponseWriter, r *http.Request) {
 		"dashboard":  svc.Dashboard,
 		"depends_on": svc.DependsOn,
 	})
+	dispatchNotification(notificationForServiceOp("install", svc.Name, start, nil))
 }
 
 // startNDJSONStream writes the streaming-response headers and returns a
@@ -1334,34 +1347,39 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			targetImage = targetImage[:at] + ":" + targetTag
 		}
 		writeLine, _ := startNDJSONStream(w, r)
-		if err := serviceops.MigrateService(name, targetImage, func(ev serviceops.PhaseEvent) { writeLine(ev) }); err != nil {
+		start := time.Now()
+		err = serviceops.MigrateService(name, targetImage, func(ev serviceops.PhaseEvent) { writeLine(ev) })
+		if err != nil {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
+		dispatchNotification(notificationForServiceOp("migrate", name, start, err))
 		return
 	}
 
 	// Streaming rollback: pull the previously-running image and restart.
 	if action == "rollback" && r.Method == http.MethodPost {
 		writeLine, _ := startNDJSONStream(w, r)
-		if err := serviceops.RollbackService(name, func(ev serviceops.PhaseEvent) { writeLine(ev) }); err != nil {
+		start := time.Now()
+		err := serviceops.RollbackService(name, func(ev serviceops.PhaseEvent) { writeLine(ev) })
+		if err != nil {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
+		dispatchNotification(notificationForServiceOp("rollback", name, start, err))
 		return
 	}
 
-	// Streaming reinstall: stop, remove (optionally with data wipe), reinstall,
-	// and reprovision linked sites' DBs/buckets when resetData=true.
 	if action == "reinstall" && r.Method == http.MethodPost {
 		resetData := r.URL.Query().Get("resetData") == "true"
 		writeLine, _ := startNDJSONStream(w, r)
-		if err := serviceops.ReinstallService(name, resetData, func(ev serviceops.PhaseEvent) { writeLine(ev) }); err != nil {
+		start := time.Now()
+		err := serviceops.ReinstallService(name, resetData, func(ev serviceops.PhaseEvent) { writeLine(ev) })
+		if err != nil {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
+		dispatchNotification(notificationForServiceOp("reinstall", name, start, err))
 		return
 	}
 
-	// Streaming update flow. Accepts ?tag=<tag> to target an explicit upgrade
-	// (e.g. cross-minor jumps that the safe-update strategy wouldn't suggest).
 	if action == "update" && r.Method == http.MethodPost {
 		targetTag := r.URL.Query().Get("tag")
 		var targetImage string
@@ -1375,12 +1393,14 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		writeLine, _ := startNDJSONStream(w, r)
+		start := time.Now()
 		err := serviceops.UpdateServiceStreaming(name, targetImage, func(ev serviceops.PhaseEvent) {
 			writeLine(ev)
 		})
 		if err != nil {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
+		dispatchNotification(notificationForServiceOp("update", name, start, err))
 		return
 	}
 

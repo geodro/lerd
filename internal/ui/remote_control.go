@@ -95,6 +95,19 @@ func withRemoteControlGate(next http.Handler) http.Handler {
 			return
 		}
 
+		// 2b. Mailpit's webhook is POSTed from inside the mailpit container
+		// to host.containers.internal:7073, which arrives at lerd-ui with a
+		// non-loopback source IP (the podman bridge gateway). The handler
+		// itself only triggers a browser notification with the captured
+		// message's id/subject/from, so the worst-case spoofing impact is a
+		// fake notification — no data exposure, no state change. We let it
+		// through pre-auth so a fresh install doesn't need remote-control
+		// credentials to receive mail notifications locally.
+		if r.URL.Path == "/api/webhooks/mailpit" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// 3. Loopback (127.x, ::1) always bypasses. The local user owns the
 		// machine and can never be locked out.
 		if isLoopbackRequest(r) {

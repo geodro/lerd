@@ -22,7 +22,9 @@
   import ModalHost from './modals/ModalHost.svelte';
   import DashboardOverlay from '$components/DashboardOverlay.svelte';
   import WorkerHealthBanner from '$components/WorkerHealthBanner.svelte';
+  import NotifyBanner from '$components/NotifyBanner.svelte';
   import CommandPalette from '$components/CommandPalette.svelte';
+  import { initNotify } from '$lib/notify';
 
   import SitesTab from '$tabs/SitesTab.svelte';
   import ServicesTab from '$tabs/ServicesTab.svelte';
@@ -49,6 +51,7 @@
     loadWorkerHealth();
     connectWs();
     initDashboardRoute();
+    initNotify();
     window.addEventListener('pagehide', handlePageHide);
   });
 
@@ -133,5 +136,6 @@
   <ModalHost />
   <DashboardOverlay />
   <WorkerHealthBanner />
+  <NotifyBanner />
   <CommandPalette />
 </div>

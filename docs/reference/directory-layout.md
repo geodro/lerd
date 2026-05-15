@@ -26,6 +26,10 @@
 │   └── rustfs/
 ├── dnsmasq/
 │   └── lerd.conf
+├── vapid-private.key                # Web Push signing key (mode 0600, see features/notifications.md)
+├── vapid-public.key                 # Web Push public key, served to browsers
+├── push-subscriptions.json          # Browser push subscriptions + per-category prefs (mode 0600)
+├── nginx-trust-token                # Per-install secret for lerd.localhost → lerd-ui proxy
 └── sites.yaml
 ```
 

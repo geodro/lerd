@@ -25,6 +25,63 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// push fires when the browser receives a Web Push from lerd-ui. Payload is
+// the kind-agnostic push.Notification JSON (kind, title, body, tag, url,
+// data, params, title_key, body_key). We show whatever the server sent
+// using title/body directly — the SW has no DOM and no Paraglide, so the
+// English fallback strings are what the user sees here. Page-context
+// dispatch (see notify.ts) uses the i18n keys when the dashboard is open.
+self.addEventListener('push', (event) => {
+  let evt;
+  try {
+    evt = event.data ? event.data.json() : null;
+  } catch (_) {
+    evt = null;
+  }
+  if (!evt || !evt.kind) return;
+  const title = (evt.title || '').trim() || '(lerd)';
+  const body = (evt.body || '').trim();
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    tag: evt.tag || ('lerd-' + evt.kind),
+    icon: evt.icon || '/icons/icon-192.png',
+    data: {
+      kind: evt.kind,
+      url: evt.url || '',
+      // Forward any extras the producer attached so notificationclick can
+      // route or analytics can read them.
+      ...(evt.data || {})
+    }
+  }));
+});
+
+// notificationclick is kind-agnostic: every notification carries a `url`
+// hash-route in its data, and we either post that to an existing client
+// (so the dashboard navigates without a full reload) or open a fresh
+// window pointed at the hash. The page-side hashchange listener resolves
+// services + deep-link parameters from there.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const url = data.url || '';
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) {
+      if (new URL(c.url).origin !== self.location.origin) continue;
+      try {
+        await c.focus();
+      } catch (_) {
+        /* focus may be disallowed; postMessage still works */
+      }
+      c.postMessage({ kind: 'lerd-open', url });
+      return;
+    }
+    if (self.clients.openWindow) {
+      await self.clients.openWindow('/' + url);
+    }
+  })());
+});
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;

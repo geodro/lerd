@@ -6,6 +6,7 @@
 
 {#if $dashboardOpen}
   {@const d = $dashboardOpen}
+  {@const iframeSrc = d.dashboard + (d.extraPath ?? '')}
   <div class="fixed top-0 right-0 left-0 bottom-16 md:left-14 md:bottom-0 z-30 flex flex-col bg-white dark:bg-lerd-bg">
     <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-lerd-border shrink-0">
       <div class="flex items-center gap-3 min-w-0">
@@ -14,7 +15,7 @@
         </svg>
         <span class="text-sm font-medium text-gray-900 dark:text-white truncate">{d.label || d.name}</span>
         <a
-          href={d.dashboard}
+          href={iframeSrc}
           target="_blank"
           rel="noopener"
           class="font-mono text-[10px] text-sky-600 dark:text-sky-400 hover:underline truncate"
@@ -22,7 +23,7 @@
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <a
-          href={d.dashboard}
+          href={iframeSrc}
           target="_blank"
           rel="noopener"
           class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-200 dark:border-lerd-border hover:border-gray-300 dark:hover:border-lerd-muted rounded-sm px-2 py-1 transition-colors"
@@ -39,6 +40,6 @@
         </button>
       </div>
     </div>
-    <iframe src={d.dashboard} class="flex-1 w-full bg-white border-0" title={d.label || d.name}></iframe>
+    <iframe src={iframeSrc} class="flex-1 w-full bg-white border-0" title={d.label || d.name}></iframe>
   </div>
 {/if}

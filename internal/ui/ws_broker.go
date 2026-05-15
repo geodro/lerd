@@ -48,13 +48,16 @@ type wsBroker struct {
 
 // wsMessage is what the broker ships to each websocket writer goroutine.
 // Kinds names which snapshots changed; Sites/Services/Status hold the fresh
-// JSON bytes for only the kinds in Kinds.
+// JSON bytes for only the kinds in Kinds. Notification is an ephemeral
+// kind-agnostic payload (see broadcastNotification) that bypasses the
+// snapshot/eventbus pipeline because it carries the full body inline.
 type wsMessage struct {
 	Kinds            []string
 	Sites            []byte
 	Services         []byte
 	Status           []byte
 	UnhealthyWorkers []byte
+	Notification     []byte
 }
 
 var broker = &wsBroker{peers: make(map[chan wsMessage]struct{})}
@@ -83,6 +86,15 @@ func (b *wsBroker) hasPeers() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.peers) > 0
+}
+
+// broadcastNotification ships a kind-agnostic notification payload to every
+// connected peer. The payload is the entire content (no snapshot rebuild),
+// and the message carries a single "notification" kind tag so the writer
+// emits it as a `notification` frame the frontend dispatcher then routes by
+// the payload's own `kind` field (mail, worker_failed, op_done, …).
+func (b *wsBroker) broadcastNotification(payload []byte) {
+	b.broadcast(wsMessage{Kinds: []string{"notification"}, Notification: payload})
 }
 
 func (b *wsBroker) broadcast(msg wsMessage) {
@@ -131,6 +143,7 @@ func runSnapshotInvalidator() {
 				msg.UnhealthyWorkers = snapshots.UnhealthyWorkers()
 			case eventbus.KindServices:
 				msg.Services = snapshots.Services()
+				notifyOnServiceUpdates(msg.Services)
 			case eventbus.KindStatus:
 				msg.Status = snapshots.Status()
 			}

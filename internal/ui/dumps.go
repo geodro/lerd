@@ -55,6 +55,7 @@ func startDumpsServer() {
 	}
 	dumpsServer.Store(srv)
 	fmt.Printf("Lerd dumps receiver listening on %s:%s\n", network, srv.Addr())
+	go runDumpsNotifier(srv)
 }
 
 // handleDumpsList returns a JSON array of buffered events. Supports

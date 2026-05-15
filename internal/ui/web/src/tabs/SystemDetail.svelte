@@ -5,6 +5,7 @@
   import NginxDetail from './system/NginxDetail.svelte';
   import WatcherDetail from './system/WatcherDetail.svelte';
   import DumpBridgeDetail from './system/DumpBridgeDetail.svelte';
+  import NotificationsDetail from './system/NotificationsDetail.svelte';
   import PhpDetail from './system/PhpDetail.svelte';
   import NodePage from './system/NodePage.svelte';
   import LerdDetail from './system/LerdDetail.svelte';
@@ -23,6 +24,8 @@
   <WatcherDetail />
 {:else if selected === 'dump-bridge'}
   <DumpBridgeDetail />
+{:else if selected === 'notifications'}
+  <NotificationsDetail />
 {:else if phpVersion}
   <PhpDetail version={phpVersion} />
 {:else if selected === 'node' || selected === 'node-install' || selected.startsWith('node-')}

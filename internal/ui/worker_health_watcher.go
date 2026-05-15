@@ -22,6 +22,12 @@ const healthWatchInterval = 5 * time.Second
 // don't race when the watcher updates it after publishing.
 var lastHealthSig atomic.Value // string
 
+// lastUnhealthySet is the previous tick's unhealthy slice, kept so the
+// watcher can compute the *new* failures (set difference) and fire a
+// notification only for units that just transitioned into failure — not
+// every tick that re-broadcasts the same long-standing failure.
+var lastUnhealthySet atomic.Value // []workerheal.UnhealthyWorker
+
 // runWorkerHealthWatcher closes the gap between systemd's internal state
 // transitions (start-limit-hit, external `systemctl stop`, anything that
 // happens without lerd-ui's involvement) and the dashboard banner. Each
@@ -39,9 +45,6 @@ func runWorkerHealthWatcher() {
 	ticker := time.NewTicker(healthWatchInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		if visibleClients.Load() == 0 {
-			continue
-		}
 		unhealthy, err := workerheal.Detect()
 		if err != nil {
 			continue
@@ -52,8 +55,17 @@ func runWorkerHealthWatcher() {
 			continue
 		}
 		lastHealthSig.Store(sig)
-		// Riding KindSites means the existing snapshot/broker pipeline
-		// rebuilds and pushes without needing a separate event kind.
+		prevUnhealthy, _ := lastUnhealthySet.Load().([]workerheal.UnhealthyWorker)
+		for _, w := range newWorkerFailures(prevUnhealthy, unhealthy) {
+			dispatchNotification(notificationForWorkerFailure(w))
+		}
+		lastUnhealthySet.Store(append([]workerheal.UnhealthyWorker(nil), unhealthy...))
+		// Skip the eventbus publish when no tab is open; the snapshot
+		// rebuild would just rebuild bytes nobody reads. Notifications
+		// above still fire so closed-PWA users get the push.
+		if visibleClients.Load() == 0 {
+			continue
+		}
 		eventbus.Default.Publish(eventbus.KindSites)
 	}
 }

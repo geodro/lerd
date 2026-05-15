@@ -88,6 +88,10 @@ Additional UIs:
 - RustFS console: `http://127.0.0.1:9001`
 - Mailpit web UI: `http://127.0.0.1:8025`
 
+### Mailpit desktop notifications
+
+Captured emails can pop a desktop notification with the subject and sender; clicking the notification opens the captured message in the Mailpit overlay. This is one of several notification kinds the dashboard supports — see [Desktop notifications](../features/notifications.md) for the full list (worker failures, finished service operations, service updates, dumps) and how to configure them under **System → Desktop notifications**.
+
 ### RustFS, per-site buckets
 
 RustFS is an S3-compatible object storage service (a drop-in replacement for MinIO). When `lerd env` detects it is needed (via `FILESYSTEM_DISK=s3` or `AWS_ENDPOINT` in `.env`), it automatically:
