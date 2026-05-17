@@ -11,8 +11,8 @@ Both kinds use the same YAML schema in `internal/config/presets/*.yaml` and the 
 
 | Preset | Default image | Update strategy | Notes |
 |---|---|---|---|
-| `mysql` | `docker.io/library/mysql:8.4` (LTS) | `minor` (track_latest) | Multi-version: 8.4 canonical + 5.7, 8.0 alternates on host ports 3357 / 3380. SQL migration supported. |
-| `postgres` | `docker.io/postgis/postgis:16-3.5-alpine` | `minor` (track_latest) | Darwin platform override → `imresamu/postgis` for ARM64 compatibility. SQL migration supported. |
+| `mysql` | `docker.io/library/mysql:8.4` (LTS) | `minor` (track_latest) | Multi-version: 8.4 canonical + 9.7 LTS, 5.7 alternates on host ports 3397 / 3357. SQL migration supported. |
+| `postgres` | `docker.io/postgis/postgis:16-3.5-alpine` | `minor` (track_latest) | Multi-version: 16 canonical + 17, 18 alternates on host ports 5417 / 5418. SQL migration supported. |
 | `redis` | `docker.io/library/redis:7-alpine` | `minor` (track_latest) | Forward-compat across 7.x patches. |
 | `meilisearch` | `docker.io/getmeili/meilisearch:v1.42` | `patch` (track_latest) | Cross-minor upgrades require manual dump/restore — automated migration is **not** offered for Meilisearch (binary dump format is version-specific). |
 | `rustfs` | `docker.io/rustfs/rustfs:latest` | `rolling` | S3-compatible. |
@@ -24,7 +24,8 @@ Both kinds use the same YAML schema in `internal/config/presets/*.yaml` and the 
 |---|---|---|---|
 | `phpmyadmin` | `docker.io/library/phpmyadmin:latest` | `mysql` (default) | `http://localhost:8080` |
 | `pgadmin` | `docker.io/dpage/pgadmin4:latest` | `postgres` (default) | `http://localhost:8081` |
-| `mysql` alternates | `5.7` / `8.0` (canonical 8.4 lives in the default preset) | - | `127.0.0.1:3357` / `127.0.0.1:3380` |
+| `mysql` alternates | `5.7` / `9.7` LTS (canonical 8.4 lives in the default preset) | - | `127.0.0.1:3357` / `127.0.0.1:3397` |
+| `postgres` alternates | `17` / `18` (canonical 16 lives in the default preset) | - | `127.0.0.1:5417` / `127.0.0.1:5418` |
 | `mariadb` | `11` (default) / `10.11` LTS | - | `127.0.0.1:3411` / `127.0.0.1:3410` |
 | `mongo` | `docker.io/library/mongo:7` | - | `127.0.0.1:27017` |
 | `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
@@ -74,13 +75,16 @@ persists in `localStorage`.
 
 ## Multi-version presets
 
-`mysql` and `mariadb` ship multiple selectable versions. The canonical version (mysql 8.4 LTS, mariadb 11) is the default install — recognised as the bare service `mysql` / `mariadb` on the canonical host port. Non-canonical alternates materialise as distinct custom services named `<family>-<sanitized-tag>`, runnable side-by-side with the canonical. The alternates picker only shows non-canonical versions (it doesn't list 8.4 because that IS the default install).
+`mysql`, `postgres` and `mariadb` ship multiple selectable versions. The canonical version (mysql 8.4 LTS, postgres 16, mariadb 11) is the default install — recognised as the bare service `mysql` / `postgres` / `mariadb` on the canonical host port. Non-canonical alternates materialise as distinct custom services named `<family>-<sanitized-tag>`, runnable side-by-side with the canonical. The alternates picker only shows non-canonical versions (it doesn't list 8.4 because that IS the default install).
 
 | Picked | Service name | Container | Host port | Data dir |
 |---|---|---|---|---|
 | `mysql 8.4` (canonical) | `mysql` | `lerd-mysql` | `127.0.0.1:3306` | `~/.local/share/lerd/data/mysql/` |
-| `mysql 8.0` | `mysql-8-0` | `lerd-mysql-8-0` | `127.0.0.1:3380` | `~/.local/share/lerd/data/mysql-8-0/` |
+| `mysql 9.7` LTS | `mysql-9-7` | `lerd-mysql-9-7` | `127.0.0.1:3397` | `~/.local/share/lerd/data/mysql-9-7/` |
 | `mysql 5.7` | `mysql-5-7` | `lerd-mysql-5-7` | `127.0.0.1:3357` | `~/.local/share/lerd/data/mysql-5-7/` |
+| `postgres 16` (canonical) | `postgres` | `lerd-postgres` | `127.0.0.1:5432` | `~/.local/share/lerd/data/postgres/` |
+| `postgres 17` | `postgres-17` | `lerd-postgres-17` | `127.0.0.1:5417` | `~/.local/share/lerd/data/postgres-17/` |
+| `postgres 18` | `postgres-18` | `lerd-postgres-18` | `127.0.0.1:5418` | `~/.local/share/lerd/data/postgres-18/` |
 | `mariadb 11` (canonical) | `mariadb-11` | `lerd-mariadb-11` | `127.0.0.1:3411` | `~/.local/share/lerd/data/mariadb-11/` |
 | `mariadb 10.11` | `mariadb-10-11` | `lerd-mariadb-10-11` | `127.0.0.1:3410` | `~/.local/share/lerd/data/mariadb-10-11/` |
 
@@ -92,6 +96,12 @@ machine; note that another process on the host bound to the same port will
 make the alternate fail to start with a `bind: address already in use` error
 in `journalctl --user -u lerd-<service>`. Use `lerd service expose <service>
 <other:3306>` to add a different mapping if you hit a collision.
+
+### Canonical version pinning
+
+Each default-preset install records which version's tag was canonical at install time in `~/.config/lerd/config.yaml` under `services.<name>.canonical_version`. That pin survives future canonical flips in the bundled YAML: when a later lerd release promotes (say) `postgres 18` to canonical, existing installs whose pin says `16` continue to resolve against 16 and keep their bare service name. New installs land on whatever the YAML currently calls canonical and get pinned to that.
+
+`lerd service migrate <service> <tag>` is the explicit cross-major path. Beyond the dump/restore, it rewrites `canonical_version` to the new tag so the next reconcile honors the move instead of reverting to the original pin.
 
 The mysql preset bundles a `my.cnf` (`/etc/mysql/conf.d/lerd.cnf`) that
 enables `innodb_large_prefix`, `Barracuda`, `innodb_default_row_format=DYNAMIC`

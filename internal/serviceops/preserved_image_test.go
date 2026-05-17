@@ -67,6 +67,120 @@ func TestEnsureDefaultPresetQuadletPinned_emptyPinFallsThroughToPreset(t *testin
 	}
 }
 
+func TestEnsureDefaultPresetQuadlet_writesCanonicalPinOnFirstInstall(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	orig := podman.DaemonReloadFn
+	t.Cleanup(func() { podman.DaemonReloadFn = orig })
+	podman.DaemonReloadFn = func() error { return nil }
+
+	if err := EnsureDefaultPresetQuadlet("postgres"); err != nil {
+		t.Fatalf("EnsureDefaultPresetQuadlet: %v", err)
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	if got := cfg.Services["postgres"].CanonicalVersion; got != "16" {
+		t.Errorf("first install must persist CanonicalVersion=16, got %q", got)
+	}
+}
+
+func TestEnsureDefaultPresetQuadlet_singleVersionPresetSkipsPin(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	orig := podman.DaemonReloadFn
+	t.Cleanup(func() { podman.DaemonReloadFn = orig })
+	podman.DaemonReloadFn = func() error { return nil }
+
+	if err := EnsureDefaultPresetQuadlet("mailpit"); err != nil {
+		t.Fatalf("EnsureDefaultPresetQuadlet(mailpit): %v", err)
+	}
+	cfg, _ := config.LoadGlobal()
+	if got := cfg.Services["mailpit"].CanonicalVersion; got != "" {
+		t.Errorf("single-version preset must not write a CanonicalVersion pin, got %q", got)
+	}
+}
+
+func TestMatchVersionByImageTag(t *testing.T) {
+	versions := []config.PresetVersion{
+		{Tag: "18", Image: "docker.io/postgis/postgis:18-3.6-alpine"},
+		{Tag: "17", Image: "docker.io/postgis/postgis:17-3.6-alpine"},
+		{Tag: "16", Image: "docker.io/postgis/postgis:16-3.5-alpine"},
+	}
+	cases := map[string]string{
+		"docker.io/postgis/postgis:16-3.5-alpine":   "16",
+		"docker.io/postgis/postgis:16.5-3.5-alpine": "16",
+		"docker.io/postgis/postgis:18-3.6-alpine":   "18",
+		"docker.io/postgis/postgis:17.2-3.6-alpine": "17",
+		"docker.io/library/mysql:8.4.9":             "",
+		"no-tag":                                    "",
+	}
+	for image, want := range cases {
+		if got := matchVersionByImageTag(image, versions); got != want {
+			t.Errorf("matchVersionByImageTag(%q) = %q, want %q", image, got, want)
+		}
+	}
+	mysqlVersions := []config.PresetVersion{
+		{Tag: "9.7"}, {Tag: "8.4"}, {Tag: "5.7"},
+	}
+	if got := matchVersionByImageTag("docker.io/library/mysql:8.4.9", mysqlVersions); got != "8.4" {
+		t.Errorf("mysql 8.4.9 should match 8.4, got %q", got)
+	}
+}
+
+func TestEnsureDefaultPresetQuadlet_honorsCanonicalPinAcrossFlip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	orig := podman.DaemonReloadFn
+	t.Cleanup(func() { podman.DaemonReloadFn = orig })
+	podman.DaemonReloadFn = func() error { return nil }
+
+	// Simulate a user who installed postgres before a future YAML flip:
+	// CanonicalVersion="17" pretends the user's install pre-dated whatever
+	// the current YAML calls canonical. Reconcile must resolve against 17,
+	// not the YAML's canonical, but keep the bare "postgres" name.
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	if cfg.Services == nil {
+		cfg.Services = map[string]config.ServiceConfig{}
+	}
+	cfg.Services["postgres"] = config.ServiceConfig{CanonicalVersion: "17"}
+	if err := config.SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal: %v", err)
+	}
+
+	if err := EnsureDefaultPresetQuadlet("postgres"); err != nil {
+		t.Fatalf("EnsureDefaultPresetQuadlet: %v", err)
+	}
+	quadlet, err := os.ReadFile(filepath.Join(config.QuadletDir(), "lerd-postgres.container"))
+	if err != nil {
+		t.Fatalf("read quadlet: %v", err)
+	}
+	if !strings.Contains(string(quadlet), ":17-") {
+		t.Errorf("pinned postgres must resolve to a :17- image, got:\n%s", string(quadlet))
+	}
+	if !strings.Contains(string(quadlet), "ContainerName=lerd-postgres\n") {
+		t.Errorf("pinned postgres must keep bare ContainerName=lerd-postgres, got:\n%s", string(quadlet))
+	}
+	// Pin must not be overwritten by reconcile.
+	cfg2, _ := config.LoadGlobal()
+	if got := cfg2.Services["postgres"].CanonicalVersion; got != "17" {
+		t.Errorf("reconcile must preserve existing CanonicalVersion=17, got %q", got)
+	}
+}
+
 func TestCaptureReinstallSpec_emptyPresetVersionRejected(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)

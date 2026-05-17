@@ -6,15 +6,15 @@ description: MySQL database
 family: mysql
 default_version: "8.4"
 versions:
+  - tag: "9.7"
+    label: "9.7 LTS"
+    image: docker.io/library/mysql:9.7
+    host_port: 3397
   - tag: "8.4"
     label: "8.4 LTS (default)"
     image: docker.io/library/mysql:8.4
     canonical: true
     host_port: 3306
-  - tag: "8.0"
-    label: "8.0"
-    image: docker.io/library/mysql:8.0
-    host_port: 3380
   - tag: "5.7"
     label: "5.7"
     image: docker.io/library/mysql:5.7

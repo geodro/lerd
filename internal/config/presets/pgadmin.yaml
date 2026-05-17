@@ -8,6 +8,9 @@ environment:
   PGADMIN_DEFAULT_PASSWORD: lerd
   PGADMIN_CONFIG_SERVER_MODE: "False"
   PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+  PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+dynamic_env:
+  LERD_POSTGRES_HOSTS: discover_family:postgres
 depends_on:
   - postgres
 dashboard: http://localhost:8081

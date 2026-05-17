@@ -297,6 +297,22 @@ func persistImageChoice(name, newImage, op string) error {
 		if op != "migrate" {
 			next.PreMigrateBackup = ""
 		}
+		// Migrate is the explicit cross-version move, so sync the canonical
+		// pin to the new tag — otherwise a later reconcile would resolve
+		// against the pre-migrate version and clobber the migrated install.
+		if op == "migrate" {
+			if at := strings.LastIndex(newImage, ":"); at > 0 {
+				newTag := newImage[at+1:]
+				if p, perr := config.LoadPreset(name); perr == nil {
+					for _, v := range p.Versions {
+						if v.Tag == newTag {
+							next.CanonicalVersion = v.Tag
+							break
+						}
+					}
+				}
+			}
+		}
 		cfg.Services[name] = next
 		if err := config.SaveGlobal(cfg); err != nil {
 			return fmt.Errorf("saving global config: %w", err)

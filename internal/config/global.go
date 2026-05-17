@@ -27,6 +27,10 @@ type ServiceConfig struct {
 	// when the most recent operation was a migrate. Used by rollback to refuse
 	// (or, in future, restore) when undoing the migrate would corrupt data.
 	PreMigrateBackup string `yaml:"pre_migrate_backup,omitempty" mapstructure:"pre_migrate_backup"`
+	// CanonicalVersion pins the preset version tag this service was first
+	// installed on, so flipping the YAML's canonical (e.g. pg 16 → 18 in a
+	// future release) never silently major-jumps existing installs.
+	CanonicalVersion string `yaml:"canonical_version,omitempty" mapstructure:"canonical_version"`
 }
 
 // GlobalConfig is the top-level lerd configuration.

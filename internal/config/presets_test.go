@@ -188,7 +188,7 @@ func TestLoadPreset_MySQL_MultiVersion(t *testing.T) {
 		t.Errorf("multi-version preset must not declare top-level image, got %q", p.Image)
 	}
 	if len(p.Versions) < 2 {
-		t.Errorf("expected at least 2 versions (8.4 canonical + 8.0 alternate), got %d", len(p.Versions))
+		t.Errorf("expected at least 2 versions (8.4 canonical + alternates), got %d", len(p.Versions))
 	}
 	if p.DefaultVersion != "8.4" {
 		t.Errorf("DefaultVersion should be 8.4 (the canonical LTS default), got %q", p.DefaultVersion)
@@ -439,7 +439,7 @@ func TestListPresets_CanonicalHiddenFromAlternates(t *testing.T) {
 			t.Errorf("8.4 is canonical and should be filtered out of mysql alternates")
 		}
 	}
-	wantAlts := map[string]bool{"8.0": false, "5.7": false}
+	wantAlts := map[string]bool{"9.7": false, "5.7": false}
 	for _, v := range mysql.Versions {
 		if _, ok := wantAlts[v.Tag]; ok {
 			wantAlts[v.Tag] = true
@@ -529,7 +529,7 @@ func TestPresetResolve_AlternatesUseHostPort(t *testing.T) {
 	}
 	cases := map[string]string{
 		"5.7": "3357:3306",
-		"8.0": "3380:3306",
+		"9.7": "3397:3306",
 	}
 	for tag, wantPort := range cases {
 		svc, err := p.Resolve(tag)
@@ -569,6 +569,56 @@ func TestPresetResolve_MysqlCanonical(t *testing.T) {
 		if strings.Contains(port, "{{") {
 			t.Errorf("non-canonical ports must be substituted, got %q", port)
 		}
+	}
+}
+
+func TestPresetCanonicalTag(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	if got := p.CanonicalTag(); got != "16" {
+		t.Errorf("postgres CanonicalTag() = %q, want 16", got)
+	}
+	pm, err := LoadPreset("mariadb")
+	if err != nil {
+		t.Fatalf("LoadPreset(mariadb): %v", err)
+	}
+	if got := pm.CanonicalTag(); got != "" {
+		t.Errorf("mariadb has no canonical, CanonicalTag() = %q, want empty", got)
+	}
+}
+
+func TestPresetResolvePinned_KeepsBareName(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	svc, err := p.ResolvePinned("17")
+	if err != nil {
+		t.Fatalf("ResolvePinned(17): %v", err)
+	}
+	if svc.Name != "postgres" {
+		t.Errorf("pinned alternate Name = %q, want bare postgres (canonical-flip protection)", svc.Name)
+	}
+	if !strings.Contains(svc.Image, ":17-") {
+		t.Errorf("pinned alternate Image = %q, want a :17- tag", svc.Image)
+	}
+	for _, kv := range svc.EnvVars {
+		if kv == "DB_HOST=lerd-postgres" {
+			return
+		}
+	}
+	t.Errorf("expected DB_HOST=lerd-postgres in pinned env_vars, got %v", svc.EnvVars)
+}
+
+func TestPresetResolvePinned_UnknownTag(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	if _, err := p.ResolvePinned("99"); err == nil {
+		t.Errorf("ResolvePinned(99) should error for unknown tag")
 	}
 }
 
@@ -634,8 +684,101 @@ func TestLoadPreset_PostgresHasNoForkOverride(t *testing.T) {
 			t.Errorf("postgres preset must not ship a third-party fork override, got %+v", po)
 		}
 	}
-	if !strings.Contains(p.Image, "postgis/postgis") {
-		t.Errorf("postgres preset must keep the upstream postgis/postgis image, got %q", p.Image)
+	if len(p.Versions) == 0 {
+		t.Fatalf("postgres preset must declare versions, got none")
+	}
+	for _, v := range p.Versions {
+		if !strings.Contains(v.Image, "postgis/postgis") {
+			t.Errorf("postgres version %q must keep the upstream postgis/postgis image, got %q", v.Tag, v.Image)
+		}
+	}
+}
+
+func TestLoadPreset_PostgresMultiVersion(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset(postgres): %v", err)
+	}
+	if p.Image != "" {
+		t.Errorf("multi-version postgres must not declare top-level image, got %q", p.Image)
+	}
+	wantTags := map[string]bool{"18": false, "17": false, "16": false}
+	for _, v := range p.Versions {
+		if _, ok := wantTags[v.Tag]; ok {
+			wantTags[v.Tag] = true
+		}
+	}
+	for tag, found := range wantTags {
+		if !found {
+			t.Errorf("postgres preset missing version %q", tag)
+		}
+	}
+	if p.DefaultVersion != "16" {
+		t.Errorf("postgres DefaultVersion = %q, want 16 (canonical for back-compat)", p.DefaultVersion)
+	}
+}
+
+func TestPostgresPin_PGDATAEnvSet(t *testing.T) {
+	// PostgreSQL 18 moved the default PGDATA to /var/lib/postgresql/<major>/data,
+	// which breaks the legacy /var/lib/postgresql/data mount. Pinning PGDATA
+	// in the preset env forces all versions onto the old layout we mount.
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset(postgres): %v", err)
+	}
+	if got := p.Environment["PGDATA"]; got != "/var/lib/postgresql/data" {
+		t.Errorf("postgres preset must pin PGDATA=/var/lib/postgresql/data for v18+ compat, got %q", got)
+	}
+}
+
+func TestPresetResolve_PostgresCanonical(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	svc, err := p.Resolve("16")
+	if err != nil {
+		t.Fatalf("Resolve(16): %v", err)
+	}
+	if svc.Name != "postgres" {
+		t.Errorf("canonical postgres Name = %q, want bare postgres", svc.Name)
+	}
+	if len(svc.Ports) != 1 || svc.Ports[0] != "5432:5432" {
+		t.Errorf("canonical postgres Ports = %v, want [5432:5432]", svc.Ports)
+	}
+	if svc.ConnectionURL != "postgresql://postgres:lerd@127.0.0.1:5432/lerd" {
+		t.Errorf("canonical postgres ConnectionURL = %q", svc.ConnectionURL)
+	}
+}
+
+func TestPresetResolve_PostgresAlternates(t *testing.T) {
+	p, err := LoadPreset("postgres")
+	if err != nil {
+		t.Fatalf("LoadPreset: %v", err)
+	}
+	cases := map[string]struct {
+		wantName string
+		wantPort string
+	}{
+		"18": {"postgres-18", "5418:5432"},
+		"17": {"postgres-17", "5417:5432"},
+	}
+	for tag, want := range cases {
+		svc, err := p.Resolve(tag)
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", tag, err)
+		}
+		if svc.Name != want.wantName {
+			t.Errorf("postgres %s: Name = %q, want %q", tag, svc.Name, want.wantName)
+		}
+		if len(svc.Ports) == 0 || svc.Ports[0] != want.wantPort {
+			t.Errorf("postgres %s: Ports = %v, want [%s]", tag, svc.Ports, want.wantPort)
+		}
+		for _, port := range svc.Ports {
+			if strings.Contains(port, "{{") {
+				t.Errorf("postgres %s alternate ports must be substituted, got %q", tag, port)
+			}
+		}
 	}
 }
 

@@ -46,8 +46,14 @@ type SiteInit struct {
 type FileMount struct {
 	// Target is the absolute path inside the container where the file appears.
 	Target string `yaml:"target"`
-	// Content is the literal file body, written verbatim.
+	// Content is the literal file body, written verbatim. Ignored when
+	// ContentFn is set.
 	Content string `yaml:"content"`
+	// ContentFn dynamically generates the file body at materialise time
+	// based on the resolved service (e.g. to inject family-discovered
+	// hosts into pgAdmin's servers.json). Cannot be loaded from YAML, only
+	// the Go-side preset_files map sets it.
+	ContentFn func(*CustomService) (string, error) `yaml:"-"`
 	// Mode is the octal permission bits, e.g. "0600". Defaults to "0644".
 	Mode string `yaml:"mode,omitempty"`
 	// Chown adds the :U flag to the volume mount so podman re-chowns the file
@@ -328,13 +334,21 @@ func MaterializeServiceFiles(svc *CustomService) error {
 			mode = os.FileMode(parsed)
 		}
 		path := ServiceFilePath(svc.Name, f.Target)
+		content := f.Content
+		if f.ContentFn != nil {
+			out, err := f.ContentFn(svc)
+			if err != nil {
+				return fmt.Errorf("generating %s for service %s: %w", path, svc.Name, err)
+			}
+			content = out
+		}
 		// Unlink first: with chown:true podman's :U flag re-owns the file to a
 		// userns-mapped uid, so a plain rewrite would EACCES. Removing the dir
 		// entry succeeds because the parent dir is owned by us.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("removing stale %s for service %s: %w", path, svc.Name, err)
 		}
-		if err := os.WriteFile(path, []byte(f.Content), mode); err != nil {
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
 			return fmt.Errorf("writing %s for service %s: %w", path, svc.Name, err)
 		}
 		// WriteFile honours umask; chmod explicitly so 0600 sticks.

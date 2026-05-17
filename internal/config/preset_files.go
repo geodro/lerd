@@ -1,5 +1,11 @@
 package config
 
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+)
+
 // presetFiles holds the file mounts shipped with each bundled preset. This
 // lives in Go rather than the preset YAMLs so that new lerd versions can
 // update the mounted file contents automatically on the next service start
@@ -12,11 +18,9 @@ var presetFiles = map[string][]FileMount{
 	"mysql": {
 		{
 			Target: "/etc/mysql/conf.d/lerd.cnf",
-			// loose- prefix lets the file load across mysql 5.7/8.0/8.4 even
-			// when a directive is unknown to that version. innodb_large_prefix
-			// and innodb_file_format used to live here for 5.6 compatibility,
-			// but lerd no longer ships 5.6 and both were removed in 8.0,
-			// so they generated startup warnings on every modern run.
+			// loose- prefix skips directives unknown to a given mysql version;
+			// authentication_policy is omitted because mysql 9.x removed
+			// mysql_native_password, which made the variable refuse to load.
 			Content: `[mysqld]
 character-set-server=utf8mb4
 collation-server=utf8mb4_unicode_ci
@@ -24,35 +28,20 @@ innodb_file_per_table=ON
 innodb_strict_mode=OFF
 loose-innodb_default_row_format=DYNAMIC
 loose-mysql-native-password=ON
-authentication_policy='mysql_native_password,,'
 loose-restrict-fk-on-non-standard-key=OFF
 `,
 		},
 	},
 	"pgadmin": {
 		{
-			Target: "/pgadmin4/servers.json",
-			Content: `{
-  "Servers": {
-    "1": {
-      "Name": "Lerd Postgres",
-      "Group": "Servers",
-      "Host": "lerd-postgres",
-      "Port": 5432,
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "prefer",
-      "PassFile": "/pgpass"
-    }
-  }
-}
-`,
+			Target:    "/pgadmin4/servers.json",
+			ContentFn: pgadminServersJSON,
 		},
 		{
-			Target:  "/pgpass",
-			Mode:    "0600",
-			Chown:   true,
-			Content: "lerd-postgres:5432:*:postgres:lerd\n",
+			Target:    "/pgpass",
+			Mode:      "0600",
+			Chown:     true,
+			ContentFn: pgadminPgpass,
 		},
 		{
 			Target: "/pgadmin4/config_local.py",
@@ -118,4 +107,72 @@ func PresetFiles(presetName string) []FileMount {
 	out := make([]FileMount, len(src))
 	copy(out, src)
 	return out
+}
+
+// pgadminFriendlyName turns a container hostname like "lerd-postgres-18"
+// into a human-friendly server label "Lerd Postgres 18".
+func pgadminFriendlyName(host string) string {
+	parts := strings.Split(strings.TrimPrefix(host, "lerd-"), "-")
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return "Lerd " + strings.Join(parts, " ")
+}
+
+// pgadminPostgresHosts returns the postgres family members, falling back to
+// the canonical lerd-postgres when discovery is empty (fresh install before
+// the family registry has been populated).
+func pgadminPostgresHosts() []string {
+	hosts := ServicesInFamily("postgres")
+	if len(hosts) == 0 {
+		return []string{"lerd-postgres"}
+	}
+	return hosts
+}
+
+// pgadminServersJSON renders pgAdmin's servers.json with every installed
+// postgres family member, so alternates like postgres-18 appear in the
+// dashboard alongside the canonical postgres without manual server setup.
+func pgadminServersJSON(_ *CustomService) (string, error) {
+	type server struct {
+		Name          string `json:"Name"`
+		Group         string `json:"Group"`
+		Host          string `json:"Host"`
+		Port          int    `json:"Port"`
+		MaintenanceDB string `json:"MaintenanceDB"`
+		Username      string `json:"Username"`
+		SSLMode       string `json:"SSLMode"`
+		PassFile      string `json:"PassFile"`
+	}
+	servers := map[string]server{}
+	for i, host := range pgadminPostgresHosts() {
+		servers[strconv.Itoa(i+1)] = server{
+			Name:          pgadminFriendlyName(host),
+			Group:         "Servers",
+			Host:          host,
+			Port:          5432,
+			MaintenanceDB: "postgres",
+			Username:      "postgres",
+			SSLMode:       "prefer",
+			PassFile:      "/pgpass",
+		}
+	}
+	data, err := json.MarshalIndent(map[string]any{"Servers": servers}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+// pgadminPgpass renders a libpq passfile with one line per postgres family
+// member so pgAdmin's PassFile=/pgpass entry auto-logs every alternate.
+func pgadminPgpass(_ *CustomService) (string, error) {
+	var b strings.Builder
+	for _, host := range pgadminPostgresHosts() {
+		b.WriteString(host)
+		b.WriteString(":5432:*:postgres:lerd\n")
+	}
+	return b.String(), nil
 }

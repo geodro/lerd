@@ -166,19 +166,58 @@ func EnsureDefaultPresetQuadletPinned(name, pinnedImage string) error {
 	if err != nil {
 		return err
 	}
-	svc, err := p.Resolve("")
+	canonicalPin := ""
+	pinnedUserImage := ""
+	var extraPorts []string
+	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
+		if svcCfg, ok := cfg.Services[name]; ok {
+			canonicalPin = svcCfg.CanonicalVersion
+			pinnedUserImage = svcCfg.Image
+			extraPorts = svcCfg.ExtraPorts
+		}
+	}
+	hasUserPin := pinnedUserImage != ""
+	// Backfill for pre-existing installs that pre-date this feature: if no
+	// pin is recorded but a container is running, derive the major from the
+	// installed image tag and pin against the matching version.
+	if canonicalPin == "" && len(p.Versions) > 0 {
+		var probe string
+		if hasUserPin {
+			probe = pinnedUserImage
+		} else {
+			probe = podman.InstalledImage("lerd-" + name)
+		}
+		if probe != "" {
+			canonicalPin = matchVersionByImageTag(probe, p.Versions)
+		}
+	}
+	var svc *config.CustomService
+	if canonicalPin != "" && len(p.Versions) > 0 {
+		svc, err = p.ResolvePinned(canonicalPin)
+	} else {
+		svc, err = p.Resolve("")
+	}
 	if err != nil {
 		return err
 	}
-	hasUserPin := false
-	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
-		if svcCfg, ok := cfg.Services[name]; ok {
-			if svcCfg.Image != "" {
-				svc.Image = svcCfg.Image
-				hasUserPin = true
-			}
-			if len(svcCfg.ExtraPorts) > 0 {
-				svc.Ports = append(svc.Ports, svcCfg.ExtraPorts...)
+	if hasUserPin {
+		svc.Image = pinnedUserImage
+	}
+	if len(extraPorts) > 0 {
+		svc.Ports = append(svc.Ports, extraPorts...)
+	}
+	// First-install / backfill pin: persist the canonical tag so future YAML
+	// canonical flips don't silently major-jump this install.
+	if canonicalPin == "" && len(p.Versions) > 0 {
+		canonicalPin = p.CanonicalTag()
+	}
+	if canonicalPin != "" {
+		if cfg, _ := config.LoadGlobal(); cfg != nil {
+			entry := cfg.Services[name]
+			if entry.CanonicalVersion != canonicalPin {
+				entry.CanonicalVersion = canonicalPin
+				cfg.Services[name] = entry
+				_ = config.SaveGlobal(cfg)
 			}
 		}
 	}
@@ -226,6 +265,26 @@ func EnsureDefaultPresetQuadletPinned(name, pinnedImage string) error {
 	}
 	p.ApplyPlatformOverride(svc, runtime.GOOS)
 	return EnsureCustomServiceQuadlet(svc)
+}
+
+// matchVersionByImageTag picks the longest version tag that is a prefix of
+// the installed image's tag. Lets backfill recognise postgis:16.5-3.5-alpine
+// as version "16" and mysql:8.4.9 as version "8.4".
+func matchVersionByImageTag(image string, versions []config.PresetVersion) string {
+	at := strings.LastIndex(image, ":")
+	if at < 0 {
+		return ""
+	}
+	tag := image[at+1:]
+	best := ""
+	for _, v := range versions {
+		if tag == v.Tag || strings.HasPrefix(tag, v.Tag+".") || strings.HasPrefix(tag, v.Tag+"-") {
+			if len(v.Tag) > len(best) {
+				best = v.Tag
+			}
+		}
+	}
+	return best
 }
 
 // EnsureCustomServiceQuadlet writes the quadlet for a custom service and

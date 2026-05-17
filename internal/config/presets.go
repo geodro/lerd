@@ -296,6 +296,72 @@ func (p *Preset) Resolve(version string) (*CustomService, error) {
 	return &svc, nil
 }
 
+// CanonicalTag returns the tag of the version marked canonical, or empty
+// when no version is flagged (single-version presets or all-alternate families).
+func (p *Preset) CanonicalTag() string {
+	for _, v := range p.Versions {
+		if v.Canonical {
+			return v.Tag
+		}
+	}
+	return ""
+}
+
+// ResolvePinned is like Resolve but always returns the preset's bare family
+// name even when the picked version is not flagged canonical. Used so a
+// canonical flip in the YAML doesn't rename installed services.
+func (p *Preset) ResolvePinned(tag string) (*CustomService, error) {
+	if len(p.Versions) == 0 {
+		return nil, fmt.Errorf("preset %q has no versions, cannot pin", p.Name)
+	}
+	var picked *PresetVersion
+	for i := range p.Versions {
+		if p.Versions[i].Tag == tag {
+			picked = &p.Versions[i]
+			break
+		}
+	}
+	if picked == nil {
+		return nil, fmt.Errorf("preset %q has no version %q", p.Name, tag)
+	}
+	safe := SanitizeImageTag(picked.Tag)
+	svc := p.CustomService
+	svc.Image = picked.Image
+	svc.Preset = p.Name
+	svc.PresetVersion = picked.Tag
+	var hostPort string
+	if picked.HostPort > 0 {
+		hostPort = fmt.Sprintf("%d", picked.HostPort)
+	}
+	repl := strings.NewReplacer(
+		"{{name}}", svc.Name,
+		"{{tag}}", picked.Tag,
+		"{{tag_safe}}", safe,
+		"{{host_port}}", hostPort,
+	)
+	if len(svc.Ports) > 0 {
+		out := make([]string, len(svc.Ports))
+		for i, port := range svc.Ports {
+			out[i] = repl.Replace(port)
+		}
+		svc.Ports = out
+	}
+	if len(svc.EnvVars) > 0 {
+		out := make([]string, len(svc.EnvVars))
+		for i, kv := range svc.EnvVars {
+			out[i] = repl.Replace(kv)
+		}
+		svc.EnvVars = out
+	}
+	if svc.ConnectionURL != "" {
+		svc.ConnectionURL = repl.Replace(svc.ConnectionURL)
+	}
+	if svc.Dashboard != "" {
+		svc.Dashboard = repl.Replace(svc.Dashboard)
+	}
+	return &svc, nil
+}
+
 // ApplyPlatformOverride swaps svc.Image with a platform-specific replacement
 // when the runtime OS matches and the current image satisfies ImageMatch.
 // The override image may use {{tag}} as a placeholder for the current image's

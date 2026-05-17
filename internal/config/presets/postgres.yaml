@@ -4,18 +4,33 @@ update_strategy: minor
 track_latest: true
 description: PostgreSQL with PostGIS
 family: postgres
-image: docker.io/postgis/postgis:16-3.5-alpine
+default_version: "16"
+versions:
+  - tag: "18"
+    label: "18"
+    image: docker.io/postgis/postgis:18-3.6-alpine
+    host_port: 5418
+  - tag: "17"
+    label: "17"
+    image: docker.io/postgis/postgis:17-3.6-alpine
+    host_port: 5417
+  - tag: "16"
+    label: "16 (default)"
+    image: docker.io/postgis/postgis:16-3.5-alpine
+    canonical: true
+    host_port: 5432
 ports:
-  - "5432:5432"
+  - "{{host_port}}:5432"
 data_dir: /var/lib/postgresql/data
 environment:
   POSTGRES_PASSWORD: lerd
   POSTGRES_DB: lerd
+  PGDATA: /var/lib/postgresql/data
 env_vars:
   - DB_CONNECTION=pgsql
-  - DB_HOST=lerd-postgres
+  - DB_HOST=lerd-{{name}}
   - DB_PORT=5432
   - DB_DATABASE=lerd
   - DB_USERNAME=postgres
   - DB_PASSWORD=lerd
-connection_url: postgresql://postgres:lerd@127.0.0.1:5432/lerd
+connection_url: postgresql://postgres:lerd@127.0.0.1:{{host_port}}/lerd
