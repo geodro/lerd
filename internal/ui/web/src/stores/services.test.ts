@@ -72,8 +72,10 @@ describe('services store', () => {
     expect(detailLabel({ name: 'mysql', status: 'active', site_count: 0 })).toBe('MySQL');
   });
 
-  it('parentSiteDomain appends .test', async () => {
+  it('parentSiteDomain resolves to the registered site domain', async () => {
+    const { sites } = await import('./sites');
     const { parentSiteDomain } = await import('./services');
+    sites.set([{ name: 'foo', domain: 'foo.test' }]);
     expect(parentSiteDomain({ name: 'queue-foo', status: 'active', site_count: 0, queue_site: 'foo' })).toBe(
       'foo.test'
     );

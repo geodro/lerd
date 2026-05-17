@@ -511,6 +511,8 @@
   "tinker_noOutput": "(sin salida)",
   "sites_tabs_overview": "Resumen",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "No se encontró el archivo .env en {path}.",
   "services_tabs_logs": "Registros",
   "services_portConflictTitle": "El puerto {ports} ya está en uso en el host. Detén el proceso en conflicto o cambia el puerto de lerd. Ejecuta `lerd doctor` para el comando de búsqueda en tu sistema.",
   "services_reinstall_action": "Reinstalar",

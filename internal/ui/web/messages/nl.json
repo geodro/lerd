@@ -511,6 +511,8 @@
   "tinker_noOutput": "(geen uitvoer)",
   "sites_tabs_overview": "Overzicht",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "Geen .env-bestand gevonden op {path}.",
   "services_tabs_logs": "Logs",
   "services_portConflictTitle": "Poort {ports} is al in gebruik op de host. Stop het conflicterende proces of wijzig de lerd-poort. Voer `lerd doctor` uit voor het zoekcommando op je systeem.",
   "services_reinstall_action": "Opnieuw installeren",

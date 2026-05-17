@@ -511,6 +511,8 @@
   "tinker_noOutput": "(keine Ausgabe)",
   "sites_tabs_overview": "Übersicht",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "Keine .env-Datei unter {path} gefunden.",
   "services_tabs_logs": "Logs",
   "services_portConflictTitle": "Port {ports} ist auf dem Host bereits belegt. Beende den kollidierenden Prozess oder ändere den lerd-Port. Führe `lerd doctor` aus für den passenden Suchbefehl auf deinem System.",
   "services_reinstall_action": "Neu installieren",

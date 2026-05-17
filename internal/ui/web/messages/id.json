@@ -511,6 +511,8 @@
   "tinker_noOutput": "(tidak ada keluaran)",
   "sites_tabs_overview": "Ringkasan",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "File .env tidak ditemukan di {path}.",
   "services_tabs_logs": "Log",
   "services_portConflictTitle": "Port {ports} sudah dipakai di host. Hentikan proses yang bentrok atau ubah port lerd. Jalankan `lerd doctor` untuk perintah pencarian di sistem Anda.",
   "services_reinstall_action": "Pasang ulang",

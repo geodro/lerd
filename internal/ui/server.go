@@ -672,6 +672,7 @@ type SiteResponse struct {
 	HasAppLogs         bool                `json:"has_app_logs"`
 	LatestLogTime      string              `json:"latest_log_time,omitempty"`
 	HasFavicon         bool                `json:"has_favicon"`
+	HasEnv             bool                `json:"has_env"`
 	Paused             bool                `json:"paused"`
 	Branch             string              `json:"branch"`
 	Worktrees          []WorktreeResponse  `json:"worktrees"`
@@ -791,6 +792,7 @@ func buildSites() []SiteResponse {
 			HasAppLogs:         e.HasAppLogs,
 			LatestLogTime:      e.LatestLogTime,
 			HasFavicon:         e.HasFavicon,
+			HasEnv:             siteHasEnv(e.Path),
 			Paused:             e.Paused,
 			Branch:             e.Branch,
 			Worktrees:          worktreeResponses,
@@ -1868,6 +1870,48 @@ func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleSiteEnv serves the raw contents of the site's (or worktree's) .env
+// file as text/plain. A missing file is reported as 200 with an empty body so
+// the UI can render an empty-state placeholder without a noisy 404.
+//
+//	GET /api/sites/{domain}/env[?branch=<sanitized>]
+func handleSiteEnv(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	domain := strings.TrimPrefix(r.URL.Path, "/api/sites/")
+	domain = strings.TrimSuffix(domain, "/env")
+
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+
+	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		http.Error(w, "reading .env: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(data)
+}
+
 // handleLANQR serves a QR code PNG for the LAN share URL of a site or one
 // of its worktrees.
 // Path: /api/lan-qr/{domain}[?branch=<sanitized>]
@@ -1934,6 +1978,12 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	// Favicon is a GET endpoint served separately.
 	if action == "favicon" {
 		handleSiteFavicon(w, r)
+		return
+	}
+
+	// .env file viewer is a GET endpoint served separately.
+	if action == "env" {
+		handleSiteEnv(w, r)
 		return
 	}
 
@@ -3198,6 +3248,19 @@ func ensureWorktreeEnvIfBranch(site *config.Site, branch string) {
 			return
 		}
 	}
+}
+
+// siteHasEnv reports whether the site root contains a .env file. Cheap,
+// stat-only check used to decide whether to surface the Env tab in the UI.
+func siteHasEnv(sitePath string) bool {
+	if sitePath == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(sitePath, ".env"))
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 // resolveSitePath returns the filesystem path for the site or one of its

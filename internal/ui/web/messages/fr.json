@@ -511,6 +511,8 @@
   "tinker_noOutput": "(aucune sortie)",
   "sites_tabs_overview": "Aperçu",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "Aucun fichier .env trouvé à {path}.",
   "services_tabs_logs": "Journaux",
   "services_portConflictTitle": "Le port {ports} est déjà utilisé sur l'hôte. Arrête le processus en conflit ou change le port de lerd. Exécute `lerd doctor` pour la commande de recherche sur ton système.",
   "services_reinstall_action": "Réinstaller",

@@ -511,6 +511,8 @@
   "tinker_noOutput": "(sem saída)",
   "sites_tabs_overview": "Visão geral",
   "sites_tabs_tinker": "Tinker",
+  "sites_tabs_env": "Env",
+  "sites_env_missing": "Nenhum arquivo .env encontrado em {path}.",
   "services_tabs_logs": "Logs",
   "services_portConflictTitle": "A porta {ports} já está em uso no host. Pare o processo em conflito ou altere a porta do lerd. Execute `lerd doctor` para o comando de busca no seu sistema.",
   "services_reinstall_action": "Reinstalar",

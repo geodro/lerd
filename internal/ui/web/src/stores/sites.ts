@@ -25,6 +25,7 @@ export interface Site {
   framework?: string;
   framework_label?: string;
   has_favicon?: boolean;
+  has_env?: boolean;
   paused?: boolean;
   services?: string[];
   custom_container?: boolean;
@@ -154,6 +155,13 @@ async function postAction(path: string): Promise<{ ok: boolean; error?: string }
 
 function site(path: string, action: string): string {
   return `/api/sites/${encodeURIComponent(path)}/${action}`;
+}
+
+export async function loadSiteEnv(domain: string, branch: string = ''): Promise<string> {
+  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : '';
+  const res = await apiFetch(site(domain, 'env') + qs);
+  if (!res.ok) throw new Error(`Failed to load .env (${res.status})`);
+  return await res.text();
 }
 
 export const restartSite = (d: string) => postAction(site(d, 'restart'));

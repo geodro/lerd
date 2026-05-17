@@ -4,6 +4,7 @@
   import SiteControls from './SiteControls.svelte';
   import SiteLogs from './SiteLogs.svelte';
   import SiteTinkerTab from './SiteTinkerTab.svelte';
+  import SiteEnvTab from './SiteEnvTab.svelte';
   import DumpsTab from '$tabs/DumpsTab.svelte';
   import { resumeSite, loadSites, type Site } from '$stores/sites';
   import { m } from '../../paraglide/messages.js';
@@ -24,22 +25,24 @@
   }
   let { site }: Props = $props();
 
-  type TabId = 'overview' | 'tinker' | 'dumps';
+  type TabId = 'overview' | 'tinker' | 'env' | 'dumps';
   const TAB_STORAGE_KEY = 'lerd:siteDetailTab';
 
   function readStoredTab(): TabId {
     if (typeof localStorage === 'undefined') return 'overview';
     const v = localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'tinker' || v === 'dumps') return v;
+    if (v === 'tinker' || v === 'env' || v === 'dumps') return v;
     return 'overview';
   }
 
   let active = $state<TabId>(readStoredTab());
   let activeWorktreeBranch = $state<string>('');
   const canTinker = $derived(Boolean(site.php_version));
+  const canEnv = $derived(Boolean(site.has_env));
 
   $effect(() => {
     if (active === 'tinker' && !canTinker) active = 'overview';
+    if (active === 'env' && !canEnv) active = 'overview';
   });
 
   $effect(() => {
@@ -64,6 +67,9 @@
 
 {#snippet tabs()}
   <button class={tabBtn('overview', active === 'overview')} onclick={() => (active = 'overview')}>{m.sites_tabs_overview()}</button>
+  {#if canEnv}
+    <button class={tabBtn('env', active === 'env')} onclick={() => (active = 'env')}>{m.sites_tabs_env()}</button>
+  {/if}
   {#if canTinker}
     <button class={tabBtn('tinker', active === 'tinker')} onclick={() => (active = 'tinker')}>{m.sites_tabs_tinker()}</button>
   {/if}
@@ -101,6 +107,10 @@
   {:else if active === 'overview'}
     <SiteControls {site} {activeWorktreeBranch} />
     <SiteLogs {site} {activeWorktreeBranch} />
+  {:else if active === 'env'}
+    {#key site.domain + '@' + activeWorktreeBranch}
+      <SiteEnvTab {site} branch={activeWorktreeBranch} />
+    {/key}
   {:else if active === 'tinker'}
     {#key site.domain + '@' + activeWorktreeBranch}
       <SiteTinkerTab {site} branch={activeWorktreeBranch} />
