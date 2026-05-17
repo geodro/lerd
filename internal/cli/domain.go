@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/geodro/lerd/internal/certs"
@@ -111,13 +110,12 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If secured, force-reissue the cert so the SAN list picks up the new
-	// domain. IssueCert is a no-op when the cert file already exists, which
-	// would leave the browser rejecting requests to the new hostname with
-	// ERR_CERT_AUTHORITY_INVALID.
+	// If secured, force-reissue the cert through the worktree-aware helper
+	// so the SAN list picks up the new domain without dropping any existing
+	// worktree subdomains (e.g. <branch>.<primary>). A bare IssueCertForce
+	// here would clobber those worktree SANs.
 	if site.Secured {
-		certsDir := filepath.Join(config.CertsDir(), "sites")
-		if err := certs.IssueCertForce(site.PrimaryDomain(), site.Domains, certsDir); err != nil {
+		if err := certs.ReissueCertForWorktree(*site); err != nil {
 			fmt.Printf("[WARN] reissuing certificate: %v\n", err)
 		}
 	}
@@ -183,12 +181,11 @@ func runDomainRemove(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If secured, force-reissue the cert so the SAN list drops the removed
-	// domain. IssueCert is a no-op when the cert file already exists, so the
-	// old SAN would otherwise linger.
+	// If secured, force-reissue the cert through the worktree-aware helper
+	// so the SAN list drops the removed domain without losing any existing
+	// worktree subdomains.
 	if site.Secured {
-		certsDir := filepath.Join(config.CertsDir(), "sites")
-		if err := certs.IssueCertForce(site.PrimaryDomain(), site.Domains, certsDir); err != nil {
+		if err := certs.ReissueCertForWorktree(*site); err != nil {
 			fmt.Printf("[WARN] reissuing certificate: %v\n", err)
 		}
 	}

@@ -3354,8 +3354,7 @@ func execSiteDomainAdd(args map[string]any) (any, *rpcError) {
 	}
 
 	if site.Secured {
-		certsDir := filepath.Join(config.CertsDir(), "sites")
-		_ = certs.IssueCertForce(site.PrimaryDomain(), site.Domains, certsDir)
+		_ = certs.ReissueCertForWorktree(*site)
 	}
 
 	_ = podman.WriteContainerHosts()
@@ -3417,8 +3416,7 @@ func execSiteDomainRemove(args map[string]any) (any, *rpcError) {
 	}
 
 	if site.Secured {
-		certsDir := filepath.Join(config.CertsDir(), "sites")
-		_ = certs.IssueCertForce(site.PrimaryDomain(), site.Domains, certsDir)
+		_ = certs.ReissueCertForWorktree(*site)
 	}
 
 	_ = podman.WriteContainerHosts()
