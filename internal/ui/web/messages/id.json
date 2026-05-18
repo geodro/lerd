@@ -611,6 +611,8 @@
   "notify_mail_body": "From: {from}",
   "notify_worker_failed_title": "Worker failed on {site}",
   "notify_worker_failed_body": "{worker} is in {state}. Open lerd to heal.",
+  "notify_worker_failed_group_title": "{count} workers failed",
+  "notify_worker_failed_group_body": "{workers}. Open lerd to heal.",
   "notify_op_done_title": "{op} finished: {service}",
   "notify_op_done_body": "Took {duration}. Click to open lerd.",
   "notify_op_failed_title": "{op} failed: {service}",

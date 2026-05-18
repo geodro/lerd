@@ -611,6 +611,8 @@
   "notify_mail_body": "Kimden: {from}",
   "notify_worker_failed_title": "{site} sitesinde worker hatası",
   "notify_worker_failed_body": "{worker} {state} durumunda. Onarmak için lerd'i açın.",
+  "notify_worker_failed_group_title": "{count} worker hatası",
+  "notify_worker_failed_group_body": "{workers}. Onarmak için lerd'i açın.",
   "notify_op_done_title": "{op} tamamlandı: {service}",
   "notify_op_done_body": "{duration} sürdü. Lerd'i açmak için tıklayın.",
   "notify_op_failed_title": "{op} başarısız: {service}",

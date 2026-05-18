@@ -56,6 +56,54 @@ func TestNewWorkerFailures_StateChangeIsNotNewFailure(t *testing.T) {
 	}
 }
 
+func TestNotificationForWorkerFailures_SinglePassthrough(t *testing.T) {
+	ws := []workerheal.UnhealthyWorker{uw("lerd-queue-a.service", "a.test", "queue", "failed")}
+	got := notificationForWorkerFailures(ws)
+	if got.TitleKey != "notify_worker_failed_title" {
+		t.Errorf("single failure should use per-unit title key, got %q", got.TitleKey)
+	}
+	if got.Tag != "lerd-worker-lerd-queue-a.service" {
+		t.Errorf("single failure should use per-unit tag, got %q", got.Tag)
+	}
+}
+
+func TestNotificationForWorkerFailures_GroupedShape(t *testing.T) {
+	ws := []workerheal.UnhealthyWorker{
+		uw("lerd-queue-b.service", "b.test", "queue", "failed"),
+		uw("lerd-horizon-a.service", "a.test", "horizon", "start-limit-hit"),
+		uw("lerd-scheduler-a.service", "a.test", "scheduler", "failed"),
+	}
+	got := notificationForWorkerFailures(ws)
+	if got.Kind != "worker_failed" {
+		t.Errorf("Kind = %q", got.Kind)
+	}
+	if got.TitleKey != "notify_worker_failed_group_title" {
+		t.Errorf("TitleKey = %q", got.TitleKey)
+	}
+	if got.BodyKey != "notify_worker_failed_group_body" {
+		t.Errorf("BodyKey = %q", got.BodyKey)
+	}
+	if got.Params["count"] != "3" {
+		t.Errorf("Params.count = %q, want 3", got.Params["count"])
+	}
+	if got.Params["sites"] != "a.test, b.test" {
+		t.Errorf("Params.sites = %q, want sorted a.test, b.test", got.Params["sites"])
+	}
+	wantWorkers := "horizon@a.test, queue@b.test, scheduler@a.test"
+	if got.Params["workers"] != wantWorkers {
+		t.Errorf("Params.workers = %q, want %q", got.Params["workers"], wantWorkers)
+	}
+	if got.Tag != "lerd-workers-group" {
+		t.Errorf("Tag = %q, want stable group tag for supersede", got.Tag)
+	}
+	if got.URL != "#sites" {
+		t.Errorf("URL = %q, want top-level sites view", got.URL)
+	}
+	if got.Title != "3 workers failed" {
+		t.Errorf("Title = %q", got.Title)
+	}
+}
+
 func TestNotificationForWorkerFailure_Shape(t *testing.T) {
 	n := notificationForWorkerFailure(uw("lerd-queue-default-a.service", "a.test", "queue-default", "failed"))
 	if n.Kind != "worker_failed" {

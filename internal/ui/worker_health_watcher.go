@@ -62,9 +62,7 @@ func runWorkerHealthWatcher() {
 			continue
 		}
 		lastHealthSig.Store(sig)
-		for _, w := range diffNewFailuresAndCommit(unhealthy) {
-			dispatchNotification(notificationForWorkerFailure(w))
-		}
+		queueWorkerFailureNotifications(diffNewFailuresAndCommit(unhealthy))
 		// Skip the eventbus publish when no tab is open; the snapshot
 		// rebuild would just rebuild bytes nobody reads. Notifications
 		// above still fire so closed-PWA users get the push.

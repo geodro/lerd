@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/geodro/lerd/internal/push"
 	"github.com/geodro/lerd/internal/workerheal"
 )
@@ -50,5 +54,55 @@ func notificationForWorkerFailure(w workerheal.UnhealthyWorker) push.Notificatio
 		Data:     map[string]string{"unit": w.Unit, "site": site},
 		Urgency:  "high",
 		TTL:      300,
+	}
+}
+
+// notificationForWorkerFailures collapses a batch of new failures into a
+// single push payload. A one-element batch falls through to the per-unit
+// shape so existing tag-based dedupe on a single worker still works; two
+// or more failures get a grouped title/body and a stable group tag so a
+// later supersedes-an-earlier grouped push doesn't pile up.
+func notificationForWorkerFailures(ws []workerheal.UnhealthyWorker) push.Notification {
+	if len(ws) == 1 {
+		return notificationForWorkerFailure(ws[0])
+	}
+	siteSet := make(map[string]struct{}, len(ws))
+	entries := make([]string, 0, len(ws))
+	for _, w := range ws {
+		site := w.Site
+		if site == "" {
+			site = w.Unit
+		}
+		worker := w.Worker
+		if worker == "" {
+			worker = w.Unit
+		}
+		siteSet[site] = struct{}{}
+		entries = append(entries, worker+"@"+site)
+	}
+	sort.Strings(entries)
+	sites := make([]string, 0, len(siteSet))
+	for s := range siteSet {
+		sites = append(sites, s)
+	}
+	sort.Strings(sites)
+	count := strconv.Itoa(len(ws))
+	workers := strings.Join(entries, ", ")
+	return push.Notification{
+		Kind:     "worker_failed",
+		TitleKey: "notify_worker_failed_group_title",
+		Title:    count + " workers failed",
+		BodyKey:  "notify_worker_failed_group_body",
+		Body:     workers + ". Open lerd to heal.",
+		Params: map[string]string{
+			"count":   count,
+			"workers": workers,
+			"sites":   strings.Join(sites, ", "),
+		},
+		Tag:     "lerd-workers-group",
+		URL:     "#sites",
+		Data:    map[string]string{"count": count},
+		Urgency: "high",
+		TTL:     300,
 	}
 }
