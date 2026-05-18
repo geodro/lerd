@@ -147,6 +147,22 @@ func TestParseApkDeps(t *testing.T) {
 	}
 }
 
+// git is needed at runtime by composer for VCS-typed repositories and
+// any plugin that shells out to it. Re-dropped accidentally by #364.
+func TestPhpFpmContainerfile_RuntimeIncludesGit(t *testing.T) {
+	tmpl, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
+	if err != nil {
+		t.Fatalf("read containerfile: %v", err)
+	}
+	_, runtime, ok := strings.Cut(tmpl, "# ── Runtime stage")
+	if !ok {
+		t.Fatal("runtime stage marker missing from Containerfile")
+	}
+	if !strings.Contains(runtime, "\n        git \\\n") {
+		t.Errorf("runtime stage must apk add git so composer can clone VCS repos:\n%s", runtime)
+	}
+}
+
 func TestPhpExtensionLoaded(t *testing.T) {
 	out := "Core\ndate\nimap\nPDO\nZend OPcache\n"
 	cases := map[string]bool{

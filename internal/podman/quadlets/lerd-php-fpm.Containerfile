@@ -96,6 +96,7 @@ RUN apk update && apk add --no-cache \
         ghostscript \
         imagemagick \
         ffmpeg \
+        git \
         mysql-client \
         nodejs \
         npm \
