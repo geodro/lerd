@@ -42,7 +42,7 @@ lerd service start <name>
 
 Either way, the service appears in `lerd service list`, the Web UI Services panel, and `lerd start` / `lerd stop` cycles.
 
-For the full YAML schema (env vars, `depends_on`, `site_init`, `{{site}}` placeholders, etc.) see [Custom services reference](../usage/custom-services.md#yaml-schema).
+For the full YAML schema (env vars, `depends_on`, `site_init`, <code v-pre>{{site}}</code> placeholders, etc.) see [Custom services reference](../usage/custom-services.md#yaml-schema).
 
 ---
 
@@ -218,5 +218,5 @@ This means installing the preset (or dropping the YAML) once is enough, every pr
 ## Next steps
 
 - [Services reference](../usage/services.md): full YAML schema, dependency rules, custom command flags, RustFS / Mailpit / Soketi / stripe-mock built-in details
-- [Configuration](../reference/configuration.md): embedding services directly in `.lerd.yaml` so they ship with the repo
+- [Configuration](../configuration.md): embedding services directly in `.lerd.yaml` so they ship with the repo
 - [AI Integration (MCP)](../features/mcp.md): manage services from your AI assistant

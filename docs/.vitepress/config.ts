@@ -53,6 +53,7 @@ export default defineConfig({
       { text: 'Getting Started', link: '/getting-started/requirements' },
       { text: 'Usage', link: '/usage/sites' },
       { text: 'Features', link: '/features/web-ui' },
+      { text: 'Configuration', link: '/configuration' },
       { text: 'Reference', link: '/reference/commands' },
       { text: 'Contributing', link: '/contributing/building' },
       { text: 'Changelog', link: '/changelog' },
@@ -164,12 +165,21 @@ export default defineConfig({
           ],
         },
       ],
+      '/configuration': [
+        {
+          text: 'Configuration',
+          items: [
+            { text: 'Overview', link: '/configuration' },
+            { text: 'Per-project (.lerd.yaml)', link: '/configuration#per-project-config-lerdyaml' },
+          ],
+        },
+      ],
       '/reference/': [
         {
           text: 'Reference',
           items: [
             { text: 'Command Reference', link: '/reference/commands' },
-            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration', link: '/configuration' },
           ],
         },
         {
@@ -191,7 +201,7 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'Command Reference', link: '/reference/commands' },
-            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration', link: '/configuration' },
           ],
         },
         {

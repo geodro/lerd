@@ -78,7 +78,7 @@ On a machine where `.lerd.yaml` already exists the wizard is skipped and the sav
 
 `lerd link` also applies `.lerd.yaml` when the file is present, so cloning a repo and running `lerd link` is enough to restore the full environment without running `lerd setup` or `lerd init` first. When workers are configured in `.lerd.yaml` but not yet running, `lerd link` prompts to run `lerd setup` so you can install dependencies, run migrations, and start workers in the right order.
 
-See [Configuration](../reference/configuration.md#per-project-config-lerdyaml) for the full field reference including inline service definitions and custom frameworks.
+See [Configuration](../configuration.md#per-project-config-lerdyaml) for the full field reference including inline service definitions and custom frameworks.
 
 ---
 

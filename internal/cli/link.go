@@ -162,7 +162,9 @@ func runLink(args []string) error {
 
 	framework, ok := resolveFramework(cwd)
 	detectedPublicDir := ""
-	if !ok {
+	if proj != nil && proj.PublicDir != "" {
+		detectedPublicDir = proj.PublicDir
+	} else if !ok {
 		detectedPublicDir = config.DetectPublicDir(cwd)
 	}
 

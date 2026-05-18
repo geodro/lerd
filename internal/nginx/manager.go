@@ -72,8 +72,9 @@ func phpShort(version string) string {
 }
 
 // resolvePublicDir returns the document root subdirectory for a site.
-// site.PublicDir takes precedence (set when no framework matched at link time),
-// then the framework definition's PublicDir, then "public" as a default.
+// site.PublicDir wins (set from .lerd.yaml's public_dir, or from autodetect
+// when no framework matched), then the framework definition's PublicDir, then
+// "public" as the final fallback.
 func resolvePublicDir(site config.Site) string {
 	if site.PublicDir != "" {
 		return site.PublicDir

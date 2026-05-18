@@ -60,13 +60,14 @@ A portable, self-contained description of a project's local environment. Created
 | `node_version` | Node version (highest priority, overrides `.nvmrc`, `.node-version`, and `package.json`); writes `.node-version` on apply if the file does not already exist |
 | `framework` | Framework name (overrides auto-detection) |
 | `framework_def` | Full framework definition, embedded automatically for custom (non-Laravel) frameworks so the project is portable across machines |
+| `public_dir` | Override for the framework's default document-root subdirectory, e.g. `public_html` for a Laravel skeleton that doesn't use the conventional `public/` folder. Empty means use the framework default |
 | `secured` | When `true`, HTTPS is enabled on apply |
 | `domains` | Site hostnames without the TLD (e.g. `[myapp, api]`). The first entry is the primary; additional entries become aliases. Conflict-filtered domains stay in this list on disk but are not registered |
 | `app_url` | Override for `APP_URL` (or the framework's URL key) written to `.env`. Highest priority, it beats the per-machine `sites.yaml` override and the default `<scheme>://<primary-domain>` generator. Use for custom path prefixes, ports, or unrelated hostnames you want shared across machines |
-| `env_overrides` | Map of env var names to templated or static values applied to `.env` on `lerd setup` and to per-worktree `.env` files when worktrees are created. Values may use `{{domain}}`, `{{scheme}}`, `{{site}}`, `{{branch}}`, and `{{parent}}` placeholders, or be plain strings. When `APP_URL` is in `env_overrides` it takes precedence over the default rewrite; declared keys override defaults, undeclared defaults still apply. The one exception is `DB_DATABASE` on a worktree whose `db_isolated` is true: the isolation flow owns that key and the watcher won't re-render it from the parent's template until isolation is turned back off. See [Env overrides](../features/git-worktrees.md#env-overrides) |
+| `env_overrides` | Map of env var names to templated or static values applied to `.env` on `lerd setup` and to per-worktree `.env` files when worktrees are created. Values may use <code v-pre>{{domain}}</code>, <code v-pre>{{scheme}}</code>, <code v-pre>{{site}}</code>, <code v-pre>{{branch}}</code>, and <code v-pre>{{parent}}</code> placeholders, or be plain strings. When `APP_URL` is in `env_overrides` it takes precedence over the default rewrite; declared keys override defaults, undeclared defaults still apply. The one exception is `DB_DATABASE` on a worktree whose `db_isolated` is true: the isolation flow owns that key and the watcher won't re-render it from the parent's template until isolation is turned back off. See [Env overrides](./features/git-worktrees.md#env-overrides) |
 | `services` | Services to start on apply. Accepts built-in names, custom service names, or full inline definitions |
 | `workers` | Active worker names for the site (e.g. `queue`, `horizon`, `schedule`, `reverb`, `stripe`). Automatically kept in sync by start/stop commands. Used by `lerd start` to restore workers after reinstall |
-| `container` | Custom container config for non-PHP sites. When present, lerd builds a dedicated container from the project's Containerfile and nginx reverse-proxies to it. See below and [Custom Containers](../usage/custom-containers.md) |
+| `container` | Custom container config for non-PHP sites. When present, lerd builds a dedicated container from the project's Containerfile and nginx reverse-proxies to it. See below and [Custom Containers](./usage/custom-containers.md) |
 | `custom_workers` | Custom worker definitions (name to config map). Works for both PHP and custom container sites. See below |
 | `db` | Database targeting for non-PHP projects: `service` (e.g. `mysql`, `postgres`) and `database` name |
 
@@ -81,6 +82,17 @@ services:
   - mysql
   - redis
 ```
+
+### Custom public folder
+
+When the project ships with a non-standard document root (e.g. a Laravel skeleton that uses `public_html/` instead of `public/`), set `public_dir`:
+
+```yaml
+framework: laravel
+public_dir: public_html
+```
+
+On `lerd link` this value becomes the site's document root in the generated nginx vhost; it takes precedence over the framework's default. No need to define a full `framework_def` just to change the doc root.
 
 ### Custom container example
 
@@ -112,7 +124,7 @@ When `container` is present, `php_version`, `framework`, and `node_version` are 
 | `containerfile` | no | `Containerfile.lerd` | Path to the Containerfile (relative to project root) |
 | `build_context` | no | `.` | Build context directory (relative to project root) |
 
-See [Custom Containers](../usage/custom-containers.md) for the full guide.
+See [Custom Containers](./usage/custom-containers.md) for the full guide.
 
 ### Custom workers
 
@@ -176,7 +188,7 @@ services:
           "db.getSiblingDB('{{site}}').createCollection('_init')"
 ```
 
-The inline definition schema is identical to a [custom service YAML file](../usage/custom-services.md#yaml-schema). On apply, the service is registered to `~/.config/lerd/services/<name>.yaml` then started.
+The inline definition schema is identical to a [custom service YAML file](./usage/custom-services.md#yaml-schema). On apply, the service is registered to `~/.config/lerd/services/<name>.yaml` then started.
 
 If a service with that name already exists locally and the definitions differ, a diff is shown and you are asked whether to replace it:
 
@@ -221,7 +233,7 @@ The config is applied whenever `lerd link` or `lerd init` runs in the project ro
 
 Commit `.lerd.yaml` to the repository. On a fresh machine, `lerd link` is sufficient to reproduce the full local environment.
 
-The Lerd watcher also monitors `.lerd.yaml` for changes. When you switch branches with a different config the PHP and Node versions are re-detected and applied automatically, no manual `lerd link` or `lerd init` needed. See [Automatic version switching](../features/project-setup.md#automatic-version-switching) for details.
+The Lerd watcher also monitors `.lerd.yaml` for changes. When you switch branches with a different config the PHP and Node versions are re-detected and applied automatically, no manual `lerd link` or `lerd init` needed. See [Automatic version switching](./features/project-setup.md#automatic-version-switching) for details.
 
 `lerd isolate`, the UI PHP version selector, and the MCP `site_php` tool all keep `php_version` in sync when this file exists.
 

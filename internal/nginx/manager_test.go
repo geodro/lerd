@@ -27,6 +27,44 @@ func readConf(t *testing.T, path string) string {
 	return string(data)
 }
 
+// ── resolvePublicDir ──────────────────────────────────────────────────────────
+
+func TestResolvePublicDir_SiteOverrideWins(t *testing.T) {
+	site := config.Site{
+		Name:      "myapp",
+		Path:      "/srv/myapp",
+		Framework: "laravel",
+		PublicDir: "public_html",
+	}
+	if got := resolvePublicDir(site); got != "public_html" {
+		t.Errorf("resolvePublicDir = %q, want public_html (site override)", got)
+	}
+}
+
+func TestResolvePublicDir_FallsBackToDefault(t *testing.T) {
+	site := config.Site{Name: "myapp", Path: "/srv/myapp"}
+	if got := resolvePublicDir(site); got != "public" {
+		t.Errorf("resolvePublicDir = %q, want public (default)", got)
+	}
+}
+
+func TestGenerateVhost_honoursSitePublicDir(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{
+		Name:      "myapp",
+		Domains:   []string{"myapp.test"},
+		Path:      "/srv/myapp",
+		PublicDir: "public_html",
+	}
+	if err := GenerateVhost(site, "8.3"); err != nil {
+		t.Fatalf("GenerateVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "myapp.test.conf"))
+	if !strings.Contains(content, "root /srv/myapp/public_html") {
+		t.Errorf("expected custom public_html doc root in:\n%s", content)
+	}
+}
+
 // ── phpShort ──────────────────────────────────────────────────────────────────
 
 func TestPhpShort(t *testing.T) {

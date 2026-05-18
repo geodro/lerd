@@ -472,6 +472,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		Framework:        framework,
 		FrameworkVersion: frameworkVersion,
 		FrameworkDef:     frameworkDef,
+		PublicDir:        defaults.PublicDir,
 		Secured:          secured,
 		Services:         services,
 		Workers:          selectedWorkers,

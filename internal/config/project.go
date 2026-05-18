@@ -31,16 +31,21 @@ type ContainerConfig struct {
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
-	Domains          []string                   `yaml:"domains,omitempty"`
-	PHPVersion       string                     `yaml:"php_version,omitempty"`
-	NodeVersion      string                     `yaml:"node_version,omitempty"`
-	Framework        string                     `yaml:"framework,omitempty"`
-	FrameworkVersion string                     `yaml:"framework_version,omitempty"`
-	FrameworkDef     *Framework                 `yaml:"framework_def,omitempty"`
-	Secured          bool                       `yaml:"secured,omitempty"`
-	Services         []ProjectService           `yaml:"services,omitempty"`
-	Workers          []string                   `yaml:"workers,omitempty"`
-	CustomWorkers    map[string]FrameworkWorker `yaml:"custom_workers,omitempty"`
+	Domains          []string   `yaml:"domains,omitempty"`
+	PHPVersion       string     `yaml:"php_version,omitempty"`
+	NodeVersion      string     `yaml:"node_version,omitempty"`
+	Framework        string     `yaml:"framework,omitempty"`
+	FrameworkVersion string     `yaml:"framework_version,omitempty"`
+	FrameworkDef     *Framework `yaml:"framework_def,omitempty"`
+	// PublicDir overrides the framework's default document-root subdirectory
+	// for this project, e.g. "public_html" for a Laravel skeleton that doesn't
+	// use the conventional "public/" folder. Empty means use the framework
+	// default. Wins over Framework.PublicDir at nginx-config time.
+	PublicDir     string                     `yaml:"public_dir,omitempty"`
+	Secured       bool                       `yaml:"secured,omitempty"`
+	Services      []ProjectService           `yaml:"services,omitempty"`
+	Workers       []string                   `yaml:"workers,omitempty"`
+	CustomWorkers map[string]FrameworkWorker `yaml:"custom_workers,omitempty"`
 	// Commands extends or overrides the framework's command set. Entries with
 	// a Name matching a framework command replace it (set Disabled: true to
 	// suppress instead). Entries with a new Name are appended. See
@@ -77,11 +82,11 @@ type ProjectConfig struct {
 // typically means .lerd.yaml did not exist.
 func (c *ProjectConfig) IsEmpty() bool {
 	return len(c.Domains) == 0 && c.PHPVersion == "" && c.NodeVersion == "" &&
-		c.Framework == "" && len(c.Services) == 0 && len(c.Workers) == 0 &&
-		len(c.CustomWorkers) == 0 && !c.Secured && c.AppURL == "" &&
-		c.DB.Service == "" && c.DB.Database == "" && c.Container == nil &&
-		c.Runtime == "" && !c.RuntimeWorker && !c.DBIsolated &&
-		len(c.EnvOverrides) == 0
+		c.Framework == "" && c.PublicDir == "" && len(c.Services) == 0 &&
+		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && !c.Secured &&
+		c.AppURL == "" && c.DB.Service == "" && c.DB.Database == "" &&
+		c.Container == nil && c.Runtime == "" && !c.RuntimeWorker &&
+		!c.DBIsolated && len(c.EnvOverrides) == 0
 }
 
 // ServiceNames returns the name of every service in the config, for callers

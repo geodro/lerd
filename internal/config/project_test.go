@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -354,6 +355,61 @@ func TestCloneProjectConfig_DeepCopiesEnvOverrides(t *testing.T) {
 	out.EnvOverrides["NEW_KEY"] = "added"
 	if _, present := in.EnvOverrides["NEW_KEY"]; present {
 		t.Error("clone shares EnvOverrides map; new key leaked back into original")
+	}
+}
+
+func TestProjectConfig_PublicDir(t *testing.T) {
+	input := `php_version: "8.4"
+framework: laravel
+public_dir: public_html
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cfg.PublicDir != "public_html" {
+		t.Errorf("PublicDir = %q, want public_html", cfg.PublicDir)
+	}
+}
+
+func TestProjectConfig_PublicDir_RoundTrip(t *testing.T) {
+	cfg := ProjectConfig{
+		PHPVersion: "8.4",
+		Framework:  "laravel",
+		PublicDir:  "public_html",
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.PublicDir != "public_html" {
+		t.Errorf("round-trip PublicDir = %q, want public_html", restored.PublicDir)
+	}
+}
+
+func TestProjectConfig_PublicDir_OmittedWhenEmpty(t *testing.T) {
+	cfg := ProjectConfig{PHPVersion: "8.4"}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "public_dir") {
+		t.Errorf("public_dir should be omitted when empty, got:\n%s", string(data))
+	}
+}
+
+func TestProjectConfig_PublicDir_IsEmpty(t *testing.T) {
+	cfg := &ProjectConfig{}
+	if !cfg.IsEmpty() {
+		t.Error("empty config should be empty")
+	}
+	cfg.PublicDir = "public_html"
+	if cfg.IsEmpty() {
+		t.Error("config with public_dir should not be empty")
 	}
 }
 

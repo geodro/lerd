@@ -108,11 +108,11 @@ Values can use template placeholders or be plain static strings. When a worktree
 
 | Placeholder | Resolves to | Example |
 |-------------|-------------|---------|
-| `{{domain}}` | Worktree domain | `feature-branch.myapp.test` |
-| `{{scheme}}` | `http` or `https` | `https` |
-| `{{branch}}` | Worktree branch slug (no parent) | `feature-branch` |
-| `{{parent}}` | Parent site name, slugified | `myapp` |
-| `{{site}}` | Database-safe slug of the *full* worktree domain. Prefer `{{branch}}` / `{{parent}}` for clarity | `feature_branch_myapp_test` |
+| <code v-pre>{{domain}}</code> | Worktree domain | `feature-branch.myapp.test` |
+| <code v-pre>{{scheme}}</code> | `http` or `https` | `https` |
+| <code v-pre>{{branch}}</code> | Worktree branch slug (no parent) | `feature-branch` |
+| <code v-pre>{{parent}}</code> | Parent site name, slugified | `myapp` |
+| <code v-pre>{{site}}</code> | Database-safe slug of the *full* worktree domain. Prefer <code v-pre>{{branch}}</code> / <code v-pre>{{parent}}</code> for clarity | `feature_branch_myapp_test` |
 
 When `APP_URL` is present in `env_overrides` it takes precedence over the default `scheme://domain` rewrite. Without `env_overrides`, behaviour is unchanged.
 
