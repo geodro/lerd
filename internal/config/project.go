@@ -287,6 +287,11 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 		return nil, err
 	}
 
+	if err := ValidatePublicDir(cfg.PublicDir); err != nil {
+		fmt.Printf("[WARN] %s: %v, ignoring public_dir override\n", path, err)
+		cfg.PublicDir = ""
+	}
+
 	projectConfigCacheMu.Lock()
 	projectConfigCache[path] = projectConfigCacheEntry{
 		cfg: &cfg, mtime: info.ModTime(), size: info.Size(),

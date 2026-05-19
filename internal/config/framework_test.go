@@ -310,3 +310,30 @@ func TestFrameworkLogSource_YAMLRoundTrip(t *testing.T) {
 		t.Errorf("entry 2 format should be empty, got %q", loaded[2].Format)
 	}
 }
+
+// ValidatePublicDir guards the nginx document root from a hostile .lerd.yaml
+// whose public_dir points outside the project, e.g. ../../etc.
+func TestValidatePublicDir(t *testing.T) {
+	good := []string{"", ".", "public", "web", "public_html", "src/public"}
+	for _, s := range good {
+		if err := ValidatePublicDir(s); err != nil {
+			t.Errorf("ValidatePublicDir(%q) = %v, want nil", s, err)
+		}
+	}
+	bad := []string{
+		"..",
+		"../etc",
+		"../../etc",
+		"public/../etc",
+		"public/..",
+		"/etc",
+		"/etc/passwd",
+		"~/.ssh",
+		"public\x00evil",
+	}
+	for _, s := range bad {
+		if err := ValidatePublicDir(s); err == nil {
+			t.Errorf("ValidatePublicDir(%q) = nil, want error", s)
+		}
+	}
+}

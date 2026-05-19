@@ -74,13 +74,18 @@ func phpShort(version string) string {
 // resolvePublicDir returns the document root subdirectory for a site.
 // site.PublicDir wins (set from .lerd.yaml's public_dir, or from autodetect
 // when no framework matched), then the framework definition's PublicDir, then
-// "public" as the final fallback.
+// "public" as the final fallback. Each candidate runs through ValidatePublicDir
+// so a hostile .lerd.yaml can't pivot the nginx root out of the project.
 func resolvePublicDir(site config.Site) string {
 	if site.PublicDir != "" {
-		return site.PublicDir
+		if err := config.ValidatePublicDir(site.PublicDir); err == nil {
+			return site.PublicDir
+		}
 	}
 	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok && fw.PublicDir != "" {
-		return fw.PublicDir
+		if err := config.ValidatePublicDir(fw.PublicDir); err == nil {
+			return fw.PublicDir
+		}
 	}
 	return "public"
 }

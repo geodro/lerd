@@ -27,6 +27,7 @@ var loopbackOnlyRoutes = []string{
 	"/api/lerd/update-terminal", // spawns a terminal emulator on the host
 	"/api/sites/link",           // links arbitrary host filesystem paths
 	"/api/browse",               // browses host filesystem
+	"/api/push/test",            // fires notifications onto subscribed devices
 }
 
 // loopbackOnlySiteSubactions are the per-site action suffixes (under
@@ -34,6 +35,40 @@ var loopbackOnlyRoutes = []string{
 // path includes a domain segment in the middle, so we check the suffix.
 var loopbackOnlySiteSubactions = []string{
 	"/terminal", // opens an interactive shell on the host
+	"/env",      // returns raw .env (APP_KEY, DB creds, third-party tokens)
+}
+
+// fromHost reports whether r's source IP belongs to one of the host's
+// own interfaces. The mailpit container reaches the dashboard via
+// host.containers.internal, which pasta (Linux) and gvproxy / vmnet
+// (macOS) source-NAT to the host, so lerd-ui sees the request as coming
+// from one of its own addresses. A LAN attacker arrives from a different
+// IP and is rejected. Spoofing a host-owned address would break the TCP
+// handshake because the SYN-ACK routes back into the host rather than
+// reaching the attacker.
+//
+// Interfaces are re-read on every call so VPN attach, WiFi switch, or
+// a late-arriving podman bridge are picked up without a daemon restart.
+// Each call is a few syscalls, fine for webhook-rate traffic.
+func fromHost(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok || ipNet.IP == nil {
+			continue
+		}
+		if ipNet.IP.String() == host {
+			return true
+		}
+	}
+	return false
 }
 
 // isLoopbackOnlyPath reports whether the given URL path is in either
@@ -96,14 +131,12 @@ func withRemoteControlGate(next http.Handler) http.Handler {
 		}
 
 		// 2b. Mailpit's webhook is POSTed from inside the mailpit container
-		// to host.containers.internal:7073, which arrives at lerd-ui with a
-		// non-loopback source IP (the podman bridge gateway). The handler
-		// itself only triggers a browser notification with the captured
-		// message's id/subject/from, so the worst-case spoofing impact is a
-		// fake notification — no data exposure, no state change. We let it
-		// through pre-auth so a fresh install doesn't need remote-control
-		// credentials to receive mail notifications locally.
-		if r.URL.Path == "/api/webhooks/mailpit" {
+		// to host.containers.internal:7073. pasta (Linux) and gvproxy /
+		// vmnet (macOS) source-NAT that to one of the host's own interface
+		// IPs, so we accept any caller whose source IP belongs to the
+		// host. A LAN attacker arrives from a different IP and is rejected,
+		// closing the "anyone on the WiFi can spam fake mail pushes" vector.
+		if r.URL.Path == "/api/webhooks/mailpit" && fromHost(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

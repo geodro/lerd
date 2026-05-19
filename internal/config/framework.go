@@ -930,6 +930,31 @@ func loadBestVersionedFramework(name, preferVersion string) *Framework {
 	return nil
 }
 
+// ValidatePublicDir returns nil when s is a safe relative subdirectory and
+// an error otherwise. A malicious .lerd.yaml could otherwise pivot the nginx
+// document root out of the project with `public_dir: ../../etc`. Callers
+// should reject the config or fall back to the framework default on error.
+func ValidatePublicDir(s string) error {
+	if s == "" || s == "." {
+		return nil
+	}
+	if strings.ContainsRune(s, 0) {
+		return fmt.Errorf("public_dir contains a NUL byte")
+	}
+	if strings.HasPrefix(s, "/") {
+		return fmt.Errorf("public_dir must be relative, got %q", s)
+	}
+	if strings.HasPrefix(s, "~") {
+		return fmt.Errorf("public_dir must not start with ~, got %q", s)
+	}
+	for _, seg := range strings.Split(s, "/") {
+		if seg == ".." {
+			return fmt.Errorf("public_dir must not contain .. segments, got %q", s)
+		}
+	}
+	return nil
+}
+
 // DetectPublicDir inspects dir for a well-known PHP public directory and returns it.
 // It checks directories used by common PHP frameworks in priority order.
 // A candidate is accepted only if it contains an index.php file, ensuring the

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -265,7 +266,9 @@ func TestRemoteControlGate_loopbackOnlyRoutesBlockedFromLAN(t *testing.T) {
 		"/api/lerd/stop",
 		"/api/sites/link",
 		"/api/sites/myapp.test/terminal",
+		"/api/sites/myapp.test/env",
 		"/api/browse",
+		"/api/push/test",
 	}
 	for _, path := range cases {
 		t.Run(path, func(t *testing.T) {
@@ -342,6 +345,52 @@ func TestRemoteControlGate_unixSocketTreatedAsLoopback(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Errorf("unix socket status = %d, want 200", rec.Code)
+	}
+}
+
+// The mailpit container POSTs to host.containers.internal:7073 and is
+// source-NAT'd onto one of the host's interface IPs. The gate must let
+// that through pre-auth (so fresh installs receive mail notifications)
+// while still rejecting LAN attackers who arrive from a different IP.
+func TestRemoteControlGate_mailpitWebhookHostAllowedLanBlocked(t *testing.T) {
+	setupConfigDirRaw(t, "", "", false) // LAN off, no creds, default state
+
+	next := &nextHandler{}
+	gate := withRemoteControlGate(next)
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil || len(addrs) == 0 {
+		t.Skip("no interface addresses available")
+	}
+	var hostIP string
+	for _, a := range addrs {
+		if ipNet, ok := a.(*net.IPNet); ok && ipNet.IP != nil && !ipNet.IP.IsLoopback() {
+			hostIP = ipNet.IP.String()
+			break
+		}
+	}
+	if hostIP == "" {
+		t.Skip("no non-loopback host interface to probe")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", nil)
+	req.RemoteAddr = hostIP + ":34567"
+	rec := httptest.NewRecorder()
+	gate.ServeHTTP(rec, req)
+	if !next.called {
+		t.Errorf("mailpit webhook from host IP %s blocked, status=%d", hostIP, rec.Code)
+	}
+
+	next.called = false
+	req2 := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", nil)
+	req2.RemoteAddr = "198.51.100.42:34567"
+	rec2 := httptest.NewRecorder()
+	gate.ServeHTTP(rec2, req2)
+	if next.called {
+		t.Error("mailpit webhook from LAN reached handler — should 403")
+	}
+	if rec2.Code != http.StatusForbidden {
+		t.Errorf("LAN mailpit status = %d, want 403", rec2.Code)
 	}
 }
 

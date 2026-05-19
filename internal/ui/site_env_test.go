@@ -27,6 +27,7 @@ func TestHandleSiteEnv_returnsRawContents(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sites/acme.test/env", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
 
@@ -52,6 +53,7 @@ func TestHandleSiteEnv_missingFileReturnsEmptyBody(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sites/noenv.test/env", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
 

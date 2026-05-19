@@ -104,6 +104,7 @@ func TestMailpitWebhook_BroadcastsAsGenericNotification(t *testing.T) {
 		"Created": "2026-05-15T10:00:00Z"
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", strings.NewReader(payload))
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handleMailpitWebhook(rec, req)
 
@@ -155,6 +156,7 @@ func TestMailpitWebhook_AddressOnlySender(t *testing.T) {
 
 	payload := `{"ID":"x","Subject":"","From":{"Address":"bob@example.com"},"Created":""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", strings.NewReader(payload))
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handleMailpitWebhook(rec, req)
 
@@ -173,6 +175,7 @@ func TestMailpitWebhook_AddressOnlySender(t *testing.T) {
 
 func TestMailpitWebhook_RejectsGet(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/webhooks/mailpit", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handleMailpitWebhook(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -182,6 +185,7 @@ func TestMailpitWebhook_RejectsGet(t *testing.T) {
 
 func TestMailpitWebhook_RejectsBadJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", strings.NewReader("{not json"))
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handleMailpitWebhook(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -191,6 +195,7 @@ func TestMailpitWebhook_RejectsBadJSON(t *testing.T) {
 
 func TestMailpitWebhook_RejectsMissingID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", strings.NewReader(`{"Subject":"x"}`))
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	handleMailpitWebhook(rec, req)
 	if rec.Code != http.StatusBadRequest {
