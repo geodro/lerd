@@ -5,9 +5,24 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/push"
 	"github.com/geodro/lerd/internal/workerheal"
 )
+
+// siteDomainForRoute resolves a registered site name to its primary domain
+// so the notification URL can be opened by the dashboard's hash router,
+// which keys the Sites tab by domain. Falls back to the input when no
+// registered site matches (test fixtures, races between unlink and a
+// late-arriving notification).
+func siteDomainForRoute(name string) string {
+	if s, err := config.FindSite(name); err == nil && s != nil {
+		if d := s.PrimaryDomain(); d != "" {
+			return d
+		}
+	}
+	return name
+}
 
 // newWorkerFailures returns workers in cur whose Unit names weren't in prev.
 // Identity by unit only — a state change on a known-failed unit doesn't
@@ -50,7 +65,7 @@ func notificationForWorkerFailure(w workerheal.UnhealthyWorker) push.Notificatio
 		Body:     worker + " is in " + state + ". Open lerd to heal.",
 		Params:   map[string]string{"site": site, "worker": worker, "state": state},
 		Tag:      "lerd-worker-" + w.Unit,
-		URL:      "#sites/" + site,
+		URL:      "#sites/" + siteDomainForRoute(site),
 		Data:     map[string]string{"unit": w.Unit, "site": site},
 		Urgency:  "high",
 		TTL:      300,

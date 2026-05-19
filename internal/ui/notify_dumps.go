@@ -90,7 +90,7 @@ func notificationForDump(evt dumps.Event) push.Notification {
 			"text": body,
 		},
 		Tag:     "lerd-dump-" + site,
-		URL:     "#dumps",
+		URL:     "#sites/" + siteDomainForRoute(site) + "/dumps",
 		Data:    map[string]string{"site": site, "id": evt.ID},
 		Urgency: "low",
 		TTL:     60,

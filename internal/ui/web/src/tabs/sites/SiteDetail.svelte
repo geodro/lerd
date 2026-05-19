@@ -7,6 +7,7 @@
   import SiteEnvTab from './SiteEnvTab.svelte';
   import DumpsTab from '$tabs/DumpsTab.svelte';
   import { resumeSite, loadSites, type Site } from '$stores/sites';
+  import { routeRest } from '$stores/route';
   import { m } from '../../paraglide/messages.js';
 
   let resumeBusy = $state(false);
@@ -39,6 +40,16 @@
   let activeWorktreeBranch = $state<string>('');
   const canTinker = $derived(Boolean(site.php_version));
   const canEnv = $derived(Boolean(site.has_env));
+
+  // The route can deep-link a sub-tab (e.g. dump notifications go to
+  // #sites/<domain>/dumps). When the second segment names a tab, honour it
+  // and overwrite the stored selection.
+  $effect(() => {
+    const seg = $routeRest.split('/')[1] ?? '';
+    if (seg === 'tinker' || seg === 'env' || seg === 'dumps' || seg === 'overview') {
+      active = seg;
+    }
+  });
 
   $effect(() => {
     if (active === 'tinker' && !canTinker) active = 'overview';

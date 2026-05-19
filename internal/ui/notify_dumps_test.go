@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dumps"
 )
 
@@ -20,7 +21,10 @@ func TestNotificationForDump_Shape(t *testing.T) {
 	if n.Params["kind"] != "fpm" {
 		t.Errorf("Params.kind = %q", n.Params["kind"])
 	}
-	if n.URL != "#dumps" {
+	// No site is registered with that name in this test, so siteDomainForRoute
+	// falls back to the input verbatim. The URL still lands on a sites sub-tab
+	// route shape the frontend can parse.
+	if n.URL != "#sites/astrolov.test/dumps" {
 		t.Errorf("URL = %q", n.URL)
 	}
 }
@@ -115,5 +119,27 @@ func TestDumpDebouncer_DifferentSitesIndependent(t *testing.T) {
 	}
 	if !d.allow("b.test") {
 		t.Error("b.test should pass independently of a.test")
+	}
+}
+
+// The dump-bridge tags Ctx.Site with the registered site name (the value
+// of LERD_SITE), but the dashboard router keys the Sites tab by primary
+// domain. notificationForDump must resolve name → primary domain so the
+// click handler lands on the right site detail.
+func TestNotificationForDump_URLResolvesNameToDomain(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := config.AddSite(config.Site{
+		Name:    "whitewaters",
+		Domains: []string{"theregistry.test"},
+		Path:    t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	evt := dumps.Event{ID: "z", Kind: "dump", Ctx: dumps.Context{Site: "whitewaters", Type: "fpm"}}
+	n := notificationForDump(evt)
+	if n.URL != "#sites/theregistry.test/dumps" {
+		t.Errorf("URL = %q, want #sites/theregistry.test/dumps", n.URL)
 	}
 }

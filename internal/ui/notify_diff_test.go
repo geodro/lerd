@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/workerheal"
 )
 
@@ -129,5 +130,26 @@ func TestNotificationForWorkerFailure_Shape(t *testing.T) {
 	}
 	if n.URL == "" {
 		t.Errorf("URL is empty; need a deep-link target")
+	}
+}
+
+// The Sites tab keys by primary domain, but workerheal.UnhealthyWorker.Site
+// is the registered site name. The notification URL must resolve name to
+// domain so the click handler lands on the matching site, not an empty
+// state when name != domain (e.g. whitewaters / theregistry.test).
+func TestNotificationForWorkerFailure_URLResolvesNameToDomain(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := config.AddSite(config.Site{
+		Name:    "whitewaters",
+		Domains: []string{"theregistry.test"},
+		Path:    t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	n := notificationForWorkerFailure(uw("lerd-queue-whitewaters.service", "whitewaters", "queue", "failed"))
+	if n.URL != "#sites/theregistry.test" {
+		t.Errorf("URL = %q, want #sites/theregistry.test", n.URL)
 	}
 }
