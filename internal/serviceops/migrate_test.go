@@ -118,3 +118,64 @@ func TestResolveMigrateTarget_EmptyVersionErrors(t *testing.T) {
 		t.Fatal("expected error for blank version argument")
 	}
 }
+
+// A migrate that fails after the image switch must leave config back on the
+// pre-migrate state, not half-applied. captureServiceConfig + restoreConfig is
+// the recovery path abortMigrate uses; this exercises it without podman.
+func TestServiceConfigSnapshot_RevertsImage(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatalf("LoadGlobal: %v", err)
+	}
+	cfg.Services["postgres"] = config.ServiceConfig{
+		Enabled:          true,
+		Image:            "docker.io/postgis/postgis:16-3.5-alpine",
+		Port:             5432,
+		CanonicalVersion: "16",
+	}
+	if err := config.SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal: %v", err)
+	}
+
+	snap, err := captureServiceConfig("postgres")
+	if err != nil {
+		t.Fatalf("captureServiceConfig: %v", err)
+	}
+
+	// Stand in for the image switch a migrate persists right before it fails.
+	cfg, _ = config.LoadGlobal()
+	cfg.Services["postgres"] = config.ServiceConfig{
+		Enabled:          true,
+		Image:            "docker.io/postgis/postgis:18-3.6-alpine",
+		Port:             5432,
+		PreviousImage:    "docker.io/postgis/postgis:16-3.5-alpine",
+		LastOp:           "migrate",
+		CanonicalVersion: "18",
+	}
+	if err := config.SaveGlobal(cfg); err != nil {
+		t.Fatalf("SaveGlobal (switch): %v", err)
+	}
+
+	if err := snap.restoreConfig("postgres"); err != nil {
+		t.Fatalf("restoreConfig: %v", err)
+	}
+
+	got, _ := config.LoadGlobal()
+	entry := got.Services["postgres"]
+	if entry.Image != "docker.io/postgis/postgis:16-3.5-alpine" {
+		t.Errorf("Image = %q, want reverted to pg16", entry.Image)
+	}
+	if entry.CanonicalVersion != "16" {
+		t.Errorf("CanonicalVersion = %q, want 16", entry.CanonicalVersion)
+	}
+	if entry.LastOp != "" {
+		t.Errorf("LastOp = %q, want cleared", entry.LastOp)
+	}
+	if entry.PreviousImage != "" {
+		t.Errorf("PreviousImage = %q, want cleared", entry.PreviousImage)
+	}
+}

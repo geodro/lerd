@@ -72,21 +72,20 @@ func familyOf(name string) string {
 	return config.FamilyOfName(name)
 }
 
-// presetForService returns the bundled preset a service was installed from,
-// resolving a default-preset name directly and an installed custom service via
-// its saved Preset reference. Returns nil when the service has no preset.
-func presetForService(name string) (*config.Preset, error) {
+// presetForService returns the bundled preset a service was installed from, or
+// nil when it has none or cannot be resolved. A nil result makes the migrate
+// target fall back to literal-tag substitution on the current image.
+func presetForService(name string) *config.Preset {
 	if config.IsDefaultPreset(name) {
-		return config.LoadPreset(name)
+		p, _ := config.LoadPreset(name)
+		return p
 	}
 	svc, err := config.LoadCustomService(name)
-	if err != nil {
-		return nil, fmt.Errorf("unknown service %q", name)
+	if err != nil || svc.Preset == "" {
+		return nil
 	}
-	if svc.Preset == "" {
-		return nil, nil
-	}
-	return config.LoadPreset(svc.Preset)
+	p, _ := config.LoadPreset(svc.Preset)
+	return p
 }
 
 // ResolveMigrateTarget maps a migrate version argument to a target image. A
@@ -97,8 +96,7 @@ func ResolveMigrateTarget(name, currentImage, version string) (string, error) {
 	if version == "" {
 		return "", fmt.Errorf("a target version is required")
 	}
-	p, _ := presetForService(name)
-	return migrateTargetImage(p, currentImage, version)
+	return migrateTargetImage(presetForService(name), currentImage, version)
 }
 
 // migrateTargetImage is the pure resolution behind ResolveMigrateTarget, split
@@ -259,19 +257,80 @@ func waitContainerReady(container, probeCmd string, envPairs []string, timeout t
 	return fmt.Errorf("container %s never became ready within %s", container, timeout)
 }
 
-// abortMigrate is the shared post-failure recovery: try to put the old data
-// dir back and restart the old unit, joining errors so neither fix is silent.
-func abortMigrate(unit, name, backup string, restartOldUnit bool, cause error) error {
+// serviceConfigSnapshot captures a service's pre-migrate config so a failed
+// image switch can be fully reverted instead of left half-applied.
+type serviceConfigSnapshot struct {
+	defaultPreset bool
+	entry         config.ServiceConfig
+	custom        *config.CustomService
+}
+
+// captureServiceConfig snapshots the on-disk service config before a migrate
+// mutates it.
+func captureServiceConfig(name string) (*serviceConfigSnapshot, error) {
+	if config.IsDefaultPreset(name) {
+		cfg, err := config.LoadGlobal()
+		if err != nil {
+			return nil, err
+		}
+		return &serviceConfigSnapshot{defaultPreset: true, entry: cfg.Services[name]}, nil
+	}
+	svc, err := config.LoadCustomService(name)
+	if err != nil {
+		return nil, err
+	}
+	return &serviceConfigSnapshot{custom: svc}, nil
+}
+
+// restoreConfig writes the snapshot back. It skips the quadlet so the config
+// revert stays unit-testable; restoreQuadlet regenerates the unit file.
+func (s *serviceConfigSnapshot) restoreConfig(name string) error {
+	invalidateUpdateAvailability(name)
+	if s.defaultPreset {
+		cfg, err := config.LoadGlobal()
+		if err != nil {
+			return err
+		}
+		cfg.Services[name] = s.entry
+		return config.SaveGlobal(cfg)
+	}
+	if s.custom == nil {
+		return nil
+	}
+	return config.SaveCustomService(s.custom)
+}
+
+// restoreQuadlet regenerates the unit file from the restored config.
+func (s *serviceConfigSnapshot) restoreQuadlet(name string) error {
+	if s.defaultPreset {
+		return EnsureDefaultPresetQuadlet(name)
+	}
+	if s.custom == nil {
+		return nil
+	}
+	return EnsureCustomServiceQuadlet(s.custom)
+}
+
+// abortMigrate is the shared post-failure recovery: restore the old data dir,
+// revert a persisted image switch via the snapshot, and bring the unit back up,
+// joining errors so no fix is silent.
+func abortMigrate(unit, name, backup string, snapshot *serviceConfigSnapshot, cause error) error {
 	parts := []string{cause.Error()}
 	if backup != "" {
 		if err := restoreDataDirFromBackup(name, backup); err != nil {
 			parts = append(parts, "data-dir restore failed: "+err.Error()+" (backup left at "+backup+")")
 		}
 	}
-	if restartOldUnit {
-		if err := podman.StartUnit(unit); err != nil {
-			parts = append(parts, "restarting old unit failed: "+err.Error())
+	if snapshot != nil {
+		if err := snapshot.restoreConfig(name); err != nil {
+			parts = append(parts, "reverting service config failed: "+err.Error())
 		}
+		if err := snapshot.restoreQuadlet(name); err != nil {
+			parts = append(parts, "reverting quadlet failed: "+err.Error())
+		}
+	}
+	if err := podman.StartUnit(unit); err != nil {
+		parts = append(parts, "restarting unit failed: "+err.Error())
 	}
 	return fmt.Errorf("%s", strings.Join(parts, "; "))
 }
@@ -280,6 +339,10 @@ func abortMigrate(unit, name, backup string, restartOldUnit bool, cause error) e
 
 func migrateMysql(name, targetImage string, emit func(PhaseEvent)) error {
 	unit := "lerd-" + name
+	snapshot, err := captureServiceConfig(name)
+	if err != nil {
+		return fmt.Errorf("reading service config: %w", err)
+	}
 	dump := filepath.Join(config.BackupsDir(), name+"-"+timestamped()+".sql")
 	rootEnv := []string{"MYSQL_PWD=lerd"}
 
@@ -297,18 +360,18 @@ func migrateMysql(name, targetImage string, emit func(PhaseEvent)) error {
 	emit(PhaseEvent{Phase: "swapping_data_dir", Message: "old data preserved alongside the dump"})
 	backup, err := swapDataDirAside(name)
 	if err != nil {
-		return abortMigrate(unit, name, "", true, err)
+		return abortMigrate(unit, name, "", nil, err)
 	}
 
 	emit(PhaseEvent{Phase: "pulling_image", Image: targetImage})
 	if err := podman.PullImageWithProgress(targetImage, func(line string) {
 		emit(PhaseEvent{Phase: "pulling_image", Message: line})
 	}); err != nil {
-		return abortMigrate(unit, name, backup, true, fmt.Errorf("pulling target: %w", err))
+		return abortMigrate(unit, name, backup, nil, fmt.Errorf("pulling target: %w", err))
 	}
 
 	if err := switchToTargetImage(name, targetImage, emit); err != nil {
-		return abortMigrate(unit, name, backup, false, err)
+		return abortMigrate(unit, name, backup, snapshot, err)
 	}
 
 	emit(PhaseEvent{Phase: "waiting_ready", Unit: unit})
@@ -334,6 +397,10 @@ func migrateMysql(name, targetImage string, emit func(PhaseEvent)) error {
 
 func migratePostgres(name, targetImage string, emit func(PhaseEvent)) error {
 	unit := "lerd-" + name
+	snapshot, err := captureServiceConfig(name)
+	if err != nil {
+		return fmt.Errorf("reading service config: %w", err)
+	}
 	dump := filepath.Join(config.BackupsDir(), name+"-"+timestamped()+".sql")
 	pgEnv := []string{"PGPASSWORD=lerd"}
 
@@ -351,18 +418,18 @@ func migratePostgres(name, targetImage string, emit func(PhaseEvent)) error {
 	emit(PhaseEvent{Phase: "swapping_data_dir"})
 	backup, err := swapDataDirAside(name)
 	if err != nil {
-		return abortMigrate(unit, name, "", true, err)
+		return abortMigrate(unit, name, "", nil, err)
 	}
 
 	emit(PhaseEvent{Phase: "pulling_image", Image: targetImage})
 	if err := podman.PullImageWithProgress(targetImage, func(line string) {
 		emit(PhaseEvent{Phase: "pulling_image", Message: line})
 	}); err != nil {
-		return abortMigrate(unit, name, backup, true, fmt.Errorf("pulling target: %w", err))
+		return abortMigrate(unit, name, backup, nil, fmt.Errorf("pulling target: %w", err))
 	}
 
 	if err := switchToTargetImage(name, targetImage, emit); err != nil {
-		return abortMigrate(unit, name, backup, false, err)
+		return abortMigrate(unit, name, backup, snapshot, err)
 	}
 
 	emit(PhaseEvent{Phase: "waiting_ready", Unit: unit})
