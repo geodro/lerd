@@ -1189,7 +1189,8 @@ func handleServicePresets(w http.ResponseWriter, r *http.Request) {
 		}
 		// For single-version presets installed reflects "is the canonical
 		// service installed". For multi-version presets it reflects "are any
-		// version-suffixed instances installed", and InstalledTags lists them.
+		// instances installed" (canonical at the bare preset name OR alternates
+		// at the suffixed name), and InstalledTags lists them.
 		installed := false
 		var installedTags []string
 		if len(p.Versions) == 0 {
@@ -1198,8 +1199,7 @@ func handleServicePresets(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			for _, v := range p.Versions {
-				name := p.Name + "-" + config.SanitizeImageTag(v.Tag)
-				if _, err := config.LoadCustomService(name); err == nil {
+				if _, err := config.LoadCustomService(config.PresetVersionServiceName(p.Name, v)); err == nil {
 					installed = true
 					installedTags = append(installedTags, v.Tag)
 				}
@@ -1345,9 +1345,10 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not resolve current image", http.StatusBadRequest)
 			return
 		}
-		targetImage := avail.CurrentImage
-		if at := strings.LastIndex(targetImage, ":"); at > 0 {
-			targetImage = targetImage[:at] + ":" + targetTag
+		targetImage, err := serviceops.ResolveMigrateTarget(name, avail.CurrentImage, targetTag)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		writeLine, _ := startNDJSONStream(w, r)
 		start := time.Now()

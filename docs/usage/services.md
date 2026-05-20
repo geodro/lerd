@@ -10,7 +10,7 @@
 | `lerd service status <name>` | Show systemd unit status |
 | `lerd service list` | All services with status, version, and an Update column |
 | `lerd service update <name> [tag]` | Pull a newer image and restart; tag selects an explicit upgrade target |
-| `lerd service migrate <name> <target-tag>` | SQL dump + restore for cross-version moves (mysql, postgres) |
+| `lerd service migrate <name> <version>` | SQL dump + restore for cross-version moves (mysql, mariadb, postgres); `<version>` is a preset version label such as `18` |
 | `lerd service rollback <name>` | Swap back to the previously-running image (toggles) |
 | `lerd service pin <name>` | Pin a service so it is never auto-stopped |
 | `lerd service unpin <name>` | Unpin a service so it can be auto-stopped when unused |

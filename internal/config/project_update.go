@@ -231,21 +231,37 @@ type CommandValidationError struct{ Reason string }
 
 func (e *CommandValidationError) Error() string { return "invalid command: " + e.Reason }
 
-// ReplaceProjectDBService removes any existing sqlite/mysql/postgres service
-// and adds the given choice. Creates .lerd.yaml entries even if the file
-// doesn't exist yet (database choice is typically part of initial setup).
+// ReplaceProjectDBService removes any existing DB service entry from the
+// project's .lerd.yaml and adds the given choice. A "DB service" is sqlite or
+// any service in the mysql / mariadb / postgres / mongo families, so alternates
+// like postgres-pgvector or mariadb-10-11 replace the previous DB pick
+// cleanly. Creates .lerd.yaml entries even if the file doesn't exist yet.
 func ReplaceProjectDBService(dir string, choice string) error {
 	cfg, err := LoadProjectConfig(dir)
 	if err != nil {
 		return err
 	}
-	dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
 	filtered := cfg.Services[:0]
 	for _, svc := range cfg.Services {
-		if !dbNames[svc.Name] {
+		if !IsDBServiceName(svc.Name) {
 			filtered = append(filtered, svc)
 		}
 	}
 	cfg.Services = append(filtered, ProjectService{Name: choice})
 	return SaveProjectConfig(dir, cfg)
+}
+
+// IsDBServiceName reports whether name refers to a database service: sqlite,
+// or any service whose family is mysql, mariadb, postgres, or mongo. Used by
+// the DB-picker logic in `lerd env` and `db_set` to decide what counts as
+// "the database for this project".
+func IsDBServiceName(name string) bool {
+	if name == "sqlite" {
+		return true
+	}
+	switch FamilyOfName(name) {
+	case "mysql", "mariadb", "postgres", "mongo":
+		return true
+	}
+	return false
 }

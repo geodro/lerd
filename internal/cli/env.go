@@ -63,7 +63,7 @@ func userPickedDBFromYAML(lerdYAMLServices map[string]bool) bool {
 		return true
 	}
 	for name := range lerdYAMLServices {
-		switch config.InferFamily(name) {
+		switch config.FamilyOfName(name) {
 		case "mysql", "mariadb", "postgres", "mongo":
 			return true
 		}
@@ -233,27 +233,24 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// so they don't hit a 500 from the missing .sqlite file; the user can
 	// still switch later with `lerd db set mysql` or the db_set MCP tool.
 	if len(fw.Env.Services) == 0 &&
-		!lerdYAMLServices["mysql"] && !lerdYAMLServices["postgres"] && !lerdYAMLServices["sqlite"] &&
+		!userPickedDBFromYAML(lerdYAMLServices) &&
 		strings.EqualFold(strings.TrimSpace(envMap["DB_CONNECTION"]), "sqlite") {
 
 		dbChoice := "sqlite"
 		if isInteractive() {
+			options, _ := buildDatabaseOptions()
 			dbForm := huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
 					Title("Database").
-					Description(envRelPath+" uses SQLite. Use a lerd-managed database service instead?").
-					Options(
-						huh.NewOption("Keep SQLite", "sqlite"),
-						huh.NewOption("MySQL (lerd-mysql)", "mysql"),
-						huh.NewOption("PostgreSQL (lerd-postgres)", "postgres"),
-					).
+					Description(envRelPath + " uses SQLite. Use a lerd-managed database service instead?").
+					Options(options...).
 					Value(&dbChoice),
 			)).WithTheme(huh.ThemeCatppuccin())
 			if err := dbForm.Run(); err != nil {
 				return fmt.Errorf("database prompt: %w", err)
 			}
 		} else {
-			fmt.Println("  Defaulting to SQLite (non-interactive). Run `lerd db set <mysql|postgres>` or call db_set to switch.")
+			fmt.Println("  Defaulting to SQLite (non-interactive). Run `lerd db set <service>` or call db_set to switch.")
 		}
 
 		// Persist the choice to .lerd.yaml so future runs don't re-ask, and
@@ -488,7 +485,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			k, v, _ := strings.Cut(kv, "=")
 			updates[k] = applySiteHandle(v, tplCtx)
 		}
-		family := config.InferFamily(svc.Name)
+		family := config.FamilyOf(svc)
 		isDB := family == "mysql" || family == "mariadb" || family == "postgres"
 		if isDB {
 			updates["DB_DATABASE"] = dbName
@@ -608,7 +605,7 @@ func CreateDatabase(svc, name string) (bool, error) { return serviceops.CreateDa
 func CloneDatabase(svc, src, dst string) error {
 	container := "lerd-" + svc
 	family := svc
-	if inferred := config.InferFamily(svc); inferred != "" {
+	if inferred := config.FamilyOfName(svc); inferred != "" {
 		family = inferred
 	}
 	switch family {
@@ -648,7 +645,7 @@ func CloneDatabase(svc, src, dst string) error {
 func DropDatabase(svc, name string) (bool, error) {
 	container := "lerd-" + svc
 	family := svc
-	if inferred := config.InferFamily(svc); inferred != "" {
+	if inferred := config.FamilyOfName(svc); inferred != "" {
 		family = inferred
 	}
 	switch family {

@@ -235,20 +235,24 @@ v1.7.6 → v1.42.1) — this may require manual data migration; you've been warn
 
 func newServiceMigrateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "migrate <service> <target-tag>",
+		Use:   "migrate <service> <version>",
 		Short: "Migrate a service across data-incompatible versions (dump + restore)",
 		Long: `Migrate a service across versions whose on-disk data dirs are NOT compatible
 (e.g. mysql 8.x → 9.x, postgres 16 → 17, meilisearch v1.x → v1.y across minors).
+
+<version> is a preset version label such as 18, resolved to that version's
+image (postgres 18 becomes postgis/postgis:18-3.6-alpine). An argument that
+matches no preset version is used verbatim as the target image tag.
 
 Flow: dump current data into ~/.local/share/lerd/backups/<svc>-<ts>.sql, stop
 the unit, move the data dir aside, pull the target image, start fresh, restore
 the dump. The old data dir is preserved alongside the dump so manual recovery
 is always possible.
 
-Supported families: mysql, mariadb, postgres, meilisearch.`,
+Supported families: mysql, mariadb, postgres.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			name, tag := args[0], args[1]
+			name, version := args[0], args[1]
 			avail, err := serviceops.CheckUpdateAvailable(name)
 			if err != nil {
 				return err
@@ -256,9 +260,9 @@ Supported families: mysql, mariadb, postgres, meilisearch.`,
 			if avail.CurrentImage == "" {
 				return fmt.Errorf("could not resolve current image for %q", name)
 			}
-			targetImage := avail.CurrentImage
-			if at := strings.LastIndex(targetImage, ":"); at > 0 {
-				targetImage = targetImage[:at] + ":" + tag
+			targetImage, err := serviceops.ResolveMigrateTarget(name, avail.CurrentImage, version)
+			if err != nil {
+				return err
 			}
 			fmt.Printf("Migrating %s: %s → %s\n", name, avail.CurrentImage, targetImage)
 			fmt.Println("Dumps and the previous data dir will be preserved under ~/.local/share/lerd/backups.")
@@ -649,7 +653,7 @@ func printPresetList() error {
 		} else {
 			anyInstalled := false
 			for _, v := range p.Versions {
-				if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+				if _, err := config.LoadCustomService(config.PresetVersionServiceName(p.Name, v)); err == nil {
 					anyInstalled = true
 					break
 				}
@@ -671,7 +675,7 @@ func printPresetList() error {
 			if v.Label != "" {
 				label = v.Label
 			}
-			if _, err := config.LoadCustomService(p.Name + "-" + config.SanitizeImageTag(v.Tag)); err == nil {
+			if _, err := config.LoadCustomService(config.PresetVersionServiceName(p.Name, v)); err == nil {
 				versionStatus = "installed"
 			}
 			marker := " "

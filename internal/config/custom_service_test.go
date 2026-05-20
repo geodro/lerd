@@ -7,6 +7,38 @@ import (
 	"testing"
 )
 
+func TestFamilyOf_PrefersExplicitFamily(t *testing.T) {
+	svc := &CustomService{Name: "postgres-pgvector", Family: "postgres"}
+	if got := FamilyOf(svc); got != "postgres" {
+		t.Errorf("FamilyOf(postgres-pgvector w/ Family=postgres) = %q, want postgres (this is the postgres-pgvector fix)", got)
+	}
+}
+
+func TestFamilyOf_FallsBackToInferWhenFamilyEmpty(t *testing.T) {
+	svc := &CustomService{Name: "mariadb-10-11"}
+	if got := FamilyOf(svc); got != "mariadb" {
+		t.Errorf("FamilyOf(mariadb-10-11 w/o Family) = %q, want mariadb via InferFamily fallback", got)
+	}
+}
+
+func TestFamilyOf_NilSafe(t *testing.T) {
+	if got := FamilyOf(nil); got != "" {
+		t.Errorf("FamilyOf(nil) = %q, want empty", got)
+	}
+}
+
+func TestFamilyOfName_BuiltinViaInferFamily(t *testing.T) {
+	if got := FamilyOfName("postgres"); got != "postgres" {
+		t.Errorf("FamilyOfName(postgres) = %q, want postgres (built-in family lookup)", got)
+	}
+}
+
+func TestFamilyOfName_UnknownReturnsEmpty(t *testing.T) {
+	if got := FamilyOfName("not-a-real-service"); got != "" {
+		t.Errorf("FamilyOfName(not-a-real-service) = %q, want empty", got)
+	}
+}
+
 func TestSaveCustomService_RejectsNewlineInEnv(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)

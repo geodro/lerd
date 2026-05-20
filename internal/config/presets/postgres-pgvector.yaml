@@ -1,0 +1,33 @@
+name: postgres-pgvector
+description: PostgreSQL with pgvector (vector embeddings, no PostGIS)
+family: postgres
+default_version: "18"
+versions:
+  - tag: "18"
+    label: "18 (default)"
+    image: docker.io/pgvector/pgvector:pg18
+    canonical: true
+    host_port: 5518
+  - tag: "17"
+    label: "17"
+    image: docker.io/pgvector/pgvector:pg17
+    host_port: 5517
+  - tag: "16"
+    label: "16"
+    image: docker.io/pgvector/pgvector:pg16
+    host_port: 5516
+ports:
+  - "{{host_port}}:5432"
+data_dir: /var/lib/postgresql/data
+environment:
+  POSTGRES_PASSWORD: lerd
+  POSTGRES_DB: lerd
+  PGDATA: /var/lib/postgresql/data
+env_vars:
+  - DB_CONNECTION=pgsql
+  - DB_HOST=lerd-{{name}}
+  - DB_PORT=5432
+  - DB_DATABASE=lerd
+  - DB_USERNAME=postgres
+  - DB_PASSWORD=lerd
+connection_url: postgresql://postgres:lerd@127.0.0.1:{{host_port}}/lerd

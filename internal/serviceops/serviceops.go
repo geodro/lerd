@@ -374,12 +374,7 @@ func StopWithDependents(name string) {
 // ServiceFamily returns the family of a service by name. Honours the
 // explicit Family field on a custom service first, falls back to
 // config.InferFamily for built-ins and pattern-matched alternates.
-func ServiceFamily(name string) string {
-	if svc, err := config.LoadCustomService(name); err == nil && svc.Family != "" {
-		return svc.Family
-	}
-	return config.InferFamily(name)
-}
+func ServiceFamily(name string) string { return config.FamilyOfName(name) }
 
 // RegenerateFamilyConsumersForService is a convenience that wraps
 // RegenerateFamilyConsumers in a no-op when name has no recognised family.

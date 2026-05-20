@@ -425,3 +425,67 @@ func TestReplaceProjectDBService_CreatesFileIfMissing(t *testing.T) {
 		t.Errorf("Services = %v, want [{mysql}]", cfg.Services)
 	}
 }
+
+func TestReplaceProjectDBService_ReplacesFamilyAlternate(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, "lerd", "services"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `name: postgres-pgvector
+family: postgres
+image: docker.io/pgvector/pgvector:pg18
+`
+	if err := os.WriteFile(filepath.Join(tmp, "lerd", "services", "postgres-pgvector.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write fake service: %v", err)
+	}
+	dir := setupProjectConfig(t, &ProjectConfig{
+		Services: []ProjectService{
+			{Name: "postgres-pgvector"},
+			{Name: "redis"},
+		},
+	})
+	if err := ReplaceProjectDBService(dir, "mysql"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadConfig(t, dir)
+	for _, svc := range cfg.Services {
+		if svc.Name == "postgres-pgvector" {
+			t.Errorf("postgres-pgvector should have been replaced, got services: %v", cfg.Services)
+		}
+	}
+}
+
+func TestIsDBServiceName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, "lerd", "services"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `name: postgres-pgvector
+family: postgres
+image: docker.io/pgvector/pgvector:pg18
+`
+	if err := os.WriteFile(filepath.Join(tmp, "lerd", "services", "postgres-pgvector.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write fake service: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"sqlite", true},
+		{"mysql", true},
+		{"postgres", true},
+		{"postgres-pgvector", true},
+		{"redis", false},
+		{"meilisearch", false},
+		{"", false},
+		{"made-up-service", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsDBServiceName(tc.name); got != tc.want {
+				t.Errorf("IsDBServiceName(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}

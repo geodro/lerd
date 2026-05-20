@@ -43,8 +43,14 @@ If anything fails before step 5, the data dir is restored and the unit goes back
 
 ```bash
 # Migrate mysql to a specific 9.x tag (one major above the running 8.x)
-lerd service migrate mysql 9.0
+lerd service migrate mysql 9.7
+
+# Postgres takes the major version label; lerd resolves the compound image
+# tag for you (18 becomes postgis/postgis:18-3.6-alpine)
+lerd service migrate postgres 18
 ```
+
+`<version>` is a preset version label as shown in `lerd service list` or the install picker. lerd looks it up in the preset and substitutes the right registry image, so you never have to type a compound tag like `18-3.6-alpine` or `pg18`. An argument that matches no preset version is used verbatim as the image tag, which still lets you pin an exact patch release.
 
 ```jsonc
 // MCP
@@ -105,7 +111,7 @@ allow_major_upgrade: false      # NewestStable stays in current major when false
 lerd service list                            # Update column shows badges
 lerd service update <name>                   # safe in-strategy patch
 lerd service update <name> <tag>             # explicit upgrade target
-lerd service migrate <name> <target-tag>     # SQL dump + restore
+lerd service migrate <name> <version>        # SQL dump + restore
 lerd service rollback <name>                 # toggle back to previous image
 ```
 

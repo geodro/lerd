@@ -138,6 +138,56 @@ func TestUserPickedDBFromYAML(t *testing.T) {
 	}
 }
 
+func TestUserPickedDBFromYAML_CustomFamilyMember(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, "lerd", "services"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `name: postgres-pgvector
+family: postgres
+image: docker.io/pgvector/pgvector:pg18
+`
+	if err := os.WriteFile(filepath.Join(tmp, "lerd", "services", "postgres-pgvector.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write fake service: %v", err)
+	}
+	if !userPickedDBFromYAML(map[string]bool{"postgres-pgvector": true}) {
+		t.Errorf("userPickedDBFromYAML should count postgres-pgvector as a picked DB via Family=postgres")
+	}
+}
+
+func TestBuildDatabaseOptions_IncludesInstalledFamilyAlternates(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, "lerd", "services"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `name: postgres-pgvector
+family: postgres
+image: docker.io/pgvector/pgvector:pg18
+`
+	if err := os.WriteFile(filepath.Join(tmp, "lerd", "services", "postgres-pgvector.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write fake service: %v", err)
+	}
+	options, nameSet := buildDatabaseOptions()
+	if !nameSet["sqlite"] || !nameSet["mysql"] || !nameSet["postgres"] {
+		t.Errorf("buildDatabaseOptions must always include the built-in trio, got %v", nameSet)
+	}
+	if !nameSet["postgres-pgvector"] {
+		t.Errorf("buildDatabaseOptions must surface installed postgres-family alternate, got %v", nameSet)
+	}
+	foundPgvector := false
+	for _, opt := range options {
+		if opt.Value == "postgres-pgvector" {
+			foundPgvector = true
+			break
+		}
+	}
+	if !foundPgvector {
+		t.Errorf("buildDatabaseOptions must offer postgres-pgvector as a selectable option")
+	}
+}
+
 func TestShouldApplyService(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

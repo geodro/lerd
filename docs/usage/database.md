@@ -85,9 +85,11 @@ The database for a Laravel project is configured through `.lerd.yaml` and applie
 | `mysql` | `lerd-mysql` (Podman) | `DB_CONNECTION=mysql`, `DB_HOST=lerd-mysql`, `DB_PORT=3306`, `DB_DATABASE=<project>`, `DB_USERNAME=root`, `DB_PASSWORD=lerd` |
 | `postgres` | `lerd-postgres` (Podman) | `DB_CONNECTION=pgsql`, `DB_HOST=lerd-postgres`, `DB_PORT=5432`, `DB_DATABASE=<project>`, `DB_USERNAME=postgres`, `DB_PASSWORD=lerd` |
 
+Installed family alternates are valid picks too: `mariadb` / `mariadb-10-11`, `mysql-5-7`, `postgres-pgvector` / `postgres-17`, etc. They go through the same env-write + database-create flow as the built-ins, using the host and port from their preset. Install one first with `lerd service preset <name>`, then list it in `.lerd.yaml` under `services:` or pick it in the `lerd init` wizard.
+
 For SQLite, the `database/database.sqlite` file is created automatically if it doesn't exist. No service is started.
 
-For MySQL or PostgreSQL, the matching `lerd-<engine>` service is started if it isn't already, and the project database (plus a `_testing` variant) is created via `lerd db:create`.
+For MySQL or PostgreSQL (and their family alternates), the matching `lerd-<service>` container is started if it isn't already, and the project database (plus a `_testing` variant) is created via `lerd db:create`.
 
 You can change the choice at any time by editing the `services:` list in `.lerd.yaml` and re-running `lerd env`, or by running `lerd init --fresh` and picking a different database in the wizard.
 

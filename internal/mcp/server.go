@@ -401,12 +401,12 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "db_set",
-			Description: "Pick the project database. Persists to .lerd.yaml, rewrites DB_ keys in .env, starts service, creates DB + _testing. Call before env_setup on fresh clones.",
+			Description: "Pick the project database: sqlite, mysql, postgres, or an installed family alternate (mariadb, postgres-pgvector, …). Persists to .lerd.yaml, rewrites DB_ keys, starts service, creates DB + _testing.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
 					"path":     {Type: "string", Description: "Project root."},
-					"database": {Type: "string", Enum: []string{"sqlite", "mysql", "postgres"}},
+					"database": {Type: "string"},
 				},
 				Required: []string{"database"},
 			},
@@ -2765,8 +2765,7 @@ func execServicePresetList(_ map[string]any) (any, *rpcError) {
 		} else {
 			anyInstalled := false
 			for _, v := range p.Versions {
-				name := p.Name + "-" + config.SanitizeImageTag(v.Tag)
-				_, loadErr := config.LoadCustomService(name)
+				_, loadErr := config.LoadCustomService(config.PresetVersionServiceName(p.Name, v))
 				vi := versionEntry{
 					Tag:       v.Tag,
 					Label:     v.Label,
@@ -2889,9 +2888,9 @@ func execServiceMigrate(args map[string]any) (any, *rpcError) {
 	if err != nil || avail.CurrentImage == "" {
 		return toolErr("could not resolve current image for " + name), nil
 	}
-	target := avail.CurrentImage
-	if at := strings.LastIndex(target, ":"); at > 0 {
-		target = target[:at] + ":" + tag
+	target, err := serviceops.ResolveMigrateTarget(name, avail.CurrentImage, tag)
+	if err != nil {
+		return toolErr(err.Error()), nil
 	}
 	var lastImage string
 	emit := func(ev serviceops.PhaseEvent) {
@@ -3044,20 +3043,18 @@ func execDbSet(args map[string]any) (any, *rpcError) {
 		return toolErr("path is required — pass a path argument or open Claude in the project directory"), nil
 	}
 	choice := strings.ToLower(strings.TrimSpace(strArg(args, "database")))
-	switch choice {
-	case "sqlite", "mysql", "postgres":
-	case "":
-		return toolErr("database is required — must be one of: sqlite, mysql, postgres"), nil
-	default:
-		return toolErr(fmt.Sprintf("invalid database %q — must be one of: sqlite, mysql, postgres", choice)), nil
+	if choice == "" {
+		return toolErr("database is required — pass sqlite, a built-in (mysql/postgres), or an installed family alternate (e.g. mariadb, postgres-pgvector, mysql-5-7)"), nil
+	}
+	if !config.IsDBServiceName(choice) {
+		return toolErr(fmt.Sprintf("invalid database %q — must be sqlite or a service in the mysql/mariadb/postgres/mongo families (install the preset with `lerd service preset %s` first if needed)", choice, choice)), nil
 	}
 
 	// Check existing DB for the summary message.
 	previous := ""
 	if proj, _ := config.LoadProjectConfig(projectPath); proj != nil {
-		dbNames := map[string]bool{"sqlite": true, "mysql": true, "postgres": true}
 		for _, svc := range proj.Services {
-			if dbNames[svc.Name] {
+			if config.IsDBServiceName(svc.Name) {
 				previous = svc.Name
 				break
 			}

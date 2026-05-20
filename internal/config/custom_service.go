@@ -255,6 +255,31 @@ func InferFamily(name string) string {
 	return ""
 }
 
+// FamilyOf returns the family for a resolved CustomService, preferring the
+// explicit Family field over name-pattern inference. Use this anywhere
+// behavior branches on family (env wiring, DB creation, migration) so
+// services with non-digit suffixes like postgres-pgvector are recognised.
+func FamilyOf(svc *CustomService) string {
+	if svc == nil {
+		return ""
+	}
+	if svc.Family != "" {
+		return svc.Family
+	}
+	return InferFamily(svc.Name)
+}
+
+// FamilyOfName resolves a family by service name. Loads the installed custom
+// service definition (if any) to honour its Family field, falling back to
+// InferFamily for built-ins, uninstalled names, or anything without a saved
+// definition. Use this from call sites that only have the bare service name.
+func FamilyOfName(name string) string {
+	if svc, err := LoadCustomService(name); err == nil && svc != nil {
+		return FamilyOf(svc)
+	}
+	return InferFamily(name)
+}
+
 // ResolveDynamicEnv applies any dynamic_env directives on svc, writing the
 // computed values into svc.Environment. Called immediately before quadlet
 // generation so the resolved values land in the rendered .container file.

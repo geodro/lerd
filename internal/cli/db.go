@@ -504,7 +504,7 @@ func runDbShell(flagService, flagDatabase string) error {
 func databaseExists(svc, name string) (bool, error) {
 	container := "lerd-" + svc
 	family := svc
-	if inferred := config.InferFamily(svc); inferred != "" {
+	if inferred := config.FamilyOfName(svc); inferred != "" {
 		family = inferred
 	}
 	switch family {
