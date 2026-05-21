@@ -319,6 +319,46 @@ func TestTickDNS_repairAvailableAfterUnavailable_relogsOnNextOutage(t *testing.T
 	}
 }
 
+// TestTickDNS_containerDNSResync pins the VPN fix: the watcher records the
+// host DNS fingerprint as a baseline on its first tick, stays quiet while
+// it is unchanged, and re-syncs container DNS exactly once when it changes
+// (a VPN connecting), then settles again.
+func TestTickDNS_containerDNSResync(t *testing.T) {
+	fp := "1.1.1.1|0"
+	resyncs := 0
+	deps := dnsWatchDeps{
+		check:              func(string) (bool, error) { return true, nil },
+		idleOrLocked:       func() bool { return false },
+		publishStatus:      func() {},
+		dnsEnvFingerprint:  func() string { return fp },
+		resyncContainerDNS: func() error { resyncs++; return nil },
+		log:                func(string, string, ...any) {},
+	}
+	state := &dnsWatchState{}
+
+	// First tick only records the baseline.
+	tickDNS(deps, state, "test")
+	if resyncs != 0 {
+		t.Fatalf("first tick re-synced; want baseline only, got %d", resyncs)
+	}
+	// Unchanged environment: still quiet.
+	tickDNS(deps, state, "test")
+	if resyncs != 0 {
+		t.Fatalf("unchanged env re-synced=%d, want 0", resyncs)
+	}
+	// VPN connects: the fingerprint changes, re-sync fires once.
+	fp = "1.1.1.1,10.0.0.1|1"
+	tickDNS(deps, state, "test")
+	if resyncs != 1 {
+		t.Fatalf("changed env re-syncs=%d, want 1", resyncs)
+	}
+	// Stable at the new value: no further re-sync.
+	tickDNS(deps, state, "test")
+	if resyncs != 1 {
+		t.Fatalf("re-syncs after settle=%d, want 1", resyncs)
+	}
+}
+
 func ptrBool(b bool) *bool { return &b }
 
 func ptrBoolEq(a, b *bool) bool {

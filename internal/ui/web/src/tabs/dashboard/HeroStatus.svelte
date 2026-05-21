@@ -10,7 +10,7 @@
   import { version } from '$stores/version';
   import { coreServices } from '$stores/services';
   import { sites } from '$stores/sites';
-  import { status, statusLoaded } from '$stores/status';
+  import { status, statusLoaded, dnsState } from '$stores/status';
   import { accessMode } from '$stores/accessMode';
   import { goToTab } from '$stores/route';
   import { apiFetch } from '$lib/api';
@@ -24,7 +24,10 @@
   const coreDown = $derived.by(() => {
     if (!$statusLoaded) return [] as string[];
     const issues: string[] = [];
-    if ($status.dns?.enabled !== false && !$status.dns.ok) issues.push('DNS');
+    // Only a genuine lerd-dns outage is a core failure. "degraded" means
+    // lerd-dns is healthy but the system resolver is bypassed (typically a
+    // VPN), which lerd recovers from on its own, so it doesn't belong here.
+    if ($status.dns?.enabled !== false && dnsState($status) === 'down') issues.push('DNS');
     if (!$status.nginx.running) issues.push('Nginx');
     if (!$status.watcher_running) issues.push('Watcher');
     return issues;

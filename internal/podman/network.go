@@ -380,6 +380,18 @@ func RecreateNetwork(name string, dns []string) ([]string, bool, error) {
 	return attached, actualV6, nil
 }
 
+// ReloadNetworks re-runs network setup for every running container via
+// `podman network reload`. aardvark-dns is killed first so the reload
+// respawns it with an empty cache: after a VPN connects, a hostname that
+// resolved to NXDOMAIN before the tunnel came up would otherwise stay
+// stuck on the cached negative answer. This is how lerd recovers
+// container DNS when the host's resolvers change without restarting the
+// containers themselves.
+func ReloadNetworks() error {
+	_ = exec.Command("pkill", "-f", "aardvark-dns").Run()
+	return RunSilent("network", "reload", "--all")
+}
+
 // EnsureNetworkDNS syncs the DNS servers on the named network to the provided list.
 // It drops servers no longer present and adds new ones. This sets the upstream
 // forwarders that aardvark-dns uses, which is necessary on systems where

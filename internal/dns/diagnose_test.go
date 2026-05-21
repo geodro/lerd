@@ -18,6 +18,7 @@ func fakeProbes() probeFns {
 		resolverHookup:   func() (string, bool, string) { return "drop-in", true, "/etc/x" },
 		interfaceRouting: func(string) (string, bool, bool, error) { return "eth0", true, true, nil },
 		systemLookup:     func(string) ([]string, error) { return []string{"127.0.0.1"}, nil },
+		vpnActive:        func() bool { return false },
 	}
 }
 
@@ -106,6 +107,28 @@ func TestDiagnose_systemLookupNotFinalizedAsSkip(t *testing.T) {
 	}
 	if !strings.Contains(last.Hint, "cloud-init") {
 		t.Errorf("hint %q should mention cloud-init", last.Hint)
+	}
+}
+
+// TestDiagnose_systemLookupUnderVPNIsWarn pins the VPN-aware Rung 7: when a
+// tunnel is up, the system-resolver path failing is expected and lerd
+// recovers on its own, so it must downgrade to a warning rather than a
+// failure that would mark the whole chain broken.
+func TestDiagnose_systemLookupUnderVPNIsWarn(t *testing.T) {
+	p := fakeProbes()
+	p.systemLookup = func(string) ([]string, error) { return nil, errors.New("server misbehaving") }
+	p.vpnActive = func() bool { return true }
+	d := diagnose("test", p)
+
+	last := d.Steps[len(d.Steps)-1]
+	if last.Status != StepWarn {
+		t.Errorf("system lookup under VPN = %s, want warn", last.Status)
+	}
+	if d.FirstFailure != -1 {
+		t.Errorf("FirstFailure = %d, want -1 (a VPN warn is not a chain failure)", d.FirstFailure)
+	}
+	if !strings.Contains(last.Hint, "VPN") {
+		t.Errorf("hint %q should mention VPN", last.Hint)
 	}
 }
 

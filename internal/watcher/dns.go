@@ -1,10 +1,14 @@
 package watcher
 
 import (
+	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/eventbus"
+	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/systemd"
 )
 
@@ -16,13 +20,15 @@ const idleSkipEveryN = 10
 // dnsWatchDeps is the injection surface for tickDNS so the orchestration
 // can be unit-tested without an actual resolver or eventbus subscriber.
 type dnsWatchDeps struct {
-	check             func(tld string) (bool, error)
-	waitReady         func(time.Duration) error
-	configureResolver func() error
-	repairPossible    func() bool
-	idleOrLocked      func() bool
-	publishStatus     func()
-	log               func(level, msg string, kv ...any)
+	check              func(tld string) (bool, error)
+	waitReady          func(time.Duration) error
+	configureResolver  func() error
+	repairPossible     func() bool
+	idleOrLocked       func() bool
+	publishStatus      func()
+	dnsEnvFingerprint  func() string
+	resyncContainerDNS func() error
+	log                func(level, msg string, kv ...any)
 }
 
 // dnsWatchState is the cross-tick memory for WatchDNS. lastOK starts nil
@@ -32,6 +38,33 @@ type dnsWatchState struct {
 	lastOK            *bool
 	tickCount         int
 	repairUnavailable bool
+	dnsEnv            string
+	dnsEnvSeen        bool
+}
+
+// defaultDNSEnvFingerprint summarises the host DNS environment: the sorted
+// upstream resolver set plus whether a VPN tunnel is up. Either changing
+// (VPN connect/disconnect, network switch) means aardvark-dns is serving
+// stale forwarders and a stale cache, so container DNS needs a re-sync.
+func defaultDNSEnvFingerprint() string {
+	up := dns.ReadUpstreamDNS()
+	sort.Strings(up)
+	vpn := "0"
+	if dns.VPNActive() {
+		vpn = "1"
+	}
+	return strings.Join(up, ",") + "|" + vpn
+}
+
+// defaultResyncContainerDNS re-points the lerd network's aardvark-dns at
+// the current host resolvers and reloads the network so containers pick
+// them up. This is the automatic equivalent of a manual `lerd restart`
+// after a VPN connects.
+func defaultResyncContainerDNS() error {
+	if err := podman.EnsureNetworkDNS("lerd", dns.ReadContainerDNS()); err != nil {
+		return err
+	}
+	return podman.ReloadNetworks()
 }
 
 // WatchDNS polls DNS health for the given TLD every interval. When resolution
@@ -62,6 +95,16 @@ func WatchDNS(interval time.Duration, tld string) {
 			}
 		},
 	}
+
+	// Container DNS re-sync recovers from aardvark-dns forwarder staleness,
+	// which is specific to Linux rootless podman. macOS containers get DNS
+	// from the podman machine VM (ReadContainerDNS is nil there), so there
+	// is nothing to re-sync and the detection stays off.
+	if runtime.GOOS == "linux" {
+		deps.dnsEnvFingerprint = defaultDNSEnvFingerprint
+		deps.resyncContainerDNS = defaultResyncContainerDNS
+	}
+
 	state := &dnsWatchState{}
 
 	// Probe immediately so a UI opened during boot doesn't sit on stale
@@ -82,6 +125,26 @@ func tickDNS(d dnsWatchDeps, s *dnsWatchState, tld string) {
 	s.tickCount++
 	if d.idleOrLocked() && s.tickCount%idleSkipEveryN != 0 {
 		return
+	}
+
+	// Re-sync container DNS when the host resolver environment changes
+	// (VPN connect/disconnect, network switch). The lerd network's
+	// aardvark-dns is otherwise left on the pre-change forwarders and a
+	// stale cache, so containers can't resolve newly-routable hostnames
+	// until a manual `lerd restart`. The first tick only records the
+	// baseline so a fresh watcher start never triggers a re-sync.
+	if d.dnsEnvFingerprint != nil {
+		fp := d.dnsEnvFingerprint()
+		if s.dnsEnvSeen && fp != s.dnsEnv {
+			d.log("info", "host DNS changed, re-syncing container DNS")
+			if d.resyncContainerDNS != nil {
+				if err := d.resyncContainerDNS(); err != nil {
+					d.log("warn", "container DNS re-sync failed", "err", err)
+				}
+			}
+		}
+		s.dnsEnv = fp
+		s.dnsEnvSeen = true
 	}
 
 	ok, _ := d.check(tld)

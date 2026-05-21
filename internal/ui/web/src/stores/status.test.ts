@@ -79,4 +79,40 @@ describe('status store', () => {
     version.update((v) => ({ ...v, hasUpdate: false }));
     expect(get(lerdStatusColor)).toBe('green');
   });
+
+  it('lerdStatusColor is yellow when DNS is degraded, not red', async () => {
+    const { status, statusLoaded, lerdStatusColor } = await import('./status');
+    const { version } = await import('./version');
+    statusLoaded.set(true);
+    status.update((s) => ({
+      ...s,
+      dns: { ok: false, status: 'degraded', vpn: true, enabled: true, tld: 'test' },
+      nginx: { running: true },
+      watcher_running: true
+    }));
+    version.update((v) => ({ ...v, hasUpdate: false }));
+    expect(get(lerdStatusColor)).toBe('yellow');
+  });
+
+  it('lerdStatusColor is red when DNS is down', async () => {
+    const { status, statusLoaded, lerdStatusColor } = await import('./status');
+    statusLoaded.set(true);
+    status.update((s) => ({
+      ...s,
+      dns: { ok: false, status: 'down', vpn: false, enabled: true, tld: 'test' },
+      nginx: { running: true },
+      watcher_running: true
+    }));
+    expect(get(lerdStatusColor)).toBe('red');
+  });
+
+  it('dnsState reads the status field and falls back to ok for old payloads', async () => {
+    const { dnsState } = await import('./status');
+    const base = { nginx: { running: true }, php_fpms: [], php_default: '', node_default: '', node_managed_by_lerd: true, watcher_running: true };
+    expect(dnsState({ ...base, dns: { ok: false, status: 'degraded', enabled: true, tld: 'test' } })).toBe('degraded');
+    expect(dnsState({ ...base, dns: { ok: false, status: 'down', enabled: true, tld: 'test' } })).toBe('down');
+    expect(dnsState({ ...base, dns: { ok: true, enabled: true, tld: 'test' } })).toBe('ok');
+    expect(dnsState({ ...base, dns: { ok: false, enabled: true, tld: 'test' } })).toBe('down');
+    expect(dnsState({ ...base, dns: { ok: false, enabled: false, tld: 'test' } })).toBe('ok');
+  });
 });

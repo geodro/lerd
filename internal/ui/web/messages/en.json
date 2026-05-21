@@ -328,6 +328,8 @@
   "system_stopLerd": "Stop Lerd",
   "system_dns_ok": "OK",
   "system_dns_failed": "Failed",
+  "system_dns_degraded": "Degraded",
+  "system_dns_degradedHint": "lerd-dns is healthy and answering directly, but the system resolver isn't routing your domains to it, usually because a VPN client rewrote DNS. Sites still resolve, and lerd re-syncs container DNS automatically when the VPN connection changes.",
   "system_dns_fixHint": "Try {start}, or run {cmd} to fix DNS.",
   "system_dns_quietDefault": "dnsmasq is quiet by default. Add {option} to {path} and restart lerd-dns to see resolved queries here.",
   "system_watcher_description": "Monitors parked directories, site files, git worktrees, and DNS health. Logs WARN and ERROR events by default; set {env} in the service environment for verbose output.",

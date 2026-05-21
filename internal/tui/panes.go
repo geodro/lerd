@@ -142,6 +142,8 @@ func (m *Model) renderHeader() string {
 		parts = append(parts, dimStyle.Render("DNS off"))
 	} else if m.snap.Status.DNSOk {
 		parts = append(parts, runningStyle.Render("DNS ok"))
+	} else if m.snap.Status.DNSDegraded {
+		parts = append(parts, accentStyle.Render("DNS degraded"))
 	} else {
 		parts = append(parts, failingStyle.Render("DNS down"))
 	}

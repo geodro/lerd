@@ -56,6 +56,7 @@ type probeFns struct {
 	resolverHookup   func() (kind string, exists bool, path string)
 	interfaceRouting func(tld string) (interfaceName string, has5300 bool, hasTLD bool, err error)
 	systemLookup     func(tld string) (addrs []string, err error)
+	vpnActive        func() bool
 }
 
 // Diagnose walks the DNS chain top to bottom and returns a structured
@@ -180,26 +181,40 @@ func diagnose(tld string, p probeFns) Diagnostic {
 
 	// Rung 7 — end to end resolution at port 53.
 	addrs, err := p.systemLookup(tld)
+	vpn := p.vpnActive != nil && p.vpnActive()
 	switch {
 	case err != nil:
-		d.Steps = append(d.Steps, Step{
-			Name:   "system DNS lookup",
-			Status: StepFail,
-			Detail: err.Error(),
-			Hint:   "lerd-dns is reachable directly but the system resolver isn't using it; check cloud-init or other tools that may overwrite resolved.conf",
-		})
+		d.Steps = append(d.Steps, systemLookupFailStep(err.Error(), vpn))
 	case !contains(addrs, "127.0.0.1"):
-		d.Steps = append(d.Steps, Step{
-			Name:   "system DNS lookup",
-			Status: StepFail,
-			Detail: fmt.Sprintf("got %v, want one entry to be 127.0.0.1", addrs),
-			Hint:   "drop-in is installed but resolved isn't honouring it; check whether cloud-init or another tool wrote a higher-priority resolver config",
-		})
+		d.Steps = append(d.Steps, systemLookupFailStep(
+			fmt.Sprintf("got %v, want one entry to be 127.0.0.1", addrs), vpn))
 	default:
 		d.Steps = append(d.Steps, Step{Name: "system DNS lookup", Status: StepOK, Detail: "127.0.0.1"})
 	}
 
 	return finalize(d)
+}
+
+// systemLookupFailStep builds the Rung 7 failure step. When a VPN tunnel
+// is up the system-resolver path failing is expected: the VPN client has
+// taken over DNS, .test still resolves via lerd-dns directly, and the
+// watcher re-syncs container DNS automatically. That is a warning, not a
+// failure, so the chain doesn't flag a broken state lerd already handles.
+func systemLookupFailStep(detail string, vpn bool) Step {
+	if vpn {
+		return Step{
+			Name:   "system DNS lookup",
+			Status: StepWarn,
+			Detail: detail,
+			Hint:   "a VPN tunnel is up and has taken over the system resolver; .test still resolves via lerd-dns directly and lerd re-syncs container DNS automatically when the VPN changes",
+		}
+	}
+	return Step{
+		Name:   "system DNS lookup",
+		Status: StepFail,
+		Detail: detail,
+		Hint:   "lerd-dns is reachable directly but the system resolver isn't using it; check cloud-init or other tools that may overwrite resolved.conf",
+	}
 }
 
 // finalize walks the steps once to find the first failure, marking every
@@ -244,6 +259,7 @@ func defaultProbes() probeFns {
 		resolverHookup:   defaultResolverHookup,
 		interfaceRouting: defaultInterfaceRouting,
 		systemLookup:     defaultSystemLookup,
+		vpnActive:        VPNActive,
 	}
 }
 

@@ -36,6 +36,7 @@ type Snapshot struct {
 	Running              bool
 	NginxRunning         bool
 	DNSOK                bool
+	DNSDegraded          bool // lerd-dns healthy but the system resolver is bypassed, typically a VPN
 	DNSDisabled          bool // explicit dns.enabled=false from API; zero value falls through to ok/error
 	PHPVersions          []phpInfo
 	PHPDefault           string
@@ -217,8 +218,9 @@ func fetchSnapshot() *Snapshot {
 			Running bool `json:"running"`
 		} `json:"nginx"`
 		DNS struct {
-			OK      bool `json:"ok"`
-			Enabled bool `json:"enabled"`
+			OK      bool   `json:"ok"`
+			Status  string `json:"status"`
+			Enabled bool   `json:"enabled"`
 		} `json:"dns"`
 		PHPFPMs []struct {
 			Version string `json:"version"`
@@ -231,6 +233,7 @@ func fetchSnapshot() *Snapshot {
 			snap.Running = sr.Nginx.Running
 			snap.NginxRunning = sr.Nginx.Running
 			snap.DNSOK = sr.DNS.OK
+			snap.DNSDegraded = sr.DNS.Status == "degraded"
 			snap.DNSDisabled = !sr.DNS.Enabled
 			snap.PHPDefault = sr.PHPDefault
 			for _, p := range sr.PHPFPMs {

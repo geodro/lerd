@@ -541,6 +541,8 @@ type StatusResponse struct {
 
 type DNSStatus struct {
 	OK      bool   `json:"ok"`
+	Status  string `json:"status"` // ok | degraded | down
+	VPN     bool   `json:"vpn"`    // a VPN tunnel is up; degraded is then expected
 	Enabled bool   `json:"enabled"`
 	TLD     string `json:"tld"`
 }
@@ -570,7 +572,7 @@ func buildStatus() StatusResponse {
 		dnsEnabled = cfg.DNS.Enabled
 	}
 
-	dnsOK, _ := dns.Check(tld)
+	dnsStatus := dns.CheckStatus(tld)
 	nginxRunning := podman.Cache.Running("lerd-nginx")
 	watcherRunning := services.Mgr.IsActive("lerd-watcher")
 
@@ -596,7 +598,7 @@ func buildStatus() StatusResponse {
 	_, nodeShimErr := os.Stat(nodeShim)
 	nodeManagedByLerd := nodeShimErr == nil
 	return StatusResponse{
-		DNS:               DNSStatus{OK: dnsOK, Enabled: dnsEnabled, TLD: tld},
+		DNS:               DNSStatus{OK: dnsStatus == dns.StatusOK, Status: string(dnsStatus), VPN: dns.VPNActive(), Enabled: dnsEnabled, TLD: tld},
 		Nginx:             ServiceCheck{Running: nginxRunning},
 		PHPFPMs:           phpStatuses,
 		PHPDefault:        phpDefault,

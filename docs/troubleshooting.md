@@ -66,7 +66,7 @@ The chain in order:
 | `dig @127.0.0.1 -p 5300` | A direct query at port 5300 returns 127.0.0.1 for `lerd-probe.<tld>`. | dnsmasq is up but its config drifted. `systemctl --user restart lerd-dns`. |
 | `resolver hookup` | The NetworkManager dispatcher script or systemd-resolved drop-in is installed. | Rerun `lerd install`. |
 | `interface routes .test to 5300` | `resolvectl status` shows `127.0.0.1:5300` and `~<tld>` on the active interface. | `sudo systemctl restart NetworkManager`, or set the routing manually with `sudo resolvectl domain <iface> ~test ~.`. |
-| `system DNS lookup` | `host lerd-probe.test` (the system resolver) returns 127.0.0.1. | The drop-in is installed but resolved isn't honouring it. Check whether cloud-init or another tool wrote a higher-priority resolver config. Common on EC2 / cloud images. |
+| `system DNS lookup` | `host lerd-probe.test` (the system resolver) returns 127.0.0.1. | The drop-in is installed but resolved isn't honouring it. Check whether cloud-init or another tool wrote a higher-priority resolver config. Common on EC2 / cloud images. With a VPN connected this rung is reported as a warning rather than a failure, see the VPN section below. |
 
 You can also call this programmatically over MCP via the `dns_diagnose` tool, useful for AI-driven troubleshooting:
 
@@ -75,6 +75,20 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dns_diagno
 ```
 
 The response includes a `steps` array with a `status` (`ok` / `fail` / `warn` / `skip`) and `hint` per rung, plus a `first_failure` index so an LLM can jump straight to the broken layer.
+:::
+
+::: details DNS shows "Degraded" while connected to a VPN
+Corporate VPN clients such as Cisco AnyConnect take over the system resolver when they connect, rewriting systemd-resolved so `.test` no longer routes to lerd-dns through the normal path. lerd-dns itself keeps running and answering, so the dashboard shows a yellow **Degraded** pill rather than a red **Failed** one, and `lerd doctor` reports the `system DNS lookup` rung as a warning instead of a failure. Sites still resolve, because lerd-dns answers directly on `127.0.0.1:5300`.
+
+The watcher notices when the host resolver environment changes (a VPN connecting or disconnecting, or a network switch) and automatically re-syncs the container network's DNS: it re-points aardvark-dns at the current host resolvers and reloads the network so containers pick them up. This is what previously required a manual `lerd restart` after connecting the VPN before PHP could reach VPN-internal API endpoints. The re-sync briefly (about a second) interrupts DNS for lerd containers while aardvark-dns restarts with a fresh cache.
+
+If you want the system resolver path itself restored while the VPN is up, so the pill goes back to green, move `resolve` after `dns` in the `hosts:` line of `/etc/nsswitch.conf`:
+
+```text
+hosts: mymachines mdns_minimal [NOTFOUND=return] files myhostname dns resolve
+```
+
+This makes glibc consult the plain `dns` module before systemd-resolved's `nss-resolve`, which the VPN client no longer shadows.
 :::
 
 ::: details Nginx not serving a site

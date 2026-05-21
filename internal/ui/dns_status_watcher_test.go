@@ -2,99 +2,119 @@ package ui
 
 import (
 	"testing"
+
+	"github.com/geodro/lerd/internal/dns"
 )
 
-func resetDNSObs() { lastDNSOK.Store(dnsObsUnknown) }
+func resetDNSObs() {
+	lastDNSObs.Store(dnsObsUnknown)
+	pendingDNSObs.Store(dnsObsUnknown)
+}
 
+// TestTickDNSStatus pins the three-way observation and the two-tick
+// debounce: a change publishes only after it survives two consecutive
+// ticks, so a single transient blip (common the moment a VPN connects)
+// never flips the dashboard pill.
 func TestTickDNSStatus(t *testing.T) {
 	cases := []struct {
 		name        string
 		visible     bool
-		startObs    int32
-		probeOK     bool
-		wantPublish bool
+		start       int32
+		probes      []dns.Status
 		wantObs     int32
+		wantPublish int
 	}{
 		{
-			name:        "skipped when no tab is visible",
-			visible:     false,
-			startObs:    dnsObsUnknown,
-			probeOK:     true,
-			wantPublish: false,
-			wantObs:     dnsObsUnknown,
+			name:    "skipped when no tab is visible",
+			visible: false,
+			start:   dnsObsUnknown,
+			probes:  []dns.Status{dns.StatusOK},
+			wantObs: dnsObsUnknown,
 		},
 		{
-			name:        "first up observation publishes (boot snapshot was stale-down)",
+			name:        "first ok observation latches and publishes",
 			visible:     true,
-			startObs:    dnsObsUnknown,
-			probeOK:     true,
-			wantPublish: true,
-			wantObs:     dnsObsUp,
+			start:       dnsObsUnknown,
+			probes:      []dns.Status{dns.StatusOK},
+			wantObs:     dnsObsOK,
+			wantPublish: 1,
 		},
 		{
-			name:        "first down observation publishes",
+			name:        "first down observation latches and publishes",
 			visible:     true,
-			startObs:    dnsObsUnknown,
-			probeOK:     false,
-			wantPublish: true,
+			start:       dnsObsUnknown,
+			probes:      []dns.Status{dns.StatusDown},
 			wantObs:     dnsObsDown,
+			wantPublish: 1,
 		},
 		{
-			name:        "steady up is silent",
-			visible:     true,
-			startObs:    dnsObsUp,
-			probeOK:     true,
-			wantPublish: false,
-			wantObs:     dnsObsUp,
+			name:    "steady ok is silent",
+			visible: true,
+			start:   dnsObsOK,
+			probes:  []dns.Status{dns.StatusOK, dns.StatusOK},
+			wantObs: dnsObsOK,
 		},
 		{
-			name:        "steady down is silent",
+			name:    "single blip does not latch",
+			visible: true,
+			start:   dnsObsOK,
+			probes:  []dns.Status{dns.StatusDown, dns.StatusOK},
+			wantObs: dnsObsOK,
+		},
+		{
+			name:        "change confirmed on second consecutive tick",
 			visible:     true,
-			startObs:    dnsObsDown,
-			probeOK:     false,
-			wantPublish: false,
+			start:       dnsObsOK,
+			probes:      []dns.Status{dns.StatusDown, dns.StatusDown},
 			wantObs:     dnsObsDown,
+			wantPublish: 1,
 		},
 		{
-			name:        "down to up publishes (post-repair recovery)",
+			name:        "ok to degraded publishes after debounce",
 			visible:     true,
-			startObs:    dnsObsDown,
-			probeOK:     true,
-			wantPublish: true,
-			wantObs:     dnsObsUp,
+			start:       dnsObsOK,
+			probes:      []dns.Status{dns.StatusDegraded, dns.StatusDegraded},
+			wantObs:     dnsObsDegraded,
+			wantPublish: 1,
 		},
 		{
-			name:        "up to down publishes (resolv.conf got clobbered)",
+			name:        "degraded recovery to ok publishes after debounce",
 			visible:     true,
-			startObs:    dnsObsUp,
-			probeOK:     false,
-			wantPublish: true,
-			wantObs:     dnsObsDown,
+			start:       dnsObsDegraded,
+			probes:      []dns.Status{dns.StatusOK, dns.StatusOK},
+			wantObs:     dnsObsOK,
+			wantPublish: 1,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			lastDNSOK.Store(tc.startObs)
+			lastDNSObs.Store(tc.start)
+			pendingDNSObs.Store(tc.start)
 			t.Cleanup(resetDNSObs)
 
 			published := 0
+			i := 0
 			deps := dnsStatusDeps{
-				tld:     func() string { return "test" },
-				check:   func(string) (bool, error) { return tc.probeOK, nil },
+				tld: func() string { return "test" },
+				check: func(string) dns.Status {
+					s := tc.probes[i]
+					i++
+					return s
+				},
 				visible: func() bool { return tc.visible },
 				publish: func() { published++ },
 			}
 
-			tickDNSStatus(deps)
-
-			gotObs := lastDNSOK.Load()
-			if gotObs != tc.wantObs {
-				t.Fatalf("lastDNSOK = %d, want %d", gotObs, tc.wantObs)
+			for range tc.probes {
+				tickDNSStatus(deps)
 			}
-			gotPublish := published > 0
-			if gotPublish != tc.wantPublish {
-				t.Fatalf("publish fired=%v, want %v", gotPublish, tc.wantPublish)
+
+			if got := lastDNSObs.Load(); got != tc.wantObs {
+				t.Fatalf("lastDNSObs = %d, want %d", got, tc.wantObs)
+			}
+			if published != tc.wantPublish {
+				t.Fatalf("publishes = %d, want %d", published, tc.wantPublish)
 			}
 		})
 	}
@@ -106,8 +126,11 @@ func TestTickDNSStatusTLDFromConfig(t *testing.T) {
 
 	var seen string
 	deps := dnsStatusDeps{
-		tld:     func() string { return "lerd" },
-		check:   func(tld string) (bool, error) { seen = tld; return true, nil },
+		tld: func() string { return "lerd" },
+		check: func(tld string) dns.Status {
+			seen = tld
+			return dns.StatusOK
+		},
 		visible: func() bool { return true },
 		publish: func() {},
 	}

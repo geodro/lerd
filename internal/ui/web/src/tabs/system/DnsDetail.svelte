@@ -4,7 +4,7 @@
   import StatusPill from '$components/StatusPill.svelte';
   import InfoRow from '$components/InfoRow.svelte';
   import LogViewer from '$components/LogViewer.svelte';
-  import { status } from '$stores/status';
+  import { status, dnsState } from '$stores/status';
   import { m } from '../../paraglide/messages.js';
 </script>
 
@@ -12,7 +12,11 @@
   {#if $status.dns?.enabled === false}
     <StatusPill tone="muted" label="disabled" />
   {:else}
-    <StatusPill tone={$status.dns.ok ? 'ok' : 'error'} label={$status.dns.ok ? m.system_dns_ok() : m.system_dns_failed()} />
+    {@const dns = dnsState($status)}
+    <StatusPill
+      tone={dns === 'ok' ? 'ok' : dns === 'degraded' ? 'warn' : 'error'}
+      label={dns === 'ok' ? m.system_dns_ok() : dns === 'degraded' ? m.system_dns_degraded() : m.system_dns_failed()}
+    />
   {/if}
 {/snippet}
 
@@ -24,6 +28,8 @@
       <p class="text-xs text-gray-400">
         lerd-dns is disabled. Sites resolve through the system resolver via *.{$status.dns.tld} (RFC 6761). HTTPS is unavailable in this mode. To re-enable, set <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">dns.enabled: true</code> in <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">~/.config/lerd/config.yaml</code> and run <code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">lerd install</code>.
       </p>
+    {:else if dnsState($status) === 'degraded'}
+      <p class="text-xs text-gray-400">{m.system_dns_degradedHint()}</p>
     {:else if !$status.dns.ok}
       <p class="text-xs text-gray-400">
         {@html m.system_dns_fixHint({

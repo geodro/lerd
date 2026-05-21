@@ -115,6 +115,8 @@ func (m *menuState) apply(snap *Snapshot) {
 		dnsDot := "🔴"
 		if snap.DNSOK {
 			dnsDot = "🟢"
+		} else if snap.DNSDegraded {
+			dnsDot = "🟡"
 		}
 		m.mDNS.SetTitle(fmt.Sprintf("  %s dns", dnsDot))
 	}

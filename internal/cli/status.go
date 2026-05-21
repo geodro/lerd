@@ -56,10 +56,13 @@ func runStatus(_ *cobra.Command, _ []string) error {
 	if !cfg.DNS.Enabled {
 		ok2(fmt.Sprintf("DNS managed externally (.%s)", cfg.DNS.TLD))
 	} else {
-		ok, _ := dns.Check(cfg.DNS.TLD)
-		if ok {
+		switch dns.CheckStatus(cfg.DNS.TLD) {
+		case dns.StatusOK:
 			ok2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD))
-		} else {
+		case dns.StatusDegraded:
+			warn2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
+				"lerd-dns healthy, system resolver bypassed (VPN?)")
+		default:
 			fail2(fmt.Sprintf(".%s resolution", cfg.DNS.TLD),
 				"not resolving",
 				dnsRestartHint())
