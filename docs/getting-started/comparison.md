@@ -6,19 +6,20 @@
 
 |  | Lerd | Laravel Herd |
 |---|---|---|
-| Platforms | Linux (systemd), macOS | macOS, Windows (WSL2) |
+| Platforms | Linux (systemd), macOS | macOS, Windows |
 | License | Open source (MIT) | Proprietary, freemium (Herd Pro subscription) |
-| PHP runtime | Rootless Podman containers | Native binaries on macOS, WSL on Windows |
+| PHP runtime | Rootless Podman containers | Native binaries on macOS and Windows |
 | PHP versions | 8.1, 8.2, 8.3, 8.4, 8.5 (shared FPM containers) | 7.4 through 8.5 (native) |
-| FrankenPHP / Octane | Built in: `lerd runtime frankenphp [--worker]` per site, free | Available in Herd Pro |
+| FrankenPHP / Octane | Built in: `lerd runtime frankenphp [--worker]` per site, free | Not built in; Octane runs manually alongside Herd |
 | `.test` domains | Automatic via dnsmasq container | Automatic via native dnsmasq resolver |
 | HTTPS | `lerd secure` + mkcert, trusted system-wide | Built-in "Secure Site" toggle |
 | Xdebug | `lerd xdebug:on`, tray toggle | Per-site toggle (Herd Pro) |
 | Services | Built-in and free: MySQL, Postgres, Redis, Meilisearch, RustFS (S3), Mailpit; custom services via YAML presets | Some in the free tier; most advanced services and UIs (database inspector, log viewer, dumps) gated behind Herd Pro |
 | Non-PHP projects | First-class via `Containerfile.lerd` (Node, Python, Go, Rails, ...) | Not directly supported, Herd focuses on PHP |
 | Per-project config | `.lerd.yaml` committed to the repo; covers PHP, Node, framework, services, workers, and custom containers; applied by `lerd link` / `lerd init` | [`herd.yml`](https://herd.laravel.com/docs/macos/sites/herd-yaml) committed to the repo; covers name, PHP, TLS, aliases on the free tier; services require Herd Pro; applied by `herd init` |
-| Queue + scheduler workers | `lerd worker start queue` / `schedule` as systemd user services | Queue UI (Herd Pro) |
+| Queue + scheduler workers | `lerd worker start queue` / `schedule` as systemd user services | Not built in; run Horizon or supervisor yourself |
 | Dashboard | Web UI at `127.0.0.1:7073`, system tray, and an installable PWA at `lerd.localhost` | Native desktop app |
+| AI / MCP | Built-in MCP server; `lerd mcp:enable-global` registers it for Claude Code, Cursor, Junie, and Windsurf | Built-in MCP server for Claude Code, Cursor, Junie, and Windsurf |
 | Cost | Free | Free tier + paid Pro subscription |
 
 **Choose Herd when:** you work on macOS or Windows, want the performance of native PHP binaries (no container overhead), are already in the Laravel Forge and Envoyer ecosystem, or are happy paying for Pro features.
@@ -87,7 +88,7 @@ See [Importing from Laravel Sail](/usage/import-sail) for details.
 |---|---|---|
 | Platforms | Linux (systemd), macOS | Linux, macOS, Windows |
 | License | Open source (MIT) | Open source (Apache 2.0) |
-| Container runtime | Rootless Podman | Docker / Orbstack / Colima |
+| Container runtime | Rootless Podman | Docker / Podman / Orbstack / Colima |
 | Architecture | Shared nginx + PHP-FPM across all projects | Per-project containers behind a shared reverse proxy |
 | PHP versions | 8.1, 8.2, 8.3, 8.4, 8.5 (shared FPM containers) | 5.6 through 8.4+ (per-project Docker image) |
 | Services (MySQL, Redis…) | One shared instance | Per-project (isolated by default) |
@@ -102,6 +103,35 @@ See [Importing from Laravel Sail](/usage/import-sail) for details.
 | Dashboard | Web UI at `127.0.0.1:7073`, system tray, installable PWA at `lerd.localhost` | CLI + optional per-project web UI |
 | Cost | Free | Free |
 
-**Choose ddev when:** your team is cross-platform, you work with multiple frameworks (not just Laravel), you want per-project service isolation, or your workflow already depends on Docker.
+**Choose ddev when:** your team is cross-platform, you work with multiple frameworks (not just Laravel), you want per-project service isolation, or your workflow already depends on Docker or Podman.
 
 **Choose Lerd when:** you want a zero-config shared stack you can drop any project into without touching its files, prefer rootless Podman, or want the lightweight Herd-like experience on Linux or macOS.
+
+---
+
+## Lerd vs Lando
+
+[Lando](https://lando.dev/) is a long-running open-source local development tool built on Docker. Like ddev it spins up a per-project container stack behind a shared proxy, configured through a `.lando.yml` file committed to the repo, and it leans on "recipes" that bundle a service stack and its tooling for a given platform. Lerd takes the shared-infrastructure route instead, closer to the Herd model.
+
+|  | Lerd | Lando |
+|---|---|---|
+| Platforms | Linux (systemd), macOS | Linux, macOS, Windows |
+| License | Open source (MIT) | Open source (GPL-3.0) |
+| Container runtime | Rootless Podman | Docker |
+| Architecture | Shared nginx + PHP-FPM across all projects | Per-project containers behind a shared proxy |
+| PHP versions | 8.1, 8.2, 8.3, 8.4, 8.5 (shared FPM containers) | Per-project, set in the recipe or `.lando.yml` |
+| Services (MySQL, Redis…) | One shared instance | Per-project (isolated by default) |
+| Domains | `.test`, automatic | `*.lndo.site`, automatic via the proxy |
+| HTTPS | `lerd secure` for a trusted mkcert cert instantly | Built-in, per-project certificate |
+| Non-PHP projects | First-class via `Containerfile.lerd` (Node, Python, Go, Rails) | First-class via recipes and services (Node, Python, Ruby, Go, .NET) |
+| Per-project config | `.lerd.yaml` committed to the repo | `.lando.yml` committed to the repo |
+| RAM with 5 projects running | ~200 MB | ~500 MB–1 GB+ (5× project stacks) |
+| Requires changes to project files | No | Yes, needs `.lando.yml` committed |
+| Works on legacy / client repos | Yes, just `lerd link` | Only if you can add a Landofile |
+| Framework support | Laravel built-in; any PHP framework via YAML definitions | Recipes for Drupal, WordPress, Laravel, Symfony, and many more |
+| Dashboard | Web UI at `127.0.0.1:7073`, system tray, installable PWA at `lerd.localhost` | CLI only |
+| Cost | Free | Free |
+
+**Choose Lando when:** your team is cross-platform, you want per-project service isolation defined in the repo, you work with hosting platforms like Pantheon, Platform.sh, or Lagoon and want their `lando pull` / `lando push` workflow, or your workflow already depends on Docker.
+
+**Choose Lerd when:** you want a zero-config shared stack you can drop any project into without committing a config file, prefer rootless Podman with a lighter footprint, or want a built-in web UI and terminal dashboard on Linux or macOS.

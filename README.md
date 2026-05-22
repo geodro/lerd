@@ -66,14 +66,16 @@ AI:  → site_link()
 
 |                    | Lerd | DDEV | Lando | Laravel Herd |
 |--------------------|------|------|-------|--------------|
-| Podman-native      | ✅   | ❌   | ❌    | ❌           |
+| Podman-native      | ✅   | 🟡   | ❌    | ❌           |
 | Rootless           | ✅   | ❌   | ❌    | ✅           |
 | Web UI             | ✅   | ❌   | ❌    | ✅           |
 | Terminal dashboard | ✅   | ❌   | ❌    | ❌           |
 | Linux              | ✅   | ✅   | ✅    | ❌           |
 | macOS              | ✅   | ✅   | ✅    | ✅           |
-| MCP server         | ✅   | ❌   | ❌    | ❌           |
+| MCP server         | ✅   | ❌   | ❌    | ✅           |
 | Free & open source | ✅   | ✅   | ✅    | ❌           |
+
+🟡 DDEV runs on Docker by default and can also use Podman as an alternative runtime; Lerd is built exclusively for rootless Podman.
 
 ## Install
 
