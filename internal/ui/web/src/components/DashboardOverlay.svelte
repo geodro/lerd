@@ -8,6 +8,13 @@
     clearProfilerData
   } from '$stores/profiler';
   import Icon from './Icon.svelte';
+  import StatusDot from './StatusDot.svelte';
+  import {
+    isSpxReportView,
+    setSpxConfigHidden,
+    padSpxControlPanel,
+    fetchSpxReportCount
+  } from '$lib/spxControls';
   import { m } from '../paraglide/messages.js';
 
   let busy = $state(false);
@@ -15,18 +22,44 @@
   let iframeEl = $state<HTMLIFrameElement | null>(null);
   let entryHref = $state('');
   let canGoBack = $state(false);
+  let isReportView = $state(false);
+  // The SPX Configuration form is collapsed by default so the report list
+  // gets the whole view; the header button restores it on demand.
+  let configHidden = $state(true);
 
   const isProfiler = $derived($dashboardOpen?.name === 'profiler');
+
+  const headerBtnClass =
+    'text-xs rounded-sm border border-gray-200 dark:border-lerd-border px-2 py-1 ' +
+    'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors';
 
   // Reset iframe-history tracking whenever a different dashboard opens.
   $effect(() => {
     $dashboardOpen;
     entryHref = '';
     canGoBack = false;
+    isReportView = false;
+    configHidden = true;
   });
 
   $effect(() => {
     if (isProfiler) void loadProfilerStatus();
+  });
+
+  // SPX never re-fetches its report list while the control panel page is open,
+  // so new captures stay hidden. Poll and reload the iframe only once the
+  // report count has actually grown.
+  $effect(() => {
+    if (!isProfiler || isReportView || !$profilerEnabled) return;
+    let lastReportCount = -1;
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      const count = await fetchSpxReportCount();
+      if (count === null) return;
+      if (lastReportCount >= 0 && count > lastReportCount) reloadIframe();
+      lastReportCount = count;
+    }, 4000);
+    return () => clearInterval(id);
   });
 
   // iframeWindow returns the embedded window only when it is same-origin and
@@ -42,13 +75,26 @@
   }
 
   function onIframeLoad() {
-    const href = iframeWindow()?.location.href ?? '';
-    if (href === '') {
+    const w = iframeWindow();
+    const href = w?.location.href ?? '';
+    if (href === '' || !w) {
       canGoBack = false;
+      isReportView = false;
       return;
     }
     if (entryHref === '') entryHref = href;
     canGoBack = href !== entryHref;
+    isReportView = isSpxReportView(href);
+    if (!isReportView && isProfiler) {
+      padSpxControlPanel(w.document);
+      setSpxConfigHidden(w.document, configHidden);
+    }
+  }
+
+  function toggleConfig() {
+    configHidden = !configHidden;
+    const w = iframeWindow();
+    if (w) setSpxConfigHidden(w.document, configHidden);
   }
 
   function goBack() {
@@ -118,21 +164,34 @@
       </div>
       <div class="flex items-center gap-2 shrink-0">
         {#if isProfiler}
+          {#if !isReportView}
+            <button
+              onclick={toggleConfig}
+              title={configHidden ? m.profiler_config_show() : m.profiler_config_hide()}
+              class={headerBtnClass}
+            >
+              {configHidden ? m.profiler_config_show() : m.profiler_config_hide()}
+            </button>
+          {/if}
           <button
             onclick={clearProfilerReports}
             disabled={clearing}
             title={m.profiler_clear_title()}
-            class="text-xs rounded-sm border border-gray-200 dark:border-lerd-border px-2 py-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+            class="{headerBtnClass} disabled:opacity-50"
           >
             {clearing ? m.profiler_clear_busy() : m.profiler_clear()}
           </button>
           <button
             onclick={toggleProfiler}
             disabled={busy}
-            class="text-xs rounded-sm border px-2 py-1 transition-colors disabled:opacity-50 {$profilerEnabled
-              ? 'border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-              : 'border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:border-emerald-500'}"
+            aria-pressed={$profilerEnabled}
+            class="flex items-center gap-1.5 text-xs rounded-sm border px-2 py-1 transition-colors disabled:opacity-50 {$profilerEnabled
+              ? 'border-emerald-500/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:border-emerald-500'
+              : 'border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}"
           >
+            {#if $profilerEnabled}
+              <StatusDot color="emerald" size="xs" pulse />
+            {/if}
             {busy ? m.profiler_busy() : $profilerEnabled ? m.profiler_disarm() : m.profiler_arm()}
           </button>
         {/if}

@@ -24,13 +24,13 @@ lerd profile off       # stop profiling
 lerd profile clear     # delete every captured report
 ```
 
-In the dashboard, the System health card carries a Profiler toggle next to the dump bridge one: click it to flip profiling on or off, and a pulsing emerald dot marks it as live. The flame icon in the left rail opens the **Profiler** view and shows the same green dot while profiling is on. Inside the Profiler view, the header has a **Start profiling** / **Stop profiling** button and a **Clear data** button.
+In the dashboard, the System health card carries a Profiler toggle next to the dump bridge one: click it to flip profiling on or off, and a pulsing emerald dot marks it as live. The Sites column carries the same toggle above the site list. The flame icon in the left rail opens the **Profiler** view and shows the same green dot while profiling is on. Inside the Profiler view, the header has a **Start profiling** / **Stop profiling** button and a **Clear data** button. The button is emerald with a live pulsing dot while profiling is on, and muted grey while it is off.
 
-While the profiler is on, every HTTP request to every PHP-FPM site is profiled. Reload the sites you care about a few times, then open the Profiler view to read the reports. Turn it off when you are done so the profiler is not adding overhead to every request.
+While the profiler is on, every HTTP request to every PHP-FPM site is profiled. Reload the sites you care about a few times, then open the Profiler view to read the reports. The report list refreshes itself while profiling is on, so new captures appear without a manual reload. Turn it off when you are done so the profiler is not adding overhead to every request.
 
 ## Reading flame graphs
 
-The Profiler view embeds the SPX report UI, served by a dedicated `profiler.localhost` nginx vhost so it does not depend on any one site. Each report lists wall time, CPU time, memory, and the call tree. SPX's time-line view is an interactive flame graph: wide frames are where the time went. Click a frame to zoom, and use the flat-profile table to find the most expensive functions.
+The Profiler view embeds the SPX report UI, served by a dedicated `profiler.localhost` nginx vhost so it does not depend on any one site. Its landing page is SPX's control panel, the list of captured reports. SPX's Configuration form above the list is collapsed by default so the list takes the whole view; the **Show configuration** button in the header brings it back. Each report lists wall time, CPU time, memory, and the call tree. SPX's time-line view is an interactive flame graph: wide frames are where the time went. Click a frame to zoom, and use the flat-profile table to find the most expensive functions.
 
 All reports land in one shared directory, `~/.local/share/lerd/spx/`, regardless of which site or PHP version produced them. Each report is labelled with its request host and URI so they stay distinguishable.
 
@@ -44,6 +44,8 @@ lerd profile run artisan app:heavy-report
 ```
 
 The command runs as `php <command>` inside the project's container with SPX enabled, and the report lands in the same Profiler view alongside the HTTP reports. This works whether or not the global profiler is on.
+
+Because the `php` shim runs PHP inside the container, you can also profile any shim'd PHP tool by setting `SPX_ENABLED=1` in front of it. lerd forwards every `SPX_*` variable from your shell into the container, so `SPX_ENABLED=1 composer update` or `SPX_ENABLED=1 php artisan migrate` is profiled too. When SPX is enabled and you have not set `SPX_REPORT`, lerd defaults it to `full` so the run shows up in the Profiler view rather than only printing a flat profile to the terminal. Other SPX knobs work the same way, for example `SPX_SAMPLING_PERIOD=100 SPX_ENABLED=1 composer update`.
 
 ## Open the SPX UI directly
 

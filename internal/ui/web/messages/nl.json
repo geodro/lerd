@@ -130,6 +130,8 @@
   "profiler_clear": "Gegevens wissen",
   "profiler_clear_busy": "Bezig met wissen…",
   "profiler_clear_title": "Alle vastgelegde profielrapporten verwijderen",
+  "profiler_config_hide": "Configuratie verbergen",
+  "profiler_config_show": "Configuratie tonen",
   "notify_toggle_on": "Meldingen staan aan, klik om uit te schakelen",
   "notify_toggle_off": "Meldingen staan uit, klik om in te schakelen",
   "notify_toggle_busy": "Meldingen bijwerken…",

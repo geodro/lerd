@@ -130,6 +130,8 @@
   "profiler_clear": "Hapus data",
   "profiler_clear_busy": "Menghapus…",
   "profiler_clear_title": "Hapus semua laporan profil yang terekam",
+  "profiler_config_hide": "Sembunyikan konfigurasi",
+  "profiler_config_show": "Tampilkan konfigurasi",
   "notify_toggle_on": "Notifikasi aktif, klik untuk menonaktifkan",
   "notify_toggle_off": "Notifikasi nonaktif, klik untuk mengaktifkan",
   "notify_toggle_busy": "Memperbarui notifikasi…",

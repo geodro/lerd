@@ -130,6 +130,8 @@
   "profiler_clear": "Verileri temizle",
   "profiler_clear_busy": "Temizleniyor…",
   "profiler_clear_title": "Yakalanan tüm profil raporlarını sil",
+  "profiler_config_hide": "Yapılandırmayı gizle",
+  "profiler_config_show": "Yapılandırmayı göster",
   "notify_toggle_on": "Bildirimler açık, devre dışı bırakmak için tıklayın",
   "notify_toggle_off": "Bildirimler kapalı, etkinleştirmek için tıklayın",
   "notify_toggle_busy": "Bildirimler güncelleniyor…",

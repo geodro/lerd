@@ -130,6 +130,8 @@
   "profiler_clear": "Daten löschen",
   "profiler_clear_busy": "Wird gelöscht…",
   "profiler_clear_title": "Alle erfassten Profilberichte löschen",
+  "profiler_config_hide": "Konfiguration ausblenden",
+  "profiler_config_show": "Konfiguration einblenden",
   "notify_toggle_on": "Benachrichtigungen sind an, zum Deaktivieren klicken",
   "notify_toggle_off": "Benachrichtigungen sind aus, zum Aktivieren klicken",
   "notify_toggle_busy": "Benachrichtigungen werden aktualisiert…",

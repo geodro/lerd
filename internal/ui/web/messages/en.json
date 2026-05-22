@@ -526,6 +526,8 @@
   "profiler_clear": "Clear data",
   "profiler_clear_busy": "Clearing…",
   "profiler_clear_title": "Delete all captured profile reports",
+  "profiler_config_hide": "Hide configuration",
+  "profiler_config_show": "Show configuration",
   "notify_toggle_on": "Notifications are on, click to disable",
   "notify_toggle_off": "Notifications are off, click to enable",
   "notify_toggle_busy": "Updating notifications…",

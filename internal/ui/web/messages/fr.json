@@ -130,6 +130,8 @@
   "profiler_clear": "Effacer les données",
   "profiler_clear_busy": "Effacement…",
   "profiler_clear_title": "Supprimer tous les rapports de profilage capturés",
+  "profiler_config_hide": "Masquer la configuration",
+  "profiler_config_show": "Afficher la configuration",
   "notify_toggle_on": "Notifications activées, cliquez pour désactiver",
   "notify_toggle_off": "Notifications désactivées, cliquez pour activer",
   "notify_toggle_busy": "Mise à jour des notifications…",

@@ -123,6 +123,12 @@ func RunPHPCaptureEnv(cwd string, args []string, extraEnv []string) (int, error)
 		"--env", "COMPOSER_HOME="+composerHome,
 		"--env", "PATH="+projectVendorBin+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:"+composerBin,
 	)
+	// Forward SPX_* profiler vars from the host so `SPX_ENABLED=1 php ...` (or
+	// any shim'd tool like composer) reaches SPX inside the container. extraEnv
+	// is applied after, so an explicit caller like `lerd profile run` wins.
+	for _, e := range spxPassthroughEnv(os.Environ()) {
+		cmdArgs = append(cmdArgs, "--env", e)
+	}
 	for _, e := range extraEnv {
 		cmdArgs = append(cmdArgs, "--env", e)
 	}
@@ -140,4 +146,29 @@ func RunPHPCaptureEnv(cwd string, args []string, extraEnv []string) (int, error)
 		return 0, err
 	}
 	return 0, nil
+}
+
+// spxPassthroughEnv picks the SPX_* profiler vars out of environ. When SPX is
+// enabled but no report type is set, it defaults SPX_REPORT to full so the run
+// lands in the Profiler view instead of a terminal flat profile.
+func spxPassthroughEnv(environ []string) []string {
+	var out []string
+	enabled, hasReport := false, false
+	for _, e := range environ {
+		if !strings.HasPrefix(e, "SPX_") {
+			continue
+		}
+		out = append(out, e)
+		k, v, _ := strings.Cut(e, "=")
+		switch k {
+		case "SPX_ENABLED":
+			enabled = v != "" && v != "0"
+		case "SPX_REPORT":
+			hasReport = true
+		}
+	}
+	if enabled && !hasReport {
+		out = append(out, "SPX_REPORT=full")
+	}
+	return out
 }
