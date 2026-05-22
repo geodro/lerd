@@ -398,29 +398,57 @@ func TestNginxQuadletMountsCustomD(t *testing.T) {
 }
 
 func TestPHPFPMContainerfileBundlesFullICUData(t *testing.T) {
-	// Alpine splits ICU's locale database: the base php:*-fpm-alpine image
-	// only carries icu-data-en, so ext-intl (NumberFormatter, IntlDateFormatter,
-	// Laravel Number::currency) silently falls back to the root/en locale for
-	// every non-English locale. icu-data-full carries the full CLDR set. See #332.
+	// icu-data-full carries ext-intl's full CLDR set (#332) but only exists on
+	// Alpine 3.16+. The install must tolerate its absence (|| true) so
+	// legacy-PHP builds on older Alpine bases don't hard-fail.
 	content, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
 	if err != nil {
 		t.Fatalf("GetQuadletTemplate: %v", err)
 	}
-	if !strings.Contains(content, "icu-data-full") {
-		t.Errorf("lerd-php-fpm.Containerfile must apk add icu-data-full so non-English locales work in ext-intl:\n%s", content)
+	installed := false
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, "icu-data-full") || !strings.HasPrefix(strings.TrimSpace(line), "RUN ") {
+			continue
+		}
+		installed = true
+		if !strings.Contains(line, "|| true") {
+			t.Errorf("icu-data-full install must tolerate a missing package (|| true):\n%s", line)
+		}
+	}
+	if !installed {
+		t.Errorf("lerd-php-fpm.Containerfile must apk add icu-data-full so non-English locales work in ext-intl")
 	}
 }
 
 func TestPHPFPMContainerfilePinsLegacyXdebug(t *testing.T) {
 	// xdebug 3.2+ requires PHP 8.0+ and 3.4+ requires PHP 8.1+, so the frozen
-	// legacy 7.4 / 8.0 images must select an older xdebug release at build time.
+	// legacy 7.2 / 7.4 / 8.0 images must select an older xdebug at build time.
 	content, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
 	if err != nil {
 		t.Fatalf("GetQuadletTemplate: %v", err)
 	}
-	for _, want := range []string{`7.4) XDEBUG_PKG="xdebug-3.1.6"`, `8.0) XDEBUG_PKG="xdebug-3.3.2"`} {
+	for _, want := range []string{
+		`7.2) XDEBUG_PKG="xdebug-3.1.6"`,
+		`7.4) XDEBUG_PKG="xdebug-3.1.6"`,
+		`8.0) XDEBUG_PKG="xdebug-3.3.2"`,
+	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("lerd-php-fpm.Containerfile must pin legacy xdebug (%q):\n%s", want, content)
+		}
+	}
+}
+
+func TestPHPFPMContainerfileBuildsLegacyPHP(t *testing.T) {
+	// PHP 7.2's Alpine 3.12 base predates gd's 7.4 configure flags and modern
+	// phpredis, so the Containerfile branches on PHP_VERSION_ID; without the
+	// older forms a 7.2 build hard-fails at gd configure.
+	content, err := GetQuadletTemplate("lerd-php-fpm.Containerfile")
+	if err != nil {
+		t.Fatalf("GetQuadletTemplate: %v", err)
+	}
+	for _, want := range []string{"PHP_VERSION_ID", "--with-freetype-dir", "REDIS_PKG=redis-5.3.7"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("lerd-php-fpm.Containerfile missing legacy-PHP build branch (%q)", want)
 		}
 	}
 }

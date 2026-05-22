@@ -18,7 +18,6 @@ RUN apk update && apk add --no-cache \
         freetype-dev \
         libwebp-dev \
         icu-dev \
-        icu-data-full \
         oniguruma-dev \
         libxml2-dev \
         postgresql-dev \
@@ -28,7 +27,12 @@ RUN apk update && apk add --no-cache \
         openldap-dev \
         sqlite-dev \
         libxslt-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && PHP_ID="$(php -r 'echo PHP_VERSION_ID;')" \
+    && if [ "$PHP_ID" -lt 70400 ]; then \
+           docker-php-ext-configure gd --with-freetype-dir=/usr --with-jpeg-dir=/usr --with-png-dir=/usr --with-webp-dir=/usr; \
+       else \
+           docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp; \
+       fi \
     && docker-php-ext-install -j$(nproc) \
         curl \
         pdo_mysql \
@@ -55,7 +59,8 @@ RUN apk update && apk add --no-cache \
         sysvshm \
         xsl \
     && (docker-php-ext-enable opcache || true) \
-    && { (yes '' | pecl install redis && docker-php-ext-enable redis) \
+    && if [ "$PHP_ID" -lt 70400 ]; then REDIS_PKG=redis-5.3.7; else REDIS_PKG=redis; fi \
+    && { (yes '' | pecl install "$REDIS_PKG" && docker-php-ext-enable redis) \
          || (git clone --depth 1 https://github.com/phpredis/phpredis /tmp/phpredis \
              && cd /tmp/phpredis && phpize && ./configure && make -j$(nproc) && make install \
              && docker-php-ext-enable redis \
@@ -75,6 +80,7 @@ RUN apk update && apk add --no-cache \
 # Xdebug compiled in the builder too. Legacy PHP needs older xdebug majors.
 RUN PHPVER="$(php -r 'echo PHP_MAJOR_VERSION,".",PHP_MINOR_VERSION;')" \
     && case "$PHPVER" in \
+        7.2) XDEBUG_PKG="xdebug-3.1.6" ;; \
         7.4) XDEBUG_PKG="xdebug-3.1.6" ;; \
         8.0) XDEBUG_PKG="xdebug-3.3.2" ;; \
         *)   XDEBUG_PKG="xdebug" ;; \
@@ -90,11 +96,11 @@ RUN PHPVER="$(php -r 'echo PHP_MAJOR_VERSION,".",PHP_MINOR_VERSION;')" \
 FROM docker.io/library/php:{{.Version}}-fpm-alpine
 
 # Runtime libraries only (no -dev headers, no toolchain). PHP's
-# compiled extensions dlopen these. icu-data-full is bulky but
-# i18n needs it.
+# compiled extensions dlopen these.
 RUN apk update && apk add --no-cache \
         ghostscript \
         imagemagick \
+        libgomp \
         ffmpeg \
         git \
         mysql-client \
@@ -106,7 +112,6 @@ RUN apk update && apk add --no-cache \
         freetype \
         libwebp \
         icu-libs \
-        icu-data-full \
         oniguruma \
         libxml2 \
         libpq \
@@ -116,6 +121,11 @@ RUN apk update && apk add --no-cache \
         sqlite-libs \
         libxslt \
     && rm -rf /var/cache/apk/*
+
+# icu-data-full carries the full CLDR locale set for ext-intl (#332). Alpine
+# 3.16+ ships it as a separate package; older bases fold the full data into
+# icu-libs, so the package is absent there and the install is skipped.
+RUN apk add --no-cache icu-data-full 2>/dev/null || true
 
 # Runtime system libs for user-configured custom extensions (e.g.
 # imap needs c-client.so). Empty when no custom exts have apk deps.
@@ -134,10 +144,11 @@ RUN mkdir -p /etc/my.cnf.d && printf '[client]\nssl=0\n' > /etc/my.cnf.d/lerd-no
 # Composer from the official image.
 COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 
-# Interactive shell for lerd shell. zsh/fzf/bat exist on every alpine;
-# starship/eza/zoxide need alpine 3.18+, so legacy php 7.4/8.0 (alpine
-# 3.16) get them via || true and the zshrc inits starship conditionally.
-RUN apk add --no-cache zsh fzf bat \
+# Interactive shell for lerd shell. zsh/fzf exist on every alpine base;
+# bat lands on 3.16+ and starship/eza/zoxide on 3.18+, so the optional
+# tools install tolerantly and zshrc inits starship only when present.
+RUN apk add --no-cache zsh fzf \
+    && { apk add --no-cache bat 2>/dev/null || true; } \
     && { apk add --no-cache starship eza zoxide 2>/dev/null || true; } \
     && mkdir -p /etc/zsh /root/.zsh_state \
     && printf 'export EDITOR=vi\nexport PAGER=less\nexport HISTFILE=/root/.zsh_state/history\nexport HISTSIZE=10000\nexport SAVEHIST=10000\nsetopt INC_APPEND_HISTORY SHARE_HISTORY\nautoload -Uz compinit && compinit -u\nif command -v starship >/dev/null 2>&1; then\n  eval "$(starship init zsh)"\nfi\n' \

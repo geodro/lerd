@@ -151,6 +151,35 @@ func TestFPMQuadletAlwaysMountsBridge(t *testing.T) {
 	}
 }
 
+func TestDumpBridgeIsLegacyPHPCompatible(t *testing.T) {
+	// dump-bridge.php is an auto_prepend_file loaded by every PHP version lerd
+	// builds, down to the 7.2 legacy tier. A single newer-than-7.2 token makes
+	// it unparseable and takes down every CLI command and web request there.
+	src, err := DumpBridgePHP()
+	if err != nil {
+		t.Fatalf("DumpBridgePHP: %v", err)
+	}
+	forbidden := map[string]string{
+		"match (":          "match expression (PHP 8.0+)",
+		"match(":           "match expression (PHP 8.0+)",
+		"str_contains(":    "str_contains() (PHP 8.0+)",
+		"str_ends_with(":   "str_ends_with() (PHP 8.0+)",
+		"str_starts_with(": "str_starts_with() (PHP 8.0+)",
+		"array_key_first(": "array_key_first() (PHP 7.3+)",
+		"array_key_last(":  "array_key_last() (PHP 7.3+)",
+		"mixed ...":        "mixed type hint (PHP 8.0+)",
+		": mixed":          "mixed return type (PHP 8.0+)",
+		": never":          "never return type (PHP 8.1+)",
+		"?->":              "nullsafe operator (PHP 8.0+)",
+		"??=":              "null-coalescing assignment (PHP 7.4+)",
+	}
+	for tok, desc := range forbidden {
+		if strings.Contains(src, tok) {
+			t.Errorf("dump-bridge.php contains %q — %s; it must parse on PHP 7.2", tok, desc)
+		}
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

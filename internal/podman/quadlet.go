@@ -264,6 +264,11 @@ func RestartUnit(name string) error {
 	return nil
 }
 
+// mysqlReadyArgs probes lerd-mysql over IPv4 loopback TCP, never the Unix
+// socket (its path differs across mysql/mariadb images). Container-internal
+// 127.0.0.1 holds on macOS and IPv6-only host networks too.
+var mysqlReadyArgs = []string{"mysqladmin", "ping", "-h127.0.0.1", "-P3306", "-uroot", "-plerd", "--silent"}
+
 // WaitReady polls until the named service is ready to accept connections, or
 // timeout is reached. Readiness is tested by running a lightweight probe inside
 // the container: mysqladmin ping for mysql, pg_isready for postgres. For other
@@ -275,10 +280,9 @@ func WaitReady(service string, timeout time.Duration) error {
 	var probe func() bool
 	switch service {
 	case "mysql":
+		args := append([]string{"exec", "lerd-mysql"}, mysqlReadyArgs...)
 		probe = func() bool {
-			cmd := exec.Command(PodmanBin(), "exec", "lerd-mysql",
-				"mysqladmin", "ping", "-uroot", "-plerd", "--silent")
-			return cmd.Run() == nil
+			return exec.Command(PodmanBin(), args...).Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {

@@ -67,7 +67,7 @@ namespace Lerd\DumpBridge {
         // Allow both `unix:///path/to/sock` and `tcp://host:port`. The
         // installer defaults to the unix scheme so dumps stay confined to
         // the user's home directory.
-        if (!str_contains($target, '://')) {
+        if (strpos($target, '://') === false) {
             $target = 'tcp://'.$target;
         }
         $sock = @\stream_socket_client($target, $errno, $errstr, 0.05, \STREAM_CLIENT_CONNECT);
@@ -136,15 +136,17 @@ namespace Lerd\DumpBridge {
     function source_frame(): array
     {
         $bt = debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 12);
+        $self = 'dump-bridge.php';
+        $selfLen = strlen($self);
         foreach ($bt as $f) {
             if (!isset($f['file'])) {
                 continue;
             }
             $file = $f['file'];
-            if (str_contains($file, 'symfony/var-dumper')) {
+            if (strpos($file, 'symfony/var-dumper') !== false) {
                 continue;
             }
-            if (str_ends_with($file, 'dump-bridge.php')) {
+            if (substr($file, -$selfLen) === $self) {
                 continue;
             }
             return ['file' => $file, 'line' => $f['line'] ?? 0];
@@ -214,7 +216,10 @@ namespace {
     // through Symfony's VarDumper when it's available so existing display
     // pipelines (Whoops, Ignition) keep working in the response.
     if (!function_exists('dump')) {
-        function dump(mixed ...$vars): mixed
+        // No `mixed`/`never` type hints, `match`, or `array_key_first`: this
+        // file is an auto_prepend_file for every PHP lerd builds, down to the
+        // 7.2 legacy tier, and must parse and run on all of them.
+        function dump(...$vars)
         {
             $passthrough = \Lerd\DumpBridge\passthrough_enabled();
             foreach ($vars as $label => $var) {
@@ -223,15 +228,17 @@ namespace {
                     \Symfony\Component\VarDumper\VarDumper::dump($var);
                 }
             }
-            return match (true) {
-                count($vars) === 0 => null,
-                count($vars) === 1 => $vars[array_key_first($vars)],
-                default            => $vars,
-            };
+            if (count($vars) === 0) {
+                return null;
+            }
+            if (count($vars) === 1) {
+                return reset($vars);
+            }
+            return $vars;
         }
     }
     if (!function_exists('dd')) {
-        function dd(mixed ...$vars): never
+        function dd(...$vars)
         {
             dump(...$vars);
             exit(1);

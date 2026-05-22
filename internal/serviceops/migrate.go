@@ -230,7 +230,7 @@ func migrateMysql(name, targetImage string, emit func(PhaseEvent)) error {
 	rootEnv := []string{"MYSQL_PWD=lerd"}
 
 	emit(PhaseEvent{Phase: "dumping_data", Message: "mysqldump → " + dump})
-	dumpCmd := "mysqldump -uroot --all-databases --single-transaction --routines --triggers --events --quick"
+	dumpCmd := "mysqldump -h 127.0.0.1 -uroot --all-databases --single-transaction --routines --triggers --events --quick"
 	if err := dumpToHost(unit, dumpCmd, rootEnv, dump, dumpRestoreTimeout); err != nil {
 		return fmt.Errorf("mysqldump: %w", err)
 	}
@@ -258,13 +258,13 @@ func migrateMysql(name, targetImage string, emit func(PhaseEvent)) error {
 	}
 
 	emit(PhaseEvent{Phase: "waiting_ready", Unit: unit})
-	probe := "mysql -uroot -e 'SELECT 1' >/dev/null 2>&1 || mariadb -uroot -e 'SELECT 1' >/dev/null 2>&1"
+	probe := "mysql -h 127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1 || mariadb -h 127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1"
 	if err := waitContainerReady(unit, probe, rootEnv, 90*time.Second); err != nil {
 		return fmt.Errorf("%w. Dump preserved at %s; old data dir at %s", err, dump, backup)
 	}
 
 	emit(PhaseEvent{Phase: "restoring_data", Message: dump})
-	restoreCmd := "mysql -uroot 2>&1 || mariadb -uroot 2>&1"
+	restoreCmd := "mysql -h 127.0.0.1 -uroot 2>&1 || mariadb -h 127.0.0.1 -uroot 2>&1"
 	if err := restoreFromHost(unit, restoreCmd, rootEnv, dump, dumpRestoreTimeout); err != nil {
 		return fmt.Errorf("restore: %w. Dump preserved at %s; old data dir at %s", err, dump, backup)
 	}
