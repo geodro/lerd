@@ -2,6 +2,22 @@ package podman
 
 import "testing"
 
+func TestShellQuote(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"php artisan queue:work", "'php artisan queue:work'"},
+		{"a b", "'a b'"},
+		{"it's", `'it'\''s'`},
+		{"", "''"},
+	}
+	for _, c := range cases {
+		if got := ShellQuote(c.in); got != c.want {
+			t.Errorf("ShellQuote(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestServiceVersionLabel(t *testing.T) {
 	tests := []struct {
 		image string

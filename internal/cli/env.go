@@ -647,58 +647,8 @@ func CloneDatabase(svc, src, dst string) error {
 	}
 }
 
-// DropDatabase removes the named database from the service container. Returns
-// (true, nil) if it was dropped, (false, nil) if it was already gone, or
-// (false, err) on failure.
-func DropDatabase(svc, name string) (bool, error) {
-	container := "lerd-" + svc
-	family := svc
-	if inferred := config.FamilyOfName(svc); inferred != "" {
-		family = inferred
-	}
-	switch family {
-	case "mysql", "mariadb":
-		binaries := []string{"mysql", "mariadb"}
-		if family == "mariadb" {
-			binaries = []string{"mariadb", "mysql"}
-		}
-		var lastErr error
-		for _, bin := range binaries {
-			check := podman.Cmd("exec", container, bin, "-uroot", "-plerd",
-				"-sNe", fmt.Sprintf("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='%s';", name))
-			out, err := check.Output()
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			if strings.TrimSpace(string(out)) == "0" {
-				return false, nil
-			}
-			cmd := podman.Cmd("exec", container, bin, "-uroot", "-plerd",
-				"-e", fmt.Sprintf("DROP DATABASE IF EXISTS `%s`;", name))
-			cmd.Stderr = os.Stderr
-			return true, cmd.Run()
-		}
-		return false, lastErr
-	case "postgres":
-		// Postgres refuses DROP if any session has the DB open, so terminate
-		// stragglers (queue workers, lingering psql shells) first.
-		_ = podman.Cmd("exec", container, "psql", "-U", "postgres",
-			"-c", fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();`, name)).Run()
-		cmd := podman.Cmd("exec", container, "psql", "-U", "postgres",
-			"-c", fmt.Sprintf(`DROP DATABASE IF EXISTS "%s";`, name))
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			if strings.Contains(string(out), "does not exist") {
-				return false, nil
-			}
-			return false, fmt.Errorf("%s", strings.TrimSpace(string(out)))
-		}
-		return true, nil
-	default:
-		return false, nil
-	}
-}
+// DropDatabase delegates to serviceops.DropDatabase for cli-package callers.
+func DropDatabase(svc, name string) (bool, error) { return serviceops.DropDatabase(svc, name) }
 
 // createDatabase delegates to serviceops.CreateDatabase. Kept as a package-local
 // alias so existing call sites inside the cli package compile unchanged.

@@ -24,6 +24,10 @@ func NewDbCmd() *cobra.Command {
 	cmd.AddCommand(newDbExportCmd("export"))
 	cmd.AddCommand(newDbCreateCmd("create"))
 	cmd.AddCommand(newDbShellCmd("shell"))
+	cmd.AddCommand(newDbSnapshotCmd("snapshot"))
+	cmd.AddCommand(newDbSnapshotsCmd("snapshots"))
+	cmd.AddCommand(newDbRestoreCmd("restore"))
+	cmd.AddCommand(newDbSnapshotRmCmd("snapshot:rm"))
 	return cmd
 }
 

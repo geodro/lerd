@@ -871,6 +871,22 @@ db_set(database: "sqlite")
 
 > Use this **before** ` + bt + `env_setup` + bt + ` on a fresh Laravel project so the database lands in ` + bt + `.env` + bt + ` deliberately. Switching databases later via ` + bt + `db_set` + bt + ` removes the previous database entry from ` + bt + `.lerd.yaml` + bt + ` automatically.
 
+### ` + bt + `db_snapshot` + bt + ` / ` + bt + `db_snapshots` + bt + ` / ` + bt + `db_restore` + bt + ` / ` + bt + `db_snapshot_delete` + bt + `
+Named, restorable point-in-time copies of the project database — take one before a risky migration or a destructive experiment, then roll back in a single call. SQL engines only (MySQL, MariaDB, PostgreSQL); snapshots are stored under lerd's data dir, keyed by service and database.
+
+- ` + bt + `db_snapshot` + bt + ` — create a snapshot. ` + bt + `name` + bt + ` is optional (auto-timestamped); ` + bt + `all_databases` + bt + ` snapshots every database in the service.
+- ` + bt + `db_snapshots` + bt + ` — list snapshots as JSON. ` + bt + `all` + bt + ` spans every database on the service.
+- ` + bt + `db_restore` + bt + ` — restore a snapshot by ` + bt + `name` + bt + `. Destructive: a per-database restore drops and recreates the database.
+- ` + bt + `db_snapshot_delete` + bt + ` — delete a stored snapshot.
+
+All four resolve the database from the project ` + bt + `.env` + bt + `; pass ` + bt + `service` + bt + ` and ` + bt + `database` + bt + ` to override.
+
+Example:
+` + "```" + `
+db_snapshot(name: "pre-migration")
+db_restore(name: "pre-migration")
+` + "```" + `
+
 ### Custom ` + bt + `APP_URL` + bt + `
 By default ` + bt + `env_setup` + bt + ` writes ` + bt + `APP_URL=<scheme>://<primary-domain>` + bt + ` (e.g. ` + bt + `http://myapp.test` + bt + `) on every run. Three-tier override chain when you need a different value:
 
@@ -1482,6 +1498,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file — auto-detects service and database; accepts optional ` + bt + `service` + bt + ` override |
 | ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database — auto-detects service and database; starts the service if needed |
 | ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant — auto-detects service and name; starts the service if needed |
+| ` + bt + `db_snapshot` + bt + ` / ` + bt + `db_snapshots` + bt + ` / ` + bt + `db_restore` + bt + ` / ` + bt + `db_snapshot_delete` + bt + ` | Named, restorable database snapshots — create, list, restore (destructive), delete; ` + bt + `all_databases` + bt + ` covers the whole service |
 | ` + bt + `queue` + bt + ` | Start or stop the queue worker for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` (any framework with a queue worker) |
 | ` + bt + `horizon` + bt + ` | Start or stop Laravel Horizon for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` (use instead of ` + bt + `queue` + bt + ` when laravel/horizon is installed) |
 | ` + bt + `reverb` + bt + ` | Start or stop the Reverb WebSocket server for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |

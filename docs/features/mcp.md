@@ -106,6 +106,10 @@ Once the MCP server is connected, your AI assistant has access to:
 | `db_export` | Export a database to a SQL dump file (defaults to site DB from `.env`) |
 | `db_import` | Import a SQL dump file into the project database (reads connection from `.env`) |
 | `db_create` | Create a database and `_testing` variant for the project (infers name from `.env` or project dir) |
+| `db_snapshot` | Create a named, restorable snapshot of the project database (`all_databases` covers the whole service) |
+| `db_snapshots` | List stored database snapshots (`all` spans every database on the service) |
+| `db_restore` | Restore the project database from a stored snapshot (destructive: drops and recreates the database) |
+| `db_snapshot_delete` | Delete a stored database snapshot |
 | `queue` | Start or stop the queue worker for a site — `action`: `start` / `stop` (any framework with a `queue` worker) |
 | `horizon` | Start or stop Laravel Horizon for a site — `action`: `start` / `stop` (use instead of `queue` when `laravel/horizon` is installed) |
 | `reverb` | Start or stop the Reverb WebSocket server for a site — `action`: `start` / `stop` |

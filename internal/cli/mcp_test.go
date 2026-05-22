@@ -510,7 +510,9 @@ func TestClaudeSkillContent_underSizeCeiling(t *testing.T) {
 	// command runner) plus their quick-reference table entries.
 	// Bumped to 52000 for profiler_toggle / profiler_status (SPX profiler)
 	// plus their quick-reference table entry.
-	const ceiling = 52000
+	// Bumped to 53000 for the db_snapshot / db_snapshots / db_restore /
+	// db_snapshot_delete section (database snapshots).
+	const ceiling = 53000
 	if got := len(claudeSkillContent); got > ceiling {
 		t.Errorf("claudeSkillContent is %d bytes, ceiling is %d — trim before raising", got, ceiling)
 	}

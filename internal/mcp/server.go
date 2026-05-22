@@ -520,6 +520,63 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "db_snapshot",
+			Description: "Snapshot the project database (named, restorable). MySQL/MariaDB/PostgreSQL only.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path":          {Type: "string", Description: "Project root. Defaults to cwd."},
+					"service":       {Type: "string", Description: "Lerd DB service override (e.g. mysql, postgres)."},
+					"database":      {Type: "string", Description: "Database name. Defaults to DB_DATABASE."},
+					"name":          {Type: "string", Description: "Snapshot name. Auto-timestamped when omitted."},
+					"all_databases": {Type: "boolean", Description: "Snapshot every database in the service."},
+				},
+			},
+		},
+		{
+			Name:        "db_snapshots",
+			Description: "List stored database snapshots.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path":     {Type: "string", Description: "Project root. Defaults to cwd."},
+					"service":  {Type: "string", Description: "Lerd DB service override."},
+					"database": {Type: "string", Description: "Database name. Defaults to DB_DATABASE."},
+					"all":      {Type: "boolean", Description: "List across every database on the service."},
+				},
+			},
+		},
+		{
+			Name:        "db_restore",
+			Description: "Restore the project database from a snapshot. Destructive: drops and recreates the database.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path":          {Type: "string", Description: "Project root. Defaults to cwd."},
+					"service":       {Type: "string", Description: "Lerd DB service override."},
+					"database":      {Type: "string", Description: "Database name. Defaults to DB_DATABASE."},
+					"name":          {Type: "string", Description: "Snapshot name to restore."},
+					"all_databases": {Type: "boolean", Description: "Restore an all-databases snapshot."},
+				},
+				Required: []string{"name"},
+			},
+		},
+		{
+			Name:        "db_snapshot_delete",
+			Description: "Delete a stored database snapshot.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"path":          {Type: "string", Description: "Project root. Defaults to cwd."},
+					"service":       {Type: "string", Description: "Lerd DB service override."},
+					"database":      {Type: "string", Description: "Database name. Defaults to DB_DATABASE."},
+					"name":          {Type: "string", Description: "Snapshot name to delete."},
+					"all_databases": {Type: "boolean", Description: "Target an all-databases snapshot."},
+				},
+				Required: []string{"name"},
+			},
+		},
+		{
 			Name:        "php_list",
 			Description: "List installed PHP versions (global default marked).",
 			InputSchema: mcpSchema{
@@ -1277,6 +1334,14 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 		return execDBImport(args)
 	case "db_create":
 		return execDBCreate(args)
+	case "db_snapshot":
+		return execDBSnapshot(args)
+	case "db_snapshots":
+		return execDBSnapshots(args)
+	case "db_restore":
+		return execDBRestore(args)
+	case "db_snapshot_delete":
+		return execDBSnapshotDelete(args)
 	case "php_list":
 		return execPHPList()
 
@@ -5016,6 +5081,120 @@ func execDBImport(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("import failed (%v):\n%s", err, stripANSI(stderr.String()))), nil
 	}
 	return toolOK(fmt.Sprintf("Imported %s into %s (%s)", file, env.database, env.connection)), nil
+}
+
+// mcpSnapshotTarget resolves a snapshot target from MCP args. It honours an
+// explicit service override, then the project's .lerd.yaml db block (what
+// db_set persists), then falls back to .env — the same priority the CLI uses.
+func mcpSnapshotTarget(args map[string]any) (serviceops.SnapshotTarget, error) {
+	all := boolArg(args, "all_databases")
+	dbOverride := strArg(args, "database")
+	build := func(service, database string) serviceops.SnapshotTarget {
+		family := config.FamilyOfName(service)
+		if family == "" {
+			family = service
+		}
+		if dbOverride != "" {
+			database = dbOverride
+		}
+		return serviceops.SnapshotTarget{Service: service, Family: family, Database: database, AllDatabases: all}
+	}
+
+	if svc := strArg(args, "service"); svc != "" {
+		return build(svc, ""), nil
+	}
+	projectPath := resolvedPath(args)
+	if projectPath == "" {
+		return serviceops.SnapshotTarget{}, fmt.Errorf("pass a path argument (project root) or a service argument")
+	}
+	if pc, err := config.LoadProjectConfig(projectPath); err == nil && pc.DB.Service != "" {
+		return build(pc.DB.Service, pc.DB.Database), nil
+	}
+	env, err := readDBEnvLenient(projectPath)
+	if err != nil || env == nil {
+		return serviceops.SnapshotTarget{}, fmt.Errorf("no .lerd.yaml db block or .env found in %s — pass a service argument", projectPath)
+	}
+	service := "mysql"
+	switch strings.ToLower(env.connection) {
+	case "pgsql", "postgres", "postgresql":
+		service = "postgres"
+	}
+	return build(service, env.database), nil
+}
+
+func execDBSnapshot(args map[string]any) (any, *rpcError) {
+	target, err := mcpSnapshotTarget(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if !serviceops.SnapshotFamilySupported(target.Family) {
+		return toolErr("snapshots support only MySQL, MariaDB and PostgreSQL"), nil
+	}
+	if !target.AllDatabases && target.Database == "" {
+		return toolErr("database is required — pass database, or all_databases:true"), nil
+	}
+	snap, err := serviceops.CreateSnapshot(target, strArg(args, "name"), serviceops.SnapshotMeta{}, nil)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	scope := snap.Database
+	if snap.AllDatabases {
+		scope = "all databases"
+	}
+	return toolOK(fmt.Sprintf("Created snapshot %q for %s (%d bytes) on %s", snap.Name, scope, snap.SizeBytes, snap.Service)), nil
+}
+
+func execDBSnapshots(args map[string]any) (any, *rpcError) {
+	target, err := mcpSnapshotTarget(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	database := target.Database
+	if boolArg(args, "all") {
+		database = ""
+	}
+	snaps, err := serviceops.ListSnapshots(target.Service, database, true)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	data, _ := json.MarshalIndent(snaps, "", "  ")
+	return toolOK(string(data)), nil
+}
+
+func execDBRestore(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	target, err := mcpSnapshotTarget(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if !serviceops.SnapshotFamilySupported(target.Family) {
+		return toolErr("snapshots support only MySQL, MariaDB and PostgreSQL"), nil
+	}
+	if !target.AllDatabases && target.Database == "" {
+		return toolErr("database is required — pass database, or all_databases:true"), nil
+	}
+	if err := serviceops.RestoreSnapshot(target, name, nil); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Restored snapshot %q", name)), nil
+}
+
+func execDBSnapshotDelete(args map[string]any) (any, *rpcError) {
+	name := strArg(args, "name")
+	if name == "" {
+		return toolErr("name is required"), nil
+	}
+	target, err := mcpSnapshotTarget(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if err := serviceops.DeleteSnapshot(target.Service, target.Database, name, target.AllDatabases); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Deleted snapshot %q", name)), nil
 }
 
 func execDBCreate(args map[string]any) (any, *rpcError) {

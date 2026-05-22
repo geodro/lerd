@@ -184,24 +184,6 @@ func TestBuildWorkerGuard_SkipsOrphanCleanupWhenOuterAlive(t *testing.T) {
 	}
 }
 
-// TestShellQuote covers the single-quote escaping used to interpolate
-// workerCmd into the pkill argument.
-func TestShellQuote(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"php artisan queue:work", "'php artisan queue:work'"},
-		{"a b", "'a b'"},
-		{"it's", `'it'\''s'`},
-		{"", "''"},
-	}
-	for _, c := range cases {
-		if got := shellQuote(c.in); got != c.want {
-			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 func testPIDString() string {
 	return itoa(os.Getpid())
 }

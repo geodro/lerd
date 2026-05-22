@@ -3040,7 +3040,7 @@ func handleLerdUpdateTerminal(w http.ResponseWriter, r *http.Request) {
 // Extracted so tests can pin the absolute-path quoting without launching
 // a real terminal emulator.
 func buildUpdateScript(executable string) string {
-	return shQuote(executable) + ` update; echo; read -rp "Press Enter to close..."`
+	return podman.ShellQuote(executable) + ` update; echo; read -rp "Press Enter to close..."`
 }
 
 // openTerminalCommand opens the user's terminal emulator and runs the given
@@ -3052,7 +3052,7 @@ func openTerminalCommand(script string) error {
 		bin  string
 		args []string
 	}
-	combined := "sh -c " + shQuote(script)
+	combined := "sh -c " + podman.ShellQuote(script)
 	candidates := []termCmd{
 		{"kitty", []string{"sh", "-c", script}},
 		{"foot", []string{"sh", "-c", script}},
@@ -3092,12 +3092,6 @@ func openTerminalCommand(script string) error {
 		return nil
 	}
 	return fmt.Errorf("no terminal emulator found; set $TERMINAL or install kitty, foot, alacritty, wezterm, ghostty, ptyxis, konsole, or gnome-terminal")
-}
-
-// shQuote wraps s in single quotes, escaping any embedded single quotes
-// using the standard '\" dance so the result is safe for /bin/sh -c.
-func shQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // appleScriptStr returns an AppleScript string expression for s.

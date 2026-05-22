@@ -178,7 +178,9 @@ func TestToolList_underSizeCeiling(t *testing.T) {
 	// author .lerd.yaml commands blocks alongside the read/run path).
 	// Bumped to 27000 for profiler_toggle / profiler_status (SPX profiler);
 	// descriptions trimmed to keep the delta small.
-	const ceiling = 27000
+	// Bumped to 29000 for db_snapshot / db_snapshots / db_restore /
+	// db_snapshot_delete (database snapshots); descriptions kept terse.
+	const ceiling = 29000
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)

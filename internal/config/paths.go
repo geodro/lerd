@@ -84,6 +84,12 @@ func BackupsDir() string {
 	return filepath.Join(DataDir(), "backups")
 }
 
+// SnapshotsDir returns the directory where db:snapshot point-in-time database
+// copies are stored, organised per service and database scope.
+func SnapshotsDir() string {
+	return filepath.Join(DataDir(), "snapshots")
+}
+
 // DnsmasqDir returns the dnsmasq config directory.
 func DnsmasqDir() string {
 	return filepath.Join(DataDir(), "dnsmasq")

@@ -12,6 +12,12 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// ShellQuote single-quotes s so it is safe as one argument inside an
+// `sh -c` command string. Embedded single quotes are closed, escaped, reopened.
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // PodmanBin returns the full path to the podman binary. On macOS it searches
 // well-known Homebrew locations when PATH is restricted (e.g. launchd services).
 func PodmanBin() string {

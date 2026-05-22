@@ -180,6 +180,10 @@ Switch the PHP runtime for the current site between shared PHP-FPM and per-site 
 | `lerd db:import [-d name] <file.sql>` | Import a SQL dump (defaults to site DB from `.env`) |
 | `lerd db:export [-d name] [-o file.sql]` | Export a database to a SQL dump (defaults to site DB from `.env`) |
 | `lerd db:shell` | Open an interactive MySQL or PostgreSQL shell |
+| `lerd db:snapshot [name] [-A]` | Create a named, restorable snapshot of a database |
+| `lerd db:snapshots [--all]` | List stored database snapshots |
+| `lerd db:restore <name> [-A] [-f]` | Restore a database from a stored snapshot |
+| `lerd db:snapshot:rm <name> [-A]` | Delete a stored database snapshot |
 
 ## Import
 

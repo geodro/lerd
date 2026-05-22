@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // runLocks holds a per-site mutex so two browser tabs (or the palette + the
@@ -169,7 +170,7 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 	// running inside, then return immediately. The UI handles this by
 	// skipping the modal and showing a toast.
 	if target.Output == config.CommandOutputTerminal {
-		script := "cd " + shQuote(cwd) + " && " + target.Command + "\nprintf '\\n[press any key to close]'\nread -n 1 -s -r 2>/dev/null || read"
+		script := "cd " + podman.ShellQuote(cwd) + " && " + target.Command + "\nprintf '\\n[press any key to close]'\nread -n 1 -s -r 2>/dev/null || read"
 		if err := openTerminalCommand(script); err != nil {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return

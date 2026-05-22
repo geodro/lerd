@@ -1,6 +1,10 @@
 package cli
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/geodro/lerd/internal/podman"
+)
 
 // buildWorkerGuard wraps runCmd in a shell snippet that prevents duplicate
 // workers on macOS under the podman-exec runtime mode.
@@ -39,14 +43,14 @@ import "fmt"
 // kill -0 check in step 1 fails and the new instance takes over.
 func buildWorkerGuard(pidFile, podmanBin, container, sitePath, workerCmd, runCmd string) string {
 	// Inner sh script: enumerate pgrep matches, filter by cwd. Single
-	// quotes around literal arg interpolations because shellQuote already
+	// quotes around literal arg interpolations because ShellQuote already
 	// produces single-quoted strings; they nest correctly when the whole
-	// inner is itself shellQuoted as a sh -c argument.
+	// inner is itself shell-quoted as a sh -c argument.
 	inner := fmt.Sprintf(
 		`for p in $(pgrep -f -- %s 2>/dev/null); do `+
 			`[ "$(readlink /proc/$p/cwd 2>/dev/null)" = %s ] && kill -TERM $p 2>/dev/null; `+
 			`done`,
-		shellQuote(workerCmd), shellQuote(sitePath))
+		podman.ShellQuote(workerCmd), podman.ShellQuote(sitePath))
 
 	return fmt.Sprintf(`if [ -f %[1]s ] && kill -0 "$(cat %[1]s 2>/dev/null)" 2>/dev/null; then
   exit 0
@@ -55,20 +59,5 @@ fi
 echo $$ > %[1]s
 trap 'rm -f %[1]s' EXIT
 exec %[5]s
-`, pidFile, podmanBin, container, shellQuote(inner), runCmd)
-}
-
-// shellQuote single-quotes s for safe inclusion as one shell argument.
-// Embedded single quotes are handled by closing-quoting-reopening.
-func shellQuote(s string) string {
-	out := "'"
-	for _, r := range s {
-		if r == '\'' {
-			out += `'\''`
-			continue
-		}
-		out += string(r)
-	}
-	out += "'"
-	return out
+`, pidFile, podmanBin, container, podman.ShellQuote(inner), runCmd)
 }
