@@ -484,10 +484,15 @@ var laravelFramework = &Framework{
 				`exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto`},
 		SupportsWorker: true,
 	},
+	// Oracle fork: built-in commands intentionally exclude destructive
+	// database operations (migrate:fresh, db:wipe, migrate:reset,
+	// migrate:rollback). Those one-clicks are too easy to fire by accident
+	// against a shared/Oracle DB; users who really want them can either run
+	// them from the project's own `.lerd.yaml` Commands list or via
+	// `lerd php artisan <cmd>` on the CLI, which preserves the audit trail.
 	Commands: []FrameworkCommand{
 		{Name: "optimize:clear", Label: "Clear all caches", Command: "php artisan optimize:clear", Description: "Clear config, route, view, event, and compiled caches", Output: "silent", Icon: "broom"},
 		{Name: "migrate", Label: "Run migrations", Command: "php artisan migrate --force", Description: "Apply pending database migrations", Output: "silent", Icon: "database"},
-		{Name: "migrate:fresh", Label: "Drop and re-migrate", Command: "php artisan migrate:fresh --seed --force", Description: "Wipe the database, re-run all migrations, then seed", Output: "silent", Confirm: true, Icon: "refresh"},
 	},
 }
 
@@ -561,10 +566,13 @@ var symfonyFramework = &Framework{
 		},
 		SupportsWorker: true,
 	},
+	// Oracle fork: doctrine:fixtures:load excluded from defaults — it
+	// truncates every table before loading fixtures and is a footgun
+	// against shared/Oracle DBs. Users who need it can re-add it via
+	// .lerd.yaml's `commands:` block per project.
 	Commands: []FrameworkCommand{
 		{Name: "cache:clear", Label: "Clear cache", Command: "bin/console cache:clear", Description: "Clear the Symfony cache for the current environment", Output: "silent", Icon: "broom"},
 		{Name: "doctrine:migrations:migrate", Label: "Run migrations", Command: "bin/console doctrine:migrations:migrate --no-interaction", Description: "Apply pending Doctrine migrations", Output: "silent", Icon: "database", Check: &FrameworkRule{Composer: "doctrine/doctrine-migrations-bundle"}},
-		{Name: "doctrine:fixtures:load", Label: "Load fixtures", Command: "bin/console doctrine:fixtures:load --no-interaction", Description: "Wipe data and load fixtures", Output: "silent", Confirm: true, Icon: "refresh", Check: &FrameworkRule{Composer: "doctrine/doctrine-fixtures-bundle"}},
 	},
 }
 

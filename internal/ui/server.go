@@ -198,6 +198,10 @@ func Start(currentVersion string) error {
 	}))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
 	mux.HandleFunc("/api/php-versions/", withCORS(publishAfter(handlePHPVersionAction, eventbus.KindStatus, eventbus.KindSites)))
+	// Debug & troubleshoot endpoints — read-only diagnostic shellouts that
+	// mirror `lerd doctor`/`dns:check`/`bug-report` for the dashboard's
+	// System → Debug panel. No CORS needed (loopback-only auth model).
+	mux.HandleFunc("/api/debug/", withCORS(handleDebugAction))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(publishAfter(handleInstallNodeVersion, eventbus.KindStatus)))
 	mux.HandleFunc("/api/node-versions/", withCORS(publishAfter(handleNodeVersionAction, eventbus.KindStatus, eventbus.KindSites)))
@@ -2674,6 +2678,28 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = podman.DaemonReloadFn()
+		writeJSON(w, map[string]any{"ok": true})
+	case "install":
+		// Mirrors `lerd php:install <version>`: writes the quadlet, builds the
+		// FPM image (uses the same fast-path/pull-from-ghcr logic as the CLI),
+		// stores the hash, applies xdebug ini, and starts the unit. Blocks for
+		// 1–3 minutes during the local build; the frontend keeps a spinner up.
+		if err := podman.WriteFPMQuadlet(version); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "write quadlet: " + err.Error()})
+			return
+		}
+		if err := podman.BuildFPMImage(version, false); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "build image: " + err.Error()})
+			return
+		}
+		_ = podman.StoreFPMHash()
+		_ = podman.EnsureXdebugIni(version)
+		short := strings.ReplaceAll(version, ".", "")
+		unit := "lerd-php" + short + "-fpm"
+		if err := podman.StartUnit(unit); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "start unit: " + err.Error()})
+			return
+		}
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)

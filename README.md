@@ -28,6 +28,7 @@
 - [Atualização](#atualização)
 - [Desinstalação](#desinstalação)
 - [Diagnóstico](#diagnóstico)
+- [Debug e troubleshooting](#debug-e-troubleshooting)
 - [Lista de comandos](#lista-de-comandos-úteis)
 
 ---
@@ -332,6 +333,30 @@ lerd logs <service>       # ex: lerd logs mysql
 ```
 
 ---
+
+## Debug e troubleshooting
+
+Quando algo quebra, comece por:
+
+```bash
+lerd doctor                    # bateria de checagens (DNS, podman, certs, services)
+lerd dns:check                 # diagnóstico em camadas do resolver
+lerd bug-report                # gera arquivo .tar.gz com tudo necessário pra abrir issue
+```
+
+Guias por tópico em [`docs/DEBUG.md`](docs/DEBUG.md):
+
+| Sintoma                                    | Onde olhar                                                             |
+|--------------------------------------------|------------------------------------------------------------------------|
+| Site retorna `502 Bad Gateway`             | [`debug/nginx.md`](docs/debug/nginx.md) + [`debug/php-fpm.md`](docs/debug/php-fpm.md) |
+| `.localhost` ou `.test` não resolve        | [`debug/dns.md`](docs/debug/dns.md)                                    |
+| Quadlet/systemd falha ao subir             | [`debug/podman.md`](docs/debug/podman.md)                              |
+| `ORA-12541` / `ORA-12154` / `ORA-01017`    | [`debug/oracle.md`](docs/debug/oracle.md)                              |
+| `lerd update` quebrou                      | [`debug/updates.md`](docs/debug/updates.md)                            |
+| Worker em loop / fila parou                | [`debug/workers.md`](docs/debug/workers.md)                            |
+| Conflito de porta em MySQL/Postgres        | [`debug/services.md`](docs/debug/services.md)                          |
+
+Também acessível direto pelo dashboard em **System → Debug & Troubleshoot**, com botões pra rodar os diagnósticos e copiar o relatório.
 
 ## Lista de comandos úteis
 

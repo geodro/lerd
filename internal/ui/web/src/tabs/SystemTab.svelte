@@ -104,6 +104,10 @@
         {/snippet}
         <ListRow active={selected === id} onclick={() => select(id)} {leading} {trailing}>PHP {v}</ListRow>
       {/each}
+      {#snippet phpInstallLeading()}<StatusDot color="blue" />{/snippet}
+      <ListRow active={selected === 'php-install'} onclick={() => select('php-install')} leading={phpInstallLeading}>
+        Instalar versão…
+      </ListRow>
     {/if}
 
     {#snippet nodeLeading()}<StatusDot color={$status.node_managed_by_lerd ? 'green' : 'blue'} />{/snippet}
@@ -120,6 +124,11 @@
         {m.system_workerMode_listLabel()}
       </ListRow>
     {/if}
+
+    {#snippet debugLeading()}<StatusDot color="amber" />{/snippet}
+    <ListRow active={selected === 'debug'} onclick={() => select('debug')} leading={debugLeading}>
+      Debug & Troubleshoot
+    </ListRow>
 
     {#snippet lerdLeading()}<StatusDot color={$lerdStatusColor} />{/snippet}
     {#snippet lerdTrailing()}
