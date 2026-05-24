@@ -79,9 +79,17 @@ func handleCommandsList(w http.ResponseWriter, r *http.Request, site *config.Sit
 }
 
 // resolveSiteCommands merges the framework's command set with the project's
-// .lerd.yaml entries. When `branch` is non-empty, resolves from the
-// worktree's path so the worktree's .lerd.yaml overrides (or extras)
-// take precedence over the main checkout's.
+// .lerd.yaml entries, appends user-authored Laravel artisan commands
+// discovered in app/Console/Commands, and strips anything destructive before
+// returning. When `branch` is non-empty, resolves from the worktree's path so
+// the worktree's .lerd.yaml overrides (or extras) take precedence over the
+// main checkout's.
+//
+// The destructive filter is the fork-specific guardrail: even if a custom
+// .lerd.yaml entry or a user-authored artisan command would normally show
+// up, anything matching destructive patterns (migrate:fresh, db:wipe,
+// doctrine:fixtures:load, raw DROP TABLE, etc.) is silently removed.
+// handleCommandRun ALSO refuses these at exec time as defense-in-depth.
 func resolveSiteCommands(site *config.Site, branch string) []config.FrameworkCommand {
 	if site == nil {
 		return nil
@@ -94,7 +102,24 @@ func resolveSiteCommands(site *config.Site, branch string) []config.FrameworkCom
 	}
 	fw, _ := config.GetFrameworkForDir(site.Framework, path)
 	proj, _ := config.LoadProjectConfig(path)
-	return config.ResolveCommands(fw, proj, path)
+	merged := config.ResolveCommands(fw, proj, path)
+
+	// Append Laravel-side user-defined artisan commands. Skipped quietly
+	// when the project isn't Laravel.
+	merged = append(merged, scanLaravelCustomCommands(path)...)
+
+	// Strip destructive commands. Done LAST so the filter catches both
+	// framework defaults (already filtered upstream in framework.go via
+	// the migrate:fresh removal) and any project overrides that
+	// reintroduced them.
+	filtered := merged[:0]
+	for _, c := range merged {
+		if IsDestructiveCommand(c.Command) {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+	return filtered
 }
 
 // urlRegex matches the first http/https URL in stdout, used when the command
@@ -127,6 +152,17 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 	}
 	if target.Command == "" {
 		writeJSON(w, map[string]any{"error": "command has no shell invocation"})
+		return
+	}
+	// Defense-in-depth: even if a destructive command somehow made it past
+	// the list filter (race with .lerd.yaml edits, custom service in dev,
+	// etc.), refuse to execute it. Forces users back to the CLI for these
+	// operations so the audit trail (shell history, lerd logs) records intent.
+	if IsDestructiveCommand(target.Command) {
+		w.WriteHeader(http.StatusForbidden)
+		writeJSON(w, map[string]any{
+			"error": "destructive command blocked from dashboard execution; run via CLI: lerd php " + name,
+		})
 		return
 	}
 
