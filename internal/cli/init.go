@@ -195,6 +195,8 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 			dbChoice = "mysql"
 		case "pgsql", "postgres":
 			dbChoice = "postgres"
+		case "oracle":
+			dbChoice = "oracle"
 		}
 	}
 	nonDBSelected := make([]string, 0, len(serviceDefaults))
@@ -379,8 +381,73 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		}
 	}
 
+	// Oracle: collect connection settings into a separate form when picked.
+	// External DB (no lerd container), so the values live in .lerd.yaml's
+	// oracle: block instead of being derived from a preset. Empty strings
+	// pass through to .env unchanged so users can fill secrets later
+	// without re-running the wizard.
+	var oracleCfg *config.ProjectOracleConfig
+	if dbChoice == "oracle" {
+		oracleHost, oraclePort, oracleService, oracleUser, oraclePass := "", "1521", "XEPDB1", "", ""
+		if defaults.Oracle != nil {
+			oracleHost = defaults.Oracle.Host
+			if defaults.Oracle.Port > 0 {
+				oraclePort = fmt.Sprintf("%d", defaults.Oracle.Port)
+			}
+			if defaults.Oracle.ServiceName != "" {
+				oracleService = defaults.Oracle.ServiceName
+			}
+			oracleUser = defaults.Oracle.Username
+			oraclePass = defaults.Oracle.Password
+		}
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewInput().Title("Oracle host").
+				Description("Hostname or IP of the Oracle server (leave blank to fill later)").
+				Value(&oracleHost),
+			huh.NewInput().Title("Oracle port").
+				Description("Listener port (default 1521)").
+				Value(&oraclePort).
+				Validate(func(s string) error {
+					if s == "" {
+						return nil
+					}
+					for _, c := range s {
+						if c < '0' || c > '9' {
+							return fmt.Errorf("port must be a number")
+						}
+					}
+					return nil
+				}),
+			huh.NewInput().Title("Service name / SID").
+				Description("Oracle service name (e.g. XEPDB1, ORCLPDB1) or SID").
+				Value(&oracleService),
+			huh.NewInput().Title("Username").
+				Description("DB user (leave blank to fill in .env later)").
+				Value(&oracleUser),
+			huh.NewInput().Title("Password").
+				Description("DB password (stored in .lerd.yaml — consider .env-only)").
+				EchoMode(huh.EchoModePassword).
+				Value(&oraclePass),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+		oracleCfg = &config.ProjectOracleConfig{
+			Host:        strings.TrimSpace(oracleHost),
+			ServiceName: strings.TrimSpace(oracleService),
+			Username:    strings.TrimSpace(oracleUser),
+			Password:    oraclePass,
+		}
+		if oraclePort != "" {
+			p := 0
+			fmt.Sscanf(oraclePort, "%d", &p)
+			if p > 0 {
+				oracleCfg.Port = p
+			}
+		}
+	}
+
 	// Recombine the database pick and the non-DB multi-select into a single
-	// services list for serialization. dbChoice is always one of sqlite/mysql/postgres.
+	// services list for serialization. dbChoice is one of sqlite/mysql/postgres/oracle.
 	selectedServices := make([]string, 0, len(nonDBSelected)+1)
 	selectedServices = append(selectedServices, dbChoice)
 	selectedServices = append(selectedServices, nonDBSelected...)
@@ -408,6 +475,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		builtIn[s] = true
 	}
 	builtIn["sqlite"] = true
+	builtIn["oracle"] = true
 	inlineByName := map[string]*config.CustomService{}
 	for _, svc := range defaults.Services {
 		if svc.Custom != nil {
@@ -481,6 +549,7 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		Domains:          defaults.Domains,
 		Runtime:          runtime,
 		RuntimeWorker:    runtimeWorker,
+		Oracle:           oracleCfg,
 	}, nil
 }
 
@@ -662,6 +731,12 @@ var dbFamilies = map[string]bool{
 	"mariadb":  true,
 	"postgres": true,
 	"mongo":    true,
+	// Oracle is external (no lerd-managed container service). Treated as a
+	// DB family for the wizard's exclusive Database select and for the env
+	// flow's "user picked a DB" precedence rules, but skipped by the
+	// ensureServiceRunning / createDatabase paths since there is no
+	// container to start and the schema lives on a remote server.
+	"oracle": true,
 }
 
 // dbFamilyOf returns the database family of svc, or empty when svc is not a
@@ -684,6 +759,7 @@ var dbFamilyLabels = map[string]string{
 	"mariadb":  "MariaDB",
 	"postgres": "PostgreSQL",
 	"mongo":    "MongoDB",
+	"oracle":   "Oracle",
 }
 
 // formatDBOptionLabel returns "MySQL (lerd-mysql)" for the canonical family
@@ -720,6 +796,13 @@ func buildDatabaseOptions() ([]huh.Option[string], map[string]bool) {
 		nameSet[name] = true
 		options = append(options, huh.NewOption(formatDBOptionLabel(name), name))
 	}
+
+	// Oracle: not a lerd-managed service — the DB lives on a remote server.
+	// The wizard collects connection settings into .lerd.yaml's `oracle:`
+	// block and `lerd env` writes them to .env. Requires the oci8 PHP
+	// extension (baked into every lerd PHP image in this fork).
+	nameSet["oracle"] = true
+	options = append(options, huh.NewOption("Oracle (external DB, oci8 baked into image)", "oracle"))
 
 	if customs, err := config.ListCustomServices(); err == nil {
 		var dbCustoms []*config.CustomService

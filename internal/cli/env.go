@@ -59,7 +59,7 @@ func NewEnvCmd() *cobra.Command {
 // signal is what lets us replace whatever the existing .env says about
 // DB_CONNECTION with the user's actual pick.
 func userPickedDBFromYAML(lerdYAMLServices map[string]bool) bool {
-	if lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"] {
+	if lerdYAMLServices["sqlite"] || lerdYAMLServices["mysql"] || lerdYAMLServices["postgres"] || lerdYAMLServices["oracle"] {
 		return true
 	}
 	for name := range lerdYAMLServices {
@@ -77,7 +77,7 @@ func userPickedDBFromYAML(lerdYAMLServices map[string]bool) bool {
 // itself when the wizard selected mysql. Otherwise apply when the env file
 // references the service or .lerd.yaml lists it.
 func shouldApplyService(svc string, detectedFromEnv, pickedFromYAML, userPickedDB bool) bool {
-	if userPickedDB && (svc == "mysql" || svc == "postgres") && !pickedFromYAML {
+	if userPickedDB && (svc == "mysql" || svc == "postgres" || svc == "oracle") && !pickedFromYAML {
 		return false
 	}
 	return detectedFromEnv || pickedFromYAML
@@ -91,6 +91,9 @@ var serviceDetectors = map[string]func(map[string]string) bool{
 	},
 	"postgres": func(env map[string]string) bool {
 		return strings.ToLower(env["DB_CONNECTION"]) == "pgsql"
+	},
+	"oracle": func(env map[string]string) bool {
+		return strings.ToLower(env["DB_CONNECTION"]) == "oracle"
 	},
 	"redis": func(env map[string]string) bool {
 		_, hasHost := env["REDIS_HOST"]
@@ -420,6 +423,45 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 			if err := ensureServiceRunning(svc); err != nil {
 				fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
+			}
+		}
+	}
+
+	// 3a-ter. Oracle is external (no lerd container service). When listed in
+	// .lerd.yaml — either as a `services:` entry from the init wizard or via
+	// the oracle: block written manually — apply the standard Laravel/oci8
+	// env keys. Values are layered: baseline defaults from oracleEnvVarsDefault
+	// (so unset keys are zeroed out), then overrides from `.lerd.yaml` oracle:
+	// block on top. Empty user-supplied fields pass through as-is so the user
+	// can fill them in directly in .env without the wizard clobbering edits.
+	// No service to start, no DB to create — the schema lives on a remote
+	// Oracle server (corporate / Autonomous / RDS / Free Tier).
+	proj, _ := config.LoadProjectConfig(cwd)
+	if lerdYAMLServices["oracle"] || (proj != nil && proj.Oracle != nil) {
+		fmt.Printf("  From .lerd.yaml %-4s — applying lerd connection values (external server)\n", "oracle")
+		for _, kv := range serviceEnvVars("oracle") {
+			k, v, _ := strings.Cut(kv, "=")
+			updates[k] = v
+		}
+		if proj != nil && proj.Oracle != nil {
+			if proj.Oracle.Host != "" {
+				updates["DB_HOST"] = proj.Oracle.Host
+			}
+			if proj.Oracle.Port > 0 {
+				updates["DB_PORT"] = strconv.Itoa(proj.Oracle.Port)
+			}
+			if proj.Oracle.ServiceName != "" {
+				updates["DB_DATABASE"] = proj.Oracle.ServiceName
+			}
+			if proj.Oracle.Username != "" {
+				updates["DB_USERNAME"] = proj.Oracle.Username
+			}
+			if proj.Oracle.Password != "" {
+				updates["DB_PASSWORD"] = proj.Oracle.Password
+			}
+			if proj.Oracle.Charset != "" {
+				updates["DB_CHARSET"] = proj.Oracle.Charset
+				updates["NLS_LANG"] = "AMERICAN_AMERICA." + proj.Oracle.Charset
 			}
 		}
 	}

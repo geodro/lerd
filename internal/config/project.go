@@ -18,6 +18,24 @@ type ProjectDB struct {
 	Database string `yaml:"database,omitempty"`
 }
 
+// ProjectOracleConfig holds the connection settings for projects that target
+// an external Oracle Database. Oracle isn't a lerd-managed container service
+// (the DB lives on a corporate / RDS / Autonomous server), so the values
+// here are written verbatim into the project's .env on `lerd env`. Empty
+// fields are left untouched so the user can fill them in afterwards without
+// the wizard clobbering manual edits on the next run.
+type ProjectOracleConfig struct {
+	Host        string `yaml:"host,omitempty"`
+	Port        int    `yaml:"port,omitempty"`         // default 1521 when unset
+	ServiceName string `yaml:"service_name,omitempty"` // Oracle service name or SID (DB_DATABASE in Laravel)
+	Username    string `yaml:"username,omitempty"`
+	Password    string `yaml:"password,omitempty"`
+	// Charset maps to Laravel oci8 driver's `charset` and NLS_LANG. Common
+	// values: AL32UTF8 (default Unicode), WE8MSWIN1252 (Windows-1252 legacy),
+	// WE8ISO8859P15 (Latin-1 + Euro). Empty leaves the project to decide.
+	Charset string `yaml:"charset,omitempty"`
+}
+
 // ContainerConfig holds per-project custom container settings. When present
 // in .lerd.yaml the site gets its own dedicated container built from the
 // user's Containerfile, and nginx reverse-proxies to it instead of using
@@ -58,7 +76,11 @@ type ProjectConfig struct {
 	// the per-machine override in sites.yaml.
 	AppURL    string           `yaml:"app_url,omitempty"`
 	DB        ProjectDB        `yaml:"db,omitempty"`
-	Container *ContainerConfig `yaml:"container,omitempty"`
+	// Oracle holds external Oracle Database connection settings written into
+	// the project's .env on `lerd env`. Present only when the init wizard's
+	// Database choice is "oracle" (or set manually). nil for every other DB.
+	Oracle    *ProjectOracleConfig `yaml:"oracle,omitempty"`
+	Container *ContainerConfig     `yaml:"container,omitempty"`
 	// Runtime selects how the site's PHP is served. "fpm" (default) uses the
 	// shared lerd-php{version}-fpm container; "frankenphp" spins up a
 	// per-site dunglas/frankenphp container that keeps PHP resident.
@@ -86,6 +108,7 @@ func (c *ProjectConfig) IsEmpty() bool {
 		c.Framework == "" && c.PublicDir == "" && len(c.Services) == 0 &&
 		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && !c.Secured &&
 		c.AppURL == "" && c.DB.Service == "" && c.DB.Database == "" &&
+		c.Oracle == nil &&
 		c.Container == nil && c.Runtime == "" && !c.RuntimeWorker &&
 		!c.DBIsolated && len(c.EnvOverrides) == 0
 }

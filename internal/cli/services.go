@@ -27,11 +27,27 @@ var sqliteEnvVars = []string{
 	"DB_DATABASE=database/database.sqlite",
 }
 
+// oracleEnvVarsDefault are baseline Laravel/oci8 env keys for Oracle. Oracle
+// is external (no lerd container), so the actual host/credentials live in
+// .lerd.yaml's `oracle:` block — these defaults only seed the keys so the
+// env file shape is right. `lerd env` overlays the project config on top.
+var oracleEnvVarsDefault = []string{
+	"DB_CONNECTION=oracle",
+	"DB_HOST=",
+	"DB_PORT=1521",
+	"DB_DATABASE=XEPDB1",
+	"DB_USERNAME=",
+	"DB_PASSWORD=",
+}
+
 // serviceEnvVars returns the recommended Laravel .env KEY=VALUE pairs for a
-// default-preset service or sqlite. Returns nil for any other name.
+// default-preset service, sqlite, or oracle. Returns nil for any other name.
 func serviceEnvVars(name string) []string {
-	if name == "sqlite" {
+	switch name {
+	case "sqlite":
 		return sqliteEnvVars
+	case "oracle":
+		return oracleEnvVarsDefault
 	}
 	return config.DefaultPresetEnvVars(name)
 }
