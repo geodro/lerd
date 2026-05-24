@@ -75,6 +75,10 @@ RUN apk update && apk add --no-cache \
     && { (yes '' | pecl install igbinary && docker-php-ext-enable igbinary) || true; } \
     && { (yes '' | pecl install mongodb && docker-php-ext-enable mongodb) || true; } \
     && { (yes '' | pecl install pcov && docker-php-ext-enable pcov) || true; } \
+    && { (apk add --no-cache libmemcached-dev zlib-dev \
+          && yes '' | pecl install memcached && docker-php-ext-enable memcached) || true; } \
+    && { (apk add --no-cache rabbitmq-c-dev \
+          && yes '' | pecl install amqp && docker-php-ext-enable amqp) || true; } \
     && rm -rf /tmp/pear /var/cache/apk/*
 
 # Xdebug compiled in the builder too. Legacy PHP needs older xdebug majors.
@@ -98,10 +102,10 @@ RUN PHPVER="$(php -r 'echo PHP_MAJOR_VERSION,".",PHP_MINOR_VERSION;')" \
 # support; PHP 8.2+ tracks the latest.
 RUN PHPVER="$(php -r 'echo PHP_MAJOR_VERSION,".",PHP_MINOR_VERSION;')" \
     && case "$PHPVER" in \
-        7.2|7.3|7.4) OCI8_PKG="oci8-2.2.0" ;; \
-        8.0)         OCI8_PKG="oci8-3.0.1" ;; \
-        8.1)         OCI8_PKG="oci8-3.3.0" ;; \
-        *)           OCI8_PKG="oci8" ;; \
+        7.2|7.3|7.4)     OCI8_PKG="oci8-2.2.0" ;; \
+        8.0)             OCI8_PKG="oci8-3.0.1" ;; \
+        8.1|8.2|8.3)     OCI8_PKG="oci8-3.3.0" ;; \
+        *)               OCI8_PKG="oci8" ;; \
     esac \
     && apk add --no-cache libaio libnsl gcompat libc6-compat libstdc++ unzip \
     && mkdir -p /opt/oracle && cd /opt/oracle \
@@ -147,6 +151,8 @@ RUN apk update && apk add --no-cache \
         libldap \
         sqlite-libs \
         libxslt \
+        libmemcached-libs \
+        rabbitmq-c \
     && rm -rf /var/cache/apk/*
 
 # icu-data-full carries the full CLDR locale set for ext-intl (#332). Alpine
