@@ -37,6 +37,34 @@
   let extApkDeps = $state('');
   let removingExt = $state(''); // name of ext currently being removed (for per-row spinner)
 
+  // Quick-add chips for the most commonly-requested PHP extensions that the
+  // base lerd image doesn't ship. Selecting one pre-fills the form so the
+  // user can review/edit before hitting Adicionar. The `apk` strings are
+  // the same Alpine packages the CLI's built-in extApkDeps map uses (or what
+  // pecl docs recommend for the extension), validated against alpine v3.x
+  // package names.
+  interface ExtPreset {
+    name: string;
+    apk: string;
+    why: string; // short tooltip explaining where this is typically needed
+  }
+  const extPresets: ExtPreset[] = [
+    { name: 'imap', apk: 'imap-dev krb5-dev openssl-dev c-client', why: 'Caixa de e-mail IMAP/POP3 (Laravel Mail, Symfony Mailer com transport IMAP).' },
+    { name: 'swoole', apk: 'linux-headers openssl-dev curl-dev pcre-dev', why: 'Laravel Octane (alternativa ao FrankenPHP), coroutines.' },
+    { name: 'ssh2', apk: 'libssh2-dev', why: 'phpseclib auxiliar, deploy hooks, transferências SFTP nativas.' },
+    { name: 'apcu', apk: '', why: 'Cache em memória userland (sessões PHP, Doctrine cache).' },
+    { name: 'event', apk: 'libevent-dev openssl-dev', why: 'Event-loop nativo (workers de socket persistente).' },
+    { name: 'pspell', apk: 'aspell-dev', why: 'Correção ortográfica server-side.' },
+    { name: 'tidy', apk: 'tidyhtml-dev', why: 'Sanitização e validação de HTML (laravel-dompdf input cleanup).' },
+    { name: 'pdo_dblib', apk: 'freetds-dev', why: 'SQL Server / Sybase via FreeTDS — alternativa ao sqlsrv da MS.' }
+  ];
+
+  function pickPreset(p: ExtPreset) {
+    extName = p.name;
+    extApkDeps = p.apk;
+    extError = '';
+  }
+
   async function onAddExtension() {
     const name = extName.trim();
     if (!name) {
@@ -248,7 +276,11 @@
       </div>
 
       {#if customExts.length === 0}
-        <p class="text-xs text-gray-400 mb-3">Nenhuma extensão extra além das já compiladas na imagem.</p>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
+          Nenhuma extensão extra além das <strong class="text-gray-700 dark:text-gray-300">31 já compiladas</strong> na imagem
+          (<span class="font-mono text-[10px]">oci8, redis, imagick, mongodb, memcached, amqp, igbinary, xdebug, gd, intl, zip, pdo_*, soap, xsl, ldap, pcntl, exif, bcmath, mbstring, gmp, bz2, sysv*, sockets, …</span>).
+          Use o formulário abaixo para instalar uma extensão extra via PECL ou <span class="font-mono">docker-php-ext-install</span>.
+        </div>
       {:else}
         <div class="space-y-1.5 mb-3">
           {#each customExts as ext (ext.name)}
@@ -272,34 +304,75 @@
         </div>
       {/if}
 
-      <div class="space-y-2">
-        <div class="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-2">
-          <input
-            type="text"
-            placeholder="ext (ex: imap)"
-            bind:value={extName}
-            disabled={extAdding || removingExt !== ''}
-            class="font-mono text-xs px-2.5 py-1.5 bg-white dark:bg-lerd-dark-2 border border-gray-200 dark:border-lerd-border rounded text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
-          />
-          <input
-            type="text"
-            placeholder="apk deps opcionais — ex: imap-dev krb5-dev openssl-dev"
-            bind:value={extApkDeps}
-            disabled={extAdding || removingExt !== ''}
-            class="font-mono text-xs px-2.5 py-1.5 bg-white dark:bg-lerd-dark-2 border border-gray-200 dark:border-lerd-border rounded text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
-          />
-          <DetailButton
-            tone="success"
-            onclick={onAddExtension}
-            disabled={extAdding || removingExt !== '' || !extName.trim()}
-            loading={extAdding}
-            title="Instala via pecl/docker-php-ext-install, reconstrói a imagem e reinicia o FPM (1–3min)"
-          >Adicionar</DetailButton>
+      <!--
+        Chips de exemplo — 1-clique pré-preenche os campos com nome + apk deps
+        prontos. Cobre as extensões mais comuns que faltam na base do lerd.
+      -->
+      <div class="mb-3">
+        <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Exemplos rápidos</p>
+        <div class="flex flex-wrap gap-1.5">
+          {#each extPresets as p (p.name)}
+            <button
+              type="button"
+              onclick={() => pickPreset(p)}
+              disabled={extAdding || removingExt !== ''}
+              title={p.why + (p.apk ? '  ·  apk: ' + p.apk : '  ·  sem deps Alpine extras')}
+              class="font-mono text-[11px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-lerd-border bg-white dark:bg-white/5 text-gray-700 dark:text-gray-200 hover:bg-emerald-50 hover:border-emerald-300 dark:hover:bg-emerald-500/10 dark:hover:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              + {p.name}
+            </button>
+          {/each}
         </div>
-        <p class="text-[10px] text-gray-400 leading-relaxed">
-          Equivalente a <code class="font-mono">lerd php:ext add &lt;ext&gt; {version} --apk-deps "&lt;pacotes&gt;"</code>.
-          A imagem PHP {version} é reconstruída e o container reinicia ao final.
-        </p>
+      </div>
+
+      <div class="space-y-2">
+        <div class="grid grid-cols-1 sm:grid-cols-[180px_1fr_auto] gap-2">
+          <div class="flex flex-col gap-1">
+            <label for="ext-name-{version}" class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nome da extensão</label>
+            <input
+              id="ext-name-{version}"
+              type="text"
+              placeholder="imap, swoole, ssh2…"
+              bind:value={extName}
+              disabled={extAdding || removingExt !== ''}
+              class="font-mono text-xs px-2.5 py-1.5 bg-white dark:bg-lerd-dark-2 border border-gray-200 dark:border-lerd-border rounded text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 disabled:opacity-50"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label for="ext-apk-{version}" class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Pacotes Alpine (opcional) <span class="font-normal normal-case text-gray-400">— separe por espaço ou vírgula</span>
+            </label>
+            <input
+              id="ext-apk-{version}"
+              type="text"
+              placeholder="imap-dev krb5-dev openssl-dev"
+              bind:value={extApkDeps}
+              disabled={extAdding || removingExt !== ''}
+              class="font-mono text-xs px-2.5 py-1.5 bg-white dark:bg-lerd-dark-2 border border-gray-200 dark:border-lerd-border rounded text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 disabled:opacity-50"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-semibold text-transparent uppercase tracking-wider select-none">·</span>
+            <DetailButton
+              tone="success"
+              onclick={onAddExtension}
+              disabled={extAdding || removingExt !== '' || !extName.trim()}
+              loading={extAdding}
+              title="Instala via pecl/docker-php-ext-install, reconstrói a imagem e reinicia o FPM (1–3min)"
+            >{extAdding ? 'Reconstruindo…' : 'Adicionar'}</DetailButton>
+          </div>
+        </div>
+        {#if extAdding}
+          <p class="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed flex items-center gap-1.5">
+            <span class="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+            Reconstruindo imagem <span class="font-mono">lerd-php{version.replace('.', '')}-fpm:local</span> com a nova extensão — pode levar 1 a 3 minutos…
+          </p>
+        {:else}
+          <p class="text-[10px] text-gray-400 leading-relaxed">
+            Equivalente a <code class="font-mono text-gray-500 dark:text-gray-400">lerd php:ext add &lt;ext&gt; {version} --apk-deps "&lt;pacotes&gt;"</code>.
+            A imagem é reconstruída e o container reinicia ao final.
+          </p>
+        {/if}
       </div>
 
       {#if extError}
