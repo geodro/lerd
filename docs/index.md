@@ -40,6 +40,9 @@ features:
   - icon: 🛰️
     title: Live dump() / dd() viewer
     details: Every `dump()` and `dd()` call from your running app streams to the dashboard, TUI, MCP, and CLI tail, scoped per site and per worktree branch.
+  - icon: 🔥
+    title: SPX profiler
+    details: One global toggle and every PHP-FPM request becomes a flame graph viewable in the dashboard's Profiler view. No FPM restart, no code changes, `lerd profile run` for one-shot CLI commands.
   - icon: 🤖
     title: AI integration (MCP)
     details: Built-in Model Context Protocol server. Claude Code, Cursor, Windsurf, and Junie scaffold projects and run migrations straight from chat.
