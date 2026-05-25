@@ -22,7 +22,17 @@ Volume={{.UserIniPath}}:/usr/local/etc/php/conf.d/98-lerd-user.ini:ro
 Volume={{.DumpsDir}}:/usr/local/etc/lerd:ro
 Volume={{.DumpsIniPath}}:/usr/local/etc/php/conf.d/97-lerd-dump.ini:ro
 Volume={{.ZshHistoryDir}}:/root/.zsh_state:rw
+# Mount the host user's .ssh dir into /root/.ssh so composer/git commands
+# running inside the container (which see HOME=/root) find the user's
+# known_hosts + id_* keys for clone/fetch over ssh. read-only so a runaway
+# composer plugin can't rewrite authorized_keys on the host. Fork addition.
+Volume={{.HostSSHDir}}:/root/.ssh:ro
 Environment=HOME=/root
+# GIT_SSH_COMMAND ensures git (and composer when it shells out to git)
+# uses StrictHostKeyChecking=accept-new on first contact with a remote so
+# the user isn't blocked by an interactive "are you sure" prompt that the
+# container has no TTY for. Fork addition.
+Environment=GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
 PodmanArgs=--security-opt=label=disable
 Exec=php-fpm -F -R
 

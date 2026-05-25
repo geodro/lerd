@@ -622,6 +622,7 @@ func WriteFPMQuadlet(version string) error {
 	content = strings.ReplaceAll(content, "{{.DumpsDir}}", config.DumpsAssetsDir())
 	content = strings.ReplaceAll(content, "{{.DumpsIniPath}}", config.DumpsIniFile())
 	content = strings.ReplaceAll(content, "{{.HostNameLine}}", hostNameLine())
+	content = strings.ReplaceAll(content, "{{.HostSSHDir}}", hostSSHDir())
 	content = applyShellMounts(content, short)
 	content = InjectExtraVolumes(content, ExtraVolumePaths())
 
@@ -667,6 +668,7 @@ func RewriteFPMQuadlets() error {
 		content = strings.ReplaceAll(content, "{{.DumpsDir}}", config.DumpsAssetsDir())
 		content = strings.ReplaceAll(content, "{{.DumpsIniPath}}", config.DumpsIniFile())
 		content = strings.ReplaceAll(content, "{{.HostNameLine}}", hostNameLine())
+	content = strings.ReplaceAll(content, "{{.HostSSHDir}}", hostSSHDir())
 		content = applyShellMounts(content, short)
 		content = InjectExtraVolumes(content, extraPaths)
 
@@ -708,6 +710,23 @@ func zshHistoryDir(versionShort string) string {
 	dir := filepath.Join(config.DataDir(), "shell-state", "php-"+versionShort, "zsh")
 	_ = os.MkdirAll(dir, 0o755)
 	return dir
+}
+
+// hostSSHDir returns the user's $HOME/.ssh path for the FPM quadlet's
+// read-only mount into /root/.ssh — lets composer/git inside the container
+// authenticate against remote repos with the user's host keys. Falls back
+// to /dev/null when $HOME/.ssh doesn't exist so the mount line is still
+// syntactically valid (podman tolerates a /dev/null source).
+func hostSSHDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/dev/null"
+	}
+	candidate := filepath.Join(home, ".ssh")
+	if info, statErr := os.Stat(candidate); statErr != nil || !info.IsDir() {
+		return "/dev/null"
+	}
+	return candidate
 }
 
 // hostNameLine returns the `HostName=<host>` directive for the FPM quadlet so
