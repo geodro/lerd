@@ -79,12 +79,22 @@ func TestSortServices_Usage(t *testing.T) {
 
 func TestSortServices_Status(t *testing.T) {
 	got := filteredSortedServices(servicesFixture(), "", svcSortStatus)
-	// Running bucket first, paused last.
-	if got[0].State != stateRunning {
-		t.Fatalf("running should sort first, got %v", got[0].State)
+	// Within the Core group: running (mysql) first, paused (mailpit) last.
+	// custom-x is in the Custom group so it lands after all Core entries
+	// regardless of status; that's why we check the position of the Core
+	// states explicitly rather than the global last element.
+	if got[0].State != stateRunning || got[0].Name != "mysql" {
+		t.Fatalf("running Core entry should sort first, got %v", got[0])
 	}
-	if got[len(got)-1].State != statePaused {
-		t.Fatalf("paused should sort last, got %v", got[len(got)-1].State)
+	// Find the last Core-group entry and assert it's the paused one.
+	lastCoreIdx := -1
+	for i, s := range got {
+		if classifyService(s) == groupCore {
+			lastCoreIdx = i
+		}
+	}
+	if lastCoreIdx < 0 || got[lastCoreIdx].State != statePaused {
+		t.Fatalf("paused Core entry should sort last within Core, got %v", got[lastCoreIdx])
 	}
 }
 

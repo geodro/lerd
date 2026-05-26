@@ -269,9 +269,10 @@ func worktreeWorkerLabel(wt *siteinfo.WorktreeInfo, name string) string {
 	return name
 }
 
-// removeFocusedDomain runs `lerd domain remove <name>` for the domain the
-// cursor is on. Does nothing when focus is elsewhere or a different kind of
-// row is selected — meaning `x` on workers or services still does stop.
+// removeFocusedDomain gates `lerd domain remove <name>` behind a confirm
+// modal so a stray `x` keypress doesn't silently destroy a working alias.
+// Returns handled=true once the prompt opens; the actual command fires
+// later from handleConfirmKey when the user presses y.
 func (m *Model) removeFocusedDomain() (handled bool, cmd tea.Cmd) {
 	if m.focus != paneDetail || m.detailMode != detailSite {
 		return false, nil
@@ -290,8 +291,15 @@ func (m *Model) removeFocusedDomain() (handled bool, cmd tea.Cmd) {
 		return false, nil
 	}
 	short := trimTLD(row.domain)
-	m.setStatus("removing domain "+row.domain+"…", 5*time.Second)
-	return true, runLerd(s.Path, "domain", "remove", short)
+	sitePath := s.Path
+	siteName := s.Name
+	full := row.domain
+	m.openConfirm(
+		"Remove domain",
+		"Remove "+full+" from "+siteName+"?\nThis unregisters the alias from nginx and dnsmasq immediately.",
+		runLerd(sitePath, "domain", "remove", short),
+	)
+	return true, nil
 }
 
 // trimTLD strips the configured TLD suffix from a full domain so the short
@@ -403,15 +411,22 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 	switch m.detailMode {
 	case detailSettings:
 		content = settingsContentLines(m, focused, contentW)
-	case detailHelp:
-		all := helpContentLines(m, contentW)
-		if m.helpScroll > len(all)-1 {
-			m.helpScroll = max(0, len(all)-1)
-		}
-		content = all[m.helpScroll:]
+	case detailSystem:
+		content, cursorLine = systemContentLinesWithCursor(m, focused, contentW)
+	case detailDashboard:
+		content, cursorLine = dashboardContentLinesWithCursor(m, focused, contentW)
 	case detailDumps:
 		content, cursorLine = dumpsContentLines(m, focused, contentW)
 	default:
+		// When focus is on the services list, the detail pane shows the
+		// matching service — same surface area the web UI's ServiceDetail
+		// covers. Site detail is only the right answer when sites or detail
+		// itself is focused.
+		if m.focus == paneServices {
+			content = serviceDetailContentLines(m, m.currentService(), contentW)
+			cursorLine = -1
+			break
+		}
 		site := m.currentSite()
 		if site == nil {
 			content = []string{
@@ -419,7 +434,19 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 				padToWidth(dimStyle.Render("no site selected"), contentW),
 			}
 		} else {
-			content, cursorLine = detailContentLines(m, site, focused, contentW)
+			switch m.siteTab {
+			case tabSiteEnv:
+				content = siteEnvContentLines(m, site, contentW)
+				cursorLine = -1
+			case tabSiteDumps:
+				content = siteDumpsContentLines(m, site, contentW)
+				cursorLine = -1
+			case tabSiteAppLogs:
+				content = siteAppLogsContentLines(m, site, contentW)
+				cursorLine = -1
+			default:
+				content, cursorLine = detailContentLines(m, site, focused, contentW)
+			}
 		}
 	}
 
@@ -476,7 +503,7 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		return -1
 	}
 
-	var out []string
+	out := renderSiteTabHeader(tabSiteOverview, innerW)
 	cursorLine := 0
 	add := func(s string, selected bool) {
 		if selected && len(out) > 0 {
@@ -645,11 +672,6 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 						accentStyle.Render("λ"),
 						"    "+"PHP",
 						worktreeVersionText(wt.PHPVersion, wt.PHPVersionOverride)), selected)
-					if selected && m.pickerKind == kindWorktreePHP && m.pickerWorktreeName == wt.Branch {
-						for _, pl := range m.renderPickerRows(wt.PHPVersion) {
-							addPlain(pl)
-						}
-					}
 				}
 				if row.kind == kindWorktreeNode && row.branch == wt.Branch {
 					renderedAny = true
@@ -658,11 +680,6 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 						accentStyle.Render("⬢"),
 						"    "+"Node",
 						worktreeVersionText(wt.NodeVersion, wt.NodeVersionOverride)), selected)
-					if selected && m.pickerKind == kindWorktreeNode && m.pickerWorktreeName == wt.Branch {
-						for _, pl := range m.renderPickerRows(wt.NodeVersion) {
-							addPlain(pl)
-						}
-					}
 				}
 			}
 			if !renderedAny {
@@ -679,19 +696,9 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		case kindPHP:
 			add(renderDetailRow(selected,
 				accentStyle.Render("λ"), "PHP", dimStyle.Render(site.PHPVersion)), selected)
-			if selected && m.pickerKind == kindPHP {
-				for _, pl := range m.renderPickerRows(site.PHPVersion) {
-					addPlain(pl)
-				}
-			}
 		case kindNode:
 			add(renderDetailRow(selected,
 				accentStyle.Render("⬢"), "Node", dimStyle.Render(site.NodeVersion)), selected)
-			if selected && m.pickerKind == kindNode {
-				for _, pl := range m.renderPickerRows(site.NodeVersion) {
-					addPlain(pl)
-				}
-			}
 		case kindHTTPS:
 			add(renderDetailRow(selected,
 				onOffGlyph(site.Secured), "HTTPS", onOffText(site.Secured)), selected)
@@ -701,33 +708,6 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 		}
 	}
 	return out, cursorLine
-}
-
-// renderPickerRows draws the inline version picker below a PHP or Node row.
-// Each option shows a cursor, the version, and a dim "current" marker when
-// it matches the site's active version.
-func (m *Model) renderPickerRows(current string) []string {
-	if len(m.pickerOptions) == 0 {
-		return []string{dimStyle.Render("      (no versions available)")}
-	}
-	out := make([]string, 0, len(m.pickerOptions)+1)
-	for i, v := range m.pickerOptions {
-		marker := "  "
-		if i == m.pickerCursor {
-			marker = accentStyle.Render("▸ ")
-		}
-		label := v
-		if i == m.pickerCursor {
-			label = selectedStyle.Render(v)
-		}
-		suffix := ""
-		if v == current {
-			suffix = "  " + dimStyle.Render("(current)")
-		}
-		out = append(out, "      "+marker+label+suffix)
-	}
-	out = append(out, dimStyle.Render("      enter apply · esc cancel"))
-	return out
 }
 
 func renderDetailRow(selected bool, glyph, label, state string) string {

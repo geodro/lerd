@@ -35,3 +35,22 @@ const (
 	glyphFailing = "✖"
 	glyphPaused  = "◐"
 )
+
+// keyChipStyle wraps a single keybinding name (e.g. " y ", " esc ") in a
+// pill: accent background, dark foreground, padded by one space on each
+// side. Used in modal footers and toast actions so the user sees the
+// shortcut as a button instead of as inline prose.
+var (
+	keyChipStyle = lipgloss.NewStyle().
+			Background(colAccent).
+			Foreground(lipgloss.Color("#0b0b0b")).
+			Bold(true).
+			Padding(0, 1)
+	keyChipLabelStyle = lipgloss.NewStyle().Foreground(colDim)
+)
+
+// spinnerFrames cycles through Braille spinner glyphs (the same set
+// charm/bubbletea uses in its spinner package). Animated by the existing
+// tickCmd — every snapshotMsg also bumps the spinner phase indirectly via
+// time.Now sampling in renderSpinner.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

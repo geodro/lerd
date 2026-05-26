@@ -49,3 +49,35 @@ func busCmd(sub *eventbus.Subscriber) tea.Cmd {
 		return busMsg{}
 	}
 }
+
+// spinnerTickMsg fires periodically so the spinner glyph can advance and
+// transient state (status expiry, toast pruning) gets cleaned up. The
+// handler picks a different cadence depending on whether an in-flight
+// action is on screen — fast while a "…" status is showing, slow (~1s)
+// otherwise so we still update the header clock without burning cycles.
+type spinnerTickMsg struct{}
+
+const (
+	// spinnerTickFast advances the Braille glyph fluidly while an action
+	// is mid-flight. ~10Hz is enough to feel lively; bubbletea's diffing
+	// means an unchanged frame still does no terminal work.
+	spinnerTickFast = 100 * time.Millisecond
+	// spinnerTickIdle keeps the header clock current and gives toasts /
+	// status TTLs a low-cost pruning heartbeat. 1Hz is the smallest
+	// useful rate (the clock display has 1-second precision) and means
+	// the idle TUI sleeps for ~99% of wall time.
+	spinnerTickIdle = 1 * time.Second
+)
+
+// spinnerTickCmd schedules the next spinner advance at the fast cadence.
+// Used at startup and inside the handler whenever an in-flight status is
+// visible. The idle path uses spinnerIdleTickCmd to back off.
+func spinnerTickCmd() tea.Cmd {
+	return tea.Tick(spinnerTickFast, func(time.Time) tea.Msg { return spinnerTickMsg{} })
+}
+
+// spinnerIdleTickCmd schedules the next heartbeat at the slow cadence so
+// the TUI doesn't waste CPU re-rendering an idle screen 10x a second.
+func spinnerIdleTickCmd() tea.Cmd {
+	return tea.Tick(spinnerTickIdle, func(time.Time) tea.Msg { return spinnerTickMsg{} })
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/geodro/lerd/internal/eventbus"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/siteinfo"
+	"github.com/geodro/lerd/internal/stats"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 )
 
@@ -38,8 +39,9 @@ type detailMode int
 const (
 	detailSite detailMode = iota
 	detailSettings
-	detailHelp
 	detailDumps
+	detailSystem
+	detailDashboard
 )
 
 // Model is the bubbletea root. Panes are all projections of snap plus small
@@ -71,7 +73,13 @@ type Model struct {
 	detailCursor int // index into detail rows (workers + toggles)
 	detailScroll int // vertical scroll offset for the site detail view
 	settingsRow  int // index into settings rows
+	systemRow    int // index into navigable system rows
 	helpScroll   int // vertical scroll offset for the help view
+
+	// Active sub-tab within the site detail view (overview / env / dumps /
+	// app logs). Only meaningful when detailMode == detailSite; tabs other
+	// than overview are read-only views.
+	siteTab siteTab
 
 	// Picker state (PHP/Node version). When active, up/down navigates
 	// pickerOptions instead of detail rows and enter applies the pick.
@@ -114,9 +122,56 @@ type Model struct {
 	// the goroutine started by Run when the program boots. Independent
 	// of the in-memory ring inside lerd-ui because the TUI runs in its
 	// own process and only sees what the SSE connection delivers.
-	dumps       []DumpEntry
-	dumpsCursor int
-	dumpsScroll int
+	dumps             []DumpEntry
+	dumpsCursor       int
+	dumpsScroll       int
+	dumpsFilter       string
+	dumpsFilterActive bool
+	dumpsExpanded     map[string]bool
+
+	// Dumps context-filter chips: when non-empty, only entries whose
+	// Type matches are shown. Toggled by `1` (fpm) / `2` (cli) in
+	// dumps mode; mutually exclusive — setting one clears the other.
+	dumpsCtxFilter string
+
+	// Command palette state: when paletteActive is true, all keystrokes go
+	// into paletteInput until enter or esc. Press `:` to open from any
+	// pane; commits as `lerd <args>` via runLerd.
+	paletteActive bool
+	paletteInput  string
+
+	// Help modal: replaces the prior detailHelp pane-swap. `?` toggles it
+	// on; renders as a centered overlay so the user keeps their current
+	// pane context underneath (well, would, if we composited — see modal.go).
+	helpModalActive bool
+
+	// Confirmation modal: gates destructive actions. When confirmActive is
+	// true, the screen shows a y/n prompt; pressing y runs confirmAction,
+	// n/esc dismisses. Used so single-key actions like `x` on a domain
+	// row don't fire by accident.
+	confirmActive bool
+	confirmTitle  string
+	confirmBody   string
+	confirmAction tea.Cmd
+
+	// Toast notifications: persistent right-aligned banners stacked above
+	// the footer. Capped at maxVisibleToasts, auto-expire after toastTTL,
+	// dismissible with `d`. Replaces the prior disappearing status bar as
+	// the post-action feedback surface.
+	toasts []toast
+
+	// Log filter: free-text needle highlighted within the log pane. When
+	// logFilterActive is true, runes feed the input instead of firing
+	// actions; commit with enter, clear with esc. Severity colouring is
+	// always on; the filter just dims non-matching lines.
+	logFilter       string
+	logFilterActive bool
+
+	// Latest container resource snapshot used by the dashboard pane.
+	// Populated by the background poller started in Run; until it ticks
+	// once the snapshot is zero-valued (Available=false) and the
+	// dashboard renders a "collecting…" placeholder.
+	stats stats.Snapshot
 }
 
 // DumpEntry is a TUI-side mirror of dumps.Event with the fields rendering
@@ -146,13 +201,16 @@ func NewModel(version string) *Model {
 }
 
 // Init implements tea.Model. Kicks off the first snapshot load, the refresh
-// ticker, the eventbus subscription, and a one-shot update check.
+// ticker, the eventbus subscription, a one-shot update check, and the
+// spinner tick (a perpetual 100ms heartbeat so the spinner glyph stays
+// animated whenever a "…" status is showing).
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		loadCmd(),
 		tickCmd(10*time.Second),
 		busCmd(m.sub),
 		updateCheckCmd(m.version),
+		spinnerTickCmd(),
 	)
 }
 
@@ -198,6 +256,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ActionResult:
 		m.setStatus(formatAction(msg), 5*time.Second)
+		m.enqueueToastForResult(msg)
 		return m, loadCmd()
 
 	case logLineMsg:
@@ -216,6 +275,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dumpEventMsg:
 		m.appendDump(DumpEntry(msg))
 		return m, nil
+
+	case statsMsg:
+		m.stats = msg.snap
+		return m, nil
+
+	case spinnerTickMsg:
+		// Heartbeat: prune expired toasts, then re-arm at the fast 10Hz
+		// cadence if a "…" status is currently visible (so the spinner
+		// glyph advances smoothly), or at the slow 1Hz cadence
+		// otherwise. This cuts idle ticks from 10/s to 1/s — enough to
+		// keep the header clock current without redrawing the screen on
+		// an idle TUI.
+		m.pruneExpiredToasts()
+		if m.statusInFlight() {
+			return m, spinnerTickCmd()
+		}
+		return m, spinnerIdleTickCmd()
 	}
 	return m, nil
 }
@@ -225,6 +301,30 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Confirmation prompt sits above every other input mode so y / n always
+	// resolve the guard rail rather than firing the underlying pane action.
+	if m.confirmActive {
+		return m.handleConfirmKey(msg)
+	}
+	if m.paletteActive {
+		return m.handlePaletteKey(msg)
+	}
+	if m.helpModalActive {
+		return m.handleHelpModalKey(msg)
+	}
+	// Picker is a modal overlay too — every key it doesn't own is a no-op
+	// so the user explicitly commits or cancels. Without this, single-key
+	// shortcuts leak behind the overlay and tab moves focus off paneDetail,
+	// orphaning the picker.
+	if m.pickerModalActive() {
+		return m.handlePickerKey(msg)
+	}
+	if m.dumpsFilterActive {
+		return m.handleDumpsFilterKey(msg)
+	}
+	if m.logFilterActive {
+		return m.handleLogFilterKey(msg)
+	}
 	if m.filterActive {
 		return m.handleFilterKey(msg)
 	}
@@ -244,6 +344,12 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.detailMode == detailSettings {
 				return m, m.settingsToggle(m.settingsRows())
+			}
+			if m.detailMode == detailSystem {
+				return m, m.systemToggle(m.systemRows())
+			}
+			if m.detailMode == detailDumps {
+				return m, m.toggleDumpExpand()
 			}
 			return m, m.detailToggleSelected(m.currentSite(), detailRows(m.currentSite()), navigableRows(detailRows(m.currentSite())))
 		}
@@ -273,11 +379,11 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "?":
-		if m.detailMode == detailHelp {
-			m.detailMode = detailSite
-		} else {
-			m.detailMode = detailHelp
-			m.focus = paneDetail
+		// Help is now a centered modal overlay (modal.go) instead of a
+		// detail-pane swap; the toggle simply flips the active flag.
+		m.helpModalActive = !m.helpModalActive
+		if m.helpModalActive {
+			m.helpScroll = 0
 		}
 		return m, nil
 
@@ -288,6 +394,27 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailMode = detailDumps
 			m.dumpsCursor = 0
 			m.dumpsScroll = 0
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "Y":
+		if m.detailMode == detailSystem {
+			m.detailMode = detailSite
+		} else {
+			m.detailMode = detailSystem
+			m.systemRow = 0
+			m.detailScroll = 0
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "F":
+		if m.detailMode == detailDashboard {
+			m.detailMode = detailSite
+		} else {
+			m.detailMode = detailDashboard
+			m.detailScroll = 0
 			m.focus = paneDetail
 		}
 		return m, nil
@@ -347,8 +474,43 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "/":
+		if m.detailMode == detailDumps {
+			m.dumpsFilterActive = true
+			return m, nil
+		}
 		if m.focus == paneSites || m.focus == paneServices {
 			m.filterActive = true
+		}
+		return m, nil
+
+	case "c":
+		if m.detailMode == detailDumps {
+			return m, m.clearDumps()
+		}
+		return m, nil
+
+	case "d":
+		// Dismiss the newest toast. We don't bind d to anything else in
+		// the global keymap, so the action is safe regardless of focus.
+		if len(m.toasts) > 0 {
+			m.dismissNewestToast()
+			return m, nil
+		}
+		return m, nil
+
+	case "T":
+		if m.detailMode == detailDumps {
+			return m, m.toggleDumpsBridge()
+		}
+		return m, nil
+
+	case ":":
+		m.openPalette()
+		return m, nil
+
+	case "f":
+		if m.showLogs {
+			m.logFilterActive = true
 		}
 		return m, nil
 
@@ -423,6 +585,56 @@ func (m *Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "b":
 		return m, m.actionServiceRollback()
+
+	case "O":
+		return m, m.openInBrowserCmd()
+
+	case "1":
+		if m.detailMode == detailDumps {
+			m.dumpsCtxFilter = toggleString(m.dumpsCtxFilter, "fpm")
+			m.dumpsCursor = 0
+			m.dumpsScroll = 0
+			return m, nil
+		}
+		if m.detailMode == detailSite {
+			m.siteTab = tabSiteOverview
+			m.detailScroll = 0
+			// Symmetric with cases 2/3/4: switching to a tab focuses the
+			// detail pane so subsequent arrow keys navigate the tab
+			// content rather than the list pane the user came from.
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "2":
+		if m.detailMode == detailDumps {
+			m.dumpsCtxFilter = toggleString(m.dumpsCtxFilter, "cli")
+			m.dumpsCursor = 0
+			m.dumpsScroll = 0
+			return m, nil
+		}
+		if m.detailMode == detailSite {
+			m.siteTab = tabSiteEnv
+			m.detailScroll = 0
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "3":
+		if m.detailMode == detailSite {
+			m.siteTab = tabSiteDumps
+			m.detailScroll = 0
+			m.focus = paneDetail
+		}
+		return m, nil
+
+	case "4":
+		if m.detailMode == detailSite {
+			m.siteTab = tabSiteAppLogs
+			m.detailScroll = 0
+			m.focus = paneDetail
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -563,6 +775,68 @@ func (m *Model) handleDomainInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleLogFilterKey collects characters for the log-pane search input.
+// Mirrors handleDumpsFilterKey's shape: esc clears + exits, enter commits
+// + exits, backspace removes, runes append. Live filtering is cheap because
+// styleLogLine runs per visible row only — typing doesn't re-process the
+// entire ring buffer.
+func (m *Model) handleLogFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.logFilter = ""
+		m.logFilterActive = false
+	case "enter":
+		m.logFilterActive = false
+	case "ctrl+c":
+		m.logTail.Stop()
+		return m, tea.Quit
+	case "backspace":
+		if len(m.logFilter) > 0 {
+			r := []rune(m.logFilter)
+			m.logFilter = string(r[:len(r)-1])
+		}
+	default:
+		if len(msg.Runes) > 0 {
+			m.logFilter += string(msg.Runes)
+		}
+	}
+	return m, nil
+}
+
+// handleDumpsFilterKey collects characters for the dumps search input,
+// matches handleFilterKey's shape: typed runes append to dumpsFilter,
+// backspace removes, enter commits and exits, esc clears + exits. The
+// filter is applied live by dumpsContentLines so the visible list narrows
+// as the user types.
+func (m *Model) handleDumpsFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.dumpsFilter = ""
+		m.dumpsFilterActive = false
+		m.dumpsCursor = 0
+		m.dumpsScroll = 0
+	case "enter":
+		m.dumpsFilterActive = false
+	case "ctrl+c":
+		m.logTail.Stop()
+		return m, tea.Quit
+	case "backspace":
+		if len(m.dumpsFilter) > 0 {
+			r := []rune(m.dumpsFilter)
+			m.dumpsFilter = string(r[:len(r)-1])
+			m.dumpsCursor = 0
+			m.dumpsScroll = 0
+		}
+	default:
+		if len(msg.Runes) > 0 {
+			m.dumpsFilter += string(msg.Runes)
+			m.dumpsCursor = 0
+			m.dumpsScroll = 0
+		}
+	}
+	return m, nil
+}
+
 // handleFilterKey runs while the filter input is active. Typed runes are
 // appended to the filter for the currently focused pane; backspace removes
 // the last rune; enter and esc exit input mode (esc also clears the
@@ -639,8 +913,12 @@ func (m *Model) syncLogs() tea.Cmd {
 }
 
 // nextFocus returns the focus after moving `dir` steps (±1) through the
-// list of panes that are currently visible and usable. In narrow mode tab
-// cycles only between the active list pane and detail; use v to reach services.
+// list of panes that are currently visible and usable. Wide-mode order is
+// sites → detail → services so tab from a selected site lands on its
+// detail pane (what the user is most likely to want next) rather than
+// jumping sideways to the services list. Use `v` to hide the services
+// pane if you never want it in the cycle. In narrow mode tab still only
+// moves between the current list pane and detail.
 func (m *Model) nextFocus(dir int) focusPane {
 	var panes []focusPane
 	if m.width < narrowWidth {
@@ -650,14 +928,17 @@ func (m *Model) nextFocus(dir int) focusPane {
 			listPane = paneServices
 		}
 		panes = []focusPane{listPane}
+		if m.currentSite() != nil {
+			panes = append(panes, paneDetail)
+		}
 	} else {
 		panes = []focusPane{paneSites}
+		if m.currentSite() != nil {
+			panes = append(panes, paneDetail)
+		}
 		if !m.hideServices {
 			panes = append(panes, paneServices)
 		}
-	}
-	if m.currentSite() != nil {
-		panes = append(panes, paneDetail)
 	}
 	n := len(panes)
 	if n == 0 {
@@ -694,14 +975,31 @@ func (m *Model) moveCursor(delta int) {
 		case detailSettings:
 			rows := m.settingsRows()
 			m.settingsRow = clamp(m.settingsRow+delta, 0, max(0, len(rows)-1))
-		case detailHelp:
-			m.helpScroll += delta
-			if m.helpScroll < 0 {
-				m.helpScroll = 0
+		case detailSystem:
+			nav := navigableSystemRows(m.systemRows())
+			m.systemRow = clamp(m.systemRow+delta, 0, max(0, len(nav)-1))
+		case detailDashboard:
+			// Dashboard has no selection — j/k just scrolls the content.
+			// Without this case the default branch would silently advance
+			// m.detailCursor on the hidden site-overview rows.
+			m.detailScroll += delta
+			if m.detailScroll < 0 {
+				m.detailScroll = 0
 			}
 		case detailDumps:
-			m.dumpsCursor = clamp(m.dumpsCursor+delta, 0, max(0, len(m.dumps)-1))
+			visible := len(filteredDumpsWithCtx(m.dumps, m.dumpsFilter, m.dumpsCtxFilter))
+			m.dumpsCursor = clamp(m.dumpsCursor+delta, 0, max(0, visible-1))
 		default:
+			// Non-Overview site tabs (Env / Dumps / App logs) are read-only
+			// scroll surfaces; advance detailScroll directly. The cursor
+			// concept only applies to Overview's toggleable rows.
+			if m.siteTab != tabSiteOverview {
+				m.detailScroll += delta
+				if m.detailScroll < 0 {
+					m.detailScroll = 0
+				}
+				return
+			}
 			if s := m.currentSite(); s != nil {
 				nav := navigableRows(detailRows(s))
 				m.detailCursor = clamp(m.detailCursor+delta, 0, max(0, len(nav)-1))
@@ -739,6 +1037,21 @@ func (m *Model) visibleServices() []ServiceRow {
 func (m *Model) setStatus(s string, d time.Duration) {
 	m.status = s
 	m.statusExpiry = time.Now().Add(d)
+}
+
+// statusInFlight reports whether the status bar currently shows an
+// in-flight verb (ends with "…") that hasn't yet expired. Used by the
+// spinner-tick heartbeat to pick its cadence: fast (10Hz) while in
+// flight, slow (1Hz) when idle so the TUI doesn't burn CPU on a screen
+// no one is looking at.
+func (m *Model) statusInFlight() bool {
+	if m.status == "" {
+		return false
+	}
+	if !m.statusExpiry.IsZero() && time.Now().After(m.statusExpiry) {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimSpace(m.status), "…")
 }
 
 func (m *Model) toggleLogs() tea.Cmd {
@@ -1116,6 +1429,13 @@ func Run(version string) error {
 	dumpsCtx, cancelDumps := context.WithCancel(context.Background())
 	defer cancelDumps()
 	go runDumpsListener(dumpsCtx, p)
+
+	// Background goroutine polls container resource stats for the dashboard
+	// pane. The poll TTL matches lerd-ui's server-side cache so users see
+	// the same numbers across both surfaces.
+	statsCtx, cancelStats := context.WithCancel(context.Background())
+	defer cancelStats()
+	go runStatsPoller(statsCtx, p)
 
 	_, err := p.Run()
 	return err

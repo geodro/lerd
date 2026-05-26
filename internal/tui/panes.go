@@ -21,13 +21,37 @@ func (m *Model) View() string {
 		return "terminal too small (need at least 60×12)\n"
 	}
 
+	// When a modal is open, return a full-screen centered overlay instead
+	// of the base layout. Less ambient context but consistent with the
+	// existing detail-pane swap pattern (S / Y / D / F / ?) which already
+	// replaces the right column wholesale. Toasts still composite on top
+	// so a completing action result isn't silently lost while a modal
+	// (palette / confirm / picker / help) is open.
+	if m.modalActive() {
+		toasts := m.renderToasts(m.width)
+		modalH := m.height - lipgloss.Height(toasts)
+		if modalH < 6 {
+			modalH = m.height
+			toasts = ""
+		}
+		out := m.renderActiveModal(m.width, modalH)
+		if toasts != "" {
+			out = lipgloss.JoinVertical(lipgloss.Left, out, toasts)
+		}
+		return out
+	}
+
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	statusBar := m.renderStatus()
 
+	toasts := m.renderToasts(m.width)
 	reserved := lipgloss.Height(header) + lipgloss.Height(footer)
 	if statusBar != "" {
 		reserved += lipgloss.Height(statusBar)
+	}
+	if toasts != "" {
+		reserved += lipgloss.Height(toasts)
 	}
 	bodyH := m.height - reserved
 	if bodyH < 6 {
@@ -71,8 +95,9 @@ func (m *Model) View() string {
 		case m.focus == paneServices:
 			// Services focused: take the full height, hide detail.
 			top = m.renderServices(m.width, topH)
-		case m.detailMode == detailHelp || m.detailMode == detailSettings:
-			// Help / settings: take full height so content isn't cramped.
+		case m.detailMode == detailSettings || m.detailMode == detailSystem || m.detailMode == detailDumps || m.detailMode == detailDashboard:
+			// Help / settings / system / dumps: take full height so content
+			// isn't cramped between the list and a slim detail pane.
 			top = m.renderDetailInline(m.width, topH, true)
 		default:
 			list := m.renderSites(m.width, listH)
@@ -96,9 +121,13 @@ func (m *Model) View() string {
 		if m.hideServices {
 			left = m.renderSites(leftW, topH)
 		} else {
-			svcNeeded := len(m.snap.Services) + 3
-			if svcNeeded < 6 {
-				svcNeeded = 6
+			// +3 was the original budget for title + filter + scrollbar
+			// padding; the grouped renderer adds up to 2 lines per group
+			// header (blank separator + label), so reserve 6 extra cells
+			// for the worst case of three visible groups.
+			svcNeeded := len(m.snap.Services) + 9
+			if svcNeeded < 8 {
+				svcNeeded = 8
 			}
 			svcH := svcNeeded
 			if lim := topH / 2; svcH > lim {
@@ -125,6 +154,9 @@ func (m *Model) View() string {
 	}
 	if statusBar != "" {
 		sections = append(sections, statusBar)
+	}
+	if toasts != "" {
+		sections = append(sections, toasts)
 	}
 	sections = append(sections, footer)
 
@@ -162,8 +194,8 @@ func (m *Model) renderHeader() string {
 		parts = append(parts, dimStyle.Render("watcher"))
 	}
 
-	if n := countFailingWorkers(m.snap); n > 0 {
-		parts = append(parts, failingStyle.Render(fmt.Sprintf("⚠ %d workers failing · H to heal", n)))
+	if names := failingWorkerNames(m.snap); len(names) > 0 {
+		parts = append(parts, failingStyle.Render(fmt.Sprintf("⚠ %s failing · H to heal", joinTruncated(names, 3))))
 	}
 
 	parts = append(parts, dimStyle.Render(time.Now().Format("15:04:05")))
@@ -171,39 +203,74 @@ func (m *Model) renderHeader() string {
 	return strings.Join(parts, "  ·  ")
 }
 
-// countFailingWorkers totals workers in the systemd "failed" state across
-// every site (built-ins + custom framework workers + per-worktree workers).
-// Used to surface a heal hint in the header so users see the H keybind is
-// relevant without drilling into individual site rows.
+// countFailingWorkers totals workers in the systemd "failed" state. Kept
+// for callers that only need the count (dashboard hero); the header now
+// uses failingWorkerNames so users see which units are red, not just how
+// many.
 func countFailingWorkers(snap Snapshot) int {
-	n := 0
+	return len(failingWorkerNames(snap))
+}
+
+// failingWorkerNames returns kind-site pairs ("queue-acme", "vite-shop")
+// for every worker reporting failed across the snapshot. Built-in kinds
+// (queue / schedule / horizon / reverb) plus custom framework workers
+// plus per-worktree workers all funnel through here so the header pill,
+// dashboard hero, and future toast notifier render the same names.
+func failingWorkerNames(snap Snapshot) []string {
+	var names []string
+	add := func(kind, site string, failing bool) {
+		if failing {
+			names = append(names, kind+"-"+site)
+		}
+	}
 	for _, s := range snap.Sites {
-		if s.QueueFailing {
-			n++
-		}
-		if s.ScheduleFailing {
-			n++
-		}
-		if s.HorizonFailing {
-			n++
-		}
-		if s.ReverbFailing {
-			n++
-		}
+		add("queue", s.Name, s.QueueFailing)
+		add("schedule", s.Name, s.ScheduleFailing)
+		add("horizon", s.Name, s.HorizonFailing)
+		add("reverb", s.Name, s.ReverbFailing)
 		for _, fw := range s.FrameworkWorkers {
-			if fw.Failing {
-				n++
-			}
+			add(fw.Name, s.Name, fw.Failing)
 		}
 		for _, wt := range s.Worktrees {
 			for _, fw := range wt.FrameworkWorkers {
-				if fw.Failing {
-					n++
-				}
+				add(fw.Name, s.Name+"/"+wt.Branch, fw.Failing)
 			}
 		}
 	}
-	return n
+	return names
+}
+
+// joinTruncated joins names with ", " up to max entries; anything beyond
+// is collapsed into "+N more". Keeps the header pill from spilling onto a
+// second row when many workers are failing at once.
+func joinTruncated(names []string, max int) string {
+	if len(names) <= max {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:max], ", ") + fmt.Sprintf(" +%d more", len(names)-max)
+}
+
+// siteHasFailingWorker is the predicate the sites pane uses to tint a
+// row's name with the failing colour. Mirrors the gates in
+// failingWorkerNames but scoped to a single site so we avoid the cost of
+// rebuilding the global list per row.
+func siteHasFailingWorker(s siteinfo.EnrichedSite) bool {
+	if s.QueueFailing || s.ScheduleFailing || s.HorizonFailing || s.ReverbFailing {
+		return true
+	}
+	for _, fw := range s.FrameworkWorkers {
+		if fw.Failing {
+			return true
+		}
+	}
+	for _, wt := range s.Worktrees {
+		for _, fw := range wt.FrameworkWorkers {
+			if fw.Failing {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *Model) renderFooter() string {
@@ -233,7 +300,9 @@ func (m *Model) renderFooter() string {
 		"l logs",
 		"t shell",
 		"v services",
+		"F dash",
 		"S settings",
+		"Y system",
 		"? help",
 		"q quit",
 	}
@@ -241,12 +310,19 @@ func (m *Model) renderFooter() string {
 }
 
 func (m *Model) renderStatus() string {
+	// Palette is now a modal overlay (modal.go); status bar only ever
+	// renders the most recent action result. An in-flight verb (status
+	// ends with "…") gets a spinner glyph so the user sees the action
+	// is alive even when the underlying CLI takes seconds to respond.
 	if m.status == "" {
 		return ""
 	}
 	if !m.statusExpiry.IsZero() && time.Now().After(m.statusExpiry) {
 		m.status = ""
 		return ""
+	}
+	if strings.HasSuffix(strings.TrimSpace(m.status), "…") {
+		return "  " + renderSpinnerStatus(m.status)
 	}
 	return helpStyle.Render("  " + m.status)
 }
@@ -282,9 +358,17 @@ func (m *Model) renderSites(w, h int) string {
 	var rowData []string
 	switch {
 	case total == 0:
-		rowData = []string{padToWidth(dimStyle.Render("no linked sites"), contentW)}
+		rowData = []string{
+			padToWidth(dimStyle.Render("no linked sites yet"), contentW),
+			padToWidth("", contentW),
+			padToWidth(dimStyle.Render("  cd into a project then run ")+accentStyle.Render("lerd link"), contentW),
+			padToWidth(dimStyle.Render("  or open the palette with ")+accentStyle.Render(":")+dimStyle.Render(" and type ")+accentStyle.Render("link"), contentW),
+		}
 	case len(sites) == 0:
-		rowData = []string{padToWidth(dimStyle.Render("no sites match filter"), contentW)}
+		rowData = []string{
+			padToWidth(dimStyle.Render("no sites match filter"), contentW),
+			padToWidth(dimStyle.Render("  press ")+accentStyle.Render("esc")+dimStyle.Render(" to clear"), contentW),
+		}
 	default:
 		for i, s := range sites {
 			row := renderSiteRow(i == m.siteCursor && m.focus == paneSites, s, contentW)
@@ -354,6 +438,16 @@ func renderSiteRow(selected bool, s siteinfo.EnrichedSite, paneW int) string {
 	switch {
 	case s.Paused:
 		styled = pausedStyle.Render(name)
+	case siteHasFailingWorker(s):
+		// Tint the whole row so a healthy-looking site with one bad
+		// worker isn't mistaken for a fully-green one at a glance.
+		// Selected sites keep the accent treatment; failing colour wins
+		// only when the user isn't already pointing at this row.
+		if selected {
+			styled = selectedStyle.Render(name)
+		} else {
+			styled = failingStyle.Render(name)
+		}
 	case selected:
 		styled = selectedStyle.Render(name)
 	}
@@ -421,19 +515,28 @@ func (m *Model) renderServices(w, h int) string {
 	}
 
 	var rowData []string
+	// cursorLine maps svcCursor (an index into the services slice) to the
+	// row position in rowData, accounting for non-focusable group headers.
+	// Defaults to 0; if grouped rendering inserts headers, this is updated
+	// per service-row so viewport keeps the selection on screen.
+	cursorLine := 0
 	switch {
 	case total == 0:
-		rowData = []string{padToWidth(dimStyle.Render("no services configured"), contentW)}
-	case len(services) == 0:
-		rowData = []string{padToWidth(dimStyle.Render("no services match filter"), contentW)}
-	default:
-		for i, s := range services {
-			row := renderServiceRow(i == m.svcCursor && m.focus == paneServices, s, contentW)
-			rowData = append(rowData, padToWidth(clipLine(row, contentW), contentW))
+		rowData = []string{
+			padToWidth(dimStyle.Render("no services configured"), contentW),
+			padToWidth("", contentW),
+			padToWidth(dimStyle.Render("  link a site or install a preset (e.g. ")+accentStyle.Render("lerd preset install mysql")+dimStyle.Render(")"), contentW),
 		}
+	case len(services) == 0:
+		rowData = []string{
+			padToWidth(dimStyle.Render("no services match filter"), contentW),
+			padToWidth(dimStyle.Render("  press ")+accentStyle.Render("esc")+dimStyle.Render(" to clear"), contentW),
+		}
+	default:
+		rowData, cursorLine = renderGroupedServiceRows(services, m.svcCursor, m.focus == paneServices, contentW)
 	}
 
-	visible := viewport(rowData, m.svcCursor, availRows, &m.svcScroll)
+	visible := viewport(rowData, cursorLine, availRows, &m.svcScroll)
 	bar := renderScrollbar(availRows, len(rowData), m.svcScroll, len(visible))
 	for i := 0; i < availRows; i++ {
 		row := ""
@@ -461,6 +564,68 @@ func filterBar(text string, active bool) string {
 		return ""
 	}
 	return label + text
+}
+
+// serviceGroup labels the bucket a ServiceRow lands in for the grouped
+// services pane. Order here drives the visual order: Core first (the
+// long-lived presets), then Custom (user-installed), then Workers (the
+// per-site fan-out at the bottom because it can be long).
+type serviceGroup int
+
+const (
+	groupCore serviceGroup = iota
+	groupCustom
+	groupWorkers
+)
+
+func (g serviceGroup) label() string {
+	switch g {
+	case groupCustom:
+		return "Custom"
+	case groupWorkers:
+		return "Workers"
+	}
+	return "Core"
+}
+
+// classifyService returns the group a row belongs to. Workers carry a
+// WorkerKind tag; custom services have Custom=true; everything else is
+// a default preset (Core).
+func classifyService(s ServiceRow) serviceGroup {
+	switch {
+	case s.WorkerKind != "":
+		return groupWorkers
+	case s.Custom:
+		return groupCustom
+	default:
+		return groupCore
+	}
+}
+
+// renderGroupedServiceRows interleaves dim section headers (Core / Custom
+// / Workers) into the service-row stream and reports the line index of
+// the focused service so the viewport keeps it visible. Cursor still
+// indexes the flat services slice unchanged — only the visual layout is
+// grouped, navigation never lands on a header.
+func renderGroupedServiceRows(services []ServiceRow, cursor int, paneFocused bool, contentW int) (rows []string, cursorLine int) {
+	rows = make([]string, 0, len(services)+3)
+	currentGroup := serviceGroup(-1)
+	for i, s := range services {
+		g := classifyService(s)
+		if g != currentGroup {
+			if currentGroup != -1 {
+				rows = append(rows, padToWidth("", contentW))
+			}
+			rows = append(rows, padToWidth("  "+sectionStyle.Render(g.label()), contentW))
+			currentGroup = g
+		}
+		if i == cursor && paneFocused {
+			cursorLine = len(rows)
+		}
+		row := renderServiceRow(i == cursor && paneFocused, s, contentW)
+		rows = append(rows, padToWidth(clipLine(row, contentW), contentW))
+	}
+	return rows, cursorLine
 }
 
 // serviceMetaColWidth is the fixed budget for the trailing meta column
@@ -525,10 +690,22 @@ func (m *Model) renderLogs(w, h int) string {
 	if m.logScroll > 0 {
 		title += dimStyle.Render(fmt.Sprintf("   ↑%d  } to tail", m.logScroll))
 	}
+	if m.logFilter != "" {
+		title += "   " + accentStyle.Render("filter: ")
+		title += m.logFilter
+	}
 
 	availRows := innerH - 1
 	if availRows < 1 {
 		availRows = 1
+	}
+	// Filter input bar steals one row when active so the user sees what
+	// they're typing without losing the log header.
+	if m.logFilterActive {
+		availRows--
+		if availRows < 1 {
+			availRows = 1
+		}
 	}
 
 	all := m.logTail.Lines()
@@ -567,7 +744,7 @@ func (m *Model) renderLogs(w, h int) string {
 
 	body := make([]string, 0, availRows)
 	for _, ln := range visible {
-		body = append(body, clipLine(ln, contentW))
+		body = append(body, clipLine(styleLogLine(ln, m.logFilter), contentW))
 	}
 	if total == 0 {
 		body = append(body, clipLine(dimStyle.Render("waiting for output…"), contentW))
@@ -578,8 +755,11 @@ func (m *Model) renderLogs(w, h int) string {
 
 	bar := renderScrollbar(availRows, total, start, len(visible))
 
-	lines := make([]string, 0, availRows+1)
+	lines := make([]string, 0, availRows+2)
 	lines = append(lines, padToWidth(clipLine(sectionStyle.Render(title), innerW), innerW))
+	if m.logFilterActive {
+		lines = append(lines, padToWidth(filterBar(m.logFilter, true), innerW))
+	}
 	for i := 0; i < availRows; i++ {
 		lines = append(lines, padToWidth(body[i], contentW)+bar[i])
 	}
@@ -665,19 +845,29 @@ func innerSize(style lipgloss.Style, w, h int) (int, int) {
 
 // viewport returns the slice of rows that fit in `height`, scrolled so the
 // cursor stays visible. scroll is updated in place so the pane remembers
-// where it was between frames.
+// where it was between frames. Pass cursor < 0 for pure scroll surfaces
+// (no selection); viewport then leaves scroll alone except for clamping
+// against the content bounds, so the user's manual scroll position sticks.
 func viewport(rows []string, cursor, height int, scroll *int) []string {
 	if height <= 0 || len(rows) == 0 {
 		return nil
 	}
-	if cursor < *scroll {
-		*scroll = cursor
-	}
-	if cursor >= *scroll+height {
-		*scroll = cursor - height + 1
+	if cursor >= 0 {
+		if cursor < *scroll {
+			*scroll = cursor
+		}
+		if cursor >= *scroll+height {
+			*scroll = cursor - height + 1
+		}
 	}
 	if *scroll < 0 {
 		*scroll = 0
+	}
+	if maxScroll := len(rows) - height; *scroll > maxScroll {
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		*scroll = maxScroll
 	}
 	end := *scroll + height
 	if end > len(rows) {

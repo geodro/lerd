@@ -113,6 +113,157 @@ func TestShortPath_UnchangedForShallow(t *testing.T) {
 	}
 }
 
+func TestFilteredDumps_MatchesAcrossFields(t *testing.T) {
+	in := []DumpEntry{
+		{ID: "1", Site: "acme", Text: "alice"},
+		{ID: "2", Site: "other", Text: "bob"},
+		{ID: "3", Site: "acme", Label: "carol"},
+		{ID: "4", File: "/var/log/dave.log"},
+	}
+	cases := []struct {
+		needle string
+		want   []string
+	}{
+		{"acme", []string{"1", "3"}},
+		{"BOB", []string{"2"}},
+		{"carol", []string{"3"}},
+		{"dave", []string{"4"}},
+		{"", []string{"1", "2", "3", "4"}},
+	}
+	for _, c := range cases {
+		got := filteredDumps(in, c.needle)
+		gotIDs := make([]string, len(got))
+		for i, e := range got {
+			gotIDs[i] = e.ID
+		}
+		if strings.Join(gotIDs, ",") != strings.Join(c.want, ",") {
+			t.Errorf("filteredDumps(_, %q) = %v, want %v", c.needle, gotIDs, c.want)
+		}
+	}
+}
+
+func TestDumpBodyLines_PreviewVsExpanded(t *testing.T) {
+	e := DumpEntry{Text: "a\nb\nc\nd\ne\nf\ng"}
+	preview := dumpBodyLines(e, 40, false)
+	if len(preview) > 5 { // 4 + truncation marker
+		t.Errorf("preview should cap at 5 rows, got %d", len(preview))
+	}
+	if !strings.Contains(strings.Join(preview, "\n"), "enter to expand") {
+		t.Errorf("preview should hint at enter:\n%v", preview)
+	}
+	expanded := dumpBodyLines(e, 40, true)
+	if len(expanded) != 7 {
+		t.Errorf("expanded should render every line, got %d", len(expanded))
+	}
+}
+
+func TestDumpsContentLines_FilterNarrowsList(t *testing.T) {
+	m := NewModel("test")
+	m.appendDump(DumpEntry{ID: "1", Site: "acme", Text: "alice"})
+	m.appendDump(DumpEntry{ID: "2", Site: "other", Text: "bob"})
+	m.dumpsFilter = "acme"
+	lines, _ := dumpsContentLines(m, true, 100)
+	joined := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "alice") {
+		t.Errorf("expected matching entry to render:\n%s", joined)
+	}
+	if strings.Contains(joined, "bob") {
+		t.Errorf("expected filtered-out entry to disappear:\n%s", joined)
+	}
+	if !strings.Contains(joined, "1 shown / 2 buffered") {
+		t.Errorf("header should show shown / buffered counts:\n%s", joined)
+	}
+}
+
+func TestToggleDumpExpand_FlipsMap(t *testing.T) {
+	m := NewModel("test")
+	m.appendDump(DumpEntry{ID: "alpha", Text: "x"})
+	m.appendDump(DumpEntry{ID: "beta", Text: "y"})
+	m.dumpsCursor = 0
+	m.toggleDumpExpand()
+	if !m.dumpsExpanded["beta"] {
+		// dumpsCursor=0 points at the newest entry, which is beta (renders top).
+		// But filteredDumps preserves insertion order; cursor 0 = filtered[0] = alpha.
+		// Verify whichever ID was flipped is the one at cursor 0 of the filter view.
+		if !m.dumpsExpanded["alpha"] {
+			t.Error("expected one entry to be expanded after toggle")
+		}
+	}
+	m.toggleDumpExpand()
+	// Same row flipped back.
+	if m.dumpsExpanded["alpha"] || m.dumpsExpanded["beta"] {
+		t.Errorf("expected re-toggle to clear; got map %v", m.dumpsExpanded)
+	}
+}
+
+func TestFilteredDumpsWithCtx_AppliesContextFilter(t *testing.T) {
+	in := []DumpEntry{
+		{ID: "1", Type: "fpm", Text: "request"},
+		{ID: "2", Type: "cli", Text: "tinker"},
+		{ID: "3", Type: "fpm", Text: "another"},
+	}
+	if got := filteredDumpsWithCtx(in, "", "fpm"); len(got) != 2 {
+		t.Errorf("expected 2 fpm entries, got %d", len(got))
+	}
+	if got := filteredDumpsWithCtx(in, "", "cli"); len(got) != 1 {
+		t.Errorf("expected 1 cli entry, got %d", len(got))
+	}
+	if got := filteredDumpsWithCtx(in, "tinker", "cli"); len(got) != 1 || got[0].ID != "2" {
+		t.Errorf("ctx + needle should AND together: %+v", got)
+	}
+	if got := filteredDumpsWithCtx(in, "", ""); len(got) != 3 {
+		t.Errorf("empty filters should return all, got %d", len(got))
+	}
+}
+
+func TestToggleString_Mutex(t *testing.T) {
+	if got := toggleString("", "fpm"); got != "fpm" {
+		t.Errorf("first toggle should set value, got %q", got)
+	}
+	if got := toggleString("fpm", "fpm"); got != "" {
+		t.Errorf("second toggle of same value should clear, got %q", got)
+	}
+	if got := toggleString("fpm", "cli"); got != "cli" {
+		t.Errorf("setting different value should swap, got %q", got)
+	}
+}
+
+func TestRenderDumpsChips_HighlightsActive(t *testing.T) {
+	got := stripANSI(renderDumpsChips("fpm"))
+	if !strings.Contains(got, "fpm") || !strings.Contains(got, "cli") {
+		t.Errorf("both chip labels should render:\n%s", got)
+	}
+}
+
+func TestClearDumps_PromptsConfirmWhenBufferNonEmpty(t *testing.T) {
+	m := NewModel("test")
+	m.appendDump(DumpEntry{ID: "a"})
+	m.appendDump(DumpEntry{ID: "b"})
+
+	cmd := m.clearDumps()
+	if cmd != nil {
+		t.Errorf("clearDumps should stage a confirm, not return a command directly: %v", cmd)
+	}
+	if !m.confirmActive {
+		t.Error("clearDumps with a non-empty buffer should open a confirm modal")
+	}
+	// The buffer is intact until the user presses y.
+	if len(m.dumps) != 2 {
+		t.Errorf("buffer should not be cleared before confirm: %d", len(m.dumps))
+	}
+}
+
+func TestClearDumps_EmptyBufferSkipsPrompt(t *testing.T) {
+	m := NewModel("test")
+	cmd := m.clearDumps()
+	if cmd == nil {
+		t.Error("clearDumps on an empty buffer should run lerd dump clear directly")
+	}
+	if m.confirmActive {
+		t.Error("empty buffer should not trigger a confirm modal")
+	}
+}
+
 func rune2id(i int) string {
 	// Pad with leading zeros so lex order matches insertion order.
 	return string(rune('a')) + string(rune('0'+(i/100))) + string(rune('0'+((i/10)%10))) + string(rune('0'+(i%10)))

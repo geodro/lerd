@@ -67,15 +67,18 @@ func TestTabCyclesFocus(t *testing.T) {
 	if m.focus != paneSites {
 		t.Fatalf("initial focus should be sites, got %d", m.focus)
 	}
+	// Tab order is sites → detail → services so the user who just
+	// selected a site lands on its detail next (the most likely
+	// next action) rather than jumping sideways to services.
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(*Model)
-	if m.focus != paneServices {
-		t.Fatalf("tab should move focus to services, got %d", m.focus)
+	if m.focus != paneDetail {
+		t.Fatalf("first tab should move focus to detail, got %d", m.focus)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(*Model)
-	if m.focus != paneDetail {
-		t.Fatalf("second tab should move focus to detail, got %d", m.focus)
+	if m.focus != paneServices {
+		t.Fatalf("second tab should move focus to services, got %d", m.focus)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(*Model)

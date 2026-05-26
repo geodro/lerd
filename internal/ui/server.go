@@ -31,6 +31,7 @@ import (
 	"github.com/geodro/lerd/internal/eventbus"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	lerdNode "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
@@ -1828,32 +1829,9 @@ func handlePHPVersions(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleNodeVersions(w http.ResponseWriter, _ *http.Request) {
-	fnmPath := config.BinDir() + "/fnm"
-	cmd := exec.Command(fnmPath, "list")
-	out, err := cmd.Output()
-	if err != nil {
-		writeJSON(w, []string{})
-		return
-	}
-	seen := map[string]bool{}
-	var versions []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		// fnm list output: "* v20.0.0 default" or "  v18.0.0"
-		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "* ")
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		v := strings.TrimPrefix(fields[0], "v")
-		if v == "" {
-			continue
-		}
-		major := strings.SplitN(v, ".", 2)[0]
-		if !seen[major] && strings.Trim(major, "0123456789") == "" {
-			seen[major] = true
-			versions = append(versions, major)
-		}
+	versions := lerdNode.ListInstalled()
+	if versions == nil {
+		versions = []string{}
 	}
 	writeJSON(w, versions)
 }
