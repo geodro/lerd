@@ -133,7 +133,19 @@ func xmlEscStr(s string) string {
 	return buf.String()
 }
 
-func buildPlist(lbl string, args []string, runAtLoad, keepAlive bool, stdoutPath, stderrPath string) string {
+// keepAlivePolicy mirrors the subset of systemd Restart= values we care about.
+// launchd's bare `KeepAlive=true` respawns on any exit, including a clean one,
+// which doesn't match systemd `Restart=on-failure` semantics — that mismatch
+// caused the tray Quit button to be reincarnated by launchd immediately.
+type keepAlivePolicy int
+
+const (
+	keepAliveNever keepAlivePolicy = iota
+	keepAliveAlways
+	keepAliveOnFailure
+)
+
+func buildPlist(lbl string, args []string, runAtLoad bool, keepAlive keepAlivePolicy, stdoutPath, stderrPath string) string {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -152,8 +164,11 @@ func buildPlist(lbl string, args []string, runAtLoad, keepAlive bool, stdoutPath
 	if runAtLoad {
 		sb.WriteString("\t<key>RunAtLoad</key>\n\t<true/>\n")
 	}
-	if keepAlive {
+	switch keepAlive {
+	case keepAliveAlways:
 		sb.WriteString("\t<key>KeepAlive</key>\n\t<true/>\n")
+	case keepAliveOnFailure:
+		sb.WriteString("\t<key>KeepAlive</key>\n\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>\n")
 	}
 	if stdoutPath != "" {
 		sb.WriteString("\t<key>StandardOutPath</key>\n\t<string>")
@@ -360,7 +375,7 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 // --- Service unit files ---
 
 // parseServiceUnit parses a systemd-format service unit and returns the argv
-// and keepAlive flag for the launchd plist.
+// and keepAlive policy for the launchd plist.
 //
 // Binary resolution rules for args[0]:
 //   - Absolute path that exists → use as-is.
@@ -368,15 +383,15 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 //     (handles Homebrew → ~/.local/bin migration).
 //   - Bare command name (no '/') → resolve via PATH; if not found, substitute
 //     the running lerd binary (should not normally happen).
-func parseServiceUnit(name, content string) (args []string, keepAlive bool, err error) {
+func parseServiceUnit(name, content string) (args []string, keepAlive keepAlivePolicy, err error) {
 	svc := parseSection(content, "Service")
 	execStarts := svc["ExecStart"]
 	if len(execStarts) == 0 {
-		return nil, false, fmt.Errorf("no ExecStart= found in service unit %s", name)
+		return nil, keepAliveNever, fmt.Errorf("no ExecStart= found in service unit %s", name)
 	}
 	args = strings.Fields(expandSpecifiers(execStarts[0]))
 	if len(args) == 0 {
-		return nil, false, fmt.Errorf("empty ExecStart in service unit %s", name)
+		return nil, keepAliveNever, fmt.Errorf("empty ExecStart in service unit %s", name)
 	}
 
 	// Resolve args[0] to an absolute path suitable for a launchd plist.
@@ -404,17 +419,26 @@ func parseServiceUnit(name, content string) (args []string, keepAlive bool, err 
 			}
 		}
 		if resolved == "" {
-			return nil, false, fmt.Errorf("command %q in ExecStart of %s not found; use an absolute path", args[0], name)
+			return nil, keepAliveNever, fmt.Errorf("command %q in ExecStart of %s not found; use an absolute path", args[0], name)
 		}
 		args[0] = resolved
 	}
 
-	// Map Restart= to KeepAlive so launchd restarts the job like systemd would.
+	// Map Restart= to a launchd policy. `Restart=on-failure` translates to
+	// KeepAlive: SuccessfulExit=false so a clean exit (e.g. tray Quit) is
+	// honoured; only crashes or non-zero exits trigger a respawn.
 	restart := ""
 	if restarts := svc["Restart"]; len(restarts) > 0 {
 		restart = restarts[0]
 	}
-	keepAlive = restart == "always" || restart == "on-failure"
+	switch restart {
+	case "always":
+		keepAlive = keepAliveAlways
+	case "on-failure":
+		keepAlive = keepAliveOnFailure
+	default:
+		keepAlive = keepAliveNever
+	}
 	return args, keepAlive, nil
 }
 
@@ -517,7 +541,7 @@ func (m *darwinServiceManager) WriteContainerUnit(name, content string) error {
 	// the machine is up causes silent failures, so we let lerd-autostart sequence it.
 	// Stdout is suppressed (/dev/null) because `podman run -d` only prints the container
 	// ID there; real container output is accessible via `podman logs <name>`.
-	plist := buildPlist(plistLabel(name), args, false, false, "/dev/null", logPath)
+	plist := buildPlist(plistLabel(name), args, false, keepAliveNever, "/dev/null", logPath)
 	return os.WriteFile(plistPath(name), []byte(plist), 0644)
 }
 

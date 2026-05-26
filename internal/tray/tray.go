@@ -66,6 +66,36 @@ type serviceInfo struct {
 
 const daemonEnv = "LERD_TRAY_DAEMON"
 
+// lerdBin resolves the absolute path to the `lerd` binary. The tray often
+// runs under launchd, whose environment has no PATH covering Homebrew or
+// ~/.local/bin, so a bare `exec.Command("lerd", …)` silently fails. Resolved
+// on every call so reinstalls (Homebrew → ~/.local/bin, etc.) don't strand
+// a long-running tray on a stale cached path.
+func lerdBin() string {
+	if p, err := exec.LookPath("lerd"); err == nil {
+		return p
+	}
+	candidates := []string{
+		"/opt/homebrew/bin/lerd",
+		"/usr/local/bin/lerd",
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", "lerd"))
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "lerd"
+}
+
+// lerdCmd is a thin wrapper around exec.Command that uses the resolved
+// `lerd` binary path so handlers work under launchd's empty PATH.
+func lerdCmd(args ...string) *exec.Cmd {
+	return exec.Command(lerdBin(), args...)
+}
+
 // Run starts the system tray applet.
 // Unless already running as a daemon (or under launchd), it re-execs itself
 // detached from the terminal and returns immediately so the shell prompt is
@@ -323,7 +353,7 @@ func handleToggle(item *systray.MenuItem, refresh func()) {
 			} else {
 				arg = "start"
 			}
-			runAndRefresh(exec.Command("lerd", arg), refresh)
+			runAndRefresh(lerdCmd(arg), refresh)
 		}()
 	}
 }
@@ -343,7 +373,7 @@ func handleServices(menu *menuState, refresh func()) {
 				if status == "active" {
 					arg = "stop"
 				}
-				runAndRefresh(exec.Command("lerd", "service", arg, name), refresh)
+				runAndRefresh(lerdCmd("service", arg, name), refresh)
 			}
 		}(i)
 	}
@@ -359,7 +389,7 @@ func handlePHP(menu *menuState, refresh func()) {
 				if version == "" {
 					continue
 				}
-				runAndRefresh(exec.Command("lerd", "use", version), refresh)
+				runAndRefresh(lerdCmd("use", version), refresh)
 			}
 		}(i)
 	}
@@ -371,7 +401,7 @@ func handleAutostart(item *systray.MenuItem, refresh func()) {
 		if lerdSystemd.IsAutostartEnabled() {
 			arg = "disable"
 		}
-		runAndRefresh(exec.Command("lerd", "autostart", arg), refresh)
+		runAndRefresh(lerdCmd("autostart", arg), refresh)
 	}
 }
 
@@ -388,7 +418,7 @@ func handleLAN(item *systray.MenuItem, refresh func()) {
 		if exposed {
 			arg = "unexpose"
 		}
-		runAndRefresh(exec.Command("lerd", "lan", arg), refresh)
+		runAndRefresh(lerdCmd("lan", arg), refresh)
 	}
 }
 
@@ -398,7 +428,7 @@ func handleDumps(item *systray.MenuItem, refresh func()) {
 		if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
 			enabled = cfg.IsDumpsEnabled()
 		}
-		runAndRefresh(exec.Command("lerd", "dump", offOn(enabled)), refresh)
+		runAndRefresh(lerdCmd("dump", offOn(enabled)), refresh)
 	}
 }
 
@@ -408,7 +438,7 @@ func handleNotifications(item *systray.MenuItem, refresh func()) {
 		if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
 			enabled = cfg.IsNotificationsEnabled()
 		}
-		runAndRefresh(exec.Command("lerd", "notify", offOn(enabled)), refresh)
+		runAndRefresh(lerdCmd("notify", offOn(enabled)), refresh)
 	}
 }
 
@@ -470,7 +500,7 @@ func openUpdateTerminal(latestVer string) {
 func handleQuit(item *systray.MenuItem, cancel context.CancelFunc) {
 	<-item.ClickedCh
 	cancel()
-	_ = exec.Command("lerd", "quit").Run()
+	_ = lerdCmd("quit").Run()
 	systray.Quit()
 }
 
