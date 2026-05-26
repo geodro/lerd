@@ -712,6 +712,22 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// after a clean install from config backup).
 	migrateServiceUnits()
 
+	// Rebuild FPM images when the embedded Containerfile changed since the
+	// last build — ensureFPMQuadlet above no-ops on existing images, so a
+	// `brew upgrade && lerd install` would otherwise ship against stale ones.
+	if podman.NeedsFPMRebuild() {
+		fmt.Println("\n==> PHP-FPM Containerfile changed — rebuilding images")
+		if self, err := os.Executable(); err == nil {
+			rebuildCmd := exec.Command(self, "php:rebuild")
+			rebuildCmd.Stdout = os.Stdout
+			rebuildCmd.Stderr = os.Stderr
+			rebuildCmd.Stdin = os.Stdin
+			if err := rebuildCmd.Run(); err != nil {
+				fmt.Printf("  WARN: php:rebuild failed: %v\n", err)
+			}
+		}
+	}
+
 	// Start service containers and workers only when autostart is on.
 	// When the user has explicitly disabled autostart we leave them
 	// stopped — `lerd update` running install via re-exec must not flip

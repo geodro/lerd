@@ -299,7 +299,6 @@ func ensureFPMQuadletTo(phpVersion string, w io.Writer) error {
 	if err := podman.BuildFPMImageTo(phpVersion, false, w); err != nil {
 		return fmt.Errorf("building FPM image for PHP %s: %w", phpVersion, err)
 	}
-	_ = podman.StoreFPMHash()
 
 	_ = podman.EnsureXdebugIni(phpVersion)
 

@@ -328,6 +328,13 @@ build:
 		return fmt.Errorf("building PHP %s image: %w", version, err)
 	}
 
+	// Stamp the hash only after a real build — callers that no-op when the
+	// image already exists must not advance the hash, otherwise a later
+	// install would skip rebuilds for a template that never hit disk.
+	if err := StoreFPMHash(); err != nil {
+		fmt.Fprintf(w, "  WARN: storing PHP-FPM image hash: %v\n", err)
+	}
+
 	fmt.Fprintf(w, "  PHP %s image built successfully.\n", version)
 	return nil
 }
