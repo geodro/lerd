@@ -162,11 +162,18 @@ var (
 // signals, in order of strength:
 //
 //  1. Cache file (~/.local/share/lerd/php-image-hash) vs the embedded
-//     hash. Fast and correct for well-behaved installs.
+//     hash. Fast and correct for well-behaved installs. A missing cache
+//     file is not itself a trigger: we still need at least one signal
+//     that the on-disk images disagree with the embed.
 //  2. The fpmContainerfileHashLabel on each installed image. Authoritative
 //     when the cache file is stale (e.g. an older lerd binary advanced
-//     the hash without rebuilding), so the rebuild fires automatically on
-//     the next install instead of needing a manual `lerd php:rebuild`.
+//     the hash without rebuilding) or missing entirely, so the rebuild
+//     fires automatically on the next install instead of needing a
+//     manual `lerd php:rebuild`.
+//
+// Returns false when no images are installed (nothing to rebuild) and
+// the cache file isn't disagreeing — first install hits this path and
+// proceeds to build cleanly via ensureFPMQuadlet.
 func NeedsFPMRebuild() bool {
 	current, err := ContainerfileHash()
 	if err != nil {
@@ -225,6 +232,26 @@ func imageLabel(image, key string) string {
 		return ""
 	}
 	return v
+}
+
+// fpmBuildArgs returns the `podman build` flags shared by both the fast
+// (pre-built base) and slow (full local build) paths in buildFPMImage,
+// before either path appends the `-f <containerfile> <ctx>` tail. Factored
+// out so a regression on the load-bearing `--label` arg can be caught in
+// a unit test without spawning podman.
+func fpmBuildArgs(imageName, containerfileHash string, force bool) []string {
+	args := []string{
+		"build",
+		"-t", imageName,
+		"--label", fpmContainerfileHashLabel + "=" + containerfileHash,
+	}
+	if force {
+		// Bypass layer cache so changes are fully applied. The old image
+		// stays tagged and the container keeps running until we restart
+		// the unit.
+		args = append(args, "--no-cache")
+	}
+	return args
 }
 
 // fpmHashMu serializes StoreFPMHash so the per-version buildFPMImage calls
@@ -356,14 +383,14 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 
 	// Stamp the Containerfile hash as an image label so NeedsFPMRebuild
 	// can detect drift even when the on-disk cache file is stale (the
-	// pre-v1.22.0 poisoning bug). Both build paths inherit this tag.
+	// pre-v1.22.0 poisoning bug). Both build paths inherit the same args.
 	canonicalHash, hashErr := ContainerfileHash()
 	if hashErr != nil {
 		return fmt.Errorf("computing Containerfile hash for label: %w", hashErr)
 	}
 
 	var containerfile string
-	buildArgs := []string{"build", "-t", imageName, "--label", fpmContainerfileHashLabel + "=" + canonicalHash}
+	buildArgs := fpmBuildArgs(imageName, canonicalHash, force)
 
 	// Fast path: pull pre-built base and layer just mkcert CA + custom extensions on top.
 	if !local {
@@ -372,9 +399,6 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 				"RUN mkdir -p /etc/my.cnf.d && printf '[client]\\nssl=0\\n' > /etc/my.cnf.d/lerd-no-ssl.cnf\n" +
 				buildCustomExtBlock(customExts, extDeps) +
 				mkcertCABlock(tmp)
-			if force {
-				buildArgs = append(buildArgs, "--no-cache")
-			}
 			goto build
 		}
 	}
@@ -389,11 +413,6 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 		containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts, extDeps))
 		containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensionsRuntime}}", buildCustomExtRuntimeDeps(customExts, extDeps))
 		containerfile = strings.ReplaceAll(containerfile, "{{.MkcertCA}}", mkcertCABlock(tmp))
-		if force {
-			// Bypass layer cache so changes are fully applied. The old image stays
-			// tagged and the container keeps running until we restart the unit.
-			buildArgs = append(buildArgs, "--no-cache")
-		}
 	}
 
 build:

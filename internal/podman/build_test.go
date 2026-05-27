@@ -300,3 +300,53 @@ func TestNeedsFPMRebuild_CacheMismatch_TriggersRebuild(t *testing.T) {
 		t.Error("expected rebuild when the cache file disagrees with the embedded Containerfile")
 	}
 }
+
+func TestFPMBuildArgs_ContainsHashLabel(t *testing.T) {
+	args := fpmBuildArgs("lerd-php84-fpm:local", "abc123", false)
+	if !sliceContainsPair(args, "--label", fpmContainerfileHashLabel+"=abc123") {
+		t.Errorf("build args missing the containerfile-hash label\nargs: %v", args)
+	}
+	if sliceContains(args, "--no-cache") {
+		t.Errorf("force=false should not add --no-cache, got: %v", args)
+	}
+}
+
+func TestFPMBuildArgs_ForceAddsNoCache(t *testing.T) {
+	args := fpmBuildArgs("lerd-php84-fpm:local", "abc123", true)
+	if !sliceContains(args, "--no-cache") {
+		t.Errorf("force=true should add --no-cache, got: %v", args)
+	}
+	// Label must still be present in the force path so a forced rebuild
+	// stamps the current hash and clears any poisoned-state label drift.
+	if !sliceContainsPair(args, "--label", fpmContainerfileHashLabel+"=abc123") {
+		t.Errorf("force path lost the containerfile-hash label\nargs: %v", args)
+	}
+}
+
+func TestFPMBuildArgs_TagsImageName(t *testing.T) {
+	args := fpmBuildArgs("lerd-php85-fpm:local", "h", false)
+	if !sliceContainsPair(args, "-t", "lerd-php85-fpm:local") {
+		t.Errorf("missing -t <image> pair\nargs: %v", args)
+	}
+}
+
+// sliceContains reports whether needle appears in haystack.
+func sliceContains(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// sliceContainsPair reports whether haystack contains `flag` immediately
+// followed by `value` (the exec.Command space-separated arg/value form).
+func sliceContainsPair(haystack []string, flag, value string) bool {
+	for i := 0; i < len(haystack)-1; i++ {
+		if haystack[i] == flag && haystack[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
