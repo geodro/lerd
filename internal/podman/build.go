@@ -144,62 +144,50 @@ func ContainerfileHash() (string, error) {
 	return fmt.Sprintf("%x", sum), nil
 }
 
-// fpmContainerfileHashLabel is written on every PHP-FPM image at build
-// time so NeedsFPMRebuild can detect drift independently of the cache
-// file. A bug in lerd < v1.22.0 advanced the cache file without actually
-// rebuilding, leaving images that were stale-but-not-detectable. The
-// label is the source of truth; the cache file is a fast-path.
+// fpmContainerfileHashLabel is stamped on every PHP-FPM image so
+// NeedsFPMRebuild can detect drift even when the cache file lies (lerd
+// < v1.22.0 advanced the cache without actually rebuilding).
 const fpmContainerfileHashLabel = "dev.lerd.fpm.containerfile-hash"
 
 // Seams for NeedsFPMRebuild so tests can fake the podman shell-outs.
 var (
-	installedFPMImagesFn = installedFPMImages
-	imageLabelFn         = imageLabel
+	imageLabelFn        = imageLabel
+	containerfileHashFn = ContainerfileHash
 )
 
+// FPMImageName returns the local image tag for a PHP version, e.g.
+// "lerd-php83-fpm:local" for "8.3". Centralised so callers and the
+// rebuild-detection logic agree on the naming convention.
+func FPMImageName(version string) string {
+	return "lerd-php" + strings.ReplaceAll(version, ".", "") + "-fpm:local"
+}
+
 // NeedsFPMRebuild returns true when the embedded Containerfile differs
-// from the cache file OR from any installed image's hash label (catches
-// the pre-v1.22.0 poisoned-cache state). False on a fresh install.
-func NeedsFPMRebuild() bool {
-	current, err := ContainerfileHash()
+// from the cache file OR from any active version's image label (catches
+// the pre-v1.22.0 poisoned-cache state). Scoped to activeVersions so
+// orphaned legacy images for versions the user has since removed don't
+// trigger a perpetual rebuild loop. False on a fresh install.
+func NeedsFPMRebuild(activeVersions []string) bool {
+	current, err := containerfileHashFn()
 	if err != nil {
-		return false
+		// Hash unreadable means we cannot prove the image is current; force
+		// a rebuild rather than silently treat it as up to date.
+		return true
 	}
 	if stored, err := os.ReadFile(config.PHPImageHashFile()); err == nil {
 		if strings.TrimSpace(string(stored)) != current {
 			return true
 		}
 	}
-	// Cache file says we're up to date; verify against the labels on the
-	// images themselves so a poisoned cache from older lerd binaries
-	// (hash advanced without a rebuild) still triggers a rebuild.
-	for _, image := range installedFPMImagesFn() {
-		label := imageLabelFn(image, fpmContainerfileHashLabel)
-		if label != current {
+	// Cache file says we're up to date; verify against the label on each
+	// active version's image so a poisoned cache from older lerd binaries
+	// still triggers a rebuild, while ignoring orphan legacy images.
+	for _, v := range activeVersions {
+		if imageLabelFn(FPMImageName(v), fpmContainerfileHashLabel) != current {
 			return true
 		}
 	}
 	return false
-}
-
-// installedFPMImages returns the local lerd PHP-FPM image names that
-// currently exist. NeedsFPMRebuild walks this list to compare labels.
-func installedFPMImages() []string {
-	out, err := exec.Command(PodmanBin(), "images",
-		"--format", "{{.Repository}}:{{.Tag}}",
-		"--filter", "reference=lerd-php*-fpm:local",
-	).Output()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		names = append(names, line)
-	}
-	return names
 }
 
 // imageLabel reads a single label from a local image. Returns "" on any
@@ -347,8 +335,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 }
 
 func buildFPMImage(version string, force, local bool, customExts []string, extDeps map[string][]string, w io.Writer) error {
-	short := strings.ReplaceAll(version, ".", "")
-	imageName := "lerd-php" + short + "-fpm:local"
+	imageName := FPMImageName(version)
 
 	if !force {
 		// Skip if image already exists
@@ -541,8 +528,7 @@ func phpExtensionLoaded(moduleOutput, ext string) bool {
 // it isn't loaded (the PECL build failed and was swallowed by the "|| true" guard
 // in the custom-extension RUN block).
 func VerifyExtensionLoaded(version, ext string) error {
-	short := strings.ReplaceAll(version, ".", "")
-	imageName := "lerd-php" + short + "-fpm:local"
+	imageName := FPMImageName(version)
 	out, err := exec.Command(PodmanBin(), "run", "--rm", imageName, "php", "-m").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("inspecting extensions in %s: %w\n%s", imageName, err, out)

@@ -725,7 +725,8 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		// exists, so `brew upgrade && lerd install` would otherwise ship
 		// new binary against stale images. Gated by autostartOn because
 		// php:rebuild restarts FPM and worker units unconditionally.
-		if podman.NeedsFPMRebuild() {
+		activeFPM, _ := phpDet.ListInstalled()
+		if podman.NeedsFPMRebuild(activeFPM) {
 			fmt.Println("\n==> PHP-FPM Containerfile changed — rebuilding images")
 			self, err := os.Executable()
 			if err != nil {
@@ -742,9 +743,9 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		}
 
 		// Start installed PHP FPM containers whose images are now available.
-		if fpmVersions, _ := phpDet.ListInstalled(); len(fpmVersions) > 0 {
+		if len(activeFPM) > 0 {
 			var fpmJobs []BuildJob
-			for _, v := range fpmVersions {
+			for _, v := range activeFPM {
 				ver := v
 				short := strings.ReplaceAll(ver, ".", "")
 				if podman.RunSilent("image", "exists", "lerd-php"+short+"-fpm:local") != nil {
