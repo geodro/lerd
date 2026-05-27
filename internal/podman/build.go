@@ -144,19 +144,87 @@ func ContainerfileHash() (string, error) {
 	return fmt.Sprintf("%x", sum), nil
 }
 
-// NeedsFPMRebuild returns true if the stored Containerfile hash differs from the
-// current embedded Containerfile, meaning images should be rebuilt.
+// fpmContainerfileHashLabel is written on every PHP-FPM image at build
+// time so NeedsFPMRebuild can detect drift independently of the cache
+// file. A bug in lerd < v1.22.0 advanced the cache file without actually
+// rebuilding, leaving images that were stale-but-not-detectable. The
+// label is the source of truth; the cache file is a fast-path.
+const fpmContainerfileHashLabel = "dev.lerd.fpm.containerfile-hash"
+
+// Seams for NeedsFPMRebuild so tests can fake the podman shell-outs.
+var (
+	installedFPMImagesFn = installedFPMImages
+	imageLabelFn         = imageLabel
+)
+
+// NeedsFPMRebuild returns true when at least one installed PHP-FPM image
+// was built from a Containerfile other than the embedded one. Two
+// signals, in order of strength:
+//
+//  1. Cache file (~/.local/share/lerd/php-image-hash) vs the embedded
+//     hash. Fast and correct for well-behaved installs.
+//  2. The fpmContainerfileHashLabel on each installed image. Authoritative
+//     when the cache file is stale (e.g. an older lerd binary advanced
+//     the hash without rebuilding), so the rebuild fires automatically on
+//     the next install instead of needing a manual `lerd php:rebuild`.
 func NeedsFPMRebuild() bool {
 	current, err := ContainerfileHash()
 	if err != nil {
 		return false
 	}
-	stored, err := os.ReadFile(config.PHPImageHashFile())
-	if err != nil {
-		// No stored hash yet — treat as needing rebuild only if images exist
-		return false
+	if stored, err := os.ReadFile(config.PHPImageHashFile()); err == nil {
+		if strings.TrimSpace(string(stored)) != current {
+			return true
+		}
 	}
-	return strings.TrimSpace(string(stored)) != current
+	// Cache file says we're up to date; verify against the labels on the
+	// images themselves so a poisoned cache from older lerd binaries
+	// (hash advanced without a rebuild) still triggers a rebuild.
+	for _, image := range installedFPMImagesFn() {
+		label := imageLabelFn(image, fpmContainerfileHashLabel)
+		if label != current {
+			return true
+		}
+	}
+	return false
+}
+
+// installedFPMImages returns the local lerd PHP-FPM image names that
+// currently exist. NeedsFPMRebuild walks this list to compare labels.
+func installedFPMImages() []string {
+	out, err := exec.Command(PodmanBin(), "images",
+		"--format", "{{.Repository}}:{{.Tag}}",
+		"--filter", "reference=lerd-php*-fpm:local",
+	).Output()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		names = append(names, line)
+	}
+	return names
+}
+
+// imageLabel reads a single label from a local image. Returns "" on any
+// error (image missing, podman unreachable, label absent) so callers
+// treat that as "doesn't match" and fall back to a rebuild.
+func imageLabel(image, key string) string {
+	out, err := exec.Command(PodmanBin(), "inspect",
+		"--format", "{{index .Config.Labels \""+key+"\"}}",
+		image,
+	).Output()
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "<no value>" {
+		return ""
+	}
+	return v
 }
 
 // fpmHashMu serializes StoreFPMHash so the per-version buildFPMImage calls
@@ -286,8 +354,16 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 	}
 	defer os.RemoveAll(tmp)
 
+	// Stamp the Containerfile hash as an image label so NeedsFPMRebuild
+	// can detect drift even when the on-disk cache file is stale (the
+	// pre-v1.22.0 poisoning bug). Both build paths inherit this tag.
+	canonicalHash, hashErr := ContainerfileHash()
+	if hashErr != nil {
+		return fmt.Errorf("computing Containerfile hash for label: %w", hashErr)
+	}
+
 	var containerfile string
-	buildArgs := []string{"build", "-t", imageName}
+	buildArgs := []string{"build", "-t", imageName, "--label", fpmContainerfileHashLabel + "=" + canonicalHash}
 
 	// Fast path: pull pre-built base and layer just mkcert CA + custom extensions on top.
 	if !local {

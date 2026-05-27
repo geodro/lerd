@@ -1,9 +1,12 @@
 package podman
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 func TestBuildCustomExtBlock_Empty(t *testing.T) {
@@ -179,5 +182,121 @@ func TestPhpExtensionLoaded(t *testing.T) {
 		if got := phpExtensionLoaded(out, ext); got != want {
 			t.Errorf("phpExtensionLoaded(out, %q) = %v, want %v", ext, got, want)
 		}
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_NoImages_NoRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, err := ContainerfileHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	prev := installedFPMImagesFn
+	installedFPMImagesFn = func() []string { return nil }
+	t.Cleanup(func() { installedFPMImagesFn = prev })
+
+	if NeedsFPMRebuild() {
+		t.Error("expected no rebuild when cache matches and no images installed")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LabelMatches_NoRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevImages := installedFPMImagesFn
+	prevLabel := imageLabelFn
+	installedFPMImagesFn = func() []string { return []string{"lerd-php84-fpm:local"} }
+	imageLabelFn = func(image, key string) string { return current }
+	t.Cleanup(func() {
+		installedFPMImagesFn = prevImages
+		imageLabelFn = prevLabel
+	})
+
+	if NeedsFPMRebuild() {
+		t.Error("expected no rebuild when both cache and label match the embedded Containerfile")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LabelMismatch_TriggersRebuild(t *testing.T) {
+	// Poisoned-state recovery: an older lerd binary advanced the cache file
+	// without rebuilding, so the cache says "up to date" but the actual
+	// image was built from a previous Containerfile and carries the old
+	// hash as its label.
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevImages := installedFPMImagesFn
+	prevLabel := imageLabelFn
+	installedFPMImagesFn = func() []string { return []string{"lerd-php84-fpm:local"} }
+	imageLabelFn = func(image, key string) string { return "deadbeefoldhash" }
+	t.Cleanup(func() {
+		installedFPMImagesFn = prevImages
+		imageLabelFn = prevLabel
+	})
+
+	if !NeedsFPMRebuild() {
+		t.Error("expected rebuild when image label disagrees with the embedded Containerfile hash (the poisoned-state recovery path)")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LegacyImageWithoutLabel_TriggersRebuild(t *testing.T) {
+	// Images built by an even older lerd that predates the label entirely
+	// must also recover automatically.
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevImages := installedFPMImagesFn
+	prevLabel := imageLabelFn
+	installedFPMImagesFn = func() []string { return []string{"lerd-php84-fpm:local"} }
+	imageLabelFn = func(image, key string) string { return "" }
+	t.Cleanup(func() {
+		installedFPMImagesFn = prevImages
+		imageLabelFn = prevLabel
+	})
+
+	if !NeedsFPMRebuild() {
+		t.Error("expected rebuild when the image carries no fpm-containerfile-hash label (pre-label lerd build)")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMismatch_TriggersRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Stored hash from a hypothetical old template.
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte("stale-cached-hash"), 0644)
+
+	prevImages := installedFPMImagesFn
+	installedFPMImagesFn = func() []string { return nil }
+	t.Cleanup(func() { installedFPMImagesFn = prevImages })
+
+	if !NeedsFPMRebuild() {
+		t.Error("expected rebuild when the cache file disagrees with the embedded Containerfile")
 	}
 }
