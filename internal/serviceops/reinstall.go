@@ -14,8 +14,14 @@ import (
 // pin the same image / version the user was running, instead of re-resolving
 // the rolling preset.Image and silently jumping versions.
 type reinstallSpec struct {
-	// version is the multi-version preset tag (e.g. "8.4" for mysql). Empty
-	// for single-version and default presets.
+	// presetName is the bundled preset this service was installed from.
+	// Differs from the service name for non-canonical versions, e.g.
+	// service "mariadb-10-11" comes from preset "mariadb". For default
+	// presets and canonical-version services this equals name.
+	presetName string
+	// version is the multi-version preset tag (e.g. "8.4" for mysql).
+	// Empty for single-version presets and for default presets installed
+	// before the canonical-pin field existed.
 	version string
 	// image is the fully-qualified Image= line from the on-disk quadlet
 	// (e.g. "docker.io/library/mysql:8.4.9"). Empty when there's no quadlet.
@@ -23,11 +29,37 @@ type reinstallSpec struct {
 }
 
 // Seams for ReinstallService composition. The defaults wire to the real
-// install + reprovision functions; tests substitute fakes.
+// install + reprovision + validation functions; tests substitute fakes so
+// composition logic can be exercised without a real preset bundle or podman.
 var (
-	reinstallInstallFn = realReinstallInstall
-	reinstallReprovFn  = ReprovisionLinkedSites
+	reinstallInstallFn       = realReinstallInstall
+	reinstallReprovFn        = ReprovisionLinkedSites
+	reinstallValidateFn      = validateReinstall
+	reinstallPrefetchImageFn = realPrefetchImage
 )
+
+// realPrefetchImage pulls the pinned image when it isn't already local so a
+// network/registry failure surfaces before RemoveService deletes anything.
+// Always emits `preflight_image_ok` on success so callers driving a UI off
+// the event stream see a consistent terminal phase on both the warm-cache
+// and the cold-cache path.
+func realPrefetchImage(image string, emit func(PhaseEvent)) error {
+	if image == "" {
+		return nil
+	}
+	if podman.ImageExists(image) {
+		emit(PhaseEvent{Phase: "preflight_image_ok", Image: image})
+		return nil
+	}
+	emit(PhaseEvent{Phase: "pulling_image", Image: image})
+	if err := podman.PullImageWithProgress(image, func(line string) {
+		emit(PhaseEvent{Phase: "pulling_image", Message: line})
+	}); err != nil {
+		return err
+	}
+	emit(PhaseEvent{Phase: "preflight_image_ok", Image: image})
+	return nil
+}
 
 // ReinstallService stops, removes, and reinstalls a service, optionally wiping
 // its data and reprovisioning per-site state (databases, buckets) on the
@@ -36,6 +68,11 @@ var (
 // Reinstall requires that the service is currently installed: for default
 // presets that means a quadlet on disk; for custom services that means a
 // custom-service YAML. If neither is found ReinstallService returns an error.
+//
+// Pre-flight validation runs before RemoveService so configuration errors
+// (unknown preset, bad version, missing dependencies, unreachable image)
+// fail with the on-disk state intact rather than after the service config
+// has already been deleted.
 //
 // When resetData is true the data dir is renamed-aside (recoverable as
 // .pre-remove-<ts>) and ReprovisionLinkedSites is invoked after the install
@@ -51,12 +88,12 @@ func ReinstallService(name string, resetData bool, emit func(PhaseEvent)) error 
 		return err
 	}
 
-	// Pre-flight: if the image is already pulled locally we can guarantee the
-	// install step won't fail on a missing image after RemoveService has
-	// already deleted the quadlet (no rollback on a failed pull). For images
-	// not yet local, the install step will pull and surface failures normally.
-	if spec.image != "" && podman.ImageExists(spec.image) {
-		emit(PhaseEvent{Phase: "preflight_image_ok", Image: spec.image})
+	if err := reinstallValidateFn(name, spec); err != nil {
+		return fmt.Errorf("reinstall: pre-flight: %w", err)
+	}
+
+	if err := reinstallPrefetchImageFn(spec.image, emit); err != nil {
+		return fmt.Errorf("reinstall: pre-flight pull %q: %w", spec.image, err)
 	}
 
 	if err := RemoveService(name, RemoveOptions{RemoveData: resetData}, emit); err != nil {
@@ -76,24 +113,69 @@ func ReinstallService(name string, resetData bool, emit func(PhaseEvent)) error 
 }
 
 // captureReinstallSpec snapshots the on-disk state RemoveService is about to
-// destroy, so realReinstallInstall can pin the same version + image. For
-// custom services the version comes from the YAML; for default presets we
-// only have the rendered quadlet's Image line.
+// destroy, so realReinstallInstall can pin the same preset + version + image.
+// For custom services the values come from the YAML; for default presets we
+// only have the rendered quadlet's Image line and the service name itself.
 func captureReinstallSpec(name string) (reinstallSpec, error) {
 	if existing, err := config.LoadCustomService(name); err == nil {
+		// Backfill the preset reference for legacy YAMLs written before the
+		// Preset field existed: fall back to the service name, which is the
+		// canonical preset name for single-version presets.
+		presetName := existing.Preset
+		if presetName == "" {
+			presetName = name
+		}
 		// Multi-version presets must always carry a PresetVersion. An empty
-		// value here is a YAML corruption — falling through to InstallPresetByName
+		// value here is a YAML corruption: falling through to InstallPresetByName
 		// with version="" would silently resolve to DefaultVersion and move
 		// the user off whatever tag they were running.
-		if preset, perr := config.LoadPreset(name); perr == nil && len(preset.Versions) > 0 && existing.PresetVersion == "" {
+		if preset, perr := config.LoadPreset(presetName); perr == nil && len(preset.Versions) > 0 && existing.PresetVersion == "" {
 			return reinstallSpec{}, fmt.Errorf("service %q has empty preset_version; refusing to reinstall and silently jump to default version", name)
 		}
-		return reinstallSpec{version: existing.PresetVersion, image: existing.Image}, nil
+		return reinstallSpec{
+			presetName: presetName,
+			version:    existing.PresetVersion,
+			image:      existing.Image,
+		}, nil
 	}
 	if config.IsDefaultPreset(name) && podman.QuadletInstalled("lerd-"+name) {
-		return reinstallSpec{image: podman.InstalledImage("lerd-" + name)}, nil
+		return reinstallSpec{
+			presetName: name,
+			image:      podman.InstalledImage("lerd-" + name),
+		}, nil
 	}
 	return reinstallSpec{}, fmt.Errorf("service %q is not installed; nothing to reinstall", name)
+}
+
+// validateReinstall replays the preset/version/dependency checks the install
+// path will run, without writing anything. Catches configuration errors that
+// would otherwise fail after RemoveService has already deleted the YAML and
+// quadlet, leaving the user with neither the old install nor the new one.
+// Default-preset and custom-service paths share the same validation so both
+// fail closed under the same conditions.
+func validateReinstall(name string, spec reinstallSpec) error {
+	if spec.presetName == "" {
+		return fmt.Errorf("service %q has no preset reference; cannot determine reinstall source", name)
+	}
+	preset, err := config.LoadPreset(spec.presetName)
+	if err != nil {
+		hint := ""
+		if spec.presetName == name {
+			hint = " (legacy YAML without `preset:` field — add `preset: <name>` pointing at a bundled preset)"
+		}
+		return fmt.Errorf("preset %q (source of service %q) not found%s: %w", spec.presetName, name, hint, err)
+	}
+	if spec.version != "" && len(preset.Versions) == 0 {
+		return fmt.Errorf("preset %q does not declare versions, but service %q has preset_version=%q", spec.presetName, name, spec.version)
+	}
+	svc, err := preset.Resolve(spec.version)
+	if err != nil {
+		return fmt.Errorf("preset %q version %q: %w", spec.presetName, spec.version, err)
+	}
+	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
+		return fmt.Errorf("preset %q requires %s to be installed first", spec.presetName, strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // realReinstallInstall dispatches to the right install path based on whether
@@ -143,5 +225,5 @@ func realReinstallInstall(name string, spec reinstallSpec, emit func(PhaseEvent)
 		}
 		return &config.CustomService{Name: name}, nil
 	}
-	return InstallPresetStreaming(name, spec.version, emit)
+	return InstallPresetStreaming(spec.presetName, spec.version, emit)
 }
