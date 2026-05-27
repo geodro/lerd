@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -259,37 +260,45 @@ func newDNSCheckCmd() *cobra.Command {
 			}
 
 			diag := dns.Diagnose(cfg.DNS.TLD)
-			if diag.FirstFailure < 0 {
-				fmt.Printf("DNS is working: *.%s resolves to 127.0.0.1\n\n", cfg.DNS.TLD)
-			} else {
-				fmt.Printf("DNS is NOT working for .%s\n\n", cfg.DNS.TLD)
-			}
-			for _, s := range diag.Steps {
-				marker := "  "
-				switch s.Status {
-				case dns.StepOK:
-					marker = "✓ "
-				case dns.StepFail:
-					marker = "✗ "
-				case dns.StepWarn:
-					marker = "! "
-				case dns.StepSkip:
-					marker = "  "
-				}
-				if s.Detail != "" {
-					fmt.Printf("%s%-34s %s\n", marker, s.Name, s.Detail)
-				} else {
-					fmt.Printf("%s%s\n", marker, s.Name)
-				}
-				if s.Status == dns.StepFail && s.Hint != "" {
-					fmt.Printf("    hint: %s\n", s.Hint)
-				}
-			}
+			printDNSDiagnostic(os.Stdout, diag)
 			if diag.FirstFailure >= 0 {
 				os.Exit(1)
 			}
 			return nil
 		},
+	}
+}
+
+// printDNSDiagnostic writes the human-facing dns:check report for one
+// Diagnostic to w. Extracted from newDNSCheckCmd so the renderer (top
+// line, marker prefixes, hint-printing on Fail+Warn) can be exercised
+// in tests without spawning the CLI process.
+func printDNSDiagnostic(w io.Writer, diag dns.Diagnostic) {
+	if diag.FirstFailure < 0 {
+		fmt.Fprintf(w, "DNS is working: *.%s resolves to 127.0.0.1\n\n", diag.TLD)
+	} else {
+		fmt.Fprintf(w, "DNS is NOT working for .%s\n\n", diag.TLD)
+	}
+	for _, s := range diag.Steps {
+		marker := "  "
+		switch s.Status {
+		case dns.StepOK:
+			marker = "✓ "
+		case dns.StepFail:
+			marker = "✗ "
+		case dns.StepWarn:
+			marker = "! "
+		case dns.StepSkip:
+			marker = "  "
+		}
+		if s.Detail != "" {
+			fmt.Fprintf(w, "%s%-34s %s\n", marker, s.Name, s.Detail)
+		} else {
+			fmt.Fprintf(w, "%s%s\n", marker, s.Name)
+		}
+		if (s.Status == dns.StepFail || s.Status == dns.StepWarn) && s.Hint != "" {
+			fmt.Fprintf(w, "    hint: %s\n", s.Hint)
+		}
 	}
 }
 

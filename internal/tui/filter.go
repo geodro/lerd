@@ -104,7 +104,10 @@ func siteStatusRank(s siteinfo.EnrichedSite) int {
 }
 
 // filteredSortedServices applies the active filter/sort to the services row
-// slice. Same policy as sites: new slice, stable ordering.
+// slice. Same policy as sites: new slice, stable ordering. Group order
+// (Core → Custom → Workers) is the primary sort key so the rendered pane
+// stays grouped regardless of which secondary mode the user picked; sort
+// mode controls only the within-group order.
 func filteredSortedServices(list []ServiceRow, filter string, mode svcSortMode) []ServiceRow {
 	out := make([]ServiceRow, 0, len(list))
 	needle := strings.ToLower(strings.TrimSpace(filter))
@@ -117,17 +120,28 @@ func filteredSortedServices(list []ServiceRow, filter string, mode svcSortMode) 
 	switch mode {
 	case svcSortStatus:
 		sort.SliceStable(out, func(i, j int) bool {
+			if gi, gj := classifyService(out[i]), classifyService(out[j]); gi != gj {
+				return gi < gj
+			}
 			return svcStatusRank(out[i]) < svcStatusRank(out[j])
 		})
 	case svcSortUsage:
 		sort.SliceStable(out, func(i, j int) bool {
+			if gi, gj := classifyService(out[i]), classifyService(out[j]); gi != gj {
+				return gi < gj
+			}
 			if out[i].SiteCount != out[j].SiteCount {
 				return out[i].SiteCount > out[j].SiteCount
 			}
 			return out[i].Name < out[j].Name
 		})
 	default:
-		sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+		sort.SliceStable(out, func(i, j int) bool {
+			if gi, gj := classifyService(out[i]), classifyService(out[j]); gi != gj {
+				return gi < gj
+			}
+			return out[i].Name < out[j].Name
+		})
 	}
 	return out
 }

@@ -3,10 +3,25 @@
 ## Linux
 
 - **Distribution**: Arch, Debian/Ubuntu, Fedora-based, or omarchy
-- **[Podman](https://podman.io/)**: rootless, with systemd user session active
+- **[Podman](https://podman.io/)** 4.5 or newer, rootless, with systemd user session active
 - **[crun](https://github.com/containers/crun)**: recommended OCI runtime for rootless Podman
 - **DNS resolver**: [NetworkManager](https://networkmanager.dev/) or [systemd-resolved](https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html) (at least one is required for `.test` DNS)
 - **`systemctl --user` functional**: run `loginctl enable-linger $USER` if needed
+
+### Podman 4.5 minimum
+
+::: warning
+Lerd creates the `lerd` podman network with `podman network create --dns`, a flag added in podman 4.5 (April 2023). Older releases fail install with `Error: unknown flag: --dns`. Distribution defaults that ship podman older than 4.5:
+
+| Distro                 | Default podman | Workaround                                                                       |
+|------------------------|---------------:|----------------------------------------------------------------------------------|
+| Ubuntu 22.04           | 3.4.4          | Install a newer podman from the [Kubic libcontainers OBS repo](https://podman.io/docs/installation#ubuntu-2204-2104-2010-2004) |
+| Zorin 17               | 3.4.4          | Same Kubic instructions as Ubuntu 22.04 (Zorin 17 is jammy-based)                |
+| Debian 12 (bookworm)   | 4.3.1          | `sudo apt install -t bookworm-backports podman` (ships 4.9+)                     |
+| Debian 11 (bullseye)   | 3.0.1          | Upgrade to Debian 12 + enable bookworm-backports                                 |
+
+Fedora 38+, Ubuntu 24.04+, openSUSE Tumbleweed, Arch and CachyOS all ship podman 4.5 or newer out of the box.
+:::
 
 ::: warning Linger must be enabled
 If `systemctl --user` units do not survive logout, run:

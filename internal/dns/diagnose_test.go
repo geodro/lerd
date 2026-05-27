@@ -34,9 +34,10 @@ func TestDiagnose_allOK(t *testing.T) {
 	}
 }
 
-func TestDiagnose_containerDownStopsChain(t *testing.T) {
+func TestDiagnose_containerDownAndPortClosedStopsChain(t *testing.T) {
 	p := fakeProbes()
 	p.containerRunning = func() bool { return false }
+	p.portOpen = func(string, int) bool { return false }
 	d := diagnose("test", p)
 	if len(d.Steps) != 1 {
 		t.Fatalf("expected 1 step (no chain after container fail), got %d", len(d.Steps))
@@ -49,6 +50,80 @@ func TestDiagnose_containerDownStopsChain(t *testing.T) {
 	}
 	if !strings.Contains(d.Steps[0].Hint, "lerd start") {
 		t.Errorf("hint %q should mention `lerd start`", d.Steps[0].Hint)
+	}
+}
+
+func TestDiagnose_legacyHostResolverDetectedAsWarn(t *testing.T) {
+	// Field-report scenario: user has Homebrew/launchd dnsmasq holding
+	// :5300, lerd-dns container is absent. The chain should surface this
+	// as a WARN (not a hard fail) with a hint explaining the situation.
+	p := fakeProbes()
+	p.containerRunning = func() bool { return false }
+	// portOpen / dnsmasqAnswer default to "yes, answers correctly".
+	d := diagnose("test", p)
+	if len(d.Steps) != 1 {
+		t.Fatalf("expected exactly 1 step (chain stops at the warn), got %d: %+v", len(d.Steps), d.Steps)
+	}
+	step := d.Steps[0]
+	if step.Status != StepWarn {
+		t.Errorf("step status = %s, want warn", step.Status)
+	}
+	if d.FirstFailure != -1 {
+		t.Errorf("FirstFailure = %d, want -1 (no failure, lerd just isn't managing DNS)", d.FirstFailure)
+	}
+	for _, want := range []string{"host-side resolver", "not managing DNS", "lerd start"} {
+		if !strings.Contains(step.Detail+step.Hint, want) {
+			t.Errorf("step detail+hint should mention %q\ndetail: %s\nhint: %s", want, step.Detail, step.Hint)
+		}
+	}
+}
+
+func TestDiagnose_portSquattedByNonDNSReportsFail(t *testing.T) {
+	// Something is on :5300 but it isn't a working DNS resolver (e.g. a
+	// stale process). Distinct from the legacy-resolver case so the user
+	// gets a different hint, and the actual error is preserved in Detail
+	// so the user can tell NXDOMAIN apart from a timeout or refused.
+	p := fakeProbes()
+	p.containerRunning = func() bool { return false }
+	p.dnsmasqAnswer = func(string) (string, error) { return "", errors.New("nxdomain") }
+	d := diagnose("test", p)
+	if d.FirstFailure != 0 {
+		t.Errorf("FirstFailure = %d, want 0 (rung 1 fails when port is squatted by non-DNS)", d.FirstFailure)
+	}
+	if d.Steps[0].Status != StepFail {
+		t.Errorf("step status = %s, want fail", d.Steps[0].Status)
+	}
+	if !strings.Contains(d.Steps[0].Hint, "identify the holder") {
+		t.Errorf("hint should suggest identifying the squatter, got %q", d.Steps[0].Hint)
+	}
+	if !strings.Contains(d.Steps[0].Detail, "nxdomain") {
+		t.Errorf("Detail should surface the actual probe error, got %q", d.Steps[0].Detail)
+	}
+}
+
+func TestDiagnose_legacyResolverPointingAtNon127ReportsWarn(t *testing.T) {
+	// User runs a host dnsmasq mapping .test to a LAN IP (e.g. for
+	// cross-device testing). Still a working resolver, still not lerd's,
+	// but the IP differs from lerd's default. Surface as WARN with the
+	// actual answer included so the user can confirm intent.
+	p := fakeProbes()
+	p.containerRunning = func() bool { return false }
+	p.dnsmasqAnswer = func(string) (string, error) { return "192.168.1.20", nil }
+	d := diagnose("test", p)
+	if len(d.Steps) != 1 {
+		t.Fatalf("expected exactly 1 step, got %d: %+v", len(d.Steps), d.Steps)
+	}
+	if d.Steps[0].Status != StepWarn {
+		t.Errorf("step status = %s, want warn", d.Steps[0].Status)
+	}
+	if d.FirstFailure != -1 {
+		t.Errorf("FirstFailure = %d, want -1 (not a failure, lerd just isn't the resolver)", d.FirstFailure)
+	}
+	if !strings.Contains(d.Steps[0].Detail, "192.168.1.20") {
+		t.Errorf("Detail should mention the actual IP the host resolver returned, got %q", d.Steps[0].Detail)
+	}
+	if !strings.Contains(d.Steps[0].Detail, "lerd's default is 127.0.0.1") {
+		t.Errorf("Detail should call out the difference from lerd's default, got %q", d.Steps[0].Detail)
 	}
 }
 

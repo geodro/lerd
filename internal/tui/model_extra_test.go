@@ -93,19 +93,19 @@ func TestDetailMode_SToggleSetsFocus(t *testing.T) {
 	}
 }
 
-func TestDetailMode_HelpToggle(t *testing.T) {
+func TestHelpModal_Toggle(t *testing.T) {
 	m := NewModel("test")
 	m.snap = fakeSnap()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = next.(*Model)
-	if m.detailMode != detailHelp {
-		t.Fatalf("? should enter help mode, got %d", m.detailMode)
+	if !m.helpModalActive {
+		t.Fatalf("? should open the help modal, got helpModalActive=false")
 	}
-	// Esc returns to site detail.
+	// Esc closes the modal.
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = next.(*Model)
-	if m.detailMode != detailSite {
-		t.Fatalf("esc should return to site detail, got %d", m.detailMode)
+	if m.helpModalActive {
+		t.Fatalf("esc should close the help modal")
 	}
 }
 
@@ -134,14 +134,14 @@ func TestViewRendersUnderSettingsMode(t *testing.T) {
 	}
 }
 
-func TestViewRendersUnderHelpMode(t *testing.T) {
+func TestViewRendersUnderHelpModal(t *testing.T) {
 	m := NewModel("test")
 	m.snap = fakeSnap()
 	m.width, m.height = 150, 50
-	m.detailMode = detailHelp
+	m.helpModalActive = true
 	out := m.View()
 	if !strings.Contains(out, "Keybindings") {
-		t.Fatalf("help view should include 'Keybindings' header")
+		t.Fatalf("help modal should include 'Keybindings' header")
 	}
 }
 

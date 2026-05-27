@@ -18,6 +18,7 @@ import (
 	"github.com/geodro/lerd/internal/envfile"
 	gitpkg "github.com/geodro/lerd/internal/git"
 	"github.com/geodro/lerd/internal/nginx"
+	lerdNode "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
@@ -2189,30 +2190,14 @@ func execRuntimeVersions() (any, *rpcError) {
 		defaultPHP = cfg.PHP.DefaultVersion
 	}
 
-	// Node.js versions via fnm
-	fnmPath := filepath.Join(config.BinDir(), "fnm")
-	var nodeVersions []string
+	// Node.js versions via fnm. Goes through the shared internal/node
+	// helper so the MCP and the web UI (/api/node-versions) return the
+	// same shape: major-only deduped majors like "20", "18".
 	defaultNode := ""
 	if cfg != nil {
 		defaultNode = cfg.Node.DefaultVersion
 	}
-	if _, err := os.Stat(fnmPath); err == nil {
-		var out bytes.Buffer
-		cmd := exec.Command(fnmPath, "list")
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-		if cmd.Run() == nil {
-			for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-				line = strings.TrimSpace(line)
-				// fnm list output: "* v20.11.0 default" or "  v18.20.0"
-				line = strings.TrimPrefix(line, "* ")
-				line = strings.TrimPrefix(line, "  ")
-				if line != "" {
-					nodeVersions = append(nodeVersions, line)
-				}
-			}
-		}
-	}
+	nodeVersions := lerdNode.ListInstalled()
 
 	type runtimeEntry struct {
 		Installed      []string `json:"installed"`

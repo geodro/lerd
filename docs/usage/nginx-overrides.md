@@ -57,6 +57,10 @@ Lines you put in `custom.d/{domain}.conf` land inside the site's `server { ... }
 
 If you need directives at `http {}` level (like a new `map`), add them to `~/.local/share/lerd/nginx/conf.d/` with a filename that starts with an underscore (e.g. `_myorg.conf`). Files in `conf.d/` that lerd does not know about are left alone during regeneration.
 
+## Customising the catch-all (`_default.conf`)
+
+The catch-all vhost lerd ships for unlinked `.test` domains lives at `~/.local/share/lerd/nginx/conf.d/_default.conf`. Editing it directly is supported: lerd stamps a hash sidecar (`_default.conf.lerd-managed-hash`) when it first writes the file, then compares your on-disk content to that hash on every subsequent `lerd start`. If the hashes match, lerd keeps the file in sync with template changes; if they differ, your edit is preserved and the next start logs that it skipped the rewrite. Delete the conf (or the sidecar) to restore lerd's default. A common reason to edit it is swapping `ssl_reject_handshake on;` for `ssl_reject_handshake off;` on a staging machine where you want unlinked HTTPS hostnames to receive a 444 close rather than a TLS alert.
+
 ## Forwarded headers and tunneling
 
 The generated vhosts already set the `X-Forwarded-*` family for you so tools like `lerd share`, `ngrok`, and `cloudflared` work out of the box:

@@ -10,14 +10,16 @@ import (
 // stubReinstallSeams swaps the install/reprovision seams so the test exercises
 // only ReinstallService's composition logic without hitting podman.
 type reinstallRecorder struct {
-	installCalls []reinstallCall
-	reprovCalls  []string
-	installErr   error
-	reprovErr    error
+	installCalls     []reinstallCall
+	reprovCalls      []string
+	familyRegenCalls []string
+	installErr       error
+	reprovErr        error
 }
 type reinstallCall struct {
-	Name    string
-	Version string
+	Name       string
+	PresetName string
+	Version    string
 }
 
 func stubReinstallSeams(t *testing.T) *reinstallRecorder {
@@ -26,8 +28,11 @@ func stubReinstallSeams(t *testing.T) *reinstallRecorder {
 
 	prevInstall := reinstallInstallFn
 	prevReprov := reinstallReprovFn
+	prevValidate := reinstallValidateFn
+	prevPrefetch := reinstallPrefetchImageFn
+	prevFamilyRegen := reinstallFamilyRegenFn
 	reinstallInstallFn = func(name string, spec reinstallSpec, emit func(PhaseEvent)) (*config.CustomService, error) {
-		rec.installCalls = append(rec.installCalls, reinstallCall{Name: name, Version: spec.version})
+		rec.installCalls = append(rec.installCalls, reinstallCall{Name: name, PresetName: spec.presetName, Version: spec.version})
 		emit(PhaseEvent{Phase: "starting_unit"})
 		return &config.CustomService{Name: name}, rec.installErr
 	}
@@ -35,9 +40,18 @@ func stubReinstallSeams(t *testing.T) *reinstallRecorder {
 		rec.reprovCalls = append(rec.reprovCalls, name)
 		return rec.reprovErr
 	}
+	// Pre-flight checks talk to the real preset bundle and podman; the
+	// composition tests don't care about them, so stub to permissive no-ops.
+	reinstallValidateFn = func(string, reinstallSpec) error { return nil }
+	reinstallPrefetchImageFn = func(string, func(PhaseEvent)) error { return nil }
+	// Family regen would otherwise touch real podman / real preset bundle.
+	reinstallFamilyRegenFn = func(name string) { rec.familyRegenCalls = append(rec.familyRegenCalls, name) }
 	t.Cleanup(func() {
 		reinstallInstallFn = prevInstall
 		reinstallReprovFn = prevReprov
+		reinstallValidateFn = prevValidate
+		reinstallPrefetchImageFn = prevPrefetch
+		reinstallFamilyRegenFn = prevFamilyRegen
 	})
 	return rec
 }

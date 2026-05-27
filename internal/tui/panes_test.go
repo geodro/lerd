@@ -115,6 +115,35 @@ func TestViewport_ScrollsDownAsCursorAdvances(t *testing.T) {
 	}
 }
 
+func TestViewport_NoCursorPreservesManualScroll(t *testing.T) {
+	// cursor < 0 marks a scroll surface with no selection (env / dumps tab /
+	// app logs). The caller controls scroll via moveCursor; viewport must
+	// not snap back to zero just because there's no cursor on the page.
+	rows := []string{"a", "b", "c", "d", "e", "f"}
+	scroll := 2
+	got := viewport(rows, -1, 3, &scroll)
+	if scroll != 2 {
+		t.Fatalf("scroll should stay at 2 when cursor is -1, got %d", scroll)
+	}
+	want := []string{"c", "d", "e"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("row %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestViewport_NoCursorClampsScrollPastEnd(t *testing.T) {
+	// If the caller pushes detailScroll beyond the last visible page,
+	// viewport must clamp so we never render an all-blank pane.
+	rows := []string{"a", "b", "c"}
+	scroll := 99
+	viewport(rows, -1, 2, &scroll)
+	if scroll != 1 {
+		t.Fatalf("scroll should clamp to len(rows)-height=1, got %d", scroll)
+	}
+}
+
 // TestCountFailingWorkers_AggregatesAcrossSitesAndWorktrees pins the helper
 // the header pill uses: every failed worker (built-in, custom, per-worktree)
 // counts so the "press H to heal" hint never under-reports.

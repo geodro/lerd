@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -98,6 +101,10 @@ func EnableLANExposure(progress LANProgressFunc) (lanIP string, err error) {
 
 		emit("Restarting lerd-dns")
 		if err := reloadAndRestartUnit("lerd-dns"); err != nil {
+			return "", err
+		}
+
+		if err := preflightForwarderPort(lanIP, emit); err != nil {
 			return "", err
 		}
 
@@ -215,6 +222,93 @@ func regenerateLANContainerQuadlets(progress LANProgressFunc) error {
 		_ = services.Mgr.Restart(name)
 	}
 	return nil
+}
+
+// Seams for preflightForwarderPort so the logic can be unit-tested
+// without binding real ports, spawning lsof, or depending on services.Mgr.
+var (
+	forwarderUnitStatusFn = func() string {
+		s, _ := services.Mgr.UnitStatus("lerd-dns-forwarder")
+		return s
+	}
+	forwarderPortFreeFn   = forwarderPortFree
+	forwarderPortHolderFn = forwarderPortHolderLsof
+)
+
+// forwarderPort is the host port lerd-dns-forwarder listens on.
+const forwarderPort = 5300
+
+// preflightForwarderPort refuses to install the LAN DNS forwarder when
+// something else (typically a legacy host-side dnsmasq) already owns
+// lanIP:5300. Without this check the launchd plist would write fine,
+// then the daemon would race against the existing holder on every boot.
+// Skipped when our own forwarder is already active or activating: that's
+// the re-run-of-lan-expose case where the existing unit will be replaced.
+// emit may be nil; when set it receives one user-visible progress line
+// describing the path taken.
+func preflightForwarderPort(lanIP string, emit func(string)) error {
+	if s := forwarderUnitStatusFn(); s == "active" || s == "activating" || s == "deactivating" {
+		if emit != nil {
+			emit("Pre-flight: lerd-dns-forwarder is " + s + "; skipping port check")
+		}
+		return nil
+	}
+	if emit != nil {
+		emit(fmt.Sprintf("Pre-flight: checking %s:%d is free", lanIP, forwarderPort))
+	}
+	if forwarderPortFreeFn(lanIP, forwarderPort) {
+		return nil
+	}
+	holder := forwarderPortHolderFn(lanIP, forwarderPort)
+	return fmt.Errorf("%s:%d is already in use; lerd cannot install the LAN DNS forwarder.\n%s\nStop the conflicting service (or rebind it off port %d) and re-run `lerd lan expose`", lanIP, forwarderPort, holder, forwarderPort)
+}
+
+// forwarderPortFree returns true when both UDP and TCP on host:port are
+// free to bind. Best-effort: a process using SO_REUSEPORT can share a
+// bound port with our probe and slip through; covers the common case of
+// a long-running dnsmasq holding the address.
+func forwarderPortFree(host string, port int) bool {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	if conn, err := net.ListenPacket("udp", addr); err == nil {
+		conn.Close()
+	} else {
+		return false
+	}
+	if l, err := net.Listen("tcp", addr); err == nil {
+		l.Close()
+	} else {
+		return false
+	}
+	return true
+}
+
+// forwarderPortHolderLsof shells out to lsof to identify the conflicting
+// process. Uses stdout only so transient lsof stderr warnings don't
+// leak into the user-facing error. Falls back to a per-platform hint
+// when lsof is missing or returns nothing.
+func forwarderPortHolderLsof(host string, port int) string {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	cmd := exec.Command("lsof", "-nP", "-iUDP@"+addr, "-iTCP@"+addr)
+	out, err := cmd.Output()
+	trimmed := strings.TrimSpace(string(out))
+	if err == nil && trimmed != "" {
+		var lines []string
+		for _, line := range strings.Split(trimmed, "\n") {
+			lines = append(lines, "  "+line)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return forwarderHolderFallbackHint(runtime.GOOS, port)
+}
+
+// forwarderHolderFallbackHint returns the per-OS suggestion shown when
+// lsof can't identify the conflicting process. Factored out so both
+// branches can be unit-tested from any build host.
+func forwarderHolderFallbackHint(goos string, port int) string {
+	if goos == "linux" {
+		return fmt.Sprintf("  (could not identify the holder; try: sudo ss -tulpn | grep ':%d')", port)
+	}
+	return fmt.Sprintf("  (could not identify the holder; try: sudo lsof -nP -i :%d)", port)
 }
 
 // installDNSForwarderUnit writes the user service that runs the

@@ -21,6 +21,16 @@ type RemoveOptions struct {
 	// On EXDEV the helper falls back to copy-tree + delete so the
 	// recoverability promise holds across filesystems too.
 	RemoveData bool
+
+	// SkipFamilyRegen suppresses the post-remove RegenerateFamilyConsumers
+	// pass. Set by ReinstallService, which then drives the regen itself
+	// after install: InstallPresetByName regenerates internally for custom
+	// services, while default-preset and failure paths call regen
+	// explicitly. The regen-during-remove was racing the post-install
+	// regen on macOS (launchctl bootout/bootstrap can fall through to
+	// kickstart which doesn't re-read the plist), leaving consumers on
+	// the partial plist.
+	SkipFamilyRegen bool
 }
 
 // Internal seams so tests can swap out the real podman calls. The defaults
@@ -30,6 +40,11 @@ var (
 	removeContainerFn  = podman.RemoveContainer
 	removeQuadletFn    = podman.RemoveQuadlet
 	removeUnitStatusFn = podman.UnitStatus
+
+	// removeRegenerateFamilyFn lets tests observe whether the regen pass
+	// fired without spinning up a real consumer. Defaults to the real
+	// RegenerateFamilyConsumers.
+	removeRegenerateFamilyFn = RegenerateFamilyConsumers
 
 	// osRenameFn is the rename seam used by renameDataAside. Tests swap it
 	// to inject EXDEV without needing two filesystems.
@@ -92,8 +107,8 @@ func RemoveService(name string, opts RemoveOptions, emit func(PhaseEvent)) error
 	}
 
 	emit(PhaseEvent{Phase: "regenerating_consumers"})
-	if family != "" {
-		RegenerateFamilyConsumers(family)
+	if family != "" && !opts.SkipFamilyRegen {
+		removeRegenerateFamilyFn(family)
 	}
 
 	emit(PhaseEvent{Phase: "done"})

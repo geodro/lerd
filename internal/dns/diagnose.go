@@ -71,10 +71,50 @@ func diagnose(tld string, p probeFns) Diagnostic {
 	}
 	d := Diagnostic{TLD: tld, FirstFailure: -1}
 
-	// Rung 1 — lerd-dns container.
-	if p.containerRunning() {
+	// Rung 1, lerd-dns container, with a fallback check so a host-side
+	// dnsmasq owning :5300 (Homebrew, system package) doesn't get
+	// misreported as "container not running".
+	switch {
+	case p.containerRunning():
 		d.Steps = append(d.Steps, Step{Name: "lerd-dns container", Status: StepOK, Detail: "running"})
-	} else {
+	case p.portOpen("127.0.0.1", 5300):
+		// Something is on :5300 but it's not our container. Probe it:
+		//   - answer == 127.0.0.1: legacy resolver matching lerd's mapping
+		//   - any other IP:        legacy resolver pointing elsewhere
+		//                          (e.g. LAN IP for cross-device testing)
+		//   - error or empty:      port squatted by something non-DNS
+		answer, err := p.dnsmasqAnswer(tld)
+		switch {
+		case err == nil && answer == "127.0.0.1":
+			d.Steps = append(d.Steps, Step{
+				Name:   "lerd-dns container",
+				Status: StepWarn,
+				Detail: "not running; a host-side resolver on :5300 is answering ." + tld + " with 127.0.0.1",
+				Hint:   "lerd is not managing DNS here. Either keep your host resolver (no action), or stop it (e.g. `brew services stop dnsmasq`) and run `lerd start` to switch to lerd-managed DNS.",
+			})
+		case err == nil && answer != "":
+			d.Steps = append(d.Steps, Step{
+				Name:   "lerd-dns container",
+				Status: StepWarn,
+				Detail: fmt.Sprintf("not running; a host-side resolver on :5300 is answering .%s with %s (lerd's default is 127.0.0.1)", tld, answer),
+				Hint:   "lerd is not managing DNS here. Your host resolver is mapping ." + tld + " to a different address. Keep using it, or stop it and run `lerd start` to switch to lerd-managed DNS pointing at 127.0.0.1.",
+			})
+		default:
+			detail := "not running; another process owns :5300 but didn't resolve ." + tld
+			if err != nil {
+				detail += " (" + err.Error() + ")"
+			} else if answer == "" {
+				detail += " (empty answer)"
+			}
+			d.Steps = append(d.Steps, Step{
+				Name:   "lerd-dns container",
+				Status: StepFail,
+				Detail: detail,
+				Hint:   "identify the holder: " + findListenerCmd(5300),
+			})
+		}
+		return finalize(d)
+	default:
 		d.Steps = append(d.Steps, Step{
 			Name:   "lerd-dns container",
 			Status: StepFail,

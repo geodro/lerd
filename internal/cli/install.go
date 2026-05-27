@@ -70,8 +70,11 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 			podman.IPv6DisabledMarkerPath("lerd"))
 	}
 
-	// On macOS, Podman Machine must be running before any podman commands.
+	// Sample LastUp before ensure so an internal stop+start isn't mistaken
+	// for an external machine restart by healMachineRestartIfNeeded below.
+	preEnsureLastUp := currentMachineLastUp()
 	ensurePodmanMachineRunning()
+	healMachineRestartIfNeeded(preEnsureLastUp)
 
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err
@@ -119,7 +122,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 			fmt.Println()
 			restored, dualStack, mErr := podman.RecreateNetwork("lerd", desiredDNS)
 			if mErr != nil {
-				return fmt.Errorf("recreating lerd network: %w", mErr)
+				return mErr
 			}
 			if dualStack {
 				fmt.Println("    Recreated lerd network as dual-stack v4+v6.")
@@ -717,10 +720,32 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// stopped — `lerd update` running install via re-exec must not flip
 	// disabled units back on.
 	if autostartOn {
+		// Rebuild FPM images when the embedded Containerfile changed since
+		// the last build — BuildFPMImage no-ops when the image already
+		// exists, so `brew upgrade && lerd install` would otherwise ship
+		// new binary against stale images. Gated by autostartOn because
+		// php:rebuild restarts FPM and worker units unconditionally.
+		activeFPM, _ := phpDet.ListInstalled()
+		if podman.NeedsFPMRebuild(activeFPM) {
+			fmt.Println("\n==> PHP-FPM Containerfile changed — rebuilding images")
+			self, err := os.Executable()
+			if err != nil {
+				fmt.Printf("  WARN: locating lerd binary for php:rebuild: %v\n", err)
+			} else {
+				rebuildCmd := exec.Command(self, "php:rebuild")
+				rebuildCmd.Stdout = os.Stdout
+				rebuildCmd.Stderr = os.Stderr
+				rebuildCmd.Stdin = os.Stdin
+				if err := rebuildCmd.Run(); err != nil {
+					fmt.Printf("  WARN: php:rebuild failed: %v\n", err)
+				}
+			}
+		}
+
 		// Start installed PHP FPM containers whose images are now available.
-		if fpmVersions, _ := phpDet.ListInstalled(); len(fpmVersions) > 0 {
+		if len(activeFPM) > 0 {
 			var fpmJobs []BuildJob
-			for _, v := range fpmVersions {
+			for _, v := range activeFPM {
 				ver := v
 				short := strings.ReplaceAll(ver, ".", "")
 				if podman.RunSilent("image", "exists", "lerd-php"+short+"-fpm:local") != nil {

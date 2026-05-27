@@ -1,9 +1,13 @@
 package podman
 
 import (
+	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/geodro/lerd/internal/config"
 )
 
 func TestBuildCustomExtBlock_Empty(t *testing.T) {
@@ -180,4 +184,240 @@ func TestPhpExtensionLoaded(t *testing.T) {
 			t.Errorf("phpExtensionLoaded(out, %q) = %v, want %v", ext, got, want)
 		}
 	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_NoActiveVersions_NoRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, err := ContainerfileHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if NeedsFPMRebuild(nil) {
+		t.Error("expected no rebuild when cache matches and no active versions")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LabelMatches_NoRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevLabel := imageLabelFn
+	imageLabelFn = func(image, key string) string { return current }
+	t.Cleanup(func() { imageLabelFn = prevLabel })
+
+	if NeedsFPMRebuild([]string{"8.4"}) {
+		t.Error("expected no rebuild when both cache and label match the embedded Containerfile")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LabelMismatch_TriggersRebuild(t *testing.T) {
+	// Poisoned-state recovery: an older lerd binary advanced the cache file
+	// without rebuilding, so the cache says "up to date" but the active
+	// image carries the old hash as its label.
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevLabel := imageLabelFn
+	imageLabelFn = func(image, key string) string { return "deadbeefoldhash" }
+	t.Cleanup(func() { imageLabelFn = prevLabel })
+
+	if !NeedsFPMRebuild([]string{"8.4"}) {
+		t.Error("expected rebuild when image label disagrees with the embedded Containerfile hash (the poisoned-state recovery path)")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMatches_LegacyImageWithoutLabel_TriggersRebuild(t *testing.T) {
+	// Images built by an even older lerd that predates the label entirely
+	// must also recover automatically.
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevLabel := imageLabelFn
+	imageLabelFn = func(image, key string) string { return "" }
+	t.Cleanup(func() { imageLabelFn = prevLabel })
+
+	if !NeedsFPMRebuild([]string{"8.4"}) {
+		t.Error("expected rebuild when the image carries no fpm-containerfile-hash label (pre-label lerd build)")
+	}
+}
+
+func TestNeedsFPMRebuild_CacheMismatch_TriggersRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Stored hash from a hypothetical old template.
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte("stale-cached-hash"), 0644)
+
+	if !NeedsFPMRebuild(nil) {
+		t.Error("expected rebuild when the cache file disagrees with the embedded Containerfile")
+	}
+}
+
+func TestNeedsFPMRebuild_OrphanLegacyImagesDoNotForceRebuild(t *testing.T) {
+	// Pre-v1.22.0 images for PHP versions the user has since removed
+	// (lerd-php72-fpm:local, etc.) carry no hash label. The first label
+	// scan iterated every lerd-php*-fpm:local image on disk and would
+	// return true forever on those orphans, even when every active
+	// version had a correct label.
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevLabel := imageLabelFn
+	imageLabelFn = func(image, key string) string {
+		switch image {
+		case "lerd-php83-fpm:local", "lerd-php84-fpm:local", "lerd-php85-fpm:local":
+			return current
+		default:
+			return "" // orphan, no label
+		}
+	}
+	t.Cleanup(func() { imageLabelFn = prevLabel })
+
+	if NeedsFPMRebuild([]string{"8.3", "8.4", "8.5"}) {
+		t.Error("expected no rebuild: every active version's label matches current, orphans must be ignored")
+	}
+}
+
+func TestNeedsFPMRebuild_ActiveVersionLabelMismatchTriggersRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := ContainerfileHash()
+	_ = os.WriteFile(config.PHPImageHashFile(), []byte(current), 0644)
+
+	prevLabel := imageLabelFn
+	imageLabelFn = func(image, key string) string {
+		if image == "lerd-php84-fpm:local" {
+			return "stale-label-from-poisoned-cache"
+		}
+		return current
+	}
+	t.Cleanup(func() { imageLabelFn = prevLabel })
+
+	if !NeedsFPMRebuild([]string{"8.3", "8.4"}) {
+		t.Error("expected rebuild: active version 8.4's label disagrees with current")
+	}
+}
+
+func TestNeedsFPMRebuild_HashError_TriggersRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevHash := containerfileHashFn
+	containerfileHashFn = func() (string, error) { return "", errors.New("embed unreadable") }
+	t.Cleanup(func() { containerfileHashFn = prevHash })
+
+	if !NeedsFPMRebuild(nil) {
+		t.Error("expected rebuild when the Containerfile hash cannot be computed")
+	}
+}
+
+func TestNeedsFPMRebuild_NoCacheNoActiveVersions_NoRebuild(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := os.MkdirAll(config.DataDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if NeedsFPMRebuild(nil) {
+		t.Error("expected no rebuild on a fresh install (no cache, no active versions): nothing to update")
+	}
+}
+
+func TestFPMImageName(t *testing.T) {
+	cases := map[string]string{
+		"8.3": "lerd-php83-fpm:local",
+		"8.4": "lerd-php84-fpm:local",
+		"7.2": "lerd-php72-fpm:local",
+	}
+	for version, want := range cases {
+		if got := FPMImageName(version); got != want {
+			t.Errorf("FPMImageName(%q) = %q, want %q", version, got, want)
+		}
+	}
+}
+
+func TestFPMBuildArgs_ContainsHashLabel(t *testing.T) {
+	args := fpmBuildArgs("lerd-php84-fpm:local", "abc123", false)
+	if !sliceContainsPair(args, "--label", fpmContainerfileHashLabel+"=abc123") {
+		t.Errorf("build args missing the containerfile-hash label\nargs: %v", args)
+	}
+	if sliceContains(args, "--no-cache") {
+		t.Errorf("force=false should not add --no-cache, got: %v", args)
+	}
+}
+
+func TestFPMBuildArgs_ForceAddsNoCache(t *testing.T) {
+	args := fpmBuildArgs("lerd-php84-fpm:local", "abc123", true)
+	if !sliceContains(args, "--no-cache") {
+		t.Errorf("force=true should add --no-cache, got: %v", args)
+	}
+	// Label must still be present in the force path so a forced rebuild
+	// stamps the current hash and clears any poisoned-state label drift.
+	if !sliceContainsPair(args, "--label", fpmContainerfileHashLabel+"=abc123") {
+		t.Errorf("force path lost the containerfile-hash label\nargs: %v", args)
+	}
+}
+
+func TestFPMBuildArgs_TagsImageName(t *testing.T) {
+	args := fpmBuildArgs("lerd-php85-fpm:local", "h", false)
+	if !sliceContainsPair(args, "-t", "lerd-php85-fpm:local") {
+		t.Errorf("missing -t <image> pair\nargs: %v", args)
+	}
+}
+
+// sliceContains reports whether needle appears in haystack.
+func sliceContains(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// sliceContainsPair reports whether haystack contains `flag` immediately
+// followed by `value` (the exec.Command space-separated arg/value form).
+func sliceContainsPair(haystack []string, flag, value string) bool {
+	for i := 0; i < len(haystack)-1; i++ {
+		if haystack[i] == flag && haystack[i+1] == value {
+			return true
+		}
+	}
+	return false
 }

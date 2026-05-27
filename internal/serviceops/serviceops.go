@@ -118,12 +118,20 @@ func InstallPresetByName(name, version string) (*config.CustomService, error) {
 }
 
 // MissingPresetDependencies returns the names of services that svc declares
-// in depends_on but which are neither built-in nor already installed as
-// custom services.
+// in depends_on but which are not currently installed. A built-in (default
+// preset) counts as installed only when its quadlet is on disk: the legacy
+// "built-ins are always available" assumption broke once
+// `lerd service remove <builtin>` shipped, and a dependent install that
+// later hits EnsureServiceRunning on a missing built-in would fail with no
+// rollback (which is exactly what reinstall pre-flight is meant to prevent).
 func MissingPresetDependencies(svc *config.CustomService) []string {
 	var missing []string
 	for _, dep := range svc.DependsOn {
 		if IsBuiltin(dep) {
+			if podman.QuadletInstalled("lerd-" + dep) {
+				continue
+			}
+			missing = append(missing, dep)
 			continue
 		}
 		if _, err := config.LoadCustomService(dep); err == nil {

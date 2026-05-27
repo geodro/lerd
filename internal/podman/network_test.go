@@ -1,6 +1,8 @@
 package podman
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -72,6 +74,52 @@ func TestNetworkCreateArgs(t *testing.T) {
 			got := networkCreateArgs("lerd", tt.dualStack, tt.dns)
 			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
 				t.Errorf("networkCreateArgs:\n got  %v\n want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFriendlyNetworkCreateError(t *testing.T) {
+	raw := errors.New("podman network create --driver bridge --dns 1.1.1.1 lerd: exit status 125\nError: unknown flag: --dns\nUsage: ...")
+	// An unrelated unknown flag whose argv echo still contains --dns must not
+	// be rewritten as "podman too old", since Run() always prepends the full
+	// command line to its error string.
+	otherFlag := errors.New("podman network create --driver bridge --dns 1.1.1.1 lerd: exit status 125\nError: unknown flag: --driver\nUsage: ...")
+	dnsSearchFlag := errors.New("podman network create --dns-search example.com lerd: exit status 125\nError: unknown flag: --dns-search\nUsage: ...")
+	tests := []struct {
+		name        string
+		in          error
+		wantSame    bool
+		wantContain string
+	}{
+		{"nil passthrough", nil, true, ""},
+		{"unrelated passthrough", errors.New("podman: command not found"), true, ""},
+		{"unknown flag without --dns passthrough", errors.New("Error: unknown flag: --quiet"), true, ""},
+		{"unknown flag --driver with --dns in argv passthrough", otherFlag, true, ""},
+		{"unknown flag --dns-search passthrough", dnsSearchFlag, true, ""},
+		{"old podman --dns rewritten", raw, false, "podman 4.5"},
+		{"wrapped old podman --dns rewritten", fmt.Errorf("wrapper: %w", raw), false, "podman 4.5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := friendlyNetworkCreateError(tt.in)
+			if tt.in == nil {
+				if got != nil {
+					t.Fatalf("expected nil, got %v", got)
+				}
+				return
+			}
+			if tt.wantSame {
+				if !errors.Is(got, tt.in) {
+					t.Fatalf("expected passthrough (errors.Is true), got %v", got)
+				}
+				return
+			}
+			if !strings.Contains(got.Error(), tt.wantContain) {
+				t.Fatalf("expected %q in %q", tt.wantContain, got.Error())
+			}
+			if !errors.Is(got, tt.in) {
+				t.Fatalf("rewritten error must still unwrap to the original via %%w; got %v", got)
 			}
 		})
 	}

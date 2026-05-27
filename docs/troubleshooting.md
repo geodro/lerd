@@ -283,6 +283,14 @@ podman system reset
 ```
 :::
 
+::: details Error: unknown flag: --dns (during `lerd install`)
+Symptom: `lerd install` aborts at the `podman network create` step with `Error: unknown flag: --dns`.
+
+Cause: your podman is older than 4.5. The `--dns` flag on `podman network create` was added in podman 4.5 (April 2023), and lerd needs it to write upstream DNS servers into netavark's per-network JSON atomically (otherwise the post-create `network update --dns-add` path crashes on Ubuntu 24.04's netavark <1.11). Distributions that ship podman older than 4.5: Ubuntu 22.04 / Zorin 17 (3.4.4), Debian 12 (4.3.1), Debian 11 (3.0.1).
+
+Fix: upgrade podman to 4.5 or newer. On Ubuntu 22.04 and Zorin 17 the main archive doesn't ship a new enough podman, but the [Kubic libcontainers OBS repo](https://podman.io/docs/installation#ubuntu-2204-2104-2010-2004) does (it's the path podman's own docs recommend). On Debian 12 enable bookworm-backports and run `sudo apt install -t bookworm-backports podman`. See the [requirements page](getting-started/requirements.md#podman-4-5-minimum) for the full distro/version table.
+:::
+
 ::: details Error: unable to parse ip fe80::...%18 specified in AddDNSServer: invalid argument
 Your host's DNS configuration includes a zoned link-local IPv6 nameserver, typically advertised by your router via SLAAC + RDNSS. The zone identifier (`%18` is a kernel interface index) is meaningless inside a container's network namespace, and netavark refuses to accept it.
 

@@ -402,9 +402,13 @@ func checkPortConflicts(units []string) {
 }
 
 func runStart(_ *cobra.Command, _ []string) error {
-	// On macOS, ensure Podman Machine is up and migrate any stale plists.
+	// Pre-ensure LastUp lets healMachineRestartIfNeeded distinguish an
+	// external podman-machine restart (which orphans gvproxy port forwards)
+	// from a stop+start the ensure itself performs. No-op on Linux.
+	preEnsureLastUp := currentMachineLastUp()
 	ensurePodmanMachineRunning()
 	migrateExecWorkerPlists()
+	healMachineRestartIfNeeded(preEnsureLastUp)
 
 	// Ensure the lerd bridge network exists. On macOS the network is stored
 	// inside the Podman Machine VM; it may be absent after a fresh machine

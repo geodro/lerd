@@ -21,7 +21,7 @@ func NewTuiCmd() *cobra.Command {
 			if !term.IsTerminal(int(os.Stdout.Fd())) {
 				return fmt.Errorf("lerd tui requires an interactive terminal")
 			}
-			return tui.Run(version.String())
+			return tui.Run(version.Version)
 		},
 	}
 }

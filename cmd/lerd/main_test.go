@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/dns"
 )
 
 func isolateConfig(t *testing.T) {
@@ -156,5 +159,77 @@ func TestShouldAutoStartWorkersOnSync(t *testing.T) {
 		if got := shouldAutoStartWorkersOnSync(action); got != want {
 			t.Errorf("shouldAutoStartWorkersOnSync(%q) = %v, want %v", action, got, want)
 		}
+	}
+}
+
+func TestPrintDNSDiagnostic_WarnStepShowsHint(t *testing.T) {
+	// Regression for the field-report scenario: the legacy-host-resolver
+	// path emits a WARN step whose Hint explains how to switch back to
+	// lerd-managed DNS. The renderer used to print hints only on FAIL
+	// steps, silently swallowing this guidance.
+	diag := dns.Diagnostic{
+		TLD:          "test",
+		FirstFailure: -1,
+		Steps: []dns.Step{{
+			Name:   "lerd-dns container",
+			Status: dns.StepWarn,
+			Detail: "not running; a host-side resolver on :5300 is answering .test with 127.0.0.1",
+			Hint:   "lerd is not managing DNS here. Stop your host resolver and run `lerd start` to switch.",
+		}},
+	}
+	var buf bytes.Buffer
+	printDNSDiagnostic(&buf, diag)
+	out := buf.String()
+
+	for _, want := range []string{
+		"DNS is working",
+		"! lerd-dns container",
+		"host-side resolver on :5300",
+		"hint:",
+		"Stop your host resolver",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nfull output:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintDNSDiagnostic_FailStepShowsHint(t *testing.T) {
+	diag := dns.Diagnostic{
+		TLD:          "test",
+		FirstFailure: 0,
+		Steps: []dns.Step{{
+			Name:   "lerd-dns container",
+			Status: dns.StepFail,
+			Detail: "not running",
+			Hint:   "lerd start  (or check podman logs lerd-dns)",
+		}},
+	}
+	var buf bytes.Buffer
+	printDNSDiagnostic(&buf, diag)
+	out := buf.String()
+	for _, want := range []string{"DNS is NOT working", "✗ lerd-dns container", "hint: lerd start"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nfull output:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintDNSDiagnostic_OKStepHasNoHintLine(t *testing.T) {
+	diag := dns.Diagnostic{
+		TLD:          "test",
+		FirstFailure: -1,
+		Steps: []dns.Step{{
+			Name:   "lerd-dns container",
+			Status: dns.StepOK,
+			Detail: "running",
+			Hint:   "this hint should be ignored on OK steps",
+		}},
+	}
+	var buf bytes.Buffer
+	printDNSDiagnostic(&buf, diag)
+	out := buf.String()
+	if strings.Contains(out, "hint:") {
+		t.Errorf("OK step should not print a hint line, got:\n%s", out)
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
-	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/store"
 	"github.com/geodro/lerd/internal/systemd"
@@ -178,30 +177,8 @@ func runUpdate(currentVersion string, beta bool) error {
 		}
 	}
 
-	// Only rebuild PHP-FPM images if the embedded Containerfile changed.
-	if podman.NeedsFPMRebuild() {
-		fmt.Println("\n==> PHP-FPM Containerfile changed — rebuilding images")
-		rebuildCmd := exec.Command(self, "php:rebuild")
-		rebuildCmd.Stdout = os.Stdout
-		rebuildCmd.Stderr = os.Stderr
-		rebuildCmd.Stdin = os.Stdin
-		if err := rebuildCmd.Run(); err != nil {
-			return err
-		}
-	} else {
-		fmt.Println("\n==> PHP-FPM images are up to date, skipping rebuild")
-		// Ensure FPM containers are running after the install step.
-		versions, _ := phpPkg.ListInstalled()
-		for _, v := range versions {
-			unit := "lerd-php" + strings.ReplaceAll(v, ".", "") + "-fpm"
-			fmt.Printf("  --> %s ... ", unit)
-			if err := podman.StartUnit(unit); err != nil {
-				fmt.Printf("WARN (%v)\n", err)
-			} else {
-				fmt.Println("OK")
-			}
-		}
-	}
+	// FPM rebuild + container starts now happen inside `lerd install`
+	// (gated on autostart), so we don't repeat them here.
 
 	restartLerdUserServices()
 	return nil
