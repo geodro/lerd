@@ -767,19 +767,23 @@ func EnsureDefaultVhost() error {
 	onDiskHash := contentHashHex(onDisk)
 	lastWritten := strings.TrimSpace(readFileOrEmpty(sentinelPath))
 	if lastWritten == "" {
-		// Sentinel missing (deleted by user, or a prior sentinel-write
-		// crashed). If the file's content matches the canonical bytes
-		// lerd would write, treat it as ours and re-record the sentinel
-		// so subsequent runs can tell managed from edited. Otherwise
-		// it's effectively user-managed.
+		// Sentinel missing. Three plausible causes:
+		//   1. Sentinel-write crashed on a prior run (file content is
+		//      lerd's canonical → reclaim by writing the sentinel).
+		//   2. User upgraded from a pre-sentinel lerd binary; on-disk
+		//      content is OLD lerd's template, which the user may not
+		//      have edited but we can't tell apart from a real edit.
+		//   3. User has hand-edited the file.
+		// Cases 2 and 3 are indistinguishable, so we preserve and tell
+		// the user how to opt back in to lerd's catch-all if they want it.
 		if onDiskHash == canonicalHash {
 			return os.WriteFile(sentinelPath, []byte(canonicalHash), 0644)
 		}
-		fmt.Printf("  [INFO] preserving user-modified %s; remove the file to re-enable lerd's catch-all\n", path)
+		fmt.Printf("  [INFO] %s has no lerd sentinel; preserving on-disk content. If this is from a lerd upgrade and you haven't edited it, run: rm %s\n", path, path)
 		return nil
 	}
 	if lastWritten != onDiskHash {
-		fmt.Printf("  [INFO] preserving user-modified %s; remove the file to re-enable lerd's catch-all\n", path)
+		fmt.Printf("  [INFO] %s differs from lerd's recorded last-write; preserving your edits. Remove the file to restore lerd's catch-all.\n", path)
 		return nil
 	}
 	if onDiskHash == canonicalHash {
