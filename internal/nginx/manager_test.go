@@ -727,6 +727,126 @@ func TestEnsureDefaultVhost_writesDefaultConf(t *testing.T) {
 	if _, err := os.Stat(errorPage); err != nil {
 		t.Errorf("expected error page at %s", errorPage)
 	}
+	// Sentinel hash must be written alongside so subsequent runs can
+	// distinguish lerd-managed content from a user edit.
+	sentinel := filepath.Join(confD, "_default.conf"+defaultVhostManagedHashSuffix)
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("expected sentinel at %s", sentinel)
+	}
+}
+
+func TestEnsureDefaultVhost_preservesUserEdits(t *testing.T) {
+	confD := setupConfD(t)
+	// First pass: lerd writes the canonical content + sentinel.
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("first EnsureDefaultVhost: %v", err)
+	}
+	// User patches the file.
+	path := filepath.Join(confD, "_default.conf")
+	userEdited := []byte("# hand-tuned for staging\nserver {\n    listen 80;\n    ssl_reject_handshake off;\n}\n")
+	if err := os.WriteFile(path, userEdited, 0644); err != nil {
+		t.Fatalf("simulating user edit: %v", err)
+	}
+	// Second pass: should NOT overwrite.
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("second EnsureDefaultVhost: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("re-reading conf: %v", err)
+	}
+	if string(got) != string(userEdited) {
+		t.Errorf("user edit was overwritten\nwant:\n%s\ngot:\n%s", userEdited, got)
+	}
+}
+
+func TestEnsureDefaultVhost_idempotentWhenUntouched(t *testing.T) {
+	confD := setupConfD(t)
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("first EnsureDefaultVhost: %v", err)
+	}
+	path := filepath.Join(confD, "_default.conf")
+	before, _ := os.ReadFile(path)
+	// Second pass with no user edits: bytes should match exactly.
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("second EnsureDefaultVhost: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Errorf("re-run without edits should be a no-op\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestEnsureDefaultVhost_templateChangeAutoUpdatesWhenUnedited(t *testing.T) {
+	confD := setupConfD(t)
+	// Simulate a previously-installed lerd that wrote OLD content + a
+	// sentinel matching that old content. Reaching EnsureDefaultVhost
+	// today should detect the template-vs-on-disk drift and rewrite.
+	if err := os.MkdirAll(confD, 0755); err != nil {
+		t.Fatal(err)
+	}
+	stale := []byte("# old lerd template, before the latest binary\nserver { listen 80; }\n")
+	path := filepath.Join(confD, "_default.conf")
+	if err := os.WriteFile(path, stale, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+defaultVhostManagedHashSuffix, []byte(contentHashHex(stale)), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("EnsureDefaultVhost: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !strings.Contains(string(got), "default_server") {
+		t.Errorf("expected lerd to overwrite stale content with the current template, got:\n%s", got)
+	}
+}
+
+func TestEnsureDefaultVhost_recoversManagementWhenSentinelMissingButContentMatches(t *testing.T) {
+	confD := setupConfD(t)
+	// Simulate a sentinel-write crash from a prior run: the conf is lerd's
+	// canonical bytes, but the sentinel file never made it to disk. The
+	// next run must reclaim management (write the sentinel) rather than
+	// silently treat the file as user-managed.
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("first EnsureDefaultVhost: %v", err)
+	}
+	path := filepath.Join(confD, "_default.conf")
+	sentinel := path + defaultVhostManagedHashSuffix
+	if err := os.Remove(sentinel); err != nil {
+		t.Fatalf("removing sentinel: %v", err)
+	}
+
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("recovery EnsureDefaultVhost: %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("expected sentinel to be recreated when on-disk matches canonical, got %v", err)
+	}
+}
+
+func TestEnsureDefaultVhost_removingFileResetsManagement(t *testing.T) {
+	confD := setupConfD(t)
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("first EnsureDefaultVhost: %v", err)
+	}
+	path := filepath.Join(confD, "_default.conf")
+	sentinel := path + defaultVhostManagedHashSuffix
+	// User deletes the file (and may have left the sentinel; either way,
+	// lerd should regenerate the catch-all on the next run).
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("removing conf: %v", err)
+	}
+	if err := EnsureDefaultVhost(); err != nil {
+		t.Fatalf("regenerate after delete: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected lerd to recreate the file after user removed it: %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("expected sentinel to be re-created alongside: %v", err)
+	}
 }
 
 func TestEnsureLerdVhost_linuxProxiesUnixSocket(t *testing.T) {
