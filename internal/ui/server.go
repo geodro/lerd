@@ -2389,6 +2389,66 @@ func handleLANQR(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "qr.png", time.Time{}, bytes.NewReader(png))
 }
 
+// nginxSiteTemplate seeds the per-site nginx override editor when no file
+// exists yet. It documents the contract and shows a couple of common snippets,
+// all commented so the file is an inert no-op until the user opts in.
+const nginxSiteTemplate = `# Lerd per-site nginx overrides.
+#
+# Included at the end of this site's server { } block. Lerd never overwrites
+# this file, so edits survive vhost regeneration and ` + "`lerd update`" + `. Add
+# directives valid inside a server block, then save to reload nginx.
+
+# client_max_body_size 100m;
+# location /ws { proxy_pass http://127.0.0.1:6001; proxy_http_version 1.1; }
+`
+
+// handleSiteNginx reads (GET) or saves (POST) a site's custom.d nginx override.
+// The override is bind-mounted into lerd-nginx and included at the end of the
+// site's server block; saving reloads nginx so the change takes effect. The
+// domain is validated against the registered sites, which also blocks any path
+// traversal via the {domain} segment.
+func handleSiteNginx(w http.ResponseWriter, r *http.Request, domain string) {
+	if _, err := config.FindSiteByDomain(domain); err != nil {
+		http.Error(w, "site not found", http.StatusNotFound)
+		return
+	}
+	path := filepath.Join(config.NginxCustomD(), domain+".conf")
+	if r.Method == http.MethodGet {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			body = []byte(nginxSiteTemplate)
+		}
+		writeJSON(w, map[string]any{"path": path, "content": string(body)})
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(config.NginxCustomD(), 0755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// nginx -s reload validates the new config and keeps the running config if
+	// it's invalid, so a bad edit surfaces here without taking the site down.
+	if err := nginx.Reload(); err != nil {
+		http.Error(w, "saved, but nginx reload failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
 	OK    bool   `json:"ok"`
@@ -2454,6 +2514,12 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	// .env file viewer is a GET endpoint served separately.
 	if action == "env" {
 		handleSiteEnv(w, r)
+		return
+	}
+
+	// Per-site nginx override editor (GET reads, POST saves + reloads).
+	if action == "nginx" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		handleSiteNginx(w, r, domain)
 		return
 	}
 

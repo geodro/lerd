@@ -259,6 +259,28 @@ export async function saveSiteEnv(
   }
 }
 
+export interface SiteNginx {
+  path: string;
+  content: string;
+}
+
+export async function getSiteNginx(domain: string): Promise<SiteNginx> {
+  return apiJson<SiteNginx>(site(domain, 'nginx'));
+}
+
+export async function saveSiteNginx(domain: string, content: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(site(domain, 'nginx'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export const restartSite = (d: string) => postAction(site(d, 'restart'));
 export const pauseSite = (d: string) => postAction(site(d, 'pause'));
 export const resumeSite = (d: string) => postAction(site(d, 'unpause'));
