@@ -133,10 +133,9 @@ func xmlEscStr(s string) string {
 	return buf.String()
 }
 
-// keepAlivePolicy mirrors the subset of systemd Restart= values we care about.
-// launchd's bare `KeepAlive=true` respawns on any exit, including a clean one,
-// which doesn't match systemd `Restart=on-failure` semantics — that mismatch
-// caused the tray Quit button to be reincarnated by launchd immediately.
+// keepAlivePolicy mirrors the subset of systemd Restart= values we care
+// about; bare KeepAlive=true respawns on clean exit, which is wrong for
+// Restart=on-failure (was breaking the tray Quit button).
 type keepAlivePolicy int
 
 const (

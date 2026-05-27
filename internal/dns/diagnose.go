@@ -71,11 +71,9 @@ func diagnose(tld string, p probeFns) Diagnostic {
 	}
 	d := Diagnostic{TLD: tld, FirstFailure: -1}
 
-	// Rung 1 — lerd-dns container, with a fallback check for legacy
-	// host-side resolvers. The original chain reported "container not
-	// running" whenever lerd-dns was absent, which was a false negative
-	// for users running a host dnsmasq (Homebrew, system package) that
-	// owns :5300 and resolves .test without lerd's container.
+	// Rung 1, lerd-dns container, with a fallback check so a host-side
+	// dnsmasq owning :5300 (Homebrew, system package) doesn't get
+	// misreported as "container not running".
 	switch {
 	case p.containerRunning():
 		d.Steps = append(d.Steps, Step{Name: "lerd-dns container", Status: StepOK, Detail: "running"})
