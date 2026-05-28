@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -198,6 +200,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/version", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, currentVersion)
 	}))
+	mux.HandleFunc("/api/nginx/config", withCORS(handleNginxConfig))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
 	mux.HandleFunc("/api/php-versions/", withCORS(publishAfter(handlePHPVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
@@ -820,28 +823,31 @@ func buildSites() []SiteResponse {
 
 // ServiceResponse is the response for GET /api/services.
 type ServiceResponse struct {
-	Name               string            `json:"name"`
-	Status             string            `json:"status"`
-	Version            string            `json:"version,omitempty"`
-	EnvVars            map[string]string `json:"env_vars"`
-	Dashboard          string            `json:"dashboard,omitempty"`
-	DashboardExternal  bool              `json:"dashboard_external,omitempty"`
-	ConnectionURL      string            `json:"connection_url,omitempty"`
-	Custom             bool              `json:"custom,omitempty"`
-	IsDefault          bool              `json:"is_default,omitempty"`
-	SiteCount          int               `json:"site_count"`
-	SiteDomains        []string          `json:"site_domains,omitempty"`
-	Pinned             bool              `json:"pinned"`
-	Paused             bool              `json:"paused,omitempty"`
-	DependsOn          []string          `json:"depends_on,omitempty"`
-	QueueSite          string            `json:"queue_site,omitempty"`
-	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
-	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
-	ReverbSite         string            `json:"reverb_site,omitempty"`
-	HorizonSite        string            `json:"horizon_site,omitempty"`
-	WorkerSite         string            `json:"worker_site,omitempty"`
-	WorkerName         string            `json:"worker_name,omitempty"`
-	WorkerLabel        string            `json:"worker_label,omitempty"`
+	Name              string            `json:"name"`
+	Status            string            `json:"status"`
+	Version           string            `json:"version,omitempty"`
+	EnvVars           map[string]string `json:"env_vars"`
+	Dashboard         string            `json:"dashboard,omitempty"`
+	DashboardExternal bool              `json:"dashboard_external,omitempty"`
+	ConnectionURL     string            `json:"connection_url,omitempty"`
+	Custom            bool              `json:"custom,omitempty"`
+	IsDefault         bool              `json:"is_default,omitempty"`
+	// Tunable is true when the service exposes a user-editable runtime config
+	// override (see config.ServiceTuningMount), so the UI can show a Tuning tab.
+	Tunable            bool     `json:"tunable,omitempty"`
+	SiteCount          int      `json:"site_count"`
+	SiteDomains        []string `json:"site_domains,omitempty"`
+	Pinned             bool     `json:"pinned"`
+	Paused             bool     `json:"paused,omitempty"`
+	DependsOn          []string `json:"depends_on,omitempty"`
+	QueueSite          string   `json:"queue_site,omitempty"`
+	StripeListenerSite string   `json:"stripe_listener_site,omitempty"`
+	ScheduleWorkerSite string   `json:"schedule_worker_site,omitempty"`
+	ReverbSite         string   `json:"reverb_site,omitempty"`
+	HorizonSite        string   `json:"horizon_site,omitempty"`
+	WorkerSite         string   `json:"worker_site,omitempty"`
+	WorkerName         string   `json:"worker_name,omitempty"`
+	WorkerLabel        string   `json:"worker_label,omitempty"`
 	// Set when this worker entry is for a per-worktree unit
 	// (lerd-<wname>-<site>-<wt>); empty for parent-site workers.
 	WorkerWorktree       string `json:"worker_worktree,omitempty"`
@@ -918,6 +924,21 @@ func buildServiceResponseWithPortList(name, ssOutput string) ServiceResponse {
 		Pinned:        config.ServiceIsPinned(name),
 		Paused:        config.ServiceIsPaused(name),
 		IsDefault:     config.IsDefaultPreset(name),
+	}
+	// Only advertise Tunable when the service is actually installed.
+	// ResolveServiceForTuning resolves built-in default presets even when
+	// the user has explicitly `lerd service remove`d them, so without the
+	// ServiceInstalled gate the UI would render a Tuning tab on a removed
+	// service — and clicking through would silently reinstall via the
+	// materialise + quadlet regen + restart path (closed at the handler
+	// level by the same guard, but the tab shouldn't appear in the first
+	// place).
+	if serviceops.ServiceInstalled(name) {
+		if svc, err := config.ResolveServiceForTuning(name); err == nil {
+			if _, ok := config.ServiceTuningMount(svc); ok {
+				resp.Tunable = true
+			}
+		}
 	}
 	// Default-preset services advertise update availability so the dashboard
 	// can show an "→ v8.4.3" badge. Stopped services also run the check so the
@@ -1007,6 +1028,7 @@ func buildServicesList() []ServiceResponse {
 		if status != "active" {
 			conflicts = portConflictsFor(unit, ssOutput)
 		}
+		_, tunable := config.ServiceTuningMount(svc)
 		services = append(services, ServiceResponse{
 			Name:              svc.Name,
 			Status:            status,
@@ -1016,6 +1038,7 @@ func buildServicesList() []ServiceResponse {
 			DashboardExternal: svc.DashboardExternal,
 			ConnectionURL:     svc.ConnectionURL,
 			Custom:            true,
+			Tunable:           tunable,
 			SiteCount:         countSitesUsingService(svc.Name),
 			SiteDomains:       sitesUsingService(svc.Name),
 			Pinned:            config.ServiceIsPinned(svc.Name),
@@ -1423,6 +1446,70 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
 		dispatchNotification(notificationForServiceOp("update", name, start, err))
+		return
+	}
+
+	// Tuning override: GET reads the user-editable config file (seeding it on
+	// first access), POST saves it and restarts the service so it re-reads.
+	if action == "config" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		// Install-presence guard: same threat model as the CLI side. Removed
+		// default presets still resolve through ResolveServiceForTuning's
+		// LoadPreset fallback, so without this gate a tab-click would silently
+		// reinstall the service via materialise + quadlet regen + restart.
+		if !serviceops.ServiceInstalled(name) {
+			http.Error(w, "service is not installed", http.StatusNotFound)
+			return
+		}
+		svc, err := config.ResolveServiceForTuning(name)
+		if err != nil {
+			http.Error(w, "service not installed", http.StatusNotFound)
+			return
+		}
+		target, ok := config.ServiceTuningMount(svc)
+		if !ok {
+			http.Error(w, "service does not support tuning", http.StatusBadRequest)
+			return
+		}
+		if err := config.MaterializeServiceTuning(svc); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		path := config.ServiceTuningFile(name)
+		if r.Method == http.MethodGet {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"supported": true, "target": target, "content": string(body)})
+			return
+		}
+		var req struct {
+			Content string `json:"content"`
+		}
+		// Cap the POST body so a multi-gigabyte payload can't be streamed
+		// straight to disk via os.WriteFile. 64 KiB matches the tinker /
+		// php.ini / nginx endpoints in this file.
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		// Write + regen + restart go through the shared serviceops helper
+		// so the CLI command and this handler can't drift from each other.
+		// SaveTuningOverride returns typed sentinels we map back to HTTP
+		// status (errors.Is) — everything else is a 500.
+		if err := serviceops.SaveTuningOverride(name, req.Content); err != nil {
+			switch {
+			case errors.Is(err, serviceops.ErrTuningServiceNotInstalled):
+				http.Error(w, err.Error(), http.StatusNotFound)
+			case errors.Is(err, serviceops.ErrTuningFamilyUnsupported):
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			default:
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
 
@@ -2389,6 +2476,154 @@ func handleLANQR(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "qr.png", time.Time{}, bytes.NewReader(png))
 }
 
+// nginxSiteTemplate seeds the per-site nginx override editor when no file
+// exists yet. It documents the contract and shows a couple of common snippets,
+// all commented so the file is an inert no-op until the user opts in.
+const nginxSiteTemplate = `# Lerd per-site nginx overrides.
+#
+# Included at the end of this site's server { } block. Lerd never overwrites
+# this file, so edits survive vhost regeneration and ` + "`lerd update`" + `. Add
+# directives valid inside a server block, then save to reload nginx.
+
+# client_max_body_size 100m;
+# location /ws { proxy_pass http://127.0.0.1:6001; proxy_http_version 1.1; }
+`
+
+// handleSiteNginx reads (GET) or saves (POST) a site's custom.d nginx override.
+// The override is bind-mounted into lerd-nginx and included at the end of the
+// site's server block; saving reloads nginx so the change takes effect. The
+// domain is validated against the registered sites, which also blocks any path
+// traversal via the {domain} segment.
+func handleSiteNginx(w http.ResponseWriter, r *http.Request, domain string) {
+	if _, err := config.FindSiteByDomain(domain); err != nil {
+		http.Error(w, "site not found", http.StatusNotFound)
+		return
+	}
+	path := filepath.Join(config.NginxCustomD(), domain+".conf")
+	if r.Method == http.MethodGet {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			body = []byte(nginxSiteTemplate)
+		}
+		writeJSON(w, map[string]any{"path": path, "content": string(body)})
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	// Cap the POST body so a multi-gigabyte payload can't stream straight to
+	// disk via os.WriteFile. 64 KiB matches the tinker / php.ini / global
+	// nginx endpoints. nginx itself would reject an oversized server-block
+	// override only at reload time — after the bytes already landed.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(config.NginxCustomD(), 0755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// nginx -s reload validates the new config and keeps the running config if
+	// it's invalid, so a bad edit surfaces here without taking the site down.
+	if err := nginx.Reload(); err != nil {
+		http.Error(w, "saved, but nginx reload failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// nginxHttpTemplate seeds the global http-level override editor when no file
+// exists yet. Loaded inside http{} after lerd's defaults, so user values win.
+const nginxHttpTemplate = `# Lerd global nginx http-level overrides.
+#
+# Loaded inside the http { } block, after lerd's defaults, so your values win.
+# Lerd never overwrites this file; saving reloads nginx.
+
+# client_max_body_size 100m;
+# gzip on;
+# gzip_types text/plain application/json application/javascript text/css;
+# proxy_buffers 8 16k;
+# proxy_buffer_size 32k;
+`
+
+// handleNginxConfig reads (GET) or saves (POST) the global http-level nginx
+// override at ~/.local/share/lerd/nginx/http.d/zz-lerd-user.conf, which is
+// bind-mounted into lerd-nginx and included at http{} level. Saving reloads
+// nginx so the change takes effect without recreating the container.
+func handleNginxConfig(w http.ResponseWriter, r *http.Request) {
+	path := config.NginxHttpUserConf()
+	if r.Method == http.MethodGet {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			body = []byte(nginxHttpTemplate)
+		}
+		writeJSON(w, map[string]any{"path": path, "content": string(body)})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	// Cap the POST body so a hostile (or accidental) multi-gigabyte
+	// payload can't be streamed straight to disk via os.WriteFile.
+	// 64 KiB matches the tinker / php.ini endpoints in this file.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	// Heal preconditions for installs predating this feature: rerender
+	// nginx.conf (which now carries the `include /etc/nginx/http.d/*.conf`
+	// line) and rewrite the lerd-nginx quadlet from the bundled template
+	// (which now carries the http.d Volume= mount). Without this, a freshly
+	// written http.d file is orphaned — nginx never includes it, the
+	// container never mounts the dir, and the editor would return ok:true
+	// while the change silently never takes effect. Mirrors how the
+	// php.ini handler calls WriteFPMQuadlet before restart.
+	if err := nginx.EnsureNginxConfig(); err != nil {
+		http.Error(w, "ensuring nginx config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	quadletChanged, err := nginx.RewriteNginxQuadlet()
+	if err != nil {
+		http.Error(w, "rewriting nginx quadlet: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// A new Volume= mount only takes effect on container (re)start —
+	// `nginx -s reload` won't pick up a quadlet change. Fall back to
+	// reload when the quadlet was already current (the common case after
+	// the first heal).
+	if quadletChanged {
+		_ = podman.DaemonReloadFn()
+		if err := podman.RestartUnit("lerd-nginx"); err != nil {
+			http.Error(w, "saved, but nginx restart failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if err := nginx.Reload(); err != nil {
+		http.Error(w, "saved, but nginx reload failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
 	OK    bool   `json:"ok"`
@@ -2454,6 +2689,12 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	// .env file viewer is a GET endpoint served separately.
 	if action == "env" {
 		handleSiteEnv(w, r)
+		return
+	}
+
+	// Per-site nginx override editor (GET reads, POST saves + reloads).
+	if action == "nginx" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		handleSiteNginx(w, r, domain)
 		return
 	}
 
@@ -3085,14 +3326,78 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
-	// path: /api/php-versions/{version}/{remove|set-default}
+	// path: /api/php-versions/{version}/{remove|set-default|config}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/php-versions/"), "/")
-	if len(parts) != 2 || r.Method != http.MethodPost {
+	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
 	}
 	version, action := parts[0], parts[1]
 	if !validVersion.MatchString(version) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// User php.ini override: GET reads the per-version 98-user.ini (seeding it
+	// on first access), POST saves it and restarts the FPM container so it
+	// re-reads the config. Mirrors the `lerd php:ini` CLI command.
+	if action == "config" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		// Reject versions that are not actually installed before we touch
+		// disk. The regex above only enforces shape; without this guard a GET
+		// against e.g. /api/php-versions/99.9/config would seed a brand-new
+		// 98-user.ini under a phantom version directory.
+		installed, _ := phpPkg.ListInstalled()
+		if !slices.Contains(installed, version) {
+			http.NotFound(w, r)
+			return
+		}
+		if err := podman.EnsureUserIni(version); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		path := config.PHPUserIniFile(version)
+		if r.Method == http.MethodGet {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"path": path, "content": string(body)})
+			return
+		}
+		// Cap the POST body so a hostile (or accidental) multi-gigabyte
+		// payload can't be streamed straight to disk via os.WriteFile.
+		// 64 KiB matches the tinker endpoints in this file.
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Ensure the quadlet carries the user-ini mount (may be absent on
+		// installs predating the feature). Surface failures as 500 — otherwise
+		// the freshly written file is orphaned, the container reads nothing,
+		// and the UI shows a successful save with no signal that the change
+		// never took effect.
+		if err := podman.WriteFPMQuadlet(version); err != nil {
+			http.Error(w, "updating php quadlet: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		short := strings.ReplaceAll(version, ".", "")
+		if err := podman.RestartUnit("lerd-php" + short + "-fpm"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
+
+	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}

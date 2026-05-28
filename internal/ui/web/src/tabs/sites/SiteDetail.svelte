@@ -5,6 +5,7 @@
   import SiteLogs from './SiteLogs.svelte';
   import SiteTinkerTab from './SiteTinkerTab.svelte';
   import SiteEnvTab from './SiteEnvTab.svelte';
+  import SiteNginxTab from './SiteNginxTab.svelte';
   import DumpsTab from '$tabs/DumpsTab.svelte';
   import { resumeSite, loadSites, type Site } from '$stores/sites';
   import { routeRest } from '$stores/route';
@@ -26,13 +27,13 @@
   }
   let { site }: Props = $props();
 
-  type TabId = 'overview' | 'tinker' | 'env' | 'dumps';
+  type TabId = 'overview' | 'tinker' | 'env' | 'nginx' | 'dumps';
   const TAB_STORAGE_KEY = 'lerd:siteDetailTab';
 
   function readStoredTab(): TabId {
     if (typeof localStorage === 'undefined') return 'overview';
     const v = localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'tinker' || v === 'env' || v === 'dumps') return v;
+    if (v === 'tinker' || v === 'env' || v === 'nginx' || v === 'dumps') return v;
     return 'overview';
   }
 
@@ -46,7 +47,7 @@
   // and overwrite the stored selection.
   $effect(() => {
     const seg = $routeRest.split('/')[1] ?? '';
-    if (seg === 'tinker' || seg === 'env' || seg === 'dumps' || seg === 'overview') {
+    if (seg === 'tinker' || seg === 'env' || seg === 'nginx' || seg === 'dumps' || seg === 'overview') {
       active = seg;
     }
   });
@@ -84,6 +85,7 @@
   {#if canTinker}
     <button class={tabBtn('tinker', active === 'tinker')} onclick={() => (active = 'tinker')}>{m.sites_tabs_tinker()}</button>
   {/if}
+  <button class={tabBtn('nginx', active === 'nginx')} onclick={() => (active = 'nginx')}>{m.sites_tabs_nginx()}</button>
   <button class={tabBtn('dumps', active === 'dumps')} onclick={() => (active = 'dumps')}>{m.nav_dumps()}</button>
 {/snippet}
 
@@ -125,6 +127,10 @@
   {:else if active === 'tinker'}
     {#key site.domain + '@' + activeWorktreeBranch}
       <SiteTinkerTab {site} branch={activeWorktreeBranch} />
+    {/key}
+  {:else if active === 'nginx'}
+    {#key site.domain}
+      <SiteNginxTab {site} />
     {/key}
   {:else if active === 'dumps'}
     <DumpsTab siteScope={site.name} />

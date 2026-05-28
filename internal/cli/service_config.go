@@ -95,16 +95,14 @@ func newServiceConfigCmd() *cobra.Command {
 				return nil
 			}
 
-			// Ensure the quadlet carries the tuning volume mount (may be absent on
-			// installs predating this feature) before restarting. Built-in default
-			// presets regenerate through their own path (which also resolves to
-			// EnsureCustomServiceQuadlet); custom services use the svc directly.
-			if isKnownService(name) {
-				if err := ensureServiceQuadlet(name); err != nil {
-					fmt.Fprintf(os.Stderr, "[WARN] regenerating quadlet for %s failed: %v\n", name, err)
-				}
-			} else if err := ensureCustomServiceQuadlet(svc); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] regenerating quadlet for %s failed: %v\n", name, err)
+			// Quadlet regen and restart go through the shared serviceops
+			// helpers so the CLI, the /api/services/{name}/config handler,
+			// and any future surface (MCP, …) can't drift from each other.
+			// A regen failure here is a hard error: skipping it orphans
+			// the just-written override on installs predating the tuning
+			// Volume= mount, so the next restart re-reads the OLD config.
+			if err := serviceops.EnsureTuningQuadlet(name, svc); err != nil {
+				return err
 			}
 			if noRestart {
 				fmt.Printf("Saved %s. Run `lerd service restart %s` to apply.\n", path, name)

@@ -4,6 +4,7 @@
   import StatusPill from '$components/StatusPill.svelte';
   import InfoRow from '$components/InfoRow.svelte';
   import LogViewer from '$components/LogViewer.svelte';
+  import NginxConfEditor from './NginxConfEditor.svelte';
   import { status } from '$stores/status';
   import { m } from '../../paraglide/messages.js';
 
@@ -26,5 +27,6 @@
   <div class="px-3 sm:px-5 py-3 shrink-0">
     <InfoRow label={m.system_container()} value="lerd-nginx" />
   </div>
+  <NginxConfEditor />
   <LogViewer path="/api/logs/lerd-nginx" {highlight} />
 </DetailPanel>

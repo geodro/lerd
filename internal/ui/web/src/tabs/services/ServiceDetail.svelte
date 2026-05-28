@@ -4,6 +4,7 @@
   import DetailTabs, { type TabItem } from '$components/DetailTabs.svelte';
   import ServiceHeader from './ServiceHeader.svelte';
   import ServiceEnvTab from './ServiceEnvTab.svelte';
+  import ServiceTuningTab from './ServiceTuningTab.svelte';
   import PresetSuggestionBanner from './PresetSuggestionBanner.svelte';
   import type { Service } from '$stores/services';
   import { m } from '../../paraglide/messages.js';
@@ -13,14 +14,22 @@
   }
   let { svc }: Props = $props();
 
-  type TabId = 'logs' | 'env';
+  type TabId = 'logs' | 'env' | 'config';
   let active = $state<TabId>('logs');
 
   const hasEnv = $derived(Boolean(svc.env_vars && Object.keys(svc.env_vars).length > 0));
   const tabs = $derived<TabItem<TabId>[]>([
     { id: 'logs', label: m.services_tabs_logs() },
-    { id: 'env', label: '.env', hidden: !hasEnv }
+    { id: 'env', label: '.env', hidden: !hasEnv },
+    { id: 'config', label: m.services_tabs_tuning(), hidden: !svc.tunable }
   ]);
+
+  // Fall back to logs when the active tab is hidden for the selected service
+  // (e.g. switching from a tunable service to one without a Tuning tab).
+  $effect(() => {
+    if (active === 'env' && !hasEnv) active = 'logs';
+    if (active === 'config' && !svc.tunable) active = 'logs';
+  });
 
   const logPath = $derived.by(() => {
     if (svc.queue_site) return `/api/queue/${svc.queue_site}/logs`;
@@ -54,5 +63,7 @@
     {/key}
   {:else if active === 'env'}
     <ServiceEnvTab {svc} />
+  {:else if active === 'config'}
+    <ServiceTuningTab {svc} />
   {/if}
 </DetailPanel>

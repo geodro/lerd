@@ -23,6 +23,30 @@ describe('sites actions', () => {
     expect(calls[0]).toBe('/api/sites/a.test/pause');
   });
 
+  it('getSiteNginx GETs the per-site override', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ path: '/x/custom.d/a.test.conf', content: '# snippet\n' }), { status: 200 })
+    ) as unknown as typeof fetch;
+    const { getSiteNginx } = await import('./sites');
+    const res = await getSiteNginx('a.test');
+    expect(res.path).toContain('a.test.conf');
+    expect(res.content).toContain('# snippet');
+  });
+
+  it('saveSiteNginx POSTs the content to /nginx', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      calls.push([String(url), init]);
+      return new Response('{"ok":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const { saveSiteNginx } = await import('./sites');
+    const ok = await saveSiteNginx('a.test', 'client_max_body_size 100m;\n');
+    expect(ok).toBe(true);
+    expect(calls[0][0]).toBe('/api/sites/a.test/nginx');
+    expect(calls[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ content: 'client_max_body_size 100m;\n' });
+  });
+
   it('resumeSite POSTs /unpause', async () => {
     const calls: string[] = [];
     globalThis.fetch = vi.fn(async (url: unknown) => {

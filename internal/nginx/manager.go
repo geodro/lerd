@@ -1114,6 +1114,9 @@ func EnsureNginxConfig() error {
 	if err := EnsureCustomD(); err != nil {
 		return err
 	}
+	if err := EnsureHttpD(); err != nil {
+		return err
+	}
 	if err := EnsureForwardedConf(); err != nil {
 		return err
 	}
@@ -1225,4 +1228,27 @@ func EnsureProfilerVhost() error {
 // after creation, so user snippets survive `lerd update`.
 func EnsureCustomD() error {
 	return os.MkdirAll(config.NginxCustomD(), 0755)
+}
+
+// EnsureHttpD creates the http.d directory for user http-level overrides so the
+// nginx.conf `include /etc/nginx/http.d/*.conf;` always resolves, even before
+// the user has added any override.
+func EnsureHttpD() error {
+	return os.MkdirAll(config.NginxHttpD(), 0755)
+}
+
+// RewriteNginxQuadlet rewrites lerd-nginx.container from the bundled template
+// and reports whether the on-disk quadlet actually changed. Callers use this
+// to bring installs that pre-date a template change (e.g. the new http.d
+// mount) up to current shape on demand, instead of waiting for the next
+// `lerd start` / `lerd update`. The http config editor calls it before
+// writing the user override so the freshly written file is actually mounted
+// into the running nginx container — without this heal, the file would be
+// orphaned on disk and silently ignored.
+func RewriteNginxQuadlet() (changed bool, err error) {
+	content, err := podman.GetQuadletTemplate("lerd-nginx.container")
+	if err != nil {
+		return false, fmt.Errorf("reading bundled nginx quadlet template: %w", err)
+	}
+	return podman.WriteQuadletDiff("lerd-nginx", content)
 }

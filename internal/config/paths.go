@@ -68,6 +68,19 @@ func NginxCustomD() string {
 	return filepath.Join(NginxDir(), "custom.d")
 }
 
+// NginxHttpD holds user-authored nginx snippets included at the http{} level
+// (e.g. global gzip, proxy buffers, client_max_body_size). Lerd never writes
+// here, so edits survive nginx.conf regeneration and `lerd update`.
+func NginxHttpD() string {
+	return filepath.Join(NginxDir(), "http.d")
+}
+
+// NginxHttpUserConf is the single global http-level tuning override file. The
+// zz- prefix sorts it after any other http.d snippets so user values win.
+func NginxHttpUserConf() string {
+	return filepath.Join(NginxHttpD(), "zz-lerd-user.conf")
+}
+
 // CertsDir returns the certs directory.
 func CertsDir() string {
 	return filepath.Join(DataDir(), "certs")

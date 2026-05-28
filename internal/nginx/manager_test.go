@@ -1089,6 +1089,21 @@ func TestEnsureNginxConfig_writesForwardedAndCustomD(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmp, "lerd", "nginx", "custom.d")); err != nil {
 		t.Errorf("expected custom.d dir to be created: %v", err)
 	}
+	// http.d dir + http.d include line in the rendered nginx.conf are the
+	// preconditions the http config editor heals on its first POST. Anchor
+	// both here so the heal stays a no-op once it has run (and so a
+	// regression to either side surfaces as a unit failure rather than as
+	// a silent-write-on-stale-install bug).
+	if _, err := os.Stat(filepath.Join(tmp, "lerd", "nginx", "http.d")); err != nil {
+		t.Errorf("expected http.d dir to be created: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, "lerd", "nginx", "nginx.conf"))
+	if err != nil {
+		t.Fatalf("read rendered nginx.conf: %v", err)
+	}
+	if !strings.Contains(string(body), "include /etc/nginx/http.d/*.conf;") {
+		t.Errorf("rendered nginx.conf missing http.d include directive, got:\n%s", body)
+	}
 }
 
 func TestEnsureForwardedConf_rewrittenOnEachCall(t *testing.T) {
