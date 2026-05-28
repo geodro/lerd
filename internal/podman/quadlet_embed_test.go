@@ -422,6 +422,22 @@ func TestNginxQuadletMountsCustomD(t *testing.T) {
 	}
 }
 
+func TestNginxQuadletMountsHttpD(t *testing.T) {
+	// Global http{}-level override files under ~/.local/share/lerd/nginx/http.d
+	// must be bind-mounted into the container so the `include /etc/nginx/http.d/*.conf`
+	// directive in the nginx.conf template resolves. Without this, the http
+	// config editor would write user files that the running nginx never sees —
+	// regression guard for the silent-write-on-stale-quadlet bug surfaced in
+	// the #437 review.
+	content, err := GetQuadletTemplate("lerd-nginx.container")
+	if err != nil {
+		t.Fatalf("GetQuadletTemplate: %v", err)
+	}
+	if !strings.Contains(content, "%h/.local/share/lerd/nginx/http.d:/etc/nginx/http.d") {
+		t.Errorf("lerd-nginx.container missing http.d volume mount:\n%s", content)
+	}
+}
+
 func TestPHPFPMContainerfileBundlesFullICUData(t *testing.T) {
 	// icu-data-full carries ext-intl's full CLDR set (#332) but only exists on
 	// Alpine 3.16+. The install must tolerate its absence (|| true) so
