@@ -2323,6 +2323,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = podman.WriteContainerHosts()
 		_ = nginx.Reload()
+		if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
+			fmt.Fprintf(os.Stderr, "lerd-ui: syncing .env to new primary domain: %v\n", err)
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "domain:edit":
@@ -2370,6 +2373,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = podman.WriteContainerHosts()
 		_ = nginx.Reload()
+		if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
+			fmt.Fprintf(os.Stderr, "lerd-ui: syncing .env to new primary domain: %v\n", err)
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "domain:remove":
@@ -2442,6 +2448,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = podman.WriteContainerHosts()
 		_ = nginx.Reload()
+		if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
+			fmt.Fprintf(os.Stderr, "lerd-ui: syncing .env to new primary domain: %v\n", err)
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "tinker:symbols":

@@ -7,7 +7,6 @@ import (
 
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
-	"github.com/geodro/lerd/internal/envfile"
 	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/siteops"
@@ -126,10 +125,8 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 
 	nginx.ReloadOrWarn("")
 
-	if site.PrimaryDomain() != oldPrimary {
-		if err := envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured); err != nil {
-			fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
-		}
+	if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
+		fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
 	}
 
 	fmt.Printf("Added domain %s to site %s\n", fullDomain, site.Name)
@@ -196,10 +193,8 @@ func runDomainRemove(_ *cobra.Command, args []string) error {
 
 	nginx.ReloadOrWarn("")
 
-	if site.PrimaryDomain() != oldPrimary {
-		if err := envfile.SyncPrimaryDomain(site.Path, site.PrimaryDomain(), site.Secured); err != nil {
-			fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
-		}
+	if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
+		fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
 	}
 
 	fmt.Printf("Removed domain %s from site %s\n", fullDomain, site.Name)
