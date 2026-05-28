@@ -95,8 +95,17 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 		fmt.Fprintf(&b, "Environment=\"%s=%s\"\n", k, escaped)
 	}
 
-	if svc.Exec != "" {
-		fmt.Fprintf(&b, "Exec=%s\n", svc.Exec)
+	// Prefer the service's own Exec; otherwise, if its family needs a command to
+	// read the tuning override (redis/postgres), use that. The mount itself was
+	// emitted above; mysql/mariadb auto-include their conf dir and need no command.
+	exec := svc.Exec
+	if exec == "" {
+		if cmd, ok := config.ServiceTuningCommand(svc); ok {
+			exec = cmd
+		}
+	}
+	if exec != "" {
+		fmt.Fprintf(&b, "Exec=%s\n", exec)
 	}
 
 	b.WriteString("\n[Service]\n")

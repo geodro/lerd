@@ -279,13 +279,48 @@ func TestGenerateCustomQuadlet_MountsTuningOverrideForDBFamily(t *testing.T) {
 
 func TestGenerateCustomQuadlet_NoTuningOverrideForUntunedFamily(t *testing.T) {
 	svc := &config.CustomService{
+		Name:   "meilisearch",
+		Image:  "docker.io/getmeili/meilisearch:v1",
+		Family: "meilisearch",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if strings.Contains(out, "lerd-user") {
+		t.Errorf("must not mount a tuning override for an untuned family, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_RedisTuningInjectsCommand(t *testing.T) {
+	// Redis loads no config by default, so the tuning override only takes
+	// effect if redis-server is told to read it via the container command.
+	svc := &config.CustomService{
 		Name:   "redis",
-		Image:  "docker.io/library/redis:7",
+		Image:  "docker.io/library/redis:7-alpine",
 		Family: "redis",
 	}
 	out := GenerateCustomQuadlet(svc)
-	if strings.Contains(out, "zz-lerd-user") {
-		t.Errorf("must not mount a tuning override for an untuned family, got:\n%s", out)
+	if !strings.Contains(out, "Volume="+config.ServiceTuningFile(svc.Name)+":/etc/redis/lerd-user.conf:ro,z") {
+		t.Errorf("expected redis tuning volume, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Exec=redis-server /etc/redis/lerd-user.conf") {
+		t.Errorf("expected redis-server command to load the override, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_ExplicitExecWinsOverTuningCommand(t *testing.T) {
+	// A service that declares its own Exec must keep it; the tuning command is
+	// only a fallback for images that otherwise load no config.
+	svc := &config.CustomService{
+		Name:   "redis",
+		Image:  "docker.io/library/redis:7-alpine",
+		Family: "redis",
+		Exec:   "redis-server --appendonly yes",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if !strings.Contains(out, "Exec=redis-server --appendonly yes") {
+		t.Errorf("explicit Exec must be preserved, got:\n%s", out)
+	}
+	if strings.Contains(out, "Exec=redis-server /etc/redis/lerd-user.conf") {
+		t.Errorf("tuning command must not override an explicit Exec, got:\n%s", out)
 	}
 }
 

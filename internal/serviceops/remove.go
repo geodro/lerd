@@ -93,6 +93,15 @@ func RemoveService(name string, opts RemoveOptions, emit func(PhaseEvent)) error
 		if err := renameDataAside(dir); err != nil {
 			return fmt.Errorf("rename data aside for %s: %w", name, err)
 		}
+		// Tuning overrides survive `service remove` (and reinstall) by design,
+		// but an explicit data-wipe should take the override with it — the
+		// user is asking for a clean slate, and a stale override silently
+		// applied to the next install would be surprising. The file is just
+		// a text override, not state, so no rename-aside.
+		tuningPath := config.ServiceTuningFile(name)
+		if err := os.Remove(tuningPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove tuning override for %s: %w", name, err)
+		}
 	}
 
 	emit(PhaseEvent{Phase: "removing_quadlet", Unit: unit})

@@ -144,6 +144,58 @@ func TestRemoveService_WithData_RenamesAside(t *testing.T) {
 	}
 }
 
+func TestRemoveService_WithData_DeletesTuningOverride(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	stubPodmanRemove(t)
+
+	mkTestDataDir(t, "mariadb", "user-data")
+	// Seed a tuning override the way MaterializeServiceTuning would.
+	tuningPath := config.ServiceTuningFile("mariadb")
+	if err := os.MkdirAll(filepath.Dir(tuningPath), 0o755); err != nil {
+		t.Fatalf("mkdir tuning dir: %v", err)
+	}
+	if err := os.WriteFile(tuningPath, []byte("max_allowed_packet = 1G\n"), 0o644); err != nil {
+		t.Fatalf("seed tuning file: %v", err)
+	}
+
+	if err := RemoveService("mariadb", RemoveOptions{RemoveData: true}, func(PhaseEvent) {}); err != nil {
+		t.Fatalf("RemoveService: %v", err)
+	}
+
+	if _, err := os.Stat(tuningPath); !os.IsNotExist(err) {
+		t.Errorf("tuning override must be removed when RemoveData=true, stat err = %v", err)
+	}
+}
+
+func TestRemoveService_WithoutData_KeepsTuningOverride(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	stubPodmanRemove(t)
+
+	mkTestDataDir(t, "mariadb", "user-data")
+	tuningPath := config.ServiceTuningFile("mariadb")
+	if err := os.MkdirAll(filepath.Dir(tuningPath), 0o755); err != nil {
+		t.Fatalf("mkdir tuning dir: %v", err)
+	}
+	if err := os.WriteFile(tuningPath, []byte("max_allowed_packet = 1G\n"), 0o644); err != nil {
+		t.Fatalf("seed tuning file: %v", err)
+	}
+
+	if err := RemoveService("mariadb", RemoveOptions{RemoveData: false}, func(PhaseEvent) {}); err != nil {
+		t.Fatalf("RemoveService: %v", err)
+	}
+
+	// `service remove` without --purge keeps user state so a subsequent
+	// install picks up where you left off; the tuning override is part of
+	// that state.
+	if _, err := os.Stat(tuningPath); err != nil {
+		t.Errorf("tuning override must survive RemoveData=false, stat err = %v", err)
+	}
+}
+
 func TestRemoveService_StopFailureAborts_DataUntouched(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)

@@ -70,15 +70,15 @@ func TestServiceConfig_PathFlagSeedsAndPrints(t *testing.T) {
 func TestServiceConfig_RejectsUntunedFamily(t *testing.T) {
 	isolateLerdHome(t)
 	if err := config.SaveCustomService(&config.CustomService{
-		Name:   "redis",
-		Image:  "docker.io/library/redis:7",
-		Family: "redis",
+		Name:   "meilisearch",
+		Image:  "docker.io/getmeili/meilisearch:v1",
+		Family: "meilisearch",
 	}); err != nil {
 		t.Fatalf("SaveCustomService: %v", err)
 	}
-	fakeQuadletOnDisk(t, "redis")
+	fakeQuadletOnDisk(t, "meilisearch")
 
-	_, err := runServiceConfig(t, "redis", "--path")
+	_, err := runServiceConfig(t, "meilisearch", "--path")
 	if err == nil || !strings.Contains(err.Error(), "does not support tuning") {
 		t.Errorf("expected untuned-family error, got: %v", err)
 	}

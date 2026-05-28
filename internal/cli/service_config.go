@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
@@ -68,10 +69,11 @@ func newServiceConfigCmd() *cobra.Command {
 				return fmt.Errorf("service %q is not installed — run `lerd service preset install %s` first", name, name)
 			}
 			if _, ok := config.ServiceTuningMount(svc); !ok {
+				supported := strings.Join(config.TuningFamilies(), ", ")
 				if fam := config.FamilyOf(svc); fam != "" {
-					return fmt.Errorf("service %q (family %q) does not support tuning yet (supported: mysql, mariadb)", name, fam)
+					return fmt.Errorf("service %q (family %q) does not support tuning yet (supported: %s)", name, fam, supported)
 				}
-				return fmt.Errorf("service %q does not support tuning yet (supported: mysql, mariadb)", name)
+				return fmt.Errorf("service %q does not support tuning yet (supported: %s)", name, supported)
 			}
 			if err := config.MaterializeServiceTuning(svc); err != nil {
 				return fmt.Errorf("creating tuning file: %w", err)
