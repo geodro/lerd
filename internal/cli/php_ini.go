@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -32,31 +30,14 @@ func runPhpIni(_ *cobra.Command, args []string) error {
 	}
 
 	path := config.PHPUserIniFile(version)
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = os.Getenv("VISUAL")
+	launched, err := launchEditor(path)
+	if err != nil {
+		return err
 	}
-	if editor == "" {
-		// Fall back to common editors in order of preference
-		for _, e := range []string{"nano", "vim", "vi"} {
-			if _, err := exec.LookPath(e); err == nil {
-				editor = e
-				break
-			}
-		}
-	}
-	if editor == "" {
+	if !launched {
 		fmt.Printf("User ini file: %s\n", path)
 		fmt.Println("Set $EDITOR to open it automatically.")
 		return nil
-	}
-
-	cmd := exec.Command(editor, path)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor exited: %w", err)
 	}
 
 	// Ensure the quadlet has the user ini volume mount (may be missing on

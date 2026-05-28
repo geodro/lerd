@@ -74,6 +74,14 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 		fmt.Fprintf(&b, "Volume=%s:%s:%s\n", hostPath, f.Target, flags)
 	}
 
+	// User tuning override, mounted read-only after the bundled preset config so
+	// the user's values win. Materialised by MaterializeServiceTuning, which runs
+	// before generation, so the host path is guaranteed present for tunable
+	// families.
+	if target, ok := config.ServiceTuningMount(svc); ok {
+		fmt.Fprintf(&b, "Volume=%s:%s:ro,z\n", config.ServiceTuningFile(svc.Name), target)
+	}
+
 	envKeys := make([]string, 0, len(svc.Environment))
 	for k := range svc.Environment {
 		envKeys = append(envKeys, k)

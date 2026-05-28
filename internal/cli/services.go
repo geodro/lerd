@@ -58,6 +58,7 @@ func NewServiceCmd() *cobra.Command {
 	cmd.AddCommand(newServiceMigrateCmd())
 	cmd.AddCommand(newServiceRemoveCmd())
 	cmd.AddCommand(newServiceReinstallCmd())
+	cmd.AddCommand(newServiceConfigCmd())
 	cmd.AddCommand(newServiceExposeCmd())
 	cmd.AddCommand(newServicePinCmd())
 	cmd.AddCommand(newServiceUnpinCmd())

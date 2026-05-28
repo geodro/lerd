@@ -264,6 +264,31 @@ func TestGenerateCustomQuadlet_NoShareHosts(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomQuadlet_MountsTuningOverrideForDBFamily(t *testing.T) {
+	svc := &config.CustomService{
+		Name:   "mariadb-10-11",
+		Image:  "docker.io/library/mariadb:10.11",
+		Family: "mariadb",
+	}
+	out := GenerateCustomQuadlet(svc)
+	want := "Volume=" + config.ServiceTuningFile(svc.Name) + ":/etc/mysql/conf.d/zz-lerd-user.cnf:ro,z"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected tuning override volume for db family, got:\n%s", out)
+	}
+}
+
+func TestGenerateCustomQuadlet_NoTuningOverrideForUntunedFamily(t *testing.T) {
+	svc := &config.CustomService{
+		Name:   "redis",
+		Image:  "docker.io/library/redis:7",
+		Family: "redis",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if strings.Contains(out, "zz-lerd-user") {
+		t.Errorf("must not mount a tuning override for an untuned family, got:\n%s", out)
+	}
+}
+
 // mysql 8.4 runs mysqld as PID 1 and the kernel won't deliver SIGTERM
 // to a PID 1 process that hasn't installed a handler; podman stop times
 // out and systemctl restart wedges. --init wires catatonit in as PID 1

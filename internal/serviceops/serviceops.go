@@ -311,6 +311,9 @@ func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 	if err := config.MaterializeServiceFiles(svc); err != nil {
 		return err
 	}
+	if err := config.MaterializeServiceTuning(svc); err != nil {
+		return err
+	}
 	if err := config.ResolveDynamicEnv(svc); err != nil {
 		return err
 	}

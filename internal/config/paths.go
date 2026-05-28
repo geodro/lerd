@@ -232,6 +232,15 @@ func ServiceFilesDir(name string) string {
 	return filepath.Join(DataDir(), "service-files", name)
 }
 
+// ServiceTuningFile returns the host path for a service's user-editable runtime
+// tuning override. Lerd seeds it once with a commented template and never
+// overwrites it afterwards, so edits survive `lerd service reinstall` and
+// `lerd update` — the same never-clobber contract as NginxCustomD and the
+// per-version PHP 98-user.ini.
+func ServiceTuningFile(name string) string {
+	return filepath.Join(DataDir(), "service-tuning", name+".conf")
+}
+
 // FrameworksDir returns the directory for user-defined framework YAML files.
 func FrameworksDir() string {
 	return filepath.Join(ConfigDir(), "frameworks")
