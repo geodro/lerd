@@ -6,6 +6,7 @@
   import InfoRow from '$components/InfoRow.svelte';
   import LogViewer from '$components/LogViewer.svelte';
   import Dropdown from '$components/Dropdown.svelte';
+  import PhpIniEditor from './PhpIniEditor.svelte';
   import { status, loadStatus, fpmRunning } from '$stores/status';
   import { setDefaultPhp, startPhp, stopPhp, removePhp } from '$stores/phpVersions';
   import { sites, sitesByPhp } from '$stores/sites';
@@ -166,6 +167,8 @@
     </div>
 
     <InfoRow label={m.system_container()} value={container} />
+
+    <PhpIniEditor {version} />
 
     <div>
       <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{m.system_php_sites()}</p>
