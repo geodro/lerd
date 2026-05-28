@@ -12,6 +12,9 @@
   import ConfirmNginxSaveModal from './ConfirmNginxSaveModal.svelte';
   import ConfirmNginxRestoreModal from './ConfirmNginxRestoreModal.svelte';
   import ConfirmNginxResetModal from './ConfirmNginxResetModal.svelte';
+  import ConfirmTuningSaveModal from './ConfirmTuningSaveModal.svelte';
+  import ConfirmTuningRestoreModal from './ConfirmTuningRestoreModal.svelte';
+  import ConfirmTuningResetModal from './ConfirmTuningResetModal.svelte';
 </script>
 
 {#if $modal.kind === 'domain' && $modal.site}
@@ -38,4 +41,10 @@
   <ConfirmNginxRestoreModal />
 {:else if $modal.kind === 'nginxReset' && $modal.nginxReset}
   <ConfirmNginxResetModal />
+{:else if $modal.kind === 'tuningSave' && $modal.tuningSave}
+  <ConfirmTuningSaveModal />
+{:else if $modal.kind === 'tuningRestore' && $modal.tuningRestore}
+  <ConfirmTuningRestoreModal />
+{:else if $modal.kind === 'tuningReset' && $modal.tuningReset}
+  <ConfirmTuningResetModal />
 {/if}

@@ -53,35 +53,54 @@ describe('services store', () => {
     expect(calls.some((c) => c[0] === '/api/services')).toBe(true);
   });
 
-  it('getServiceConfig GETs the tuning override', async () => {
+  it('getServiceConfig GETs the tuning override with exists flag', async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(JSON.stringify({ supported: true, target: '/etc/mysql/conf.d/zz-lerd-user.cnf', content: '[mysqld]\n' }), {
-          status: 200
-        })
+        new Response(
+          JSON.stringify({
+            supported: true,
+            target: '/etc/mysql/conf.d/zz-lerd-user.cnf',
+            content: '[mysqld]\n',
+            exists: true
+          }),
+          { status: 200 }
+        )
     ) as unknown as typeof fetch;
     const { getServiceConfig } = await import('./services');
     const cfg = await getServiceConfig('mariadb-10-11');
     expect(cfg.supported).toBe(true);
     expect(cfg.target).toBe('/etc/mysql/conf.d/zz-lerd-user.cnf');
     expect(cfg.content).toContain('[mysqld]');
+    expect(cfg.exists).toBe(true);
   });
 
-  it('saveServiceConfig POSTs the content and reloads', async () => {
+  it('saveServiceConfig POSTs the content + backup flag without an extra /api/services round-trip', async () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       calls.push([String(url), init]);
-      return new Response('{"ok":true}', { status: 200 });
+      return new Response(
+        JSON.stringify({ ok: true, content: '[mysqld]\nmax_allowed_packet = 1G\n', exists: true }),
+        { status: 200 }
+      );
     }) as unknown as typeof fetch;
     const { saveServiceConfig } = await import('./services');
-    await expect(saveServiceConfig('mariadb-10-11', '[mysqld]\nmax_allowed_packet = 1G\n')).resolves.toBeUndefined();
+    const res = await saveServiceConfig('mariadb-10-11', '[mysqld]\nmax_allowed_packet = 1G\n', true);
+    expect(res.ok).toBe(true);
+    expect(res.content).toContain('max_allowed_packet');
+    expect(res.exists).toBe(true);
     expect(calls[0][0]).toBe('/api/services/mariadb-10-11/config');
     expect(calls[0][1]?.method).toBe('POST');
-    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ content: '[mysqld]\nmax_allowed_packet = 1G\n' });
-    expect(calls.some((c) => c[0] === '/api/services')).toBe(true);
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      content: '[mysqld]\nmax_allowed_packet = 1G\n',
+      backup: true
+    });
+    // The handler's publishAfter middleware already broadcasts a
+    // KindServices WS frame that drives the same refresh; the store
+    // no longer also issues GET /api/services in a finally block.
+    expect(calls.some((c) => c[0] === '/api/services')).toBe(false);
   });
 
-  it('saveServiceConfig throws on non-ok with the server body as the message', async () => {
+  it('saveServiceConfig surfaces 404 not-installed text as error', async () => {
     globalThis.fetch = vi.fn(
       async () =>
         new Response('service "mysql" is not installed — run `lerd service preset install mysql` first\n', {
@@ -90,7 +109,80 @@ describe('services store', () => {
         })
     ) as unknown as typeof fetch;
     const { saveServiceConfig } = await import('./services');
-    await expect(saveServiceConfig('mysql', 'x = 1')).rejects.toThrow('is not installed');
+    const res = await saveServiceConfig('mysql', 'x = 1');
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('is not installed');
+  });
+
+  it('saveServiceConfig surfaces rolled_back content for the auto-rollback path', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'service mysql did not become ready',
+            rolled_back: true,
+            content: '[mysqld]\n# previous good content\n',
+            exists: true
+          }),
+          { status: 200 }
+        )
+    ) as unknown as typeof fetch;
+    const { saveServiceConfig } = await import('./services');
+    const res = await saveServiceConfig('mysql', 'oops', false);
+    expect(res.ok).toBe(false);
+    expect(res.rolledBack).toBe(true);
+    expect(res.content).toContain('previous good content');
+  });
+
+  it('loadServiceTuningBackups returns ok=true with the list', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response('[{"name":"mysql.conf.bkp.20260528-101010","mtime_unix":1}]', { status: 200 })
+    ) as unknown as typeof fetch;
+    const { loadServiceTuningBackups } = await import('./services');
+    const r = await loadServiceTuningBackups('mysql');
+    expect(r.ok).toBe(true);
+    expect(r.list[0].name).toContain('bkp');
+  });
+
+  it('loadServiceTuningBackups returns ok=false with error on 500', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response('internal error', { status: 500 })
+    ) as unknown as typeof fetch;
+    const { loadServiceTuningBackups } = await import('./services');
+    const r = await loadServiceTuningBackups('mysql');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/500/);
+  });
+
+  it('restoreServiceTuning POSTs the named backup to /config/restore', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      calls.push([String(url), init]);
+      return new Response(
+        JSON.stringify({ ok: true, restored: 'mysql.conf.bkp.20260528-101010', content: '# old\n' }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    const { restoreServiceTuning } = await import('./services');
+    const r = await restoreServiceTuning('mysql', 'mysql.conf.bkp.20260528-101010');
+    expect(calls[0][0]).toBe('/api/services/mysql/config/restore');
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ name: 'mysql.conf.bkp.20260528-101010' });
+    expect(r.ok).toBe(true);
+    expect(r.restored).toContain('bkp');
+  });
+
+  it('resetServiceTuning POSTs to /config/reset', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      calls.push(String(url));
+      return new Response('{"ok":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const { resetServiceTuning } = await import('./services');
+    const r = await resetServiceTuning('mysql');
+    expect(calls[0]).toBe('/api/services/mysql/config/reset');
+    expect(r.ok).toBe(true);
   });
 
   it('serviceLabel handles overrides, versioned names, and fallbacks', async () => {

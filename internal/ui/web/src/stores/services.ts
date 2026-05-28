@@ -365,27 +365,209 @@ export interface ServiceConfig {
   supported: boolean;
   target: string;
   content: string;
+  exists: boolean;
 }
+
+export interface ServiceTuningBackup {
+  name: string;
+  mtime_unix: number;
+}
+
+export interface SaveTuningResult {
+  ok: boolean;
+  error?: string;
+  backupName?: string;
+  /** Canonical content after the operation, populated on both success
+   *  and the auto-rollback path so the editor can refresh its
+   *  `original` baseline without an extra GET. */
+  content?: string;
+  exists?: boolean;
+  /** True when the restart failed and the handler restored the prior
+   *  bytes; the editor uses this to clear the dirty indicator instead
+   *  of staying perpetually dirty against bytes that never landed. */
+  rolledBack?: boolean;
+}
+
+export interface RestoreTuningResult {
+  ok: boolean;
+  error?: string;
+  restored?: string;
+  content?: string;
+  /** True when the restored bytes themselves crashed the service and
+   *  the handler auto-reverted to the pre-restore content. The modal
+   *  uses this to render "restore reverted, prior config restored"
+   *  instead of a bare "service did not become ready" that reads as
+   *  if the service is still broken. */
+  rolledBack?: boolean;
+}
+
+export interface ResetTuningResult {
+  ok: boolean;
+  error?: string;
+  /** True when the template restart failed and the handler restored
+   *  the pre-reset content. */
+  rolledBack?: boolean;
+  /** Name of the implicit recovery backup the reset always stages of
+   *  the pre-reset content. Lets the modal tell the user "your
+   *  previous config is kept as <name>, you can restore it any time"
+   *  even when they never ticked the explicit backup checkbox. */
+  autoBackupName?: string;
+  content?: string;
+  exists?: boolean;
+}
+
+/** loadServiceTuningBackups returns either the list or an explicit
+ *  failure. A real server error (500) and a genuinely empty backup
+ *  directory used to be indistinguishable from each other; the new
+ *  shape lets the UI surface the failure inline. */
+export interface LoadTuningBackupsResult {
+  ok: boolean;
+  list: ServiceTuningBackup[];
+  error?: string;
+}
+
+const tuningURL = (name: string) =>
+  '/api/services/' + encodeURIComponent(name) + '/config';
 
 export async function getServiceConfig(name: string): Promise<ServiceConfig> {
-  return apiJson<ServiceConfig>('/api/services/' + encodeURIComponent(name) + '/config');
+  return apiJson<ServiceConfig>(tuningURL(name));
 }
 
-export async function saveServiceConfig(name: string, content: string): Promise<void> {
-  const res = await apiFetch('/api/services/' + encodeURIComponent(name) + '/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
-  });
-  if (!res.ok) {
-    // Mirror getServiceConfig's apiJson behaviour (throws on non-ok with
-    // status/text). Surfaces the server reason — install-presence guard,
-    // unsupported family, regen failure — instead of a generic localised
-    // "save failed" string in the editor.
-    const body = await res.text().catch(() => '');
-    throw new Error(body.trim() || `${res.status} ${res.statusText}`);
+async function readPlainTextError(res: Response): Promise<string> {
+  // Read the body once as text and fall back to status text if empty.
+  // Used by save/restore/reset to surface non-2xx plain-text bodies
+  // (404 not-installed, 400 unsupported-family, 500 MaterializeService
+  // Tuning failures) without trying to JSON.parse them.
+  const body = await res.text().catch(() => '');
+  return body.trim() || `${res.status} ${res.statusText}`;
+}
+
+export async function saveServiceConfig(
+  name: string,
+  content: string,
+  backup: boolean = false
+): Promise<SaveTuningResult> {
+  try {
+    const res = await apiFetch(tuningURL(name), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, backup })
+    });
+    // Any non-2xx response from this endpoint is plain text (the
+    // handler uses http.Error for the install / family / IO failure
+    // branches). Surface the body verbatim so the modal shows the
+    // actual server reason instead of "Unexpected token <...> in
+    // JSON" from a failed res.json() against plain text.
+    if (!res.ok) {
+      return { ok: false, error: await readPlainTextError(res) };
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      backup_name?: string;
+      content?: string;
+      exists?: boolean;
+      rolled_back?: boolean;
+    };
+    return {
+      ok: Boolean(data.ok),
+      error: data.error,
+      backupName: data.backup_name,
+      content: data.content,
+      exists: data.exists,
+      rolledBack: data.rolled_back
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
   }
-  await loadServices();
+  // No finally { loadServices() } — the publishAfter middleware on
+  // the services route already broadcasts a sites/services WS frame
+  // when the handler returns, which the frontend's wsMessage
+  // subscriber turns into the same refresh. Calling here would
+  // double-fetch /api/services on every save.
+}
+
+export async function loadServiceTuningBackups(name: string): Promise<LoadTuningBackupsResult> {
+  try {
+    const res = await apiFetch(tuningURL(name) + '/backups');
+    if (!res.ok) {
+      return { ok: false, list: [], error: `Failed to load backups (${res.status})` };
+    }
+    const list = (await res.json()) as ServiceTuningBackup[];
+    return { ok: true, list: Array.isArray(list) ? list : [] };
+  } catch (e) {
+    return { ok: false, list: [], error: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
+export async function loadServiceTuningBackupContent(name: string, backupName: string): Promise<string> {
+  const res = await apiFetch(tuningURL(name) + '/backups/' + encodeURIComponent(backupName));
+  if (!res.ok) throw new Error(`Failed to load backup (${res.status})`);
+  return await res.text();
+}
+
+export async function restoreServiceTuning(
+  name: string,
+  backupName: string = ''
+): Promise<RestoreTuningResult> {
+  try {
+    const res = await apiFetch(tuningURL(name) + '/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: backupName })
+    });
+    if (!res.ok) {
+      return { ok: false, error: await readPlainTextError(res) };
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      restored?: string;
+      content?: string;
+      rolled_back?: boolean;
+    };
+    return {
+      ok: Boolean(data.ok),
+      error: data.error,
+      restored: data.restored,
+      content: data.content,
+      rolledBack: data.rolled_back
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
+  }
+  // No finally { loadServices() } — the publishAfter(KindServices)
+  // middleware on /api/services/ already triggers a WS broadcast that
+  // the frontend's wsMessage subscriber turns into a sites/services
+  // refresh, so adding an explicit loadServices() here just double-
+  // fetches against /api/services for every restore.
+}
+
+export async function resetServiceTuning(name: string): Promise<ResetTuningResult> {
+  try {
+    const res = await apiFetch(tuningURL(name) + '/reset', { method: 'POST' });
+    if (res.status === 404 || res.status === 400) {
+      return { ok: false, error: await readPlainTextError(res) };
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      rolled_back?: boolean;
+      auto_backup_name?: string;
+      content?: string;
+      exists?: boolean;
+    };
+    return {
+      ok: Boolean(data.ok),
+      error: data.error,
+      rolledBack: data.rolled_back,
+      autoBackupName: data.auto_backup_name,
+      content: data.content,
+      exists: data.exists
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
+  }
 }
 
 export function findService(name: string): Service | undefined {

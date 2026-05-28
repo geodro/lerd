@@ -14,6 +14,9 @@ export type ModalKind =
   | 'nginxSave'
   | 'nginxRestore'
   | 'nginxReset'
+  | 'tuningSave'
+  | 'tuningRestore'
+  | 'tuningReset'
   | null;
 
 export type LANAction = 'expose' | 'unexpose';
@@ -57,6 +60,28 @@ export interface NginxResetTarget {
   path: string;
 }
 
+export interface TuningSaveTarget {
+  name: string;
+  content: string;
+  original: string;
+  /** True when the live override already exists on disk; the save
+   *  modal hides the back-up-first checkbox when false because there
+   *  is nothing on disk yet to protect. */
+  exists: boolean;
+}
+
+export interface TuningRestoreTarget {
+  name: string;
+  current: string;
+  backupName: string;
+  backup: string;
+}
+
+export interface TuningResetTarget {
+  name: string;
+  path: string;
+}
+
 export interface ModalState {
   kind: ModalKind;
   site?: Site;
@@ -68,6 +93,9 @@ export interface ModalState {
   nginxSave?: NginxSaveTarget;
   nginxRestore?: NginxRestoreTarget;
   nginxReset?: NginxResetTarget;
+  tuningSave?: TuningSaveTarget;
+  tuningRestore?: TuningRestoreTarget;
+  tuningReset?: TuningResetTarget;
 }
 
 export const modal = writable<ModalState>({ kind: null });
@@ -118,6 +146,18 @@ export function openNginxRestoreModal(target: NginxRestoreTarget, onSuccess?: ()
 
 export function openNginxResetModal(target: NginxResetTarget, onSuccess?: () => void) {
   modal.set({ kind: 'nginxReset', nginxReset: target, onSuccess });
+}
+
+export function openTuningSaveModal(target: TuningSaveTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'tuningSave', tuningSave: target, onSuccess });
+}
+
+export function openTuningRestoreModal(target: TuningRestoreTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'tuningRestore', tuningRestore: target, onSuccess });
+}
+
+export function openTuningResetModal(target: TuningResetTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'tuningReset', tuningReset: target, onSuccess });
 }
 
 export function closeModal() {

@@ -269,25 +269,54 @@ func RestartUnit(name string) error {
 // 127.0.0.1 holds on macOS and IPv6-only host networks too.
 var mysqlReadyArgs = []string{"mysqladmin", "ping", "-h127.0.0.1", "-P3306", "-uroot", "-plerd", "--silent"}
 
+// readyFamily strips known version suffixes ("mariadb-10-11" →
+// "mariadb", "mysql-8.0" → "mysql", "postgres-16" → "postgres") so
+// WaitReady's family-aware probes apply to versioned preset names too.
+// Without this, the auto-rollback path in serviceops only catches
+// catastrophic failures for the bare-name presets — versioned ones
+// fall through to the systemd-active probe which can report "active"
+// for a few seconds even when the container is crashlooping.
+func readyFamily(service string) string {
+	for _, fam := range []string{"mariadb", "mysql", "postgres", "redis", "rustfs"} {
+		if service == fam || strings.HasPrefix(service, fam+"-") {
+			// mariadb and mysql share the same container probe
+			// (mysqladmin ping) so collapse mariadb onto mysql.
+			if fam == "mariadb" {
+				return "mysql"
+			}
+			return fam
+		}
+	}
+	return service
+}
+
 // WaitReady polls until the named service is ready to accept connections, or
 // timeout is reached. Readiness is tested by running a lightweight probe inside
-// the container: mysqladmin ping for mysql, pg_isready for postgres. For other
-// services it falls back to waiting until the systemd unit is "active".
+// the container: mysqladmin ping for mysql/mariadb, pg_isready for postgres,
+// redis-cli ping for redis. For other services it falls back to waiting until
+// the systemd unit is "active".
 func WaitReady(service string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	unit := "lerd-" + service
+	family := readyFamily(service)
 
 	var probe func() bool
-	switch service {
+	switch family {
 	case "mysql":
-		args := append([]string{"exec", "lerd-mysql"}, mysqlReadyArgs...)
+		args := append([]string{"exec", unit}, mysqlReadyArgs...)
 		probe = func() bool {
 			return exec.Command(PodmanBin(), args...).Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {
-			cmd := exec.Command(PodmanBin(), "exec", "lerd-postgres",
+			cmd := exec.Command(PodmanBin(), "exec", unit,
 				"pg_isready", "-U", "postgres")
+			return cmd.Run() == nil
+		}
+	case "redis":
+		probe = func() bool {
+			cmd := exec.Command(PodmanBin(), "exec", unit,
+				"redis-cli", "ping")
 			return cmd.Run() == nil
 		}
 	case "rustfs":

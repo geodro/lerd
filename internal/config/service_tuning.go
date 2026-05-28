@@ -168,3 +168,19 @@ func MaterializeServiceTuning(svc *CustomService) error {
 	}
 	return os.WriteFile(path, []byte(m.Template), 0644)
 }
+
+// ServiceTuningTemplate returns the commented template for svc's family
+// so callers (most notably the Reset endpoint) can restore the file to
+// the "no active directives" state without deleting it. Deleting the
+// file is unsafe in practice because the generated quadlet declares a
+// Volume= bind mount at the same path; a missing source path makes
+// podman refuse to start the container. Overwriting with the template
+// keeps the mount valid while making the service fall back to its
+// bundled defaults.
+func ServiceTuningTemplate(svc *CustomService) (string, bool) {
+	m, ok := tuningMounts[FamilyOf(svc)]
+	if !ok {
+		return "", false
+	}
+	return m.Template, true
+}

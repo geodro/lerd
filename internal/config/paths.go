@@ -263,6 +263,17 @@ func ServiceTuningFile(name string) string {
 	return filepath.Join(DataDir(), "service-tuning", name+".conf")
 }
 
+// ServiceTuningBkpDir holds timestamped backups of per-service tuning
+// overrides produced when the user ticks "back up the current file first"
+// before saving in the web UI editor. It lives next to (not inside) the
+// service-tuning/ directory so it cannot be picked up by any future
+// include glob and never gets bind-mounted into the service container,
+// keeping backups invisible to the running service even if it tries to
+// scan its config dir.
+func ServiceTuningBkpDir() string {
+	return filepath.Join(DataDir(), "service-tuning.bkp")
+}
+
 // FrameworksDir returns the directory for user-defined framework YAML files.
 func FrameworksDir() string {
 	return filepath.Join(ConfigDir(), "frameworks")

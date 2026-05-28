@@ -20,7 +20,7 @@
   const hasEnv = $derived(Boolean(svc.env_vars && Object.keys(svc.env_vars).length > 0));
   const tabs = $derived<TabItem<TabId>[]>([
     { id: 'logs', label: m.services_tabs_logs() },
-    { id: 'env', label: '.env', hidden: !hasEnv },
+    { id: 'env', label: m.services_env_title(), hidden: !hasEnv },
     { id: 'config', label: m.services_tabs_tuning(), hidden: !svc.tunable }
   ]);
 

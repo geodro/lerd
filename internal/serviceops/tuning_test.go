@@ -31,7 +31,7 @@ func TestSaveTuningOverride_NotInstalled(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	err := SaveTuningOverride("mysql", "max_allowed_packet = 1G\n")
+	_, err := SaveTuningOverride("mysql", "max_allowed_packet = 1G\n", false)
 	if err == nil {
 		t.Fatal("expected error for uninstalled service")
 	}
@@ -61,7 +61,7 @@ func TestSaveTuningOverride_FamilyUnsupported(t *testing.T) {
 	}
 	fakeQuadletOnDisk(t, "meilisearch")
 
-	err := SaveTuningOverride("meilisearch", "anything")
+	_, err := SaveTuningOverride("meilisearch", "anything", false)
 	if err == nil {
 		t.Fatal("expected family-unsupported error")
 	}
