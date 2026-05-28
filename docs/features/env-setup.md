@@ -71,6 +71,22 @@ After restoring, run `lerd env` again to re-apply lerd connection values.
 
 ---
 
+## Editing .env in the dashboard
+
+The site detail panel has an **Env** tab that opens the project's env files in an inline editor with line numbers and dotenv syntax highlighting (`KEY`, comments, quoted values). On a worktree the editor opens that worktree's files, not the parent's.
+
+A dropdown at the start of the toolbar lists every env file the project has (`.env`, `.env.local`, `.env.testing`, `.env.example`, `.env.production`, anything matching `^\.env(\.[A-Za-z][\w-]*)?$`). Our own timestamped backups, temp files, and `.env.before_lerd` never appear in the dropdown. Pick the file you want to edit; the editor, save, and revert flows all scope to it.
+
+Edits stay client-side until you click **Save**, which opens a confirmation modal with a single checkbox: **Back up the current file first**. The box is unchecked by default; tick it to have lerd copy the current contents to `<file>.bkp.<YYYYMMDD-HHMMSS>` in the same directory before the new file lands. Each env file has its own backups, so `.env.testing.bkp.20260528-103045` belongs only to `.env.testing` and won't appear when you have `.env` open.
+
+The save preserves the file mode of the existing file, including permissions narrower than `0644` such as `0600`. New files default to `0644`. The write is atomic (staged temp file + rename), so a partial failure leaves the previous file (and the timestamped backup, when requested) intact.
+
+The **Revert** button rolls back the most recent backup for the active file. When a backup exists, clicking Revert opens a diff modal showing exactly what restoring will change (removed lines from the current file marked `-`, lines coming back from the backup marked `+`). Accept and the backup is copied over the file and removed. Repeated Revert clicks peel backups off newest-first. When no backup exists, Revert simply discards unsaved edits.
+
+The endpoint is loopback only, the same gate that protects the env reader and `terminal`, so a LAN client cannot edit a project's env files even when remote-control is enabled with valid credentials.
+
+---
+
 ## Safe to re-run
 
 Running `lerd env` on a project that already has a `.env` is safe; it only updates connection-related keys and leaves everything else untouched.

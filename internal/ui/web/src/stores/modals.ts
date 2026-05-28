@@ -9,9 +9,28 @@ export type ModalKind =
   | 'lanProgress'
   | 'worktreeAdd'
   | 'worktreeRemove'
+  | 'envSave'
+  | 'envRestore'
   | null;
 
 export type LANAction = 'expose' | 'unexpose';
+
+export interface EnvSaveTarget {
+  domain: string;
+  branch: string;
+  file: string;
+  content: string;
+  original: string;
+}
+
+export interface EnvRestoreTarget {
+  domain: string;
+  branch: string;
+  file: string;
+  current: string;
+  backupName: string;
+  backup: string;
+}
 
 export interface ModalState {
   kind: ModalKind;
@@ -19,6 +38,8 @@ export interface ModalState {
   lanAction?: LANAction;
   onSuccess?: () => void;
   branch?: string;
+  envSave?: EnvSaveTarget;
+  envRestore?: EnvRestoreTarget;
 }
 
 export const modal = writable<ModalState>({ kind: null });
@@ -49,6 +70,14 @@ export function openWorktreeAddModal(site: Site) {
 
 export function openWorktreeRemoveModal(site: Site, branch: string) {
   modal.set({ kind: 'worktreeRemove', site, branch });
+}
+
+export function openEnvSaveModal(target: EnvSaveTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'envSave', envSave: target, onSuccess });
+}
+
+export function openEnvRestoreModal(target: EnvRestoreTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'envRestore', envRestore: target, onSuccess });
 }
 
 export function closeModal() {

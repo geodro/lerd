@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -349,7 +350,7 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 		origin := r.Header.Get("Origin")
 		if allowedCORSOrigins[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 		if r.Method == http.MethodOptions {
@@ -1866,23 +1867,37 @@ func handleSiteFavicon(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-// handleSiteEnv serves the raw contents of the site's (or worktree's) .env
-// file as text/plain. A missing file is reported as 200 with an empty body so
-// the UI can render an empty-state placeholder without a noisy 404.
+// handleSiteEnv dispatches the per-site .env endpoint. GET returns the raw
+// contents (or empty body for missing files), PUT replaces them with an
+// optional pre-overwrite backup. POST and other methods are rejected so
+// future shared dispatch does not accidentally widen the contract.
 //
 //	GET /api/sites/{domain}/env[?branch=<sanitized>]
+//	PUT /api/sites/{domain}/env[?branch=<sanitized>]
 func handleSiteEnv(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		handleSiteEnvRead(w, r)
+	case http.MethodPut:
+		handleSiteEnvWrite(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
 
+func handleSiteEnvRead(w http.ResponseWriter, r *http.Request) {
 	domain := strings.TrimPrefix(r.URL.Path, "/api/sites/")
 	domain = strings.TrimSuffix(domain, "/env")
 
 	site, err := config.FindSiteByDomain(domain)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	envFile, ok := envFileFromQuery(r)
+	if !ok {
+		http.Error(w, "invalid file", http.StatusBadRequest)
 		return
 	}
 
@@ -1897,15 +1912,443 @@ func handleSiteEnv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 
-	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	data, err := os.ReadFile(filepath.Join(dir, envFile))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return
 		}
-		http.Error(w, "reading .env: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "reading "+envFile+": "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	_, _ = w.Write(data)
+}
+
+// SiteEnvWriteRequest is the JSON body for PUT /api/sites/{domain}/env.
+type SiteEnvWriteRequest struct {
+	Content string `json:"content"`
+	Backup  bool   `json:"backup"`
+}
+
+// SiteEnvWriteResponse is the JSON response for PUT /api/sites/{domain}/env.
+type SiteEnvWriteResponse struct {
+	OK         bool   `json:"ok"`
+	Error      string `json:"error,omitempty"`
+	BackupPath string `json:"backup_path,omitempty"`
+}
+
+func handleSiteEnvWrite(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimPrefix(r.URL.Path, "/api/sites/")
+	domain = strings.TrimSuffix(domain, "/env")
+
+	site, err := config.FindSiteByDomain(domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	envFile, ok := envFileFromQuery(r)
+	if !ok {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	var body SiteEnvWriteRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		writeJSON(w, SiteEnvWriteResponse{OK: false, Error: "invalid body: " + err.Error()})
+		return
+	}
+
+	backupPath, err := writeEnvFile(filepath.Join(dir, envFile), body.Content, body.Backup, time.Now())
+	if err != nil {
+		writeJSON(w, SiteEnvWriteResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	resp := SiteEnvWriteResponse{OK: true}
+	if backupPath != "" {
+		resp.BackupPath = filepath.Base(backupPath)
+	}
+	writeJSON(w, resp)
+}
+
+// writeFileAtomic stages data into a temp file in the same directory as
+// path, chmods it to mode, closes it, then renames it over path. Same-dir
+// renames are atomic on POSIX, so a crash anywhere before the rename leaves
+// the original file intact, and a crash after leaves a complete new file.
+// On any failure the temp file is removed.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, base+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("renaming into place: %w", err)
+	}
+	return nil
+}
+
+// uniqueBackupPath returns a backup path that does not collide with an
+// existing file. Two saves in the same wall-clock second would otherwise
+// overwrite the earlier backup; this function appends a -<n> suffix until
+// it finds a free name.
+func uniqueBackupPath(envPath string, now time.Time) string {
+	base := envPath + ".bkp." + now.Format("20060102-150405")
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return base
+	}
+	for i := 1; i < 1_000; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	// Pathological: fall back to the base name and let the caller overwrite.
+	return base
+}
+
+// writeEnvFile writes content to envPath atomically. Existing file mode is
+// preserved; new files default to 0644. When backup is true and the file
+// already exists, the previous contents are staged to a unique backup name
+// via the same atomic helper before the new file lands, so a failed write
+// leaves the backup on disk for the user to recover. Returns the backup
+// path (when one was written) plus any error.
+func writeEnvFile(envPath, content string, backup bool, now time.Time) (string, error) {
+	dir := filepath.Dir(envPath)
+	_ = dir
+
+	mode := os.FileMode(0o644)
+	var oldData []byte
+	existed := false
+
+	// Open once and stat the handle so the mode and contents come from the
+	// same instant; this closes the TOCTOU window the previous Stat+Read
+	// pair left open.
+	if f, openErr := os.Open(envPath); openErr == nil {
+		info, statErr := f.Stat()
+		if statErr != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("stat .env handle: %w", statErr)
+		}
+		mode = info.Mode().Perm()
+		existed = true
+		// Only read the prior bytes when we actually need them for backup.
+		if backup {
+			data, readErr := io.ReadAll(f)
+			if readErr != nil {
+				_ = f.Close()
+				return "", fmt.Errorf("reading current .env: %w", readErr)
+			}
+			oldData = data
+		}
+		_ = f.Close()
+	} else if !os.IsNotExist(openErr) {
+		return "", fmt.Errorf("opening .env: %w", openErr)
+	}
+
+	backupPath := ""
+	if backup && existed {
+		backupPath = uniqueBackupPath(envPath, now)
+		if err := writeFileAtomic(backupPath, oldData, mode); err != nil {
+			return "", fmt.Errorf("writing backup: %w", err)
+		}
+	}
+
+	if err := writeFileAtomic(envPath, []byte(content), mode); err != nil {
+		return backupPath, err
+	}
+	return backupPath, nil
+}
+
+// envFileRe matches the names of env files the UI is willing to expose for
+// editing. The user-facing dropdown also runs filenames through this regex.
+// Backup files like ".env.20260528-103045" never match because the suffix
+// must start with a letter, and lerd's own ".env.before_lerd" is explicitly
+// excluded so it stays out of the editor.
+var envFileRe = regexp.MustCompile(`^\.env(\.[A-Za-z][A-Za-z0-9_-]*)?$`)
+
+var envExcludedFiles = map[string]bool{
+	".env.before_lerd": true,
+}
+
+// backupReFor returns the per-env-file backup regex. .env -> .env.bkp.<ts>;
+// .env.testing -> .env.testing.bkp.<ts>; etc. The .bkp. marker keeps backup
+// files from colliding with regular env variants like .env.testing or
+// .env.local that share the .env. prefix.
+func backupReFor(envFile string) *regexp.Regexp {
+	return regexp.MustCompile("^" + regexp.QuoteMeta(envFile) + `\.bkp\.\d{8}-\d{6}$`)
+}
+
+// envFileFromQuery extracts the ?file= parameter and validates it against
+// envFileRe and envExcludedFiles. An empty ?file= defaults to ".env" so
+// callers that pre-date the multi-file UI keep working.
+func envFileFromQuery(r *http.Request) (string, bool) {
+	f := r.URL.Query().Get("file")
+	if f == "" {
+		return ".env", true
+	}
+	if !envFileRe.MatchString(f) {
+		return "", false
+	}
+	if envExcludedFiles[f] {
+		return "", false
+	}
+	return f, true
+}
+
+// listEnvFiles enumerates the project's editable env files in dir.
+// .env always appears first; the rest are alphabetical.
+func listEnvFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := []string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if envExcludedFiles[name] {
+			continue
+		}
+		if !envFileRe.MatchString(name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	for i, n := range out {
+		if n == ".env" && i != 0 {
+			out[0], out[i] = out[i], out[0]
+			break
+		}
+	}
+	return out, nil
+}
+
+// SiteEnvBackup is one row in the GET /api/sites/{domain}/env/backups list.
+type SiteEnvBackup struct {
+	Name      string `json:"name"`
+	MtimeUnix int64  `json:"mtime_unix"`
+}
+
+func listEnvBackups(dir, envFile string) ([]SiteEnvBackup, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	re := backupReFor(envFile)
+	out := []SiteEnvBackup{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !re.MatchString(name) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, SiteEnvBackup{Name: name, MtimeUnix: info.ModTime().Unix()})
+	}
+	// Filename timestamps are lexicographically sortable, so reverse-name
+	// sort puts the newest entry at index 0. mtime is not authoritative
+	// because copy and restore operations can rewrite it.
+	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
+	return out, nil
+}
+
+// restoreEnvBackup copies dir/<name> over dir/<envFile> atomically and
+// removes the backup on success. Mode preservation prefers the existing
+// target's perm bits so a chmod the user made between backup and restore
+// is honoured; when the target is gone, the backup's own mode is reused
+// instead of a 0644 default so previously-locked-down secrets are not
+// widened on restore.
+func restoreEnvBackup(dir, envFile, name string) (string, error) {
+	if !backupReFor(envFile).MatchString(name) {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	backupPath := filepath.Join(dir, name)
+	backupInfo, statErr := os.Stat(backupPath)
+	if statErr != nil {
+		return "", fmt.Errorf("stat backup: %w", statErr)
+	}
+	backupData, err := os.ReadFile(backupPath)
+	if err != nil {
+		return "", fmt.Errorf("reading backup: %w", err)
+	}
+	envPath := filepath.Join(dir, envFile)
+	mode := backupInfo.Mode().Perm()
+	if info, err := os.Stat(envPath); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := writeFileAtomic(envPath, backupData, mode); err != nil {
+		return "", err
+	}
+	// Drop the backup only after the new file is committed so a failed
+	// rename leaves both files intact for manual recovery.
+	_ = os.Remove(backupPath)
+	return string(backupData), nil
+}
+
+func handleSiteEnvBackupContent(w http.ResponseWriter, r *http.Request, site *config.Site, name string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	envFile, ok := envFileFromQuery(r)
+	if !ok {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+	if !backupReFor(envFile).MatchString(name) {
+		http.NotFound(w, r)
+		return
+	}
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "reading backup: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data)
+}
+
+func handleSiteEnvBackups(w http.ResponseWriter, r *http.Request, site *config.Site) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	envFile, ok := envFileFromQuery(r)
+	if !ok {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	list, err := listEnvBackups(dir, envFile)
+	if err != nil {
+		http.Error(w, "listing backups: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, list)
+}
+
+func handleSiteEnvFiles(w http.ResponseWriter, r *http.Request, site *config.Site) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	files, err := listEnvFiles(dir)
+	if err != nil {
+		http.Error(w, "listing env files: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if files == nil {
+		files = []string{}
+	}
+	writeJSON(w, files)
+}
+
+// SiteEnvRestoreResponse is the JSON body returned by POST /env/restore.
+type SiteEnvRestoreResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	Restored string `json:"restored,omitempty"`
+	Content  string `json:"content,omitempty"`
+}
+
+func handleSiteEnvRestore(w http.ResponseWriter, r *http.Request, site *config.Site) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	envFile, ok := envFileFromQuery(r)
+	if !ok {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+	branch := r.URL.Query().Get("branch")
+	ensureWorktreeEnvIfBranch(site, branch)
+	dir := resolveSitePath(site, branch)
+	if dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	list, err := listEnvBackups(dir, envFile)
+	if err != nil {
+		writeJSON(w, SiteEnvRestoreResponse{OK: false, Error: err.Error()})
+		return
+	}
+	if len(list) == 0 {
+		writeJSON(w, SiteEnvRestoreResponse{OK: false, Error: "no backup available"})
+		return
+	}
+	name := list[0].Name
+	content, err := restoreEnvBackup(dir, envFile, name)
+	if err != nil {
+		writeJSON(w, SiteEnvRestoreResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, SiteEnvRestoreResponse{OK: true, Restored: name, Content: content})
 }
 
 // handleLANQR serves a QR code PNG for the LAN share URL of a site or one
@@ -1963,6 +2406,37 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	// Commands subroutes have more than two segments
 	// (/api/sites/{d}/commands and /api/sites/{d}/commands/{name}/run).
 	if commandRoute(w, r, domain, parts[1:]) {
+		return
+	}
+	// /env subroutes (backups, restore) sit alongside the GET/PUT on /env.
+	if len(parts) >= 3 && parts[1] == "env" {
+		site, err := config.FindSiteByDomain(domain)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		switch parts[2] {
+		case "files":
+			if len(parts) == 3 {
+				handleSiteEnvFiles(w, r, site)
+				return
+			}
+		case "backups":
+			if len(parts) == 3 {
+				handleSiteEnvBackups(w, r, site)
+				return
+			}
+			if len(parts) == 4 {
+				handleSiteEnvBackupContent(w, r, site, parts[3])
+				return
+			}
+		case "restore":
+			if len(parts) == 3 {
+				handleSiteEnvRestore(w, r, site)
+				return
+			}
+		}
+		http.NotFound(w, r)
 		return
 	}
 	if len(parts) != 2 {

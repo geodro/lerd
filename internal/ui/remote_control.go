@@ -30,12 +30,15 @@ var loopbackOnlyRoutes = []string{
 	"/api/push/test",            // fires notifications onto subscribed devices
 }
 
-// loopbackOnlySiteSubactions are the per-site action suffixes (under
-// /api/sites/{domain}/) that are also restricted to loopback. The exact
-// path includes a domain segment in the middle, so we check the suffix.
+// loopbackOnlySiteSubactions are the per-site actions (under
+// /api/sites/{domain}/) whose entire subtree is restricted to loopback.
+// A subaction "/env" gates /api/sites/{d}/env and every nested route
+// under it (e.g. /env/files, /env/backups, /env/backups/<name>,
+// /env/restore), so adding a new subresource cannot accidentally escape
+// the LAN gate by failing to be re-listed here.
 var loopbackOnlySiteSubactions = []string{
 	"/terminal", // opens an interactive shell on the host
-	"/env",      // returns raw .env (APP_KEY, DB creds, third-party tokens)
+	"/env",      // raw .env content + backups + restore (APP_KEY, DB creds, tokens)
 }
 
 // fromHost reports whether r's source IP belongs to one of the host's
@@ -81,18 +84,29 @@ func fromHost(r *http.Request) bool {
 }
 
 // isLoopbackOnlyPath reports whether the given URL path is in either
-// the exact-match list or matches the per-site subaction suffix list.
+// the exact-match list or matches a per-site action whose entire subtree
+// is loopback-only. A subaction "/env" matches /api/sites/{d}/env exactly
+// and any subroute under it (/env/files, /env/backups, /env/restore,
+// /env/backups/<name>), so adding a new subresource never silently
+// escapes the gate.
 func isLoopbackOnlyPath(path string) bool {
 	for _, p := range loopbackOnlyRoutes {
 		if path == p {
 			return true
 		}
 	}
-	if strings.HasPrefix(path, "/api/sites/") {
-		for _, suffix := range loopbackOnlySiteSubactions {
-			if strings.HasSuffix(path, suffix) {
-				return true
-			}
+	if !strings.HasPrefix(path, "/api/sites/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, "/api/sites/")
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return false
+	}
+	after := rest[slash:]
+	for _, action := range loopbackOnlySiteSubactions {
+		if after == action || strings.HasPrefix(after, action+"/") {
+			return true
 		}
 	}
 	return false

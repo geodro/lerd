@@ -7,6 +7,8 @@
   import LANProgressModal from './LANProgressModal.svelte';
   import AddWorktreeModal from './AddWorktreeModal.svelte';
   import RemoveWorktreeModal from './RemoveWorktreeModal.svelte';
+  import ConfirmEnvSaveModal from './ConfirmEnvSaveModal.svelte';
+  import ConfirmEnvRestoreModal from './ConfirmEnvRestoreModal.svelte';
 </script>
 
 {#if $modal.kind === 'domain' && $modal.site}
@@ -23,4 +25,8 @@
   <AddWorktreeModal site={$modal.site} />
 {:else if $modal.kind === 'worktreeRemove' && $modal.site && $modal.branch}
   <RemoveWorktreeModal site={$modal.site} branch={$modal.branch} />
+{:else if $modal.kind === 'envSave' && $modal.envSave}
+  <ConfirmEnvSaveModal />
+{:else if $modal.kind === 'envRestore' && $modal.envRestore}
+  <ConfirmEnvRestoreModal />
 {/if}

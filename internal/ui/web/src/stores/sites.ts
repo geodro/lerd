@@ -157,11 +157,106 @@ function site(path: string, action: string): string {
   return `/api/sites/${encodeURIComponent(path)}/${action}`;
 }
 
-export async function loadSiteEnv(domain: string, branch: string = ''): Promise<string> {
-  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : '';
-  const res = await apiFetch(site(domain, 'env') + qs);
-  if (!res.ok) throw new Error(`Failed to load .env (${res.status})`);
+function envQS(branch: string, file?: string): string {
+  const params = new URLSearchParams();
+  if (branch) params.set('branch', branch);
+  if (file && file !== '.env') params.set('file', file);
+  const s = params.toString();
+  return s ? '?' + s : '';
+}
+
+export async function loadSiteEnvFiles(domain: string, branch: string = ''): Promise<string[]> {
+  try {
+    const res = await apiFetch(site(domain, 'env') + '/files' + envQS(branch));
+    if (!res.ok) return ['.env'];
+    const list = (await res.json()) as string[];
+    return list.length > 0 ? list : ['.env'];
+  } catch {
+    return ['.env'];
+  }
+}
+
+export async function loadSiteEnv(domain: string, branch: string = '', file: string = '.env'): Promise<string> {
+  const res = await apiFetch(site(domain, 'env') + envQS(branch, file));
+  if (!res.ok) throw new Error(`Failed to load ${file} (${res.status})`);
   return await res.text();
+}
+
+export interface SaveEnvResult {
+  ok: boolean;
+  error?: string;
+  backupPath?: string;
+}
+
+export interface SiteEnvBackup {
+  name: string;
+  mtime_unix: number;
+}
+
+export async function loadSiteEnvBackups(
+  domain: string,
+  branch: string = '',
+  file: string = '.env'
+): Promise<SiteEnvBackup[]> {
+  try {
+    const res = await apiFetch(site(domain, 'env') + '/backups' + envQS(branch, file));
+    if (!res.ok) return [];
+    return (await res.json()) as SiteEnvBackup[];
+  } catch {
+    return [];
+  }
+}
+
+export async function loadSiteEnvBackupContent(
+  domain: string,
+  name: string,
+  branch: string = '',
+  file: string = '.env'
+): Promise<string> {
+  const res = await apiFetch(site(domain, 'env') + '/backups/' + encodeURIComponent(name) + envQS(branch, file));
+  if (!res.ok) throw new Error(`Failed to load backup (${res.status})`);
+  return await res.text();
+}
+
+export interface RestoreEnvResult {
+  ok: boolean;
+  error?: string;
+  restored?: string;
+  content?: string;
+}
+
+export async function restoreSiteEnv(
+  domain: string,
+  branch: string = '',
+  file: string = '.env'
+): Promise<RestoreEnvResult> {
+  try {
+    const res = await apiFetch(site(domain, 'env') + '/restore' + envQS(branch, file), { method: 'POST' });
+    const data = (await res.json()) as { ok?: boolean; error?: string; restored?: string; content?: string };
+    return { ok: Boolean(data.ok), error: data.error, restored: data.restored, content: data.content };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
+export async function saveSiteEnv(
+  domain: string,
+  branch: string,
+  content: string,
+  backup: boolean,
+  file: string = '.env'
+): Promise<SaveEnvResult> {
+  try {
+    const res = await apiFetch(site(domain, 'env') + envQS(branch, file), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, backup })
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string; backup_path?: string };
+    return { ok: Boolean(data.ok), error: data.error, backupPath: data.backup_path };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
+  }
 }
 
 export const restartSite = (d: string) => postAction(site(d, 'restart'));

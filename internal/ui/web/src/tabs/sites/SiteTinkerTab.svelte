@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
-  import { EditorState } from '@codemirror/state';
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
   import {
     autocompletion,
     completionKeymap,
@@ -27,6 +25,7 @@
   } from '$stores/sites';
   import { parseDump, looksLikeDump } from '$lib/dump-parser';
   import DumpView from '$components/DumpView.svelte';
+  import CodeEditor from '$components/CodeEditor.svelte';
   import { m } from '../../paraglide/messages.js';
 
   interface Props {
@@ -37,11 +36,18 @@
 
   const draftKey = $derived(`tinker:${site.domain}${branch ? '@' + branch : ''}:draft`);
 
-  let code = $state('');
+  // Seed the editor with the saved draft once at construction. We
+  // deliberately read site/branch as initial values (not reactive) here
+  // because the draft only needs to be loaded once; the persisting
+  // $effect below keeps localStorage in sync on every edit thereafter.
+  function loadInitialDraft(): string {
+    if (typeof localStorage === 'undefined') return '';
+    const key = `tinker:${site.domain}${branch ? '@' + branch : ''}:draft`;
+    return localStorage.getItem(key) ?? '';
+  }
+  let code = $state(loadInitialDraft());
   let running = $state(false);
   let result = $state<TinkerResponse | null>(null);
-  let editorContainer: HTMLDivElement | undefined = $state();
-  let view: EditorView | undefined;
   let symbols: TinkerSymbols = { models: [], classes: [], functions: [] };
 
   // Backend injects \x1e (record separator) between top-level statement
@@ -119,10 +125,9 @@
 
   function clearAll() {
     result = null;
+    // CodeEditor's $effect mirrors external value writes into the editor,
+    // so assigning '' here clears the doc without us needing a view ref.
     code = '';
-    if (view) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } });
-    }
   }
 
 
@@ -132,68 +137,6 @@
     loadTinkerSymbols(domain, b).then((s) => {
       if (site.domain === domain && branch === b) symbols = s;
     });
-  });
-
-  onMount(() => {
-    if (!editorContainer) return;
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(draftKey);
-      if (saved) code = saved;
-    }
-    view = new EditorView({
-      parent: editorContainer,
-      state: EditorState.create({
-        doc: code,
-        extensions: [
-          lineNumbers(),
-          highlightActiveLine(),
-          history(),
-          closeBrackets(),
-          lintGutter(),
-          phpLinter,
-          php(),
-          autocompletion({
-            // hintSource:    project + framework + PHP-stdlib + composer fns
-            // variableSource: $vars typed earlier in the buffer
-            // completeAnyWord: any other word seen in the buffer (fallback)
-            override: [hintSource, variableSource, completeAnyWord],
-            activateOnTyping: true,
-            closeOnBlur: true
-          }),
-          keymap.of([
-            { key: 'Mod-Enter', preventDefault: true, run: () => { run(); return true; } },
-            // Tab opens autocomplete; if it's open, accept the selection.
-            // Always consumes the key so focus never tabs out of the editor.
-            {
-              key: 'Tab',
-              preventDefault: true,
-              run: (v) => {
-                if (completionStatus(v.state) === 'active') {
-                  acceptCompletion(v);
-                  return true;
-                }
-                startCompletion(v);
-                return true;
-              }
-            },
-            ...closeBracketsKeymap,
-            ...completionKeymap,
-            ...defaultKeymap,
-            ...historyKeymap
-          ]),
-          EditorView.lineWrapping,
-          EditorView.updateListener.of((u) => {
-            if (u.docChanged) code = u.state.doc.toString();
-          }),
-          EditorView.theme({
-            '&': { height: '100%', fontSize: '12px' },
-            '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
-            '.cm-content': { padding: '8px 0' }
-          })
-        ]
-      })
-    });
-    return () => view?.destroy();
   });
 
   const placeholder = m.tinker_placeholder();
@@ -434,6 +377,46 @@
     if (opts.length === 0) return null;
     return { from: word.from, options: opts, validFor: /^\w*$/ };
   }
+
+  const tinkerExtensions = [
+    lineNumbers(),
+    highlightActiveLine(),
+    history(),
+    closeBrackets(),
+    lintGutter(),
+    phpLinter,
+    php(),
+    autocompletion({
+      // hintSource:    project + framework + PHP-stdlib + composer fns
+      // variableSource: $vars typed earlier in the buffer
+      // completeAnyWord: any other word seen in the buffer (fallback)
+      override: [hintSource, variableSource, completeAnyWord],
+      activateOnTyping: true,
+      closeOnBlur: true
+    }),
+    keymap.of([
+      { key: 'Mod-Enter', preventDefault: true, run: () => { run(); return true; } },
+      // Tab opens autocomplete; if it's open, accept the selection.
+      // Always consumes the key so focus never tabs out of the editor.
+      {
+        key: 'Tab',
+        preventDefault: true,
+        run: (v) => {
+          if (completionStatus(v.state) === 'active') {
+            acceptCompletion(v);
+            return true;
+          }
+          startCompletion(v);
+          return true;
+        }
+      },
+      ...closeBracketsKeymap,
+      ...completionKeymap,
+      ...defaultKeymap,
+      ...historyKeymap
+    ]),
+    EditorView.lineWrapping
+  ];
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-hidden pt-4 px-3 sm:px-5 pb-3 sm:pb-5 gap-3">
@@ -471,7 +454,9 @@
     <div
       class="group flex-1 min-h-[160px] md:min-h-0 md:basis-1/2 flex flex-col rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden bg-gray-50 dark:bg-black/40 relative"
     >
-      <div class="flex-1 min-h-0 overflow-hidden" bind:this={editorContainer}></div>
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <CodeEditor bind:value={code} extensions={tinkerExtensions} />
+      </div>
       {#if code.trim()}
         <button
           onclick={() => copyText(code)}
