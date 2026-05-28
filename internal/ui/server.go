@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -2627,6 +2628,15 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 	// on first access), POST saves it and restarts the FPM container so it
 	// re-reads the config. Mirrors the `lerd php:ini` CLI command.
 	if action == "config" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		// Reject versions that are not actually installed before we touch
+		// disk. The regex above only enforces shape; without this guard a GET
+		// against e.g. /api/php-versions/99.9/config would seed a brand-new
+		// 98-user.ini under a phantom version directory.
+		installed, _ := phpPkg.ListInstalled()
+		if !slices.Contains(installed, version) {
+			http.NotFound(w, r)
+			return
+		}
 		if err := podman.EnsureUserIni(version); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -2641,10 +2651,13 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"path": path, "content": string(body)})
 			return
 		}
+		// Cap the POST body so a hostile (or accidental) multi-gigabyte
+		// payload can't be streamed straight to disk via os.WriteFile.
+		// 64 KiB matches the tinker endpoints in this file.
 		var req struct {
 			Content string `json:"content"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -2653,9 +2666,13 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Ensure the quadlet carries the user-ini mount (may be absent on
-		// installs predating the feature), then restart so it takes effect.
+		// installs predating the feature). Surface failures as 500 — otherwise
+		// the freshly written file is orphaned, the container reads nothing,
+		// and the UI shows a successful save with no signal that the change
+		// never took effect.
 		if err := podman.WriteFPMQuadlet(version); err != nil {
-			fmt.Fprintf(os.Stderr, "[WARN] updating php quadlet for %s failed: %v\n", version, err)
+			http.Error(w, "updating php quadlet: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 		short := strings.ReplaceAll(version, ".", "")
 		if err := podman.RestartUnit("lerd-php" + short + "-fpm"); err != nil {

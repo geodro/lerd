@@ -15,15 +15,27 @@
   let error = $state('');
   let content = $state('');
   let path = $state('');
+  let savedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearSavedTimer() {
+    if (savedTimer !== null) {
+      clearTimeout(savedTimer);
+      savedTimer = null;
+    }
+  }
 
   // Reset when the selected version changes so a stale editor body never
-  // leaks across versions.
+  // leaks across versions. Clear the saved flag and its pending timer too,
+  // otherwise switching versions inside the 2.5s confirmation window leaves
+  // the new version showing a stale "Saved" until the old timer fires.
   $effect(() => {
     version;
     open = false;
     loaded = false;
     content = '';
     error = '';
+    saved = false;
+    clearSavedTimer();
   });
 
   async function load() {
@@ -51,13 +63,18 @@
     saving = true;
     error = '';
     saved = false;
-    const ok = await savePhpIni(version, content);
-    saving = false;
-    if (ok) {
+    clearSavedTimer();
+    try {
+      await savePhpIni(version, content);
       saved = true;
-      setTimeout(() => (saved = false), 2500);
-    } else {
-      error = m.system_php_iniSaveError();
+      savedTimer = setTimeout(() => {
+        saved = false;
+        savedTimer = null;
+      }, 2500);
+    } catch (e) {
+      error = e instanceof Error && e.message ? e.message : m.system_php_iniSaveError();
+    } finally {
+      saving = false;
     }
   }
 </script>
