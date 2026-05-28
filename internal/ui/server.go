@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -822,28 +823,31 @@ func buildSites() []SiteResponse {
 
 // ServiceResponse is the response for GET /api/services.
 type ServiceResponse struct {
-	Name               string            `json:"name"`
-	Status             string            `json:"status"`
-	Version            string            `json:"version,omitempty"`
-	EnvVars            map[string]string `json:"env_vars"`
-	Dashboard          string            `json:"dashboard,omitempty"`
-	DashboardExternal  bool              `json:"dashboard_external,omitempty"`
-	ConnectionURL      string            `json:"connection_url,omitempty"`
-	Custom             bool              `json:"custom,omitempty"`
-	IsDefault          bool              `json:"is_default,omitempty"`
-	SiteCount          int               `json:"site_count"`
-	SiteDomains        []string          `json:"site_domains,omitempty"`
-	Pinned             bool              `json:"pinned"`
-	Paused             bool              `json:"paused,omitempty"`
-	DependsOn          []string          `json:"depends_on,omitempty"`
-	QueueSite          string            `json:"queue_site,omitempty"`
-	StripeListenerSite string            `json:"stripe_listener_site,omitempty"`
-	ScheduleWorkerSite string            `json:"schedule_worker_site,omitempty"`
-	ReverbSite         string            `json:"reverb_site,omitempty"`
-	HorizonSite        string            `json:"horizon_site,omitempty"`
-	WorkerSite         string            `json:"worker_site,omitempty"`
-	WorkerName         string            `json:"worker_name,omitempty"`
-	WorkerLabel        string            `json:"worker_label,omitempty"`
+	Name              string            `json:"name"`
+	Status            string            `json:"status"`
+	Version           string            `json:"version,omitempty"`
+	EnvVars           map[string]string `json:"env_vars"`
+	Dashboard         string            `json:"dashboard,omitempty"`
+	DashboardExternal bool              `json:"dashboard_external,omitempty"`
+	ConnectionURL     string            `json:"connection_url,omitempty"`
+	Custom            bool              `json:"custom,omitempty"`
+	IsDefault         bool              `json:"is_default,omitempty"`
+	// Tunable is true when the service exposes a user-editable runtime config
+	// override (see config.ServiceTuningMount), so the UI can show a Tuning tab.
+	Tunable            bool     `json:"tunable,omitempty"`
+	SiteCount          int      `json:"site_count"`
+	SiteDomains        []string `json:"site_domains,omitempty"`
+	Pinned             bool     `json:"pinned"`
+	Paused             bool     `json:"paused,omitempty"`
+	DependsOn          []string `json:"depends_on,omitempty"`
+	QueueSite          string   `json:"queue_site,omitempty"`
+	StripeListenerSite string   `json:"stripe_listener_site,omitempty"`
+	ScheduleWorkerSite string   `json:"schedule_worker_site,omitempty"`
+	ReverbSite         string   `json:"reverb_site,omitempty"`
+	HorizonSite        string   `json:"horizon_site,omitempty"`
+	WorkerSite         string   `json:"worker_site,omitempty"`
+	WorkerName         string   `json:"worker_name,omitempty"`
+	WorkerLabel        string   `json:"worker_label,omitempty"`
 	// Set when this worker entry is for a per-worktree unit
 	// (lerd-<wname>-<site>-<wt>); empty for parent-site workers.
 	WorkerWorktree       string `json:"worker_worktree,omitempty"`
@@ -920,6 +924,21 @@ func buildServiceResponseWithPortList(name, ssOutput string) ServiceResponse {
 		Pinned:        config.ServiceIsPinned(name),
 		Paused:        config.ServiceIsPaused(name),
 		IsDefault:     config.IsDefaultPreset(name),
+	}
+	// Only advertise Tunable when the service is actually installed.
+	// ResolveServiceForTuning resolves built-in default presets even when
+	// the user has explicitly `lerd service remove`d them, so without the
+	// ServiceInstalled gate the UI would render a Tuning tab on a removed
+	// service — and clicking through would silently reinstall via the
+	// materialise + quadlet regen + restart path (closed at the handler
+	// level by the same guard, but the tab shouldn't appear in the first
+	// place).
+	if serviceops.ServiceInstalled(name) {
+		if svc, err := config.ResolveServiceForTuning(name); err == nil {
+			if _, ok := config.ServiceTuningMount(svc); ok {
+				resp.Tunable = true
+			}
+		}
 	}
 	// Default-preset services advertise update availability so the dashboard
 	// can show an "→ v8.4.3" badge. Stopped services also run the check so the
@@ -1009,6 +1028,7 @@ func buildServicesList() []ServiceResponse {
 		if status != "active" {
 			conflicts = portConflictsFor(unit, ssOutput)
 		}
+		_, tunable := config.ServiceTuningMount(svc)
 		services = append(services, ServiceResponse{
 			Name:              svc.Name,
 			Status:            status,
@@ -1018,6 +1038,7 @@ func buildServicesList() []ServiceResponse {
 			DashboardExternal: svc.DashboardExternal,
 			ConnectionURL:     svc.ConnectionURL,
 			Custom:            true,
+			Tunable:           tunable,
 			SiteCount:         countSitesUsingService(svc.Name),
 			SiteDomains:       sitesUsingService(svc.Name),
 			Pinned:            config.ServiceIsPinned(svc.Name),
@@ -1425,6 +1446,70 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeLine(map[string]any{"phase": "error", "error": err.Error()})
 		}
 		dispatchNotification(notificationForServiceOp("update", name, start, err))
+		return
+	}
+
+	// Tuning override: GET reads the user-editable config file (seeding it on
+	// first access), POST saves it and restarts the service so it re-reads.
+	if action == "config" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		// Install-presence guard: same threat model as the CLI side. Removed
+		// default presets still resolve through ResolveServiceForTuning's
+		// LoadPreset fallback, so without this gate a tab-click would silently
+		// reinstall the service via materialise + quadlet regen + restart.
+		if !serviceops.ServiceInstalled(name) {
+			http.Error(w, "service is not installed", http.StatusNotFound)
+			return
+		}
+		svc, err := config.ResolveServiceForTuning(name)
+		if err != nil {
+			http.Error(w, "service not installed", http.StatusNotFound)
+			return
+		}
+		target, ok := config.ServiceTuningMount(svc)
+		if !ok {
+			http.Error(w, "service does not support tuning", http.StatusBadRequest)
+			return
+		}
+		if err := config.MaterializeServiceTuning(svc); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		path := config.ServiceTuningFile(name)
+		if r.Method == http.MethodGet {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"supported": true, "target": target, "content": string(body)})
+			return
+		}
+		var req struct {
+			Content string `json:"content"`
+		}
+		// Cap the POST body so a multi-gigabyte payload can't be streamed
+		// straight to disk via os.WriteFile. 64 KiB matches the tinker /
+		// php.ini / nginx endpoints in this file.
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		// Write + regen + restart go through the shared serviceops helper
+		// so the CLI command and this handler can't drift from each other.
+		// SaveTuningOverride returns typed sentinels we map back to HTTP
+		// status (errors.Is) — everything else is a 500.
+		if err := serviceops.SaveTuningOverride(name, req.Content); err != nil {
+			switch {
+			case errors.Is(err, serviceops.ErrTuningServiceNotInstalled):
+				http.Error(w, err.Error(), http.StatusNotFound)
+			case errors.Is(err, serviceops.ErrTuningFamilyUnsupported):
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			default:
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
 

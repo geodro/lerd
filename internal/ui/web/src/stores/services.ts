@@ -13,6 +13,7 @@ export interface Service {
   connection_url?: string;
   custom?: boolean;
   is_default?: boolean;
+  tunable?: boolean;
   site_count: number;
   site_domains?: string[];
   pinned?: boolean;
@@ -358,6 +359,33 @@ export async function streamServiceAction(
     setProgress(name, null);
     return { ok: false, error: e instanceof Error ? e.message : 'request failed' };
   }
+}
+
+export interface ServiceConfig {
+  supported: boolean;
+  target: string;
+  content: string;
+}
+
+export async function getServiceConfig(name: string): Promise<ServiceConfig> {
+  return apiJson<ServiceConfig>('/api/services/' + encodeURIComponent(name) + '/config');
+}
+
+export async function saveServiceConfig(name: string, content: string): Promise<void> {
+  const res = await apiFetch('/api/services/' + encodeURIComponent(name) + '/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  if (!res.ok) {
+    // Mirror getServiceConfig's apiJson behaviour (throws on non-ok with
+    // status/text). Surfaces the server reason — install-presence guard,
+    // unsupported family, regen failure — instead of a generic localised
+    // "save failed" string in the editor.
+    const body = await res.text().catch(() => '');
+    throw new Error(body.trim() || `${res.status} ${res.statusText}`);
+  }
+  await loadServices();
 }
 
 export function findService(name: string): Service | undefined {
