@@ -14,6 +14,12 @@ export type ModalKind =
   | 'nginxSave'
   | 'nginxRestore'
   | 'nginxReset'
+  | 'nginxGlobalSave'
+  | 'nginxGlobalRestore'
+  | 'nginxGlobalReset'
+  | 'phpIniSave'
+  | 'phpIniRestore'
+  | 'phpIniReset'
   | 'tuningSave'
   | 'tuningRestore'
   | 'tuningReset'
@@ -60,6 +66,41 @@ export interface NginxResetTarget {
   path: string;
 }
 
+export interface NginxGlobalSaveTarget {
+  content: string;
+  original: string;
+  exists: boolean;
+}
+
+export interface NginxGlobalRestoreTarget {
+  current: string;
+  backupName: string;
+  backup: string;
+}
+
+export interface NginxGlobalResetTarget {
+  path: string;
+}
+
+export interface PhpIniSaveTarget {
+  version: string;
+  content: string;
+  original: string;
+  exists: boolean;
+}
+
+export interface PhpIniRestoreTarget {
+  version: string;
+  current: string;
+  backupName: string;
+  backup: string;
+}
+
+export interface PhpIniResetTarget {
+  version: string;
+  path: string;
+}
+
 export interface TuningSaveTarget {
   name: string;
   content: string;
@@ -93,6 +134,12 @@ export interface ModalState {
   nginxSave?: NginxSaveTarget;
   nginxRestore?: NginxRestoreTarget;
   nginxReset?: NginxResetTarget;
+  nginxGlobalSave?: NginxGlobalSaveTarget;
+  nginxGlobalRestore?: NginxGlobalRestoreTarget;
+  nginxGlobalReset?: NginxGlobalResetTarget;
+  phpIniSave?: PhpIniSaveTarget;
+  phpIniRestore?: PhpIniRestoreTarget;
+  phpIniReset?: PhpIniResetTarget;
   tuningSave?: TuningSaveTarget;
   tuningRestore?: TuningRestoreTarget;
   tuningReset?: TuningResetTarget;
@@ -146,6 +193,30 @@ export function openNginxRestoreModal(target: NginxRestoreTarget, onSuccess?: ()
 
 export function openNginxResetModal(target: NginxResetTarget, onSuccess?: () => void) {
   modal.set({ kind: 'nginxReset', nginxReset: target, onSuccess });
+}
+
+export function openNginxGlobalSaveModal(target: NginxGlobalSaveTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'nginxGlobalSave', nginxGlobalSave: target, onSuccess });
+}
+
+export function openNginxGlobalRestoreModal(target: NginxGlobalRestoreTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'nginxGlobalRestore', nginxGlobalRestore: target, onSuccess });
+}
+
+export function openNginxGlobalResetModal(target: NginxGlobalResetTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'nginxGlobalReset', nginxGlobalReset: target, onSuccess });
+}
+
+export function openPhpIniSaveModal(target: PhpIniSaveTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'phpIniSave', phpIniSave: target, onSuccess });
+}
+
+export function openPhpIniRestoreModal(target: PhpIniRestoreTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'phpIniRestore', phpIniRestore: target, onSuccess });
+}
+
+export function openPhpIniResetModal(target: PhpIniResetTarget, onSuccess?: () => void) {
+  modal.set({ kind: 'phpIniReset', phpIniReset: target, onSuccess });
 }
 
 export function openTuningSaveModal(target: TuningSaveTarget, onSuccess?: () => void) {

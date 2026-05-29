@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -201,7 +200,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/version", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		handleVersion(w, r, currentVersion)
 	}))
-	mux.HandleFunc("/api/nginx/config", withCORS(handleNginxConfig))
+	mux.HandleFunc("/api/nginx/", withCORS(handleNginxRoutes))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
 	mux.HandleFunc("/api/php-versions/", withCORS(publishAfter(handlePHPVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
@@ -3400,75 +3399,6 @@ const nginxHttpTemplate = `# Lerd global nginx http-level overrides.
 # proxy_buffer_size 32k;
 `
 
-// handleNginxConfig reads (GET) or saves (POST) the global http-level nginx
-// override at ~/.local/share/lerd/nginx/http.d/zz-lerd-user.conf, which is
-// bind-mounted into lerd-nginx and included at http{} level. Saving reloads
-// nginx so the change takes effect without recreating the container.
-func handleNginxConfig(w http.ResponseWriter, r *http.Request) {
-	path := config.NginxHttpUserConf()
-	if r.Method == http.MethodGet {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			body = []byte(nginxHttpTemplate)
-		}
-		writeJSON(w, map[string]any{"path": path, "content": string(body)})
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Content string `json:"content"`
-	}
-	// Cap the POST body so a hostile (or accidental) multi-gigabyte
-	// payload can't be streamed straight to disk via os.WriteFile.
-	// 64 KiB matches the tinker / php.ini endpoints in this file.
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	// Heal preconditions for installs predating this feature: rerender
-	// nginx.conf (which now carries the `include /etc/nginx/http.d/*.conf`
-	// line) and rewrite the lerd-nginx quadlet from the bundled template
-	// (which now carries the http.d Volume= mount). Without this, a freshly
-	// written http.d file is orphaned — nginx never includes it, the
-	// container never mounts the dir, and the editor would return ok:true
-	// while the change silently never takes effect. Mirrors how the
-	// php.ini handler calls WriteFPMQuadlet before restart.
-	if err := nginx.EnsureNginxConfig(); err != nil {
-		http.Error(w, "ensuring nginx config: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	quadletChanged, err := nginx.RewriteNginxQuadlet()
-	if err != nil {
-		http.Error(w, "rewriting nginx quadlet: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// A new Volume= mount only takes effect on container (re)start —
-	// `nginx -s reload` won't pick up a quadlet change. Fall back to
-	// reload when the quadlet was already current (the common case after
-	// the first heal).
-	if quadletChanged {
-		_ = podman.DaemonReloadFn()
-		if err := podman.RestartUnit("lerd-nginx"); err != nil {
-			http.Error(w, "saved, but nginx restart failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	} else if err := nginx.Reload(); err != nil {
-		http.Error(w, "saved, but nginx reload failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true})
-}
 
 // SiteActionResponse is returned by POST /api/sites/{domain}/secure|unsecure.
 type SiteActionResponse struct {
@@ -4200,9 +4130,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
-	// path: /api/php-versions/{version}/{remove|set-default|config}
+	// path: /api/php-versions/{version}/{remove|set-default|config|...}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/php-versions/"), "/")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		http.NotFound(w, r)
 		return
 	}
@@ -4212,65 +4142,35 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// User php.ini override: GET reads the per-version 98-user.ini (seeding it
-	// on first access), POST saves it and restarts the FPM container so it
-	// re-reads the config. Mirrors the `lerd php:ini` CLI command.
-	if action == "config" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
-		// Reject versions that are not actually installed before we touch
-		// disk. The regex above only enforces shape; without this guard a GET
-		// against e.g. /api/php-versions/99.9/config would seed a brand-new
-		// 98-user.ini under a phantom version directory.
-		installed, _ := phpPkg.ListInstalled()
-		if !slices.Contains(installed, version) {
-			http.NotFound(w, r)
+	// User php.ini override + backup/restore/reset subroutes. The save flow
+	// snapshots and rolls back on FPM restart failure; mirrors the per-site
+	// nginx editor's mechanic so the frontend can share the modal pattern.
+	if action == "config" {
+		switch {
+		case len(parts) == 2:
+			handlePhpIniConfig(w, r, version)
+			return
+		case len(parts) == 3 && parts[2] == "backups":
+			handlePhpIniBackups(w, r, version)
+			return
+		case len(parts) == 4 && parts[2] == "backups":
+			handlePhpIniBackupContent(w, r, version, parts[3])
+			return
+		case len(parts) == 3 && parts[2] == "reset":
+			handlePhpIniReset(w, r, version)
+			return
+		case len(parts) == 3 && parts[2] == "restore":
+			handlePhpIniRestore(w, r, version)
 			return
 		}
-		if err := podman.EnsureUserIni(version); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		path := config.PHPUserIniFile(version)
-		if r.Method == http.MethodGet {
-			body, err := os.ReadFile(path)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, map[string]any{"path": path, "content": string(body)})
-			return
-		}
-		// Cap the POST body so a hostile (or accidental) multi-gigabyte
-		// payload can't be streamed straight to disk via os.WriteFile.
-		// 64 KiB matches the tinker endpoints in this file.
-		var req struct {
-			Content string `json:"content"`
-		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Ensure the quadlet carries the user-ini mount (may be absent on
-		// installs predating the feature). Surface failures as 500 — otherwise
-		// the freshly written file is orphaned, the container reads nothing,
-		// and the UI shows a successful save with no signal that the change
-		// never took effect.
-		if err := podman.WriteFPMQuadlet(version); err != nil {
-			http.Error(w, "updating php quadlet: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		short := strings.ReplaceAll(version, ".", "")
-		if err := podman.RestartUnit("lerd-php" + short + "-fpm"); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]any{"ok": true})
+		http.NotFound(w, r)
 		return
 	}
 
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

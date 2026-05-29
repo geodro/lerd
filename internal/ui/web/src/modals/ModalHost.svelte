@@ -12,6 +12,12 @@
   import ConfirmNginxSaveModal from './ConfirmNginxSaveModal.svelte';
   import ConfirmNginxRestoreModal from './ConfirmNginxRestoreModal.svelte';
   import ConfirmNginxResetModal from './ConfirmNginxResetModal.svelte';
+  import ConfirmNginxGlobalSaveModal from './ConfirmNginxGlobalSaveModal.svelte';
+  import ConfirmNginxGlobalRestoreModal from './ConfirmNginxGlobalRestoreModal.svelte';
+  import ConfirmNginxGlobalResetModal from './ConfirmNginxGlobalResetModal.svelte';
+  import ConfirmPhpIniSaveModal from './ConfirmPhpIniSaveModal.svelte';
+  import ConfirmPhpIniRestoreModal from './ConfirmPhpIniRestoreModal.svelte';
+  import ConfirmPhpIniResetModal from './ConfirmPhpIniResetModal.svelte';
   import ConfirmTuningSaveModal from './ConfirmTuningSaveModal.svelte';
   import ConfirmTuningRestoreModal from './ConfirmTuningRestoreModal.svelte';
   import ConfirmTuningResetModal from './ConfirmTuningResetModal.svelte';
@@ -41,6 +47,18 @@
   <ConfirmNginxRestoreModal />
 {:else if $modal.kind === 'nginxReset' && $modal.nginxReset}
   <ConfirmNginxResetModal />
+{:else if $modal.kind === 'nginxGlobalSave' && $modal.nginxGlobalSave}
+  <ConfirmNginxGlobalSaveModal />
+{:else if $modal.kind === 'nginxGlobalRestore' && $modal.nginxGlobalRestore}
+  <ConfirmNginxGlobalRestoreModal />
+{:else if $modal.kind === 'nginxGlobalReset' && $modal.nginxGlobalReset}
+  <ConfirmNginxGlobalResetModal />
+{:else if $modal.kind === 'phpIniSave' && $modal.phpIniSave}
+  <ConfirmPhpIniSaveModal />
+{:else if $modal.kind === 'phpIniRestore' && $modal.phpIniRestore}
+  <ConfirmPhpIniRestoreModal />
+{:else if $modal.kind === 'phpIniReset' && $modal.phpIniReset}
+  <ConfirmPhpIniResetModal />
 {:else if $modal.kind === 'tuningSave' && $modal.tuningSave}
   <ConfirmTuningSaveModal />
 {:else if $modal.kind === 'tuningRestore' && $modal.tuningRestore}

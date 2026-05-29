@@ -4,13 +4,12 @@
   import Icon from '$components/Icon.svelte';
   import ListRow from '$components/ListRow.svelte';
   import StatusDot from '$components/StatusDot.svelte';
-  import SectionHeader from '$components/SectionHeader.svelte';
   import LoadingRow from '$components/LoadingRow.svelte';
   import { routeRest, goToTab } from '$stores/route';
   import { status, statusLoaded, lerdStatusColor, fpmRunning, allCoreRunning } from '$stores/status';
   import { phpVersions } from '$stores/phpVersions';
   import { nodeVersions } from '$stores/nodeVersions';
-  import { sitesByPhp, sitesByNode } from '$stores/sites';
+  import { sitesByNode } from '$stores/sites';
   import { version } from '$stores/version';
   import { accessMode } from '$stores/accessMode';
   import { lerdStart, lerdStop, lerdStarting, lerdStopping } from '$stores/lerdLifecycle';
@@ -33,8 +32,6 @@
   function select(id: string) {
     goToTab('system', id);
   }
-
-  const phpSiteCount = $derived((v: string) => $sitesByPhp.get(v) ?? 0);
 </script>
 
 {#snippet actions()}
@@ -90,20 +87,13 @@
     <ListRow active={selected === 'dump-bridge'} onclick={() => select('dump-bridge')} leading={dumpBridgeDot} trailing={dumpBridgeTrailing}>Dump bridge</ListRow>
 
     {#if $phpVersions.length > 0}
-      <SectionHeader title={m.system_phpFpm()} />
-      {#each $phpVersions as v (v)}
-        {@const id = 'php-' + v}
-        {#snippet leading()}<StatusDot color={fpmRunning(v) ? 'green' : 'gray'} />{/snippet}
-        {#snippet trailing()}
-          {#if $status.php_default === v}
-            <span class="text-[10px] font-medium shrink-0 {selected === id ? 'text-lerd-red/60' : 'text-gray-400 dark:text-gray-600'}">{m.common_default()}</span>
-          {/if}
-          {#if phpSiteCount(v) > 0}
-            <span class="text-[10px] font-medium tabular-nums shrink-0 ml-1 {selected === id ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{phpSiteCount(v)}</span>
-          {/if}
-        {/snippet}
-        <ListRow active={selected === id} onclick={() => select(id)} {leading} {trailing}>PHP {v}</ListRow>
-      {/each}
+      {@const phpSelected = selected === 'php' || selected.startsWith('php-')}
+      {@const anyFpmRunning = $phpVersions.some((v) => fpmRunning(v))}
+      {#snippet phpLeading()}<StatusDot color={anyFpmRunning ? 'green' : 'gray'} />{/snippet}
+      {#snippet phpTrailing()}
+        <span class="text-[10px] font-medium tabular-nums shrink-0 {phpSelected ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$phpVersions.length}</span>
+      {/snippet}
+      <ListRow active={phpSelected} onclick={() => select('php')} leading={phpLeading} trailing={phpTrailing}>PHP</ListRow>
     {/if}
 
     {#snippet nodeLeading()}<StatusDot color={$status.node_managed_by_lerd ? 'green' : 'blue'} />{/snippet}

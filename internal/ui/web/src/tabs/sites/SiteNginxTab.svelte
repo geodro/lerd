@@ -1,5 +1,6 @@
 <script lang="ts">
   import NginxEditor from '$components/NginxEditor.svelte';
+  import ConfigToolbar from '$components/ConfigToolbar.svelte';
   import {
     getSiteNginx,
     loadSiteNginxBackups,
@@ -208,77 +209,27 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="sticky top-0 z-10">
-    <div class="flex items-center justify-between bg-gray-50 dark:bg-white/3 px-3 py-1.5 border-b border-gray-200 dark:border-lerd-border">
-      <div class="flex items-center gap-2 min-w-0">
-        {#if path}
-          <span class="text-[10px] text-gray-400 dark:text-gray-600 font-mono truncate" title={path}>{path}</span>
-        {/if}
-        {#if dirty && !loading && !error}
-          <span class="text-[10px] font-medium text-amber-600 dark:text-amber-400">{m.nginxEditor_unsaved()}</span>
-        {/if}
-        {#if backups.length > 0 && !loading}
-          <span
-            class="text-[10px] font-medium text-gray-500 dark:text-gray-400"
-            title={latestBackup?.name}
-          >{m.nginxEditor_backupAvailable({ n: backups.length })}</span>
-        {/if}
-        {#if backupsError && !loading}
-          <span class="text-[10px] font-medium text-red-500 dark:text-red-400" title={backupsError}>{backupsError}</span>
-        {/if}
-        {#if actionError}
-          <span class="text-[10px] font-medium text-red-500 dark:text-red-400" title={actionError}>{actionError}</span>
-        {/if}
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          type="button"
-          onclick={copy}
-          disabled={loading || !!error}
-          class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40"
-        >
-          {copied ? m.common_copied() : m.common_copy()}
-        </button>
-        {#if canRevert}
-          <button
-            type="button"
-            onclick={revert}
-            class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
-          >
-            {m.nginxEditor_revert()}
-          </button>
-        {/if}
-        {#if canReset}
-          <button
-            type="button"
-            onclick={reset}
-            class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
-          >
-            {m.nginxEditor_reset()}
-          </button>
-        {/if}
-        {#if hasBackup}
-          <button
-            type="button"
-            onclick={restore}
-            disabled={restoring}
-            class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40"
-          >
-            {m.nginxEditor_restore()}
-          </button>
-        {/if}
-        {#if canSave}
-          <button
-            type="button"
-            onclick={save}
-            class="text-xs px-3 py-1 rounded-sm bg-lerd-red hover:bg-lerd-redhov text-white transition-colors"
-          >
-            {m.common_save()}
-          </button>
-        {/if}
-      </div>
-    </div>
-  </div>
+  <ConfigToolbar
+    {path}
+    {dirty}
+    {loading}
+    {error}
+    backupCount={backups.length}
+    latestBackupName={latestBackup?.name}
+    {backupsError}
+    {actionError}
+    {canRevert}
+    {canReset}
+    {canSave}
+    {hasBackup}
+    {restoring}
+    {copied}
+    onCopy={copy}
+    onRevert={revert}
+    onReset={reset}
+    onRestore={restore}
+    onSave={save}
+  />
 
   <div class="flex-1 overflow-hidden bg-gray-50 dark:bg-black/40">
     {#if loading}

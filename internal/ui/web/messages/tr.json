@@ -734,5 +734,14 @@
   "notify_dump_title": "{site} sitesinden dump",
   "notify_dump_body": "{text}",
   "notify_test_title": "lerd bildirim testi",
-  "notify_test_body": "Bunu görüyorsanız, push bildirimleri çalışıyor."
+  "notify_test_body": "Bunu görüyorsanız, push bildirimleri çalışıyor.",
+  "nginxGlobalEditor_confirmBody": "Save these changes to the global nginx http override and reload nginx?",
+  "nginxGlobalEditor_resetBody": "Delete the saved global nginx http override and reload nginx? The bundled defaults will apply. Backups are kept and can be restored later.",
+  "nginxGlobalEditor_restoreBody": "Replace the current global http override with {name}. The backup will be removed after the restore completes.",
+  "phpIniEditor_confirmTitle": "Save php.ini changes",
+  "phpIniEditor_confirmBody": "Save these changes to PHP {version}'s php.ini and restart FPM?",
+  "phpIniEditor_resetTitle": "Reset php.ini",
+  "phpIniEditor_resetBody": "Delete the saved php.ini for PHP {version} and restart FPM? The bundled defaults will apply. Backups are kept and can be restored later.",
+  "phpIniEditor_restoreTitle": "Restore php.ini from backup",
+  "phpIniEditor_restoreBody": "Replace the current php.ini for PHP {version} with {name}. The backup will be removed after the restore completes."
 }

@@ -25,13 +25,15 @@ describe('nginx store', () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       calls.push([String(url), init]);
-      return new Response('{"ok":true}', { status: 200 });
+      return new Response('{"ok":true,"content":"client_max_body_size 100m;\\n","exists":true}', { status: 200 });
     }) as unknown as typeof fetch;
     const { saveNginxConfig } = await import('./nginx');
-    const ok = await saveNginxConfig('client_max_body_size 100m;\n');
-    expect(ok).toBe(true);
+    const res = await saveNginxConfig('client_max_body_size 100m;\n', true);
+    expect(res.ok).toBe(true);
+    expect(res.content).toBe('client_max_body_size 100m;\n');
+    expect(res.exists).toBe(true);
     expect(calls[0][0]).toBe('/api/nginx/config');
     expect(calls[0][1]?.method).toBe('POST');
-    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ content: 'client_max_body_size 100m;\n' });
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ content: 'client_max_body_size 100m;\n', backup: true });
   });
 });
