@@ -13,8 +13,13 @@
 
   interface Props {
     site: Site;
+    /** Domain whose override to edit. Defaults to the site's primary domain;
+     *  pass a worktree's domain to edit that worktree's override instead. */
+    domain?: string;
+    /** Called after a successful save so the host can close the editor. */
+    onSaved?: () => void;
   }
-  let { site }: Props = $props();
+  let { site, domain, onSaved = () => {} }: Props = $props();
 
   let original = $state<string>('');
   let text = $state<string>('');
@@ -46,7 +51,7 @@
   // (even when the domain is unchanged). Reading site.domain inside the
   // effect would re-fire on each push and clobber unsaved edits; pinning
   // to a $derived(string) lets Svelte short-circuit those false triggers.
-  const currentDomain = $derived(site.domain);
+  const currentDomain = $derived(domain || site.domain);
 
   // Reload content + backups whenever the selected domain changes. The
   // domain guard in the resolver drops stale responses if the user
@@ -197,13 +202,14 @@
 
   function save() {
     const savedDomain = currentDomain;
-    // The onSuccess callback only fires on a SUCCESSFUL save; on validation
-    // failure the modal stays open with the nginx -t diagnostic and the
-    // editor's text is left exactly as the user typed it so a long edit
-    // with one typo isn't lost.
+    // onSuccess fires only on a SUCCESSFUL save; on validation failure the
+    // confirm modal stays open with the nginx -t diagnostic and the editor's
+    // text is untouched. On success we close the editor entirely — reopening
+    // remounts and reloads the saved file from disk, so there's no stale
+    // dirty/backup state to refresh.
     openNginxSaveModal(
       { domain: savedDomain, content: text, original, exists },
-      () => refreshAfterAction(savedDomain)
+      () => onSaved()
     );
   }
 </script>

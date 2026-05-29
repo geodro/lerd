@@ -233,6 +233,20 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "site_nginx",
+			Description: "Read/write/reset a site's custom nginx override. Saving runs nginx -t, backs up the prior file, and reloads. branch=<name> targets a worktree (new worktrees inherit main's override).",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"action":  {Type: "string", Enum: []string{"read", "write", "reset"}},
+					"site":    {Type: "string", Description: "Site name. Defaults to current."},
+					"branch":  {Type: "string", Description: "Optional worktree branch."},
+					"content": {Type: "string", Description: "write: full file contents."},
+				},
+				Required: []string{"action"},
+			},
+		},
+		{
 			Name:        "composer",
 			Description: "Run composer in the PHP-FPM container.",
 			InputSchema: mcpSchema{
@@ -1111,6 +1125,18 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 	case "sites":
 		return execSites()
 
+	case "site_nginx":
+		switch action {
+		case "read", "":
+			return execSiteNginxRead(args)
+		case "write":
+			return execSiteNginxWrite(args)
+		case "reset":
+			return execSiteNginxReset(args)
+		default:
+			return unknownAction("site_nginx")
+		}
+
 	case "service_control":
 		switch action {
 		case "start":
@@ -1674,6 +1700,73 @@ func execServiceRestart(args map[string]any) (any, *rpcError) {
 		return toolErr("restarting " + name + ": " + err.Error()), nil
 	}
 	return toolOK(name + " restarted"), nil
+}
+
+// resolveNginxDomain turns the site/branch args into the domain whose custom
+// nginx override to operate on. site defaults to the current context;
+// branch resolves to that worktree's subdomain like the daemon does.
+func resolveNginxDomain(args map[string]any) (string, error) {
+	siteName := strArg(args, "site")
+	var site *config.Site
+	var err error
+	if siteName != "" {
+		if site, err = config.FindSite(siteName); err != nil {
+			return "", fmt.Errorf("site not found: %s", siteName)
+		}
+	} else if defaultSitePath != "" {
+		if site, err = config.FindSiteByPath(defaultSitePath); err != nil {
+			return "", fmt.Errorf("no site for the current path; pass site=")
+		}
+	} else {
+		return "", fmt.Errorf("site is required")
+	}
+	return siteops.WorktreeDomain(site, strArg(args, "branch"))
+}
+
+func execSiteNginxRead(args map[string]any) (any, *rpcError) {
+	domain, err := resolveNginxDomain(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	got, err := siteops.ReadCustomNginx(domain)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	state := "saved override"
+	if !got.Exists {
+		state = "no override yet — showing the template"
+	}
+	return toolOK(fmt.Sprintf("# %s (%s)\n%s", domain, state, got.Body)), nil
+}
+
+func execSiteNginxWrite(args map[string]any) (any, *rpcError) {
+	domain, err := resolveNginxDomain(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	res, err := siteops.SaveCustomNginx(domain, strArg(args, "content"), true)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if !res.OK {
+		msg := res.Error
+		if res.ValidationOutput != "" {
+			msg += "\n" + res.ValidationOutput
+		}
+		return toolErr(msg), nil
+	}
+	return toolOK(fmt.Sprintf("Saved nginx override for %s and reloaded nginx.", domain)), nil
+}
+
+func execSiteNginxReset(args map[string]any) (any, *rpcError) {
+	domain, err := resolveNginxDomain(args)
+	if err != nil {
+		return toolErr(err.Error()), nil
+	}
+	if err := siteops.ResetCustomNginx(domain); err != nil {
+		return toolErr(err.Error()), nil
+	}
+	return toolOK(fmt.Sprintf("Reset %s to the bundled nginx defaults.", domain)), nil
 }
 
 func execQueueStart(args map[string]any) (any, *rpcError) {

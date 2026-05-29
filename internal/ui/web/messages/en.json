@@ -539,6 +539,8 @@
   "sites_tabs_overview": "Overview",
   "sites_tabs_tinker": "Tinker",
   "sites_tabs_nginx": "Nginx",
+  "sites_nginx_editTitle": "Edit nginx config",
+  "sites_nginx_modalTitle": "Nginx config: {domain}",
   "sites_nginx_desc": "Included at the end of this site’s server block. Lerd never overwrites this file; saving reloads nginx.",
   "sites_nginx_save": "Save & reload",
   "sites_nginx_saving": "Saving…",

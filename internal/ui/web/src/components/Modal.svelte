@@ -7,14 +7,20 @@
     open: boolean;
     title: string;
     onclose: () => void;
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'sm' | 'md' | 'lg' | 'xl';
     children: Snippet;
     footer?: Snippet;
   }
   let { open, title, onclose, size = 'md', children, footer }: Props = $props();
 
   const widthClass = $derived(
-    size === 'sm' ? 'max-w-sm' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg'
+    size === 'sm'
+      ? 'max-w-sm'
+      : size === 'lg'
+        ? 'max-w-2xl'
+        : size === 'xl'
+          ? 'max-w-5xl'
+          : 'max-w-lg'
   );
 
   function onKey(e: KeyboardEvent) {

@@ -18,6 +18,71 @@ func seedFile(t *testing.T, path, body string) {
 	}
 }
 
+func TestMoveCustomNginxConfig_carriesWorktreeOverridesAndBackups(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	live := config.NginxCustomD()
+	bkp := config.NginxCustomDBkp()
+	// Main override + a worktree override (keyed by {branch}.{primary}).
+	seedFile(t, filepath.Join(live, "rental-registry.test.conf"), "# main\n")
+	seedFile(t, filepath.Join(live, "feat.rental-registry.test.conf"), "# worktree feat\n")
+	seedFile(t, filepath.Join(bkp, "feat.rental-registry.test.conf.bkp.20260101-101010"), "# wt backup\n")
+	// A different site must be untouched.
+	seedFile(t, filepath.Join(live, "other.test.conf"), "# other\n")
+
+	if err := MoveCustomNginxConfig("rental-registry.test", "rentals.test"); err != nil {
+		t.Fatalf("MoveCustomNginxConfig: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(live, "feat.rental-registry.test.conf")); !os.IsNotExist(err) {
+		t.Errorf("old worktree override still present, want renamed")
+	}
+	body, err := os.ReadFile(filepath.Join(live, "feat.rentals.test.conf"))
+	if err != nil || string(body) != "# worktree feat\n" {
+		t.Errorf("new worktree override = %q err=%v; want content under new domain", body, err)
+	}
+	if _, err := os.Stat(filepath.Join(bkp, "feat.rentals.test.conf.bkp.20260101-101010")); err != nil {
+		t.Errorf("worktree backup not carried across: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(live, "rentals.test.conf")); err != nil {
+		t.Errorf("main override not moved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(live, "other.test.conf")); err != nil {
+		t.Errorf("unrelated site's override was disturbed: %v", err)
+	}
+}
+
+// A separately-registered site whose primary is a subdomain of the renamed
+// site (app.test + admin.app.test) matches the worktree suffix scan but must
+// not have its override moved or clobbered.
+func TestMoveCustomNginxConfig_skipsSiblingSubdomainSite(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	if err := config.AddSite(config.Site{Name: "admin", Path: t.TempDir(), Domains: []string{"admin.app.test"}}); err != nil {
+		t.Fatal(err)
+	}
+	live := config.NginxCustomD()
+	bkp := config.NginxCustomDBkp()
+	seedFile(t, filepath.Join(live, "app.test.conf"), "# main\n")
+	seedFile(t, filepath.Join(live, "admin.app.test.conf"), "# sibling site, not a worktree\n")
+	seedFile(t, filepath.Join(bkp, "admin.app.test.conf.bkp.20260101-101010"), "# sibling backup\n")
+
+	if err := MoveCustomNginxConfig("app.test", "renamed.test"); err != nil {
+		t.Fatalf("MoveCustomNginxConfig: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(live, "admin.app.test.conf")); err != nil {
+		t.Errorf("sibling site's override must be left in place: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(live, "admin.renamed.test.conf")); !os.IsNotExist(err) {
+		t.Errorf("sibling site's override must NOT be moved under the new primary")
+	}
+	if _, err := os.Stat(filepath.Join(bkp, "admin.app.test.conf.bkp.20260101-101010")); err != nil {
+		t.Errorf("sibling site's backup must be left in place: %v", err)
+	}
+}
+
 func TestMoveCustomNginxConfig_movesLiveOverrideAndBackups(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

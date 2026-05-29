@@ -784,10 +784,10 @@ func EnsureDefaultVhost() error {
 
 	onDisk, readErr := os.ReadFile(path)
 	if errors.Is(readErr, os.ErrNotExist) {
-		if err := writeFileAtomic(path, canonical, 0644); err != nil {
+		if err := WriteFileAtomic(path, canonical, 0644); err != nil {
 			return err
 		}
-		return writeFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
+		return WriteFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
 	}
 	if readErr != nil {
 		return readErr
@@ -800,7 +800,7 @@ func EnsureDefaultVhost() error {
 		// pre-sentinel binary upgrade, or hand edit. The last two are
 		// indistinguishable, so preserve and tell the user how to opt back in.
 		if onDiskHash == canonicalHash {
-			return writeFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
+			return WriteFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
 		}
 		fmt.Printf("  [INFO] %s has no lerd sentinel; preserving on-disk content. If this is from a lerd upgrade and you haven't edited it, run: rm %s\n", path, path)
 		return nil
@@ -813,10 +813,10 @@ func EnsureDefaultVhost() error {
 		return nil
 	}
 	// On-disk matches what lerd last wrote, but the template moved on.
-	if err := writeFileAtomic(path, canonical, 0644); err != nil {
+	if err := WriteFileAtomic(path, canonical, 0644); err != nil {
 		return err
 	}
-	return writeFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
+	return WriteFileAtomic(sentinelPath, []byte(canonicalHash), 0644)
 }
 
 // readFileOrEmpty returns the file's contents as a string, or "" on any
@@ -830,12 +830,12 @@ func readFileOrEmpty(path string) string {
 	return string(b)
 }
 
-// writeFileAtomic writes data to path via a sibling .tmp file followed by
+// WriteFileAtomic writes data to path via a sibling .tmp file followed by
 // a rename, so a crash mid-write can never leave nginx pointing at a
 // half-written conf. Preserves the destination file's mode if it already
 // existed so an out-of-band chmod survives the rewrite; uses the caller's
 // mode only when creating from scratch. Temp file is removed on any error.
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 	effective := mode
 	if info, err := os.Stat(path); err == nil {
 		effective = info.Mode().Perm()

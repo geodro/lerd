@@ -5,133 +5,26 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/geodro/lerd/internal/cfgedit"
 	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 )
 
-// phpIniBaseName is the file name FPM picks up from the version's ini scan
-// directory. Sharing the constant lets the backup regex and write helpers
-// stay in lockstep with what FPM actually loads.
-const phpIniBaseName = "98-user.ini"
-
-// phpIniBackupRe matches a fully-qualified backup filename. Anchored at both
-// ends so a partial-prefix match cannot be used as a path-traversal lever
-// through the {name} URL segment.
-var phpIniBackupRe = regexp.MustCompile(`\A` + regexp.QuoteMeta(phpIniBaseName) + `\.bkp\.\d{8}-\d{6}(-\d+)?\z`)
-
-// phpIniSaveMu serializes save / reset / restore on the per-version php.ini
-// override. The flow snapshots, writes, restarts FPM — and if two unsynchronized
-// saves landed concurrently a failed restart could roll back the wrong bytes.
-var phpIniSaveMu sync.Mutex
-
-func uniquePhpIniBackupPath(dir string, now time.Time) (string, error) {
-	base := filepath.Join(dir, phpIniBaseName+".bkp."+now.Format("20060102-150405"))
-	if _, err := os.Stat(base); os.IsNotExist(err) {
-		return base, nil
+// phpIniFile is the cfgedit.File for a version's user php.ini override. Backups
+// and write-staging live in the version's ini.bkp/ dir, kept off the scan
+// directory's top-level *.ini glob that FPM loads.
+func phpIniFile(version string) cfgedit.File {
+	return cfgedit.File{
+		Path:     config.PHPUserIniFile(version),
+		BkpDir:   config.PHPUserIniBkpDir(version),
+		BkpName:  "98-user.ini",
+		Template: phpUserIniTemplate,
 	}
-	for i := 1; i < 1_000; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("backup name space exhausted in %s", dir)
-}
-
-func writePhpIniBackup(version string, snap nginxSnapshot, now time.Time) (string, string, error) {
-	if !snap.existed {
-		return "", "", nil
-	}
-	dir := config.PHPUserIniBkpDir(version)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", "", fmt.Errorf("creating backup dir: %w", err)
-	}
-	backupPath, err := uniquePhpIniBackupPath(dir, now)
-	if err != nil {
-		return "", "", err
-	}
-	if err := writeFileAtomic(backupPath, snap.data, snap.mode); err != nil {
-		return "", "", fmt.Errorf("writing backup: %w", err)
-	}
-	return backupPath, filepath.Base(backupPath), nil
-}
-
-func listPhpIniBackups(version string) ([]SiteNginxBackup, error) {
-	dir := config.PHPUserIniBkpDir(version)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	out := []SiteNginxBackup{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !phpIniBackupRe.MatchString(name) {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		out = append(out, SiteNginxBackup{Name: name, MtimeUnix: info.ModTime().Unix()})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
-	return out, nil
-}
-
-// writePhpIniOverride stages the new bytes through a temp file living OUTSIDE
-// the ini scan directory and renames the result into place. The scan dir
-// includes only files with `.ini` extension at the top level, so a temp file
-// named `98-user.ini.tmp.<n>` in the scan dir would briefly satisfy the glob;
-// staging in ini.bkp/ and then renaming across keeps the half-written file
-// invisible to FPM until the swap completes.
-func writePhpIniOverride(confPath string, data []byte, mode os.FileMode) error {
-	scanDir := filepath.Dir(confPath)
-	if err := os.MkdirAll(scanDir, 0o755); err != nil {
-		return fmt.Errorf("creating scan dir: %w", err)
-	}
-	stageDir := filepath.Join(scanDir, "ini.bkp")
-	if err := os.MkdirAll(stageDir, 0o755); err != nil {
-		return fmt.Errorf("creating stage dir: %w", err)
-	}
-	tmp, err := os.CreateTemp(stageDir, filepath.Base(confPath)+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("closing temp file: %w", err)
-	}
-	if err := os.Rename(tmpPath, confPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renaming into place: %w", err)
-	}
-	return nil
 }
 
 // PhpIniReadResponse mirrors SiteNginxReadResponse. Exists distinguishes a
@@ -149,9 +42,8 @@ type PhpIniWriteRequest struct {
 	Backup  bool   `json:"backup"`
 }
 
-// PhpIniWriteResponse mirrors SiteNginxWriteResponse. ValidationOutput is not
-// populated for php.ini (no clean pre-flight equivalent exists), but the
-// field is kept so the frontend can share the modal rendering with nginx.
+// PhpIniWriteResponse mirrors SiteNginxWriteResponse (minus ValidationOutput,
+// which has no clean php pre-flight equivalent).
 type PhpIniWriteResponse struct {
 	OK         bool   `json:"ok"`
 	Error      string `json:"error,omitempty"`
@@ -177,10 +69,8 @@ type PhpIniRestoreResponse struct {
 }
 
 // fpmRestartForVersion encapsulates the quadlet+restart dance the ini-saving
-// flow needs after touching disk. Returns nil on success; on failure the
-// caller is expected to surface the error and may roll back the bytes.
-// WriteFPMQuadlet internally seeds the user ini via EnsureUserIni, which is
-// why the destructive reset path uses restartFPMUnit instead.
+// flow needs after touching disk. WriteFPMQuadlet internally seeds the user ini
+// via EnsureUserIni, which is why the reset path uses restartFPMUnit instead.
 func fpmRestartForVersion(version string) error {
 	if err := podman.WriteFPMQuadlet(version); err != nil {
 		return fmt.Errorf("updating php quadlet: %w", err)
@@ -188,17 +78,17 @@ func fpmRestartForVersion(version string) error {
 	return restartFPMUnit(version)
 }
 
-// restartFPMUnit restarts the FPM container without touching the on-disk
-// user ini. Used by the reset path, which has just deleted the file and
-// would otherwise see it re-seeded by WriteFPMQuadlet → EnsureUserIni.
+// restartFPMUnit restarts the FPM container without touching the on-disk user
+// ini. Used by the reset path, which has just deleted the file and would
+// otherwise see it re-seeded by WriteFPMQuadlet → EnsureUserIni.
 func restartFPMUnit(version string) error {
 	short := strings.ReplaceAll(version, ".", "")
 	return podman.RestartUnit("lerd-php" + short + "-fpm")
 }
 
-// phpUserIniTemplate is the seed content the GET handler returns when the
-// user-ini file does not yet exist on disk (or was just reset). Matches the
-// stub EnsureUserIni would write so the editor shows the same guidance.
+// phpUserIniTemplate seeds the GET handler when the user-ini does not exist
+// yet. Matches the stub EnsureUserIni would write so the editor shows the same
+// guidance.
 const phpUserIniTemplate = `; Lerd per-version PHP settings.
 ;
 ; Edit this file, then click Save to write it and restart FPM.
@@ -209,30 +99,24 @@ const phpUserIniTemplate = `; Lerd per-version PHP settings.
 ; realpath_cache_ttl = 600
 `
 
-// handlePhpIniConfig is the new save flow for /api/php-versions/{v}/config.
-// Mirrors handleSiteNginx: snapshot, optional backup, off-glob staged write,
-// restart FPM, rollback on restart failure.
+// handlePhpIniConfig reads (GET) or saves (POST) a version's user php.ini.
+// The save is bespoke: php.ini has no clean pre-flight, so we write, restart
+// FPM, and roll back to the snapshot if the restart fails — leaving the user
+// on a known-good config. Backups/snapshot/staging come from cfgedit.
 func handlePhpIniConfig(w http.ResponseWriter, r *http.Request, version string) {
 	installed, _ := phpPkg.ListInstalled()
 	if !slices.Contains(installed, version) {
 		http.NotFound(w, r)
 		return
 	}
-	path := config.PHPUserIniFile(version)
+	f := phpIniFile(version)
 	if r.Method == http.MethodGet {
-		// Read on demand without re-seeding. EnsureUserIni would silently
-		// recreate the file the user just reset (or never had), turning the
-		// editor's exists=false signal into a lie.
-		body, err := os.ReadFile(path)
-		exists := err == nil
-		if err != nil && !os.IsNotExist(err) {
+		got, err := f.Read()
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if !exists {
-			body = []byte(phpUserIniTemplate)
-		}
-		writeJSON(w, PhpIniReadResponse{Path: path, Content: string(body), Exists: exists})
+		writeJSON(w, PhpIniReadResponse{Path: got.Path, Content: got.Body, Exists: got.Exists})
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -245,26 +129,24 @@ func handlePhpIniConfig(w http.ResponseWriter, r *http.Request, version string) 
 		return
 	}
 
-	phpIniSaveMu.Lock()
-	defer phpIniSaveMu.Unlock()
+	cfgedit.Mu.Lock()
+	defer cfgedit.Mu.Unlock()
 
-	snap, err := readNginxSnapshot(path)
+	snap, err := cfgedit.ReadSnapshot(f.Path)
 	if err != nil {
 		writeJSON(w, PhpIniWriteResponse{OK: false, Error: err.Error()})
 		return
 	}
-	backupPath := ""
-	backupName := ""
+	backupPath, backupName := "", ""
 	if req.Backup {
-		bp, bn, err := writePhpIniBackup(version, snap, time.Now())
+		bp, bn, err := f.WriteBackup(snap, time.Now())
 		if err != nil {
 			writeJSON(w, PhpIniWriteResponse{OK: false, Error: err.Error()})
 			return
 		}
-		backupPath = bp
-		backupName = bn
+		backupPath, backupName = bp, bn
 	}
-	if err := writePhpIniOverride(path, []byte(req.Content), snap.mode); err != nil {
+	if err := f.StagedWrite([]byte(req.Content), snap.Mode); err != nil {
 		if backupPath != "" {
 			_ = os.Remove(backupPath)
 		}
@@ -272,42 +154,21 @@ func handlePhpIniConfig(w http.ResponseWriter, r *http.Request, version string) 
 		return
 	}
 	if err := fpmRestartForVersion(version); err != nil {
-		// FPM refused to start with the new ini. Roll back to the pre-write
-		// snapshot and try the restart again so the user is left running on
-		// a known-good config. Capture the second restart's error so we never
-		// claim "rolled back" when FPM is actually still down.
-		if rbErr := restoreNginxSnapshot(path, snap); rbErr != nil {
-			writeJSON(w, PhpIniWriteResponse{
-				OK:         false,
-				Error:      "saved, but FPM restart failed and rollback failed: " + rbErr.Error() + " (restart error: " + err.Error() + ")",
-				BackupName: backupName,
-				Content:    req.Content,
-				Exists:     true,
-			})
+		if rbErr := cfgedit.RestoreSnapshot(f.Path, snap); rbErr != nil {
+			writeJSON(w, PhpIniWriteResponse{OK: false, Error: "saved, but FPM restart failed and rollback failed: " + rbErr.Error() + " (restart error: " + err.Error() + ")", BackupName: backupName, Content: req.Content, Exists: true})
 			return
 		}
 		if rb2Err := fpmRestartForVersion(version); rb2Err != nil {
-			writeJSON(w, PhpIniWriteResponse{
-				OK:    false,
-				Error: "php.ini rejected and rollback restart also failed: " + rb2Err.Error() + " (original: " + err.Error() + ")",
-			})
+			writeJSON(w, PhpIniWriteResponse{OK: false, Error: "php.ini rejected and rollback restart also failed: " + rb2Err.Error() + " (original: " + err.Error() + ")"})
 			return
 		}
 		if backupPath != "" {
 			_ = os.Remove(backupPath)
 		}
-		writeJSON(w, PhpIniWriteResponse{
-			OK:    false,
-			Error: "php.ini rejected, rolled back: " + err.Error(),
-		})
+		writeJSON(w, PhpIniWriteResponse{OK: false, Error: "php.ini rejected, rolled back: " + err.Error()})
 		return
 	}
-	writeJSON(w, PhpIniWriteResponse{
-		OK:         true,
-		BackupName: backupName,
-		Content:    req.Content,
-		Exists:     true,
-	})
+	writeJSON(w, PhpIniWriteResponse{OK: true, BackupName: backupName, Content: req.Content, Exists: true})
 }
 
 func handlePhpIniBackups(w http.ResponseWriter, r *http.Request, version string) {
@@ -320,13 +181,13 @@ func handlePhpIniBackups(w http.ResponseWriter, r *http.Request, version string)
 		http.NotFound(w, r)
 		return
 	}
-	list, err := listPhpIniBackups(version)
+	list, err := phpIniFile(version).ListBackups()
 	if err != nil {
 		http.Error(w, "listing backups: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if list == nil {
-		list = []SiteNginxBackup{}
+		list = []cfgedit.Backup{}
 	}
 	writeJSON(w, list)
 }
@@ -341,11 +202,7 @@ func handlePhpIniBackupContent(w http.ResponseWriter, r *http.Request, version, 
 		http.NotFound(w, r)
 		return
 	}
-	if !phpIniBackupRe.MatchString(name) {
-		http.NotFound(w, r)
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(config.PHPUserIniBkpDir(version), name))
+	data, err := phpIniFile(version).ReadBackup(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -369,23 +226,10 @@ func handlePhpIniReset(w http.ResponseWriter, r *http.Request, version string) {
 		http.NotFound(w, r)
 		return
 	}
-	phpIniSaveMu.Lock()
-	defer phpIniSaveMu.Unlock()
-	path := config.PHPUserIniFile(version)
-	removeErr := os.Remove(path)
-	if removeErr != nil && !os.IsNotExist(removeErr) {
-		writeJSON(w, PhpIniResetResponse{OK: false, Error: removeErr.Error()})
-		return
-	}
-	if os.IsNotExist(removeErr) {
-		writeJSON(w, PhpIniResetResponse{OK: true})
-		return
-	}
-	// Bypass fpmRestartForVersion here: it routes through WriteFPMQuadlet →
-	// EnsureUserIni, which would immediately re-seed the file we just deleted
-	// and make `exists` come back true on the next GET. The user explicitly
-	// asked for the override to be gone; just restart the unit.
-	if err := restartFPMUnit(version); err != nil {
+	// Restart via restartFPMUnit, not fpmRestartForVersion: the latter routes
+	// through WriteFPMQuadlet → EnsureUserIni, which would re-seed the file we
+	// just deleted. cfgedit.Reset skips the restart when nothing was removed.
+	if err := phpIniFile(version).Reset(func() error { return restartFPMUnit(version) }); err != nil {
 		writeJSON(w, PhpIniResetResponse{OK: false, Error: "removed, but FPM restart failed: " + err.Error()})
 		return
 	}
@@ -407,45 +251,15 @@ func handlePhpIniRestore(w http.ResponseWriter, r *http.Request, version string)
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "invalid body: " + err.Error()})
 		return
 	}
-	if !phpIniBackupRe.MatchString(req.Name) {
+	f := phpIniFile(version)
+	if !f.ValidBackupName(req.Name) {
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "invalid backup name"})
 		return
 	}
-	phpIniSaveMu.Lock()
-	defer phpIniSaveMu.Unlock()
-	backupPath := filepath.Join(config.PHPUserIniBkpDir(version), req.Name)
-	backupInfo, statErr := os.Stat(backupPath)
-	if statErr != nil {
-		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "stat backup: " + statErr.Error()})
-		return
-	}
-	backupData, err := os.ReadFile(backupPath)
+	res, err := f.Restore(req.Name, func() error { return fpmRestartForVersion(version) })
 	if err != nil {
-		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "reading backup: " + err.Error()})
-		return
-	}
-	confPath := config.PHPUserIniFile(version)
-	mode := backupInfo.Mode().Perm()
-	if info, err := os.Stat(confPath); err == nil {
-		mode = info.Mode().Perm()
-	}
-	scanDir := filepath.Dir(confPath)
-	if err := os.MkdirAll(scanDir, 0o755); err != nil {
-		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "creating scan dir: " + err.Error()})
-		return
-	}
-	if err := writeFileAtomic(confPath, backupData, mode); err != nil {
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: err.Error()})
 		return
 	}
-	if err := fpmRestartForVersion(version); err != nil {
-		writeJSON(w, PhpIniRestoreResponse{
-			OK:       false,
-			Error:    "restored, but FPM restart failed: " + err.Error(),
-			Restored: req.Name,
-			Content:  string(backupData),
-		})
-		return
-	}
-	writeJSON(w, PhpIniRestoreResponse{OK: true, Restored: req.Name, Content: string(backupData)})
+	writeJSON(w, PhpIniRestoreResponse(res))
 }

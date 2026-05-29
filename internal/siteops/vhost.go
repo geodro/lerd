@@ -61,22 +61,21 @@ func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 	return nil
 }
 
-// MoveCustomNginxConfig follows a site's hand-authored nginx override across a
-// primary-domain rename. The live snippet lives at custom.d/{domain}.conf and
-// the generated vhost includes it by name, so without this the file is silently
-// orphaned and the renamed site loses its custom config. Timestamped backups in
-// custom.d.bkp/ are keyed the same way ({domain}.conf.bkp.*) and are moved too
-// so the UI restore dropdown keeps working after a rename. Missing files are not
-// an error; the caller renames domains far more often than it edits overrides.
+// MoveCustomNginxConfig follows a site's hand-authored nginx overrides across a
+// primary-domain rename. The main snippet lives at custom.d/{primary}.conf and
+// each worktree's at custom.d/{branch}.{primary}.conf; the generated vhosts
+// include them by name, so without this they are orphaned and the renamed site
+// (and its worktrees) silently lose their custom config. Timestamped backups in
+// custom.d.bkp/ are keyed the same way and moved too so the UI restore dropdown
+// keeps working. Missing files are not an error; renames far outnumber edits.
 func MoveCustomNginxConfig(oldPrimary, newPrimary string) error {
 	if oldPrimary == newPrimary {
 		return nil
 	}
 	live := config.NginxCustomD()
-	// The live override is keyed solely by primary domain, so any file already
+	// The main override is keyed solely by primary domain, so any file already
 	// at the new name can only be a stale orphan from a prior rename (active
-	// sites cannot share a primary); overwriting it with the current config is
-	// the intended outcome, hence clobber=true.
+	// sites cannot share a primary), hence clobber=true.
 	if err := moveFile(
 		filepath.Join(live, oldPrimary+".conf"),
 		filepath.Join(live, newPrimary+".conf"),
@@ -84,29 +83,71 @@ func MoveCustomNginxConfig(oldPrimary, newPrimary string) error {
 	); err != nil {
 		return err
 	}
+	var firstErr error
+	// Worktree overrides ({branch}.{oldPrimary}.conf) must rewrite the primary
+	// suffix while preserving the branch prefix, else the renamed worktree loses
+	// its config and re-inherits the main one on the next daemon resync.
+	wtSuffix := "." + oldPrimary + ".conf"
+	if liveEntries, err := os.ReadDir(live); err == nil {
+		for _, e := range liveEntries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, wtSuffix) || len(name) == len(wtSuffix) {
+				continue
+			}
+			branch := strings.TrimSuffix(name, wtSuffix)
+			// A separately-registered site whose primary is a subdomain of this
+			// one (e.g. app.test + admin.app.test) matches the suffix but is not
+			// our worktree; leave its override alone.
+			if _, err := config.FindSiteByDomain(branch + "." + oldPrimary); err == nil {
+				continue
+			}
+			if err := moveFile(
+				filepath.Join(live, name),
+				filepath.Join(live, branch+"."+newPrimary+".conf"),
+				true,
+			); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
 	bkp := config.NginxCustomDBkp()
 	entries, err := os.ReadDir(bkp)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return firstErr
 		}
 		return err
 	}
-	oldPrefix := oldPrimary + ".conf.bkp."
-	var firstErr error
+	// Move both main ({oldPrimary}.conf.bkp.*) and worktree
+	// ({branch}.{oldPrimary}.conf.bkp.*) backups, never clobbering so a
+	// same-second collision can't destroy recoverable history.
+	mainPrefix := oldPrimary + ".conf.bkp."
+	wtMarker := "." + oldPrimary + ".conf.bkp."
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), oldPrefix) {
+		if e.IsDir() {
 			continue
 		}
-		suffix := strings.TrimPrefix(e.Name(), oldPrefix)
-		// Backups are never clobbered: a same-second timestamp collision across
-		// the two domains would otherwise destroy recoverable history. Keep
-		// going on error so one bad file can't strand the rest mid-migration.
-		if err := moveFile(
-			filepath.Join(bkp, e.Name()),
-			filepath.Join(bkp, newPrimary+".conf.bkp."+suffix),
-			false,
-		); err != nil && firstErr == nil {
+		name := e.Name()
+		var newName string
+		switch {
+		case strings.HasPrefix(name, mainPrefix):
+			newName = newPrimary + ".conf.bkp." + strings.TrimPrefix(name, mainPrefix)
+		case strings.Contains(name, wtMarker):
+			idx := strings.Index(name, wtMarker)
+			if idx <= 0 {
+				continue
+			}
+			if _, err := config.FindSiteByDomain(name[:idx] + "." + oldPrimary); err == nil {
+				continue // sibling site's backup, not our worktree's
+			}
+			newName = name[:idx] + "." + newPrimary + ".conf.bkp." + name[idx+len(wtMarker):]
+		default:
+			continue
+		}
+		if err := moveFile(filepath.Join(bkp, name), filepath.Join(bkp, newName), false); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

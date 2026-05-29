@@ -852,8 +852,8 @@ func TestEnsureDefaultVhost_removingFileResetsManagement(t *testing.T) {
 func TestWriteFileAtomic_writesContentAndLeavesNoTempBehind(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "managed.conf")
-	if err := writeFileAtomic(path, []byte("server { listen 80; }\n"), 0644); err != nil {
-		t.Fatalf("writeFileAtomic: %v", err)
+	if err := WriteFileAtomic(path, []byte("server { listen 80; }\n"), 0644); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != "server { listen 80; }\n" {
@@ -873,8 +873,8 @@ func TestWriteFileAtomic_preservesExistingFileMode(t *testing.T) {
 	if err := os.Chmod(path, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(path, []byte("v2\n"), 0644); err != nil {
-		t.Fatalf("writeFileAtomic: %v", err)
+	if err := WriteFileAtomic(path, []byte("v2\n"), 0644); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -888,8 +888,8 @@ func TestWriteFileAtomic_preservesExistingFileMode(t *testing.T) {
 func TestWriteFileAtomic_usesCallerModeForNewFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fresh.conf")
-	if err := writeFileAtomic(path, []byte("x"), 0644); err != nil {
-		t.Fatalf("writeFileAtomic: %v", err)
+	if err := WriteFileAtomic(path, []byte("x"), 0644); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

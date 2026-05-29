@@ -554,6 +554,8 @@
   "sites_tabs_overview": "Genel bakış",
   "sites_tabs_tinker": "Tinker",
   "sites_tabs_nginx": "Nginx",
+  "sites_nginx_editTitle": "Nginx yapılandırmasını düzenle",
+  "sites_nginx_modalTitle": "Nginx yapılandırması: {domain}",
   "sites_nginx_desc": "Bu sitenin server bloğunun sonuna eklenir. Lerd bu dosyanın üzerine asla yazmaz; kaydetmek nginx’i yeniden yükler.",
   "sites_nginx_save": "Kaydet ve yeniden yükle",
   "sites_nginx_saving": "Kaydediliyor…",

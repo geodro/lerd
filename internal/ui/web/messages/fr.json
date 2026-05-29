@@ -554,6 +554,8 @@
   "sites_tabs_overview": "Aperçu",
   "sites_tabs_tinker": "Tinker",
   "sites_tabs_nginx": "Nginx",
+  "sites_nginx_editTitle": "Modifier la configuration nginx",
+  "sites_nginx_modalTitle": "Configuration nginx : {domain}",
   "sites_nginx_desc": "Inclus à la fin du bloc server de ce site. Lerd n’écrase jamais ce fichier ; l’enregistrement recharge nginx.",
   "sites_nginx_save": "Enregistrer et recharger",
   "sites_nginx_saving": "Enregistrement…",

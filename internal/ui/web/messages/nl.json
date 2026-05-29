@@ -554,6 +554,8 @@
   "sites_tabs_overview": "Overzicht",
   "sites_tabs_tinker": "Tinker",
   "sites_tabs_nginx": "Nginx",
+  "sites_nginx_editTitle": "Nginx-configuratie bewerken",
+  "sites_nginx_modalTitle": "Nginx-configuratie: {domain}",
   "sites_nginx_desc": "Wordt aan het eind van het server-blok van deze site opgenomen. Lerd overschrijft dit bestand nooit; bij opslaan wordt nginx herladen.",
   "sites_nginx_save": "Opslaan & herladen",
   "sites_nginx_saving": "Opslaan…",

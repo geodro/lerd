@@ -10,40 +10,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/siteops"
 )
 
-// stubNginxReload swaps the package-level nginxReloadFn for the duration of a
+// stubNginxReload swaps siteops.NginxReloadFn for the duration of a
 // test. The real reload shells out to podman exec lerd-nginx, which is not
 // available in CI; tests exercise the on-disk side effects of the handlers
 // and assert that reload was invoked at the expected moments.
 func stubNginxReload(t *testing.T) *int {
 	t.Helper()
 	calls := 0
-	prev := nginxReloadFn
-	nginxReloadFn = func() error {
+	prev := siteops.NginxReloadFn
+	siteops.NginxReloadFn = func() error {
 		calls++
 		return nil
 	}
-	t.Cleanup(func() { nginxReloadFn = prev })
+	t.Cleanup(func() { siteops.NginxReloadFn = prev })
 	return &calls
 }
 
-// stubNginxTest swaps the package-level nginxTestFn for the duration of a
+// stubNginxTest swaps siteops.NginxTestFn for the duration of a
 // test. By default `nginx -t` shells into the lerd-nginx container; tests
 // here either want a quiet success (most common) or a controlled failure
 // to exercise the rollback path.
 func stubNginxTest(t *testing.T, output string, err error) *int {
 	t.Helper()
 	calls := 0
-	prev := nginxTestFn
-	nginxTestFn = func() (string, error) {
+	prev := siteops.NginxTestFn
+	siteops.NginxTestFn = func() (string, error) {
 		calls++
 		return output, err
 	}
-	t.Cleanup(func() { nginxTestFn = prev })
+	t.Cleanup(func() { siteops.NginxTestFn = prev })
 	return &calls
 }
 
@@ -76,6 +76,44 @@ func TestHandleSiteNginx_getReturnsTemplateWhenMissing(t *testing.T) {
 	}
 	if resp.Exists {
 		t.Errorf("exists should be false when only the template is returned")
+	}
+}
+
+// A worktree's nginx override is keyed by its subdomain, which is not a
+// registered site domain — the handler must still resolve it (regression: it
+// 404'd because FindSiteByDomain only knows primary/alias domains).
+func TestHandleSiteNginx_getResolvesWorktreeDomain(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	stubNginxReload(t)
+
+	mainSite := filepath.Join(t.TempDir(), "acme")
+	survivor := filepath.Join(t.TempDir(), "acme-feat")
+	for _, d := range []string{filepath.Join(mainSite, ".git", "worktrees", "feat"), survivor} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wtMeta := filepath.Join(mainSite, ".git", "worktrees", "feat")
+	_ = os.WriteFile(filepath.Join(wtMeta, "HEAD"), []byte("ref: refs/heads/feat\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(wtMeta, "gitdir"), []byte(filepath.Join(survivor, ".git")+"\n"), 0o644)
+	if err := config.AddSite(config.Site{Name: "acme", Path: mainSite, Domains: []string{"acme.test"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sites/feat.acme.test/nginx", nil)
+	rec := httptest.NewRecorder()
+	handleSiteAction(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("worktree nginx endpoint status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp SiteNginxReadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.HasSuffix(resp.Path, "/custom.d/feat.acme.test.conf") {
+		t.Errorf("path: got %q want the worktree override path", resp.Path)
 	}
 }
 
@@ -184,7 +222,7 @@ func TestHandleSiteNginx_postWithBackupRollsExisting(t *testing.T) {
 	if !resp.OK || resp.BackupName == "" {
 		t.Fatalf("want ok with backup name, got %+v", resp)
 	}
-	if !nginxBackupRegexFor("acme.test").MatchString(resp.BackupName) {
+	if !siteops.ValidNginxBackupName("acme.test", resp.BackupName) {
 		t.Errorf("backup name shape: %q", resp.BackupName)
 	}
 	// The backup must live OUTSIDE custom.d/ so the include glob does not
@@ -364,30 +402,6 @@ func TestHandleSiteNginxRestore_noBackupReturnsError(t *testing.T) {
 	}
 }
 
-func TestWriteNginxBackup_secondSaveSameSecondGetsUniqueBackupName(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-
-	snap := nginxSnapshot{existed: true, data: []byte("# v1\n"), mode: 0o644}
-	now := time.Date(2026, 5, 28, 10, 10, 10, 0, time.UTC)
-	firstPath, firstName, err := writeNginxBackup("acme.test", snap, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondPath, secondName, err := writeNginxBackup("acme.test", snap, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstName == "" || secondName == "" || firstName == secondName {
-		t.Fatalf("expected two distinct backup names, got %q and %q", firstName, secondName)
-	}
-	for _, p := range []string{firstPath, secondPath} {
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("backup missing at %s: %v", p, err)
-		}
-	}
-}
-
 func TestHandleSiteNginxReset_removesFileAndReloads(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -453,24 +467,6 @@ func TestHandleSiteNginxReset_noOpWhenMissing(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if !resp.OK {
 		t.Errorf("want ok=true even when file absent, got %+v", resp)
-	}
-}
-
-func TestRestoreNginxBackup_rejectsInvalidName(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-
-	if _, _, err := restoreNginxBackup("acme.test", "../etc/passwd"); err == nil {
-		t.Fatal("expected error for traversal name")
-	}
-	if _, _, err := restoreNginxBackup("acme.test", "other.test.conf.bkp.20260101-101010"); err == nil {
-		t.Fatal("expected error for foreign-domain name")
-	}
-	// Names lacking the start anchor used to pass the unanchored regex
-	// and rely on a separate HasPrefix check; the new regex must reject
-	// them on its own.
-	if _, _, err := restoreNginxBackup("acme.test", "garbage_acme.test.conf.bkp.20260101-101010"); err == nil {
-		t.Fatal("expected error for non-anchored name")
 	}
 }
 
@@ -694,9 +690,9 @@ func TestHandleSiteNginxRestore_namedBackup(t *testing.T) {
 func TestHandleSiteNginxRestore_reloadFailurePreservesBackup(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	prev := nginxReloadFn
-	nginxReloadFn = func() error { return fmt.Errorf("podman exec failed") }
-	t.Cleanup(func() { nginxReloadFn = prev })
+	prev := siteops.NginxReloadFn
+	siteops.NginxReloadFn = func() error { return fmt.Errorf("podman exec failed") }
+	t.Cleanup(func() { siteops.NginxReloadFn = prev })
 
 	if err := config.AddSite(config.Site{Name: "acme", Path: t.TempDir(), Domains: []string{"acme.test"}}); err != nil {
 		t.Fatal(err)
@@ -725,49 +721,5 @@ func TestHandleSiteNginxRestore_reloadFailurePreservesBackup(t *testing.T) {
 	// Backup must NOT have been removed; the user needs it to retry.
 	if _, err := os.Stat(filepath.Join(bkpDir, name)); err != nil {
 		t.Errorf("backup must survive reload failure: %v", err)
-	}
-}
-
-// nginx.Test running with a context timeout: when the stub blocks past
-// the deadline the handler should not block indefinitely. We can't
-// directly exercise nginx.Test because it shells out to podman, but the
-// nginxTestFn variable lets us simulate a slow validator and confirm
-// the rollback path doesn't deadlock.
-func TestHandleSiteNginx_writeOverrideAtomicTempLocation(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-
-	if err := writeNginxOverride(filepath.Join(config.NginxCustomD(), "acme.test.conf"), []byte("# x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The final file must be present in custom.d/ and the stage dir
-	// (custom.d.bkp/) must NOT contain a leftover temp file after the
-	// rename. The latter is the whole point of staging there.
-	stageEntries, _ := os.ReadDir(config.NginxCustomDBkp())
-	for _, e := range stageEntries {
-		if strings.HasPrefix(e.Name(), "acme.test.conf.tmp") {
-			t.Errorf("temp file leaked in stage dir: %s", e.Name())
-		}
-	}
-}
-
-// uniqueNginxBackupPath now returns an error rather than silently
-// overwriting after a 1000-collision exhaustion.
-func TestUniqueNginxBackupPath_errorsOnExhaustion(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Date(2026, 5, 28, 10, 10, 10, 0, time.UTC)
-	// Pre-create the base and every -1..-999 candidate so the loop
-	// exhausts. This is contrived but exercises the new error branch.
-	stamp := now.Format("20060102-150405")
-	if err := os.WriteFile(filepath.Join(dir, "acme.test.conf.bkp."+stamp), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for i := 1; i < 1000; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("acme.test.conf.bkp.%s-%d", stamp, i)), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := uniqueNginxBackupPath(dir, "acme.test", now); err == nil {
-		t.Fatal("expected exhaustion error, got nil")
 	}
 }

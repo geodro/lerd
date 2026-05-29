@@ -5,9 +5,9 @@
   import SiteLogs from './SiteLogs.svelte';
   import SiteTinkerTab from './SiteTinkerTab.svelte';
   import SiteEnvTab from './SiteEnvTab.svelte';
-  import SiteNginxTab from './SiteNginxTab.svelte';
+  import SiteNginxModal from '../../modals/SiteNginxModal.svelte';
   import DumpsTab from '$tabs/DumpsTab.svelte';
-  import { resumeSite, loadSites, type Site } from '$stores/sites';
+  import { resumeSite, loadSites, activeWorktreeDomain, type Site } from '$stores/sites';
   import { routeRest } from '$stores/route';
   import { m } from '../../paraglide/messages.js';
 
@@ -27,18 +27,19 @@
   }
   let { site }: Props = $props();
 
-  type TabId = 'overview' | 'tinker' | 'env' | 'nginx' | 'dumps';
+  type TabId = 'overview' | 'tinker' | 'env' | 'dumps';
   const TAB_STORAGE_KEY = 'lerd:siteDetailTab';
 
   function readStoredTab(): TabId {
     if (typeof localStorage === 'undefined') return 'overview';
     const v = localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'tinker' || v === 'env' || v === 'nginx' || v === 'dumps') return v;
+    if (v === 'tinker' || v === 'env' || v === 'dumps') return v;
     return 'overview';
   }
 
   let active = $state<TabId>(readStoredTab());
   let activeWorktreeBranch = $state<string>('');
+  let nginxOpen = $state(false);
   const canTinker = $derived(Boolean(site.php_version));
   const canEnv = $derived(Boolean(site.has_env));
 
@@ -47,7 +48,9 @@
   // and overwrite the stored selection.
   $effect(() => {
     const seg = $routeRest.split('/')[1] ?? '';
-    if (seg === 'tinker' || seg === 'env' || seg === 'nginx' || seg === 'dumps' || seg === 'overview') {
+    if (seg === 'nginx') {
+      nginxOpen = true;
+    } else if (seg === 'tinker' || seg === 'env' || seg === 'dumps' || seg === 'overview') {
       active = seg;
     }
   });
@@ -79,7 +82,6 @@
 
 {#snippet tabs()}
   <button class={tabBtn('overview', active === 'overview')} onclick={() => (active = 'overview')}>{m.sites_tabs_overview()}</button>
-  <button class={tabBtn('nginx', active === 'nginx')} onclick={() => (active = 'nginx')}>{m.sites_tabs_nginx()}</button>
   {#if canEnv}
     <button class={tabBtn('env', active === 'env')} onclick={() => (active = 'env')}>{m.sites_tabs_env()}</button>
   {/if}
@@ -95,6 +97,7 @@
     tabs={site.paused ? undefined : tabs}
     {activeWorktreeBranch}
     onWorktreeChange={(b) => (activeWorktreeBranch = b)}
+    onOpenNginx={() => (nginxOpen = true)}
   />
   {#if site.paused}
     <div class="flex-1 flex items-center justify-center px-6">
@@ -128,11 +131,14 @@
     {#key site.domain + '@' + activeWorktreeBranch}
       <SiteTinkerTab {site} branch={activeWorktreeBranch} />
     {/key}
-  {:else if active === 'nginx'}
-    {#key site.domain}
-      <SiteNginxTab {site} />
-    {/key}
   {:else if active === 'dumps'}
     <DumpsTab siteScope={site.name} />
   {/if}
 </DetailPanel>
+
+<SiteNginxModal
+  {site}
+  domain={activeWorktreeDomain(site, activeWorktreeBranch)}
+  open={nginxOpen}
+  onclose={() => (nginxOpen = false)}
+/>

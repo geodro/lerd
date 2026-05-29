@@ -554,6 +554,8 @@
   "sites_tabs_overview": "Ringkasan",
   "sites_tabs_tinker": "Tinker",
   "sites_tabs_nginx": "Nginx",
+  "sites_nginx_editTitle": "Edit konfigurasi nginx",
+  "sites_nginx_modalTitle": "Konfigurasi nginx: {domain}",
   "sites_nginx_desc": "Disertakan di akhir blok server situs ini. Lerd tidak pernah menimpa berkas ini; menyimpan akan memuat ulang nginx.",
   "sites_nginx_save": "Simpan & muat ulang",
   "sites_nginx_saving": "Menyimpan…",

@@ -183,7 +183,9 @@ func TestToolList_underSizeCeiling(t *testing.T) {
 	// Bumped to 29500 for service_config (five actions in one tool:
 	// read / write / restore / reset / list_backups); descriptions
 	// already trimmed to single-line shape.
-	const ceiling = 29500
+	// Bumped to 30200 for site_nginx (read / write / reset the per-site nginx
+	// override, with --branch worktree support); description already terse.
+	const ceiling = 30200
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)

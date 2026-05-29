@@ -33,4 +33,16 @@ describe('Modal', () => {
     render(Harness, { props: { open: true, title: 'X', onclose: () => {}, withFooter: true } });
     expect(screen.getByTestId('footer')).toBeInTheDocument();
   });
+
+  it('applies the xl width class for the large editor modal', () => {
+    const { container } = render(Harness, {
+      props: { open: true, title: 'X', onclose: () => {}, size: 'xl' }
+    });
+    expect(container.querySelector('.max-w-5xl')).toBeInTheDocument();
+  });
+
+  it('defaults to the md width class', () => {
+    const { container } = render(Harness, { props: { open: true, title: 'X', onclose: () => {} } });
+    expect(container.querySelector('.max-w-lg')).toBeInTheDocument();
+  });
 });
