@@ -178,20 +178,22 @@
       <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
         {(site.container_image || 'container') + ' :' + site.container_port}
       </span>
-    {:else if $phpVersions.length > 0}
-      <Dropdown
-        label="PHP"
-        value={effectivePhp}
-        options={$phpVersions}
-        disabled={versionBusy}
-        inherited={phpInherited}
-        inheritedSuffix={m.sites_controls_inheritedSuffix()}
-        title={phpInherited ? m.sites_controls_inheritsFromMain() : ''}
-        placeholder={m.sites_controls_phpPlaceholder()}
-        onchange={(v) => onPhpChange({ target: { value: v } } as unknown as Event)}
-      />
-    {:else}
-      <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1 opacity-50">PHP ...</span>
+    {:else if site.uses_php}
+      {#if $phpVersions.length > 0}
+        <Dropdown
+          label="PHP"
+          value={effectivePhp}
+          options={$phpVersions}
+          disabled={versionBusy}
+          inherited={phpInherited}
+          inheritedSuffix={m.sites_controls_inheritedSuffix()}
+          title={phpInherited ? m.sites_controls_inheritsFromMain() : ''}
+          placeholder={m.sites_controls_phpPlaceholder()}
+          onchange={(v) => onPhpChange({ target: { value: v } } as unknown as Event)}
+        />
+      {:else}
+        <span class="text-xs text-gray-400 border border-gray-200 dark:border-lerd-border rounded-sm px-2 py-1 opacity-50">PHP ...</span>
+      {/if}
     {/if}
 
     {#if $status.node_managed_by_lerd && $nodeVersions.length > 0}

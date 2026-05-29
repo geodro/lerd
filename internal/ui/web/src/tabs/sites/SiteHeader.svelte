@@ -16,7 +16,8 @@
   } from '$stores/sites';
   import { openDomainModal, openWorktreeAddModal, openWorktreeRemoveModal } from '$stores/modals';
   import { accessMode } from '$stores/accessMode';
-  import { status } from '$stores/status';
+  import { status, loadStatus } from '$stores/status';
+  import { xdebugOn, xdebugOff, type XdebugMode } from '$stores/xdebug';
   import { apiBase } from '$lib/api';
   import ServiceBadgeRow from './ServiceBadgeRow.svelte';
   import DomainMorePill from './DomainMorePill.svelte';
@@ -45,8 +46,32 @@
   let restartBusy = $state(false);
   let tlsBusy = $state(false);
   let lanBusy = $state(false);
+  let xdebugBusy = $state(false);
   let overflowOpen = $state(false);
   let overflowEl: HTMLDivElement | null = $state(null);
+
+  // Xdebug toggles the shared FPM image for this site's PHP version. Only PHP
+  // sites on the shared FPM runtime have it (not FrankenPHP or containers).
+  const showXdebug = $derived(
+    Boolean(site.uses_php) && !site.custom_container && site.runtime !== 'frankenphp'
+  );
+  const xdebugFpm = $derived(
+    site.php_version ? $status.php_fpms.find((f) => f.version === site.php_version) : undefined
+  );
+  const xdebugEnabled = $derived(Boolean(xdebugFpm?.xdebug_enabled));
+  const xdebugMode = $derived((xdebugFpm?.xdebug_mode || 'debug') as XdebugMode);
+
+  async function toggleXdebug() {
+    if (!site.php_version || xdebugBusy) return;
+    xdebugBusy = true;
+    try {
+      if (xdebugEnabled) await xdebugOff(site.php_version);
+      else await xdebugOn(site.php_version, xdebugMode);
+      await loadStatus();
+    } finally {
+      xdebugBusy = false;
+    }
+  }
 
   const activeDomain = $derived(activeWorktreeDomain(site, activeWorktreeBranch));
   const activeWorktree = $derived.by(() => {
@@ -441,6 +466,33 @@
         </button>
       {/if}
 
+      {#if showXdebug && !site.paused}
+        <button
+          type="button"
+          onclick={toggleXdebug}
+          disabled={xdebugBusy}
+          title={(xdebugEnabled ? m.sites_badges_xdebugOn({ mode: xdebugMode }) : m.sites_badges_xdebugDisabled()) + ' · ' + m.system_php_xdebugHint()}
+          aria-label={m.sites_badges_xdebug()}
+          aria-pressed={xdebugEnabled}
+          class="hidden @md:flex w-8 h-8 items-center justify-center rounded-md transition-colors disabled:opacity-50 {xdebugEnabled
+            ? 'text-emerald-500 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+            : 'text-gray-500 dark:text-gray-400 hover:text-lerd-red hover:bg-gray-100 dark:hover:bg-white/5'}"
+        >
+          {#if xdebugBusy}
+            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          {:else}
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+              <path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" />
+              <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6zM12 20v-9" />
+              <path d="M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M20.97 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4" />
+            </svg>
+          {/if}
+        </button>
+      {/if}
+
       {#if $accessMode.loopback}
         <button
           type="button"
@@ -478,7 +530,7 @@
             role="menu"
             class="absolute right-0 top-full mt-1 min-w-[12rem] rounded-md border border-gray-200 dark:border-lerd-border bg-white dark:bg-lerd-bg shadow-lg z-30 py-1"
           >
-            {#if !site.paused}
+            {#if !site.paused && (site.uses_php || site.custom_container)}
               <button
                 type="button"
                 role="menuitem"

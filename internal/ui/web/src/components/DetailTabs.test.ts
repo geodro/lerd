@@ -20,6 +20,20 @@ describe('DetailTabs', () => {
     expect(screen.queryByText('B')).not.toBeInTheDocument();
   });
 
+  it('hides the bar when only one tab is visible', () => {
+    render(Harness, {
+      props: {
+        active: 'a',
+        tabs: [
+          { id: 'a', label: 'Solo' },
+          { id: 'b', label: 'Hidden', hidden: true }
+        ],
+        onchange: () => {}
+      }
+    });
+    expect(screen.queryByText('Solo')).not.toBeInTheDocument();
+  });
+
   it('marks the active tab with the accent border', () => {
     render(Harness, {
       props: { active: 'b', tabs: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], onchange: () => {} }

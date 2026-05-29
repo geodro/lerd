@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
+	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +52,12 @@ func RestartSite(name string) error {
 		return nil
 	}
 
+	// A static site (no PHP, no container) is served directly by nginx and has
+	// no per-site runtime. Restarting would bounce the shared FPM container,
+	// disrupting every other PHP site on that version, so refuse instead.
+	if !phpDet.SiteUsesPHP(*site) {
+		return fmt.Errorf("site %q is static and has no container to restart", name)
+	}
 	if site.PHPVersion == "" {
 		return fmt.Errorf("site %q has no PHP version set", name)
 	}

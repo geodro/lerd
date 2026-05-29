@@ -17,6 +17,7 @@ export interface Site {
   path?: string;
   branch?: string;
   php_version?: string;
+  uses_php?: boolean;
   node_version?: string;
   runtime?: string;
   runtime_worker?: boolean;

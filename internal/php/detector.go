@@ -35,6 +35,47 @@ func DetectExtensions(dir string) []string {
 	return exts
 }
 
+// IsPHPProject reports whether dir looks like a PHP project: it has a
+// composer.json or any top-level .php file. Static sites (a public dir with
+// no PHP) and non-PHP projects return false, so callers can hide PHP-only
+// surfaces like the version dropdown, Tinker, Xdebug, dumps and FPM logs.
+func IsPHPProject(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "composer.json")); err == nil {
+		return true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".php") {
+			return true
+		}
+	}
+	return false
+}
+
+// SiteUsesPHP reports whether the site is a PHP project served by lerd's PHP
+// runtime (the shared FPM image or FrankenPHP), as opposed to a static site or
+// a custom container. It mirrors the registration decision in
+// cli.RegisterProject: a framework, a composer.json / top-level .php file, or a
+// public dir with an index.php entrypoint all count as PHP. Custom containers
+// and static sites (a public dir of HTML only) return false.
+func SiteUsesPHP(s config.Site) bool {
+	if s.IsCustomContainer() {
+		return false
+	}
+	if s.Framework != "" || IsPHPProject(s.Path) {
+		return true
+	}
+	if s.PublicDir != "" && s.PublicDir != "." {
+		if _, err := os.Stat(filepath.Join(s.Path, s.PublicDir, "index.php")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // DetectVersion detects the PHP version for the given directory.
 // It checks, in order:
 //  1. .lerd.yaml php_version field (explicit lerd override)

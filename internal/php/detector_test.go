@@ -15,6 +15,43 @@ func writeFile(t *testing.T, dir, filename, content string) {
 	}
 }
 
+// ── IsPHPProject ──────────────────────────────────────────────────────────────
+
+func TestIsPHPProject(t *testing.T) {
+	t.Run("composer.json", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "composer.json", `{"require":{"php":"^8.3"}}`)
+		if !IsPHPProject(dir) {
+			t.Error("IsPHPProject = false, want true for a dir with composer.json")
+		}
+	})
+
+	t.Run("top-level .php file", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "index.php", "<?php echo 1;")
+		if !IsPHPProject(dir) {
+			t.Error("IsPHPProject = false, want true for a dir with a .php file")
+		}
+	})
+
+	t.Run("static site is not PHP", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, "public"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, "public"), "index.html", "<h1>hi</h1>")
+		if IsPHPProject(dir) {
+			t.Error("IsPHPProject = true, want false for a static site (public dir, no PHP)")
+		}
+	})
+
+	t.Run("missing dir", func(t *testing.T) {
+		if IsPHPProject(filepath.Join(t.TempDir(), "does-not-exist")) {
+			t.Error("IsPHPProject = true, want false for a missing dir")
+		}
+	})
+}
+
 // ── parseComposerPHP ──────────────────────────────────────────────────────────
 
 func TestParseComposerPHP(t *testing.T) {

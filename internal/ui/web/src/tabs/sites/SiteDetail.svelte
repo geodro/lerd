@@ -40,8 +40,12 @@
   let active = $state<TabId>(readStoredTab());
   let activeWorktreeBranch = $state<string>('');
   let nginxOpen = $state(false);
-  const canTinker = $derived(Boolean(site.php_version));
+  const canTinker = $derived(Boolean(site.uses_php));
+  const canDumps = $derived(Boolean(site.uses_php));
   const canEnv = $derived(Boolean(site.has_env));
+  // A lone Overview tab can't be switched to anything, so don't render the tab
+  // row at all when no other tab is available (e.g. static sites).
+  const hasExtraTabs = $derived(canEnv || canTinker || canDumps);
 
   // The route can deep-link a sub-tab (e.g. dump notifications go to
   // #sites/<domain>/dumps). When the second segment names a tab, honour it
@@ -58,6 +62,7 @@
   $effect(() => {
     if (active === 'tinker' && !canTinker) active = 'overview';
     if (active === 'env' && !canEnv) active = 'overview';
+    if (active === 'dumps' && !canDumps) active = 'overview';
   });
 
   $effect(() => {
@@ -88,13 +93,15 @@
   {#if canTinker}
     <button class={tabBtn('tinker', active === 'tinker')} onclick={() => (active = 'tinker')}>{m.sites_tabs_tinker()}</button>
   {/if}
-  <button class={tabBtn('dumps', active === 'dumps')} onclick={() => (active = 'dumps')}>{m.nav_dumps()}</button>
+  {#if canDumps}
+    <button class={tabBtn('dumps', active === 'dumps')} onclick={() => (active = 'dumps')}>{m.nav_dumps()}</button>
+  {/if}
 {/snippet}
 
 <DetailPanel>
   <SiteHeader
     {site}
-    tabs={site.paused ? undefined : tabs}
+    tabs={site.paused || !hasExtraTabs ? undefined : tabs}
     {activeWorktreeBranch}
     onWorktreeChange={(b) => (activeWorktreeBranch = b)}
     onOpenNginx={() => (nginxOpen = true)}

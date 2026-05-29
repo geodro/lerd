@@ -88,6 +88,71 @@ func TestEnrichVersions_CustomContainerSkipped(t *testing.T) {
 	})
 }
 
+// ── Enrich: UsesPHP detection ──────────────────────────────────────────────
+
+func TestEnrich_UsesPHP(t *testing.T) {
+	setDataDir(t)
+	stubPodman(t)
+
+	t.Run("php project (composer.json) uses php", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		e := Enrich(config.Site{Name: "phpapp", Path: dir}, 0)
+		if !e.UsesPHP {
+			t.Error("UsesPHP = false, want true for a project with composer.json")
+		}
+	})
+
+	t.Run("static site does not use php", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, "public"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "public", "index.html"), []byte("<h1>hi</h1>"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		e := Enrich(config.Site{Name: "static", Path: dir, PublicDir: "public"}, 0)
+		if e.UsesPHP {
+			t.Error("UsesPHP = true, want false for a static site")
+		}
+	})
+
+	t.Run("composer-less public/index.php site uses php", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, "public"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "public", "index.php"), []byte("<?php"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		e := Enrich(config.Site{Name: "plainphp", Path: dir, PublicDir: "public"}, 0)
+		if !e.UsesPHP {
+			t.Error("UsesPHP = false, want true for a site with public/index.php and no composer.json")
+		}
+	})
+
+	t.Run("framework set means php", func(t *testing.T) {
+		dir := t.TempDir()
+		e := Enrich(config.Site{Name: "lara", Path: dir, Framework: "laravel"}, 0)
+		if !e.UsesPHP {
+			t.Error("UsesPHP = false, want true when a framework is set")
+		}
+	})
+
+	t.Run("custom container does not use php", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		e := Enrich(config.Site{Name: "nestapp", Path: dir, ContainerPort: 3000}, 0)
+		if e.UsesPHP {
+			t.Error("UsesPHP = true, want false for a custom container site")
+		}
+	})
+}
+
 // ── enrichWorkers: custom container workers from .lerd.yaml ────────────────
 
 func TestEnrichWorkers_CustomContainerFromLerdYAML(t *testing.T) {

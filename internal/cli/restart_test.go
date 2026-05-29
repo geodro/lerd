@@ -49,6 +49,9 @@ func TestRestartSite_PHPSite(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", tmp)
 
 	siteDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(siteDir, "composer.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 	config.AddSite(config.Site{
 		Name:       "phpapp",
 		Domains:    []string{"phpapp.test"},
@@ -65,6 +68,40 @@ func TestRestartSite_PHPSite(t *testing.T) {
 	}
 	if fake.restartedUnit != "lerd-php84-fpm" {
 		t.Errorf("restarted unit = %q, want lerd-php84-fpm", fake.restartedUnit)
+	}
+}
+
+func TestRestartSite_StaticSiteRefused(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	// A static site: a public dir of HTML with no composer.json or .php. It is
+	// served directly by nginx and has no per-site container, so restart must
+	// refuse rather than bounce the shared FPM container.
+	siteDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(siteDir, "public"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "public", "index.html"), []byte("<h1>hi</h1>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	config.AddSite(config.Site{
+		Name:       "static",
+		Domains:    []string{"static.test"},
+		Path:       siteDir,
+		PublicDir:  "public",
+		PHPVersion: "8.4",
+	})
+
+	fake := &fakeUnitLifecycle{}
+	podman.UnitLifecycle = fake
+	defer func() { podman.UnitLifecycle = nil }()
+
+	if err := RestartSite("static"); err == nil {
+		t.Fatal("expected error restarting a static site")
+	}
+	if fake.restartedUnit != "" {
+		t.Errorf("restarted unit = %q, want none for a static site", fake.restartedUnit)
 	}
 }
 

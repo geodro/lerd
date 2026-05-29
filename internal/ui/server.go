@@ -660,6 +660,7 @@ type SiteResponse struct {
 	ConflictingDomains []ConflictingDomain `json:"conflicting_domains,omitempty"`
 	Path               string              `json:"path"`
 	PHPVersion         string              `json:"php_version"`
+	UsesPHP            bool                `json:"uses_php"`
 	NodeVersion        string              `json:"node_version"`
 	TLS                bool                `json:"tls"`
 	Framework          string              `json:"framework"`
@@ -780,6 +781,7 @@ func buildSites() []SiteResponse {
 			ConflictingDomains: conflicting,
 			Path:               e.Path,
 			PHPVersion:         e.PHPVersion,
+			UsesPHP:            e.UsesPHP,
 			NodeVersion:        e.NodeVersion,
 			TLS:                e.Secured,
 			Framework:          e.FrameworkName,

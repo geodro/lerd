@@ -97,6 +97,10 @@ For Node.js, Python, Go, or any other non-PHP runtime, lerd builds a dedicated c
 
 See [Custom Containers](custom-containers.md) for the full configuration reference.
 
+### Static sites
+
+A project that is just a `public_dir` of HTML/CSS/JS with no `composer.json` and no `.php` files is served directly by nginx as a static site. lerd recognises these as non-PHP, so the site detail panel hides every PHP-only surface: the PHP version dropdown, the Xdebug toggle button, the Tinker and Dumps tabs, and the PHP-FPM logs tab. A site counts as PHP only when it has a `composer.json` or a top-level `.php` file, or runs under a custom container or FrankenPHP.
+
 ---
 
 ## Projects outside the home directory

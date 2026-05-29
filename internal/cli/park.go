@@ -265,19 +265,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 // looksLikePHPProject returns true if dir contains composer.json or any .php file
 // at the top level, indicating it is likely a PHP project worth registering.
 func looksLikePHPProject(dir string) bool {
-	if _, err := os.Stat(filepath.Join(dir, "composer.json")); err == nil {
-		return true
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".php") {
-			return true
-		}
-	}
-	return false
+	return phpDet.IsPHPProject(dir)
 }
 
 // ensureFPMQuadlet builds the PHP image if needed, then writes (or overwrites) the quadlet.

@@ -27,7 +27,9 @@
   const tabs: TabItem<TabId>[] = $derived.by(() => {
     const xs: TabItem<TabId>[] = [];
     if (site.has_app_logs) xs.push({ id: 'app', label: m.sites_tabs_appLogs() });
-    xs.push({ id: 'fpm', label: fpmTabLabelI18n(site) });
+    // Static sites have no PHP-FPM (or container) runtime, so skip the runtime
+    // log tab entirely; only PHP sites and custom containers have one.
+    if (site.uses_php || site.custom_container) xs.push({ id: 'fpm', label: fpmTabLabelI18n(site) });
     if (activeWorktreeBranch) {
       // Shared queue/horizon/stripe/schedule/reverb run against main and
       // their journals don't filter per worktree, so drop them here to
@@ -52,10 +54,12 @@
 
   let active = $state<TabId>('app');
 
-  // If 'app' isn't available (site has no app logs), snap to the first available tab.
+  // If the active tab isn't available, snap to the first one. Falling back to
+  // '' (not 'fpm') matters for static sites with no tabs: defaulting to 'fpm'
+  // would stream the shared FPM container's logs even though the tab is hidden.
   $effect(() => {
     const ids = new Set(tabs.map((t) => t.id));
-    if (!ids.has(active)) active = tabs[0]?.id ?? 'fpm';
+    if (!ids.has(active)) active = tabs[0]?.id ?? '';
   });
 
   const name = $derived(site.name || site.domain);
@@ -93,7 +97,7 @@
 
 <div class="flex-1 flex flex-col overflow-hidden min-h-0">
   <DetailTabs {tabs} {active} onchange={(id) => (active = id)} />
-  {#if active === 'app'}
+  {#if active === 'app' && site.has_app_logs}
     {#key site.domain + '@' + activeWorktreeBranch}
       <AppLogsTab {site} branch={activeWorktreeBranch} />
     {/key}
@@ -101,5 +105,9 @@
     {#key active + '@' + streamPath}
       <LogViewer path={streamPath} highlight={active === 'fpm' ? fpmHighlight : undefined} />
     {/key}
+  {:else}
+    <div class="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500">
+      {m.sites_appLogs_empty()}
+    </div>
   {/if}
 </div>
