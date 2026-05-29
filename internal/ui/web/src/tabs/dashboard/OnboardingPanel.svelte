@@ -50,7 +50,7 @@
     </div>
 
     <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-4 py-3.5">
+      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-3 py-3">
         <div class="flex items-center gap-2 mb-2">
           <span class="w-5 h-5 inline-flex items-center justify-center rounded-full bg-lerd-red/15 text-lerd-red text-[11px] font-semibold">1</span>
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{m.onboarding_park_title()}</span>
@@ -59,7 +59,7 @@
         <code class="block text-xs font-mono bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 rounded-sm px-2 py-1.5 overflow-x-auto">lerd park ~/Code</code>
       </div>
 
-      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-4 py-3.5 flex flex-col">
+      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-3 py-3 flex flex-col">
         <div class="flex items-center gap-2 mb-2">
           <span class="w-5 h-5 inline-flex items-center justify-center rounded-full bg-lerd-red/15 text-lerd-red text-[11px] font-semibold">2</span>
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{m.onboarding_link_title()}</span>
@@ -81,7 +81,7 @@
         {/if}
       </div>
 
-      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-4 py-3.5 flex flex-col">
+      <div class="rounded-lg bg-white/70 dark:bg-lerd-card/60 border border-gray-100 dark:border-lerd-border px-3 py-3 flex flex-col">
         <div class="flex items-center gap-2 mb-2">
           <span class="w-5 h-5 inline-flex items-center justify-center rounded-full bg-lerd-red/15 text-lerd-red text-[11px] font-semibold">3</span>
           <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{m.onboarding_service_title()}</span>

@@ -17,8 +17,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	_ "embed"
@@ -202,6 +204,8 @@ func Start(currentVersion string) error {
 	}))
 	mux.HandleFunc("/api/nginx/", withCORS(handleNginxRoutes))
 	mux.HandleFunc("/api/php-versions", withCORS(handlePHPVersions))
+	mux.HandleFunc("/api/php-installable", withCORS(handlePHPInstallable))
+	mux.HandleFunc("/api/php-versions/install", withCORS(publishAfter(handlePHPInstall, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/php-versions/", withCORS(publishAfter(handlePHPVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(publishAfter(handleInstallNodeVersion, eventbus.KindStatus)))
@@ -3588,18 +3592,141 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"ok": true})
 	case "remove":
-		short := strings.ReplaceAll(version, ".", "")
-		unit := "lerd-php" + short + "-fpm"
-		_ = podman.StopUnit(unit)
-		if err := podman.RemoveQuadlet(unit); err != nil {
+		if err := teardownPHPFPM(version); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		_ = podman.DaemonReloadFn()
 		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handlePHPInstallable answers GET /api/php-installable with the supported PHP
+// versions (7.4 .. 8.5) minus the ones already installed, so the UI can offer
+// them in a dropdown.
+func handlePHPInstallable(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, installablePHPVersions(cli.SupportedPHPVersions, fullyInstalledPHPVersions()))
+}
+
+// fullyInstalledPHPVersions returns the versions that are both registered (a
+// quadlet or container exists) and have their FPM image built. A version left
+// half-registered by an interrupted build (quadlet written, image missing) is
+// excluded so it stays installable for repair; orphaned :local images for
+// versions with no quadlet are ignored so they don't hide installable versions.
+func fullyInstalledPHPVersions() []string {
+	installed, _ := phpPkg.ListInstalled()
+	out := []string{}
+	for _, v := range installed {
+		if podman.ImageExists(podman.FPMImageName(v)) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// teardownPHPFPM stops and removes a PHP-FPM version's unit, quadlet and
+// container, then refreshes the cache so the version list reflects the removal
+// immediately. Used by the remove action and to roll back a failed install.
+func teardownPHPFPM(version string) error {
+	short := strings.ReplaceAll(version, ".", "")
+	unit := "lerd-php" + short + "-fpm"
+	_ = podman.StopUnit(unit)
+	if err := podman.RemoveQuadlet(unit); err != nil {
+		return err
+	}
+	_ = podman.DaemonReloadFn()
+	// Force-remove any lingering (stopped) container and refresh the cache so the
+	// follow-up version list no longer reports this version. ListInstalled reads
+	// podman ps -a, so a stale snapshot would keep the tab around.
+	podman.RemoveContainer(unit)
+	podman.Cache.PollNow()
+	return nil
+}
+
+// phpInstallInFlight guards against concurrent installs of the same version
+// racing on the same image build and quadlet file.
+var phpInstallInFlight sync.Map
+
+// installablePHPVersions returns the supported versions that are not present in
+// installed, preserving the supported order. Always a non-nil slice.
+func installablePHPVersions(supported, installed []string) []string {
+	have := make(map[string]bool, len(installed))
+	for _, v := range installed {
+		have[v] = true
+	}
+	out := []string{}
+	for _, v := range supported {
+		if !have[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// handlePHPInstall answers POST /api/php-versions/install?version=8.3 by
+// building the FPM image for that version, streaming the build log as SSE and
+// finishing with an `event: done` payload. Mirrors handleSiteWorktreeAdd.
+func handlePHPInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	done := func(payload map[string]any) {
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(payload))
+		flusher.Flush()
+	}
+
+	version := strings.TrimSpace(r.URL.Query().Get("version"))
+	if !cli.IsSupportedPHPVersion(version) {
+		done(map[string]any{"ok": false, "error": "unsupported PHP version"})
+		return
+	}
+	// Reject a second concurrent install of the same version so two clients can't
+	// race on the same image build and quadlet file.
+	if _, busy := phpInstallInFlight.LoadOrStore(version, struct{}{}); busy {
+		done(map[string]any{"ok": false, "error": "PHP " + version + " is already installing"})
+		return
+	}
+	defer phpInstallInFlight.Delete(version)
+	// Block only when fully installed (registered with a built image); a version
+	// left half-registered by an interrupted build must stay re-installable.
+	if slices.Contains(fullyInstalledPHPVersions(), version) {
+		done(map[string]any{"ok": false, "error": "PHP " + version + " is already installed"})
+		return
+	}
+
+	start := time.Now()
+	sw := &sseLineWriter{w: w, f: flusher}
+	err := cli.InstallPHPVersion(version, sw)
+	sw.flushTail()
+	// Notify regardless of whether the client is still connected, so a user who
+	// closed the modal still learns the build finished or failed.
+	dispatchNotification(notificationForPHPInstall(version, start, err))
+	if err != nil {
+		// Roll back a half-registered version (quadlet written before the build
+		// failed) so it doesn't linger as a broken, stopped tab in the UI.
+		if !podman.ImageExists(podman.FPMImageName(version)) {
+			_ = teardownPHPFPM(version)
+		}
+		done(map[string]any{"ok": false, "error": err.Error(), "version": version})
+		return
+	}
+	// Refresh the container cache before signalling done so the client's
+	// follow-up status load (and the publishAfter broadcast) report the
+	// freshly-started FPM as running instead of a stale not-running snapshot.
+	podman.Cache.PollNow()
+	done(map[string]any{"ok": true, "version": version})
 }
 
 func handleNodeVersionAction(w http.ResponseWriter, r *http.Request) {
@@ -4605,8 +4732,9 @@ func (s *sseLineWriter) Write(p []byte) (int, error) {
 }
 
 func (s *sseLineWriter) emit(line string) {
-	line = strings.TrimRight(line, "\r")
-	fmt.Fprintf(s.w, "data: %s\n\n", strings.ReplaceAll(line, "\\", "\\\\"))
+	// SSE data lines are delimited by newlines only, so backslashes need no
+	// escaping; the frontend consumers pass the payload through verbatim.
+	fmt.Fprintf(s.w, "data: %s\n\n", strings.TrimRight(line, "\r"))
 	s.f.Flush()
 }
 

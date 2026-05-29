@@ -7,6 +7,7 @@
   import LANProgressModal from './LANProgressModal.svelte';
   import AddWorktreeModal from './AddWorktreeModal.svelte';
   import RemoveWorktreeModal from './RemoveWorktreeModal.svelte';
+  import AddPhpModal from './AddPhpModal.svelte';
   import ConfirmEnvSaveModal from './ConfirmEnvSaveModal.svelte';
   import ConfirmEnvRestoreModal from './ConfirmEnvRestoreModal.svelte';
   import ConfirmNginxSaveModal from './ConfirmNginxSaveModal.svelte';
@@ -18,6 +19,7 @@
   import ConfirmPhpIniSaveModal from './ConfirmPhpIniSaveModal.svelte';
   import ConfirmPhpIniRestoreModal from './ConfirmPhpIniRestoreModal.svelte';
   import ConfirmPhpIniResetModal from './ConfirmPhpIniResetModal.svelte';
+  import ConfirmPhpRemoveModal from './ConfirmPhpRemoveModal.svelte';
   import ConfirmTuningSaveModal from './ConfirmTuningSaveModal.svelte';
   import ConfirmTuningRestoreModal from './ConfirmTuningRestoreModal.svelte';
   import ConfirmTuningResetModal from './ConfirmTuningResetModal.svelte';
@@ -37,6 +39,8 @@
   <AddWorktreeModal site={$modal.site} />
 {:else if $modal.kind === 'worktreeRemove' && $modal.site && $modal.branch}
   <RemoveWorktreeModal site={$modal.site} branch={$modal.branch} />
+{:else if $modal.kind === 'phpAdd'}
+  <AddPhpModal />
 {:else if $modal.kind === 'envSave' && $modal.envSave}
   <ConfirmEnvSaveModal />
 {:else if $modal.kind === 'envRestore' && $modal.envRestore}
@@ -59,6 +63,8 @@
   <ConfirmPhpIniRestoreModal />
 {:else if $modal.kind === 'phpIniReset' && $modal.phpIniReset}
   <ConfirmPhpIniResetModal />
+{:else if $modal.kind === 'phpRemove' && $modal.phpRemove}
+  <ConfirmPhpRemoveModal />
 {:else if $modal.kind === 'tuningSave' && $modal.tuningSave}
   <ConfirmTuningSaveModal />
 {:else if $modal.kind === 'tuningRestore' && $modal.tuningRestore}

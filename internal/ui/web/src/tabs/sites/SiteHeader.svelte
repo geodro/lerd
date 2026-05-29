@@ -188,7 +188,7 @@
 <div class="border-b border-gray-100 dark:border-lerd-border shrink-0 @container flex flex-col">
   {#if showWorktreeTabs}
     <div class="flex items-end bg-gray-50/60 dark:bg-white/[0.02]">
-      <div class="flex items-end gap-0.5 px-2 pt-2 overflow-x-auto flex-1 min-w-0">
+      <div class="flex items-center gap-0.5 px-3 pt-3 overflow-x-auto flex-1 min-w-0">
       {#each tabEntries as e (e.isMain ? '__main__' : e.branch)}
         {@const isActive = e.isMain ? activeWorktreeBranch === '' : e.branch === activeWorktreeBranch}
         <div
@@ -200,7 +200,7 @@
             type="button"
             onclick={() => pickWorktree(e)}
             title={e.domain}
-            class="flex items-center gap-1.5 pl-3 {e.isMain ? 'pr-3' : 'pr-1.5'} py-1.5 text-xs min-w-0 {isActive
+            class="flex items-center gap-1.5 pl-3 pr-3 py-2.5 text-xs min-w-0 {isActive
               ? 'text-gray-800 dark:text-gray-100 font-medium'
               : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}"
           >
@@ -272,7 +272,7 @@
     </div>
   {/if}
 
-  <div class="px-2 pt-2 pb-2 flex items-center gap-2">
+  <div class="p-3 flex items-center gap-3">
     <div
       class="group flex-1 min-w-0 flex items-center gap-2 h-8 pl-3 pr-2 rounded-full border bg-gray-50 dark:bg-white/[0.03] transition-colors {site.paused
         ? 'border-gray-200 dark:border-lerd-border opacity-70'
@@ -424,7 +424,7 @@
       {/if}
     </div>
 
-    <div class="flex items-center gap-0.5 shrink-0">
+    <div class="flex items-center shrink-0">
       <button
         type="button"
         onclick={() => openSiteInBrowser(site, activeWorktreeBranch)}
@@ -667,12 +667,12 @@
     </div>
   {/if}
 
-  <div class="px-2 flex flex-col @xl:flex-row justify-between gap-2">
-    <div class="pb-2">
+  <div class="px-3 flex flex-col @xl:flex-row justify-between gap-2">
+    <div class="pb-3">
       <ServiceBadgeRow {site} />
     </div>
     {#if tabs}
-      <div class="flex items-end gap-5 -mb-px pt-2">{@render tabs()}</div>
+      <div class="flex items-end gap-4 -mb-px pt-2">{@render tabs()}</div>
     {/if}
   </div>
 </div>

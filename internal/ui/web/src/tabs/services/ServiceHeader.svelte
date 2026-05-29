@@ -2,18 +2,15 @@
   import { onDestroy, type Snippet } from 'svelte';
   import StatusPill from '$components/StatusPill.svelte';
   import ButtonMenu, { type ButtonMenuAction } from '$components/ButtonMenu.svelte';
-  import ParentSiteBadge from './ParentSiteBadge.svelte';
   import ServiceDependencies from './ServiceDependencies.svelte';
   import ServiceDeleteModal from './ServiceDeleteModal.svelte';
   import ServiceReinstallModal from './ServiceReinstallModal.svelte';
-  import { goToTab } from '$stores/route';
   import {
     type Service,
     services as allServices,
     serviceLabel,
     detailLabel,
     isServiceWorker,
-    parentSiteDomain,
     serviceAction,
     streamServiceAction,
     checkServiceUpdates,
@@ -54,7 +51,6 @@
 
   const isWorker = $derived(isServiceWorker(svc));
   const active = $derived(svc.status === 'active');
-  const parent = $derived(parentSiteDomain(svc));
   const portConflicts = $derived(
     !active && svc.port_conflicts && svc.port_conflicts.length > 0 ? svc.port_conflicts : []
   );
@@ -138,10 +134,6 @@
     if (!image) return '';
     const at = image.lastIndexOf(':');
     return at > 0 ? image.slice(at + 1) : image;
-  }
-
-  function openSite(domain: string) {
-    goToTab('sites', domain);
   }
 
   function buildActions(icons: {
@@ -315,7 +307,7 @@
 </script>
 
 <div
-  class="flex flex-wrap items-center justify-between gap-y-2 px-3 sm:px-5 py-4 border-b border-gray-100 dark:border-lerd-border shrink-0"
+  class="flex flex-wrap items-center justify-between gap-y-2 px-3 py-2.5 border-b border-gray-100 dark:border-lerd-border shrink-0"
 >
   <div class="flex items-center gap-3">
     <div>
@@ -341,24 +333,6 @@
           </span>
         {/if}
       </div>
-
-      {#if parent}
-        <ParentSiteBadge domain={parent} />
-      {/if}
-
-      {#if !isWorker && svc.site_domains && svc.site_domains.length > 0}
-        <div class="flex flex-wrap gap-1 mt-1">
-          {#each svc.site_domains as d (d)}
-            <button
-              onclick={() => openSite(d)}
-              class="inline-flex items-center gap-1.5 text-xs font-medium bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 border border-gray-200 dark:border-lerd-border text-gray-700 dark:text-gray-300 rounded-full px-2 py-0.5 transition-colors"
-            >
-              <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-gray-400"></span>
-              {d}
-            </button>
-          {/each}
-        </div>
-      {/if}
 
       {#if svc.depends_on && svc.depends_on.length > 0}
         <ServiceDependencies names={svc.depends_on} />

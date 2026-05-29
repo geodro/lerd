@@ -85,7 +85,7 @@
 </script>
 
 <div class="flex flex-col h-full overflow-hidden">
-  <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-lerd-border flex-wrap">
+  <div class="flex items-center gap-2 px-3 py-3 border-b border-gray-200 dark:border-lerd-border flex-wrap">
     <input
       class="text-xs px-2 py-1 rounded-sm border border-gray-300 dark:border-lerd-border bg-white dark:bg-lerd-card flex-1 min-w-[140px]"
       placeholder={m.dumps_searchPlaceholder()}
@@ -131,10 +131,10 @@
     </button>
   </div>
 
-  <div class="flex-1 overflow-y-auto px-4 pb-3">
+  <div class="flex-1 overflow-y-auto px-3 pb-3">
     {#if groups.length === 0}
       {#if !$status?.enabled}
-        <div class="px-4 py-10 text-center space-y-3">
+        <div class="px-3 py-10 text-center space-y-3">
           <p class="text-sm text-gray-500 dark:text-gray-400">{m.dumps_disabled_title()}</p>
           <p class="text-[11px] text-gray-400 dark:text-gray-500">
             {m.dumps_disabled_body()}
@@ -158,7 +158,7 @@
     {:else}
       {#each groups as group (group.key)}
         <section class="mb-4">
-          <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-4 px-4 z-1">
+          <header class="flex items-center gap-2 mb-1 sticky top-0 bg-gray-50 dark:bg-lerd-bg py-1 -mx-3 px-3 z-1">
             <span class="text-sm">{group.label}</span>
             <span class="text-xs text-gray-400 ml-auto">{m.dumps_groupCount({ count: group.events.length })}</span>
           </header>

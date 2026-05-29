@@ -23,7 +23,7 @@
 </script>
 
 {#if hasAny}
-  <div class="flex items-center flex-wrap gap-1.5">
+  <div class="flex items-center flex-wrap gap-3">
     {#each site.services || [] as name (name)}
       <button
         onclick={() => jump(name)}

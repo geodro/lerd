@@ -20,7 +20,7 @@
 </script>
 
 {#if visible.length > 1}
-  <div class="flex items-end gap-5 border-b border-gray-100 dark:border-lerd-border pt-2 px-2 shrink-0">
+  <div class="flex items-end gap-4 border-b border-gray-100 dark:border-lerd-border pt-3 px-3 shrink-0">
     {#each visible as t (t.id)}
       <button
         onclick={() => onchange(t.id)}

@@ -171,7 +171,7 @@
   }
 </script>
 
-<div class="px-2 pt-2 shrink-0">
+<div class="px-3 pt-3 shrink-0">
   <div class="flex items-center gap-3">
   <div class="flex items-center gap-3 overflow-x-auto flex-1 min-w-0">
     {#if site.custom_container}

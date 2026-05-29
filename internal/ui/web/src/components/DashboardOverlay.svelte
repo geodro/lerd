@@ -138,7 +138,7 @@
   {@const d = $dashboardOpen}
   {@const iframeSrc = d.dashboard + (d.extraPath ?? '')}
   <div class="fixed top-0 right-0 left-0 bottom-16 md:left-14 md:bottom-0 z-30 flex flex-col bg-white dark:bg-lerd-bg">
-    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-lerd-border shrink-0">
+    <div class="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-lerd-border shrink-0">
       <div class="flex items-center gap-3 min-w-0">
         {#if isProfiler}
           <button

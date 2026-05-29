@@ -3,6 +3,7 @@
   import LogViewer from '$components/LogViewer.svelte';
   import DetailTabs, { type TabItem } from '$components/DetailTabs.svelte';
   import ServiceHeader from './ServiceHeader.svelte';
+  import ServiceSiteBadges from './ServiceSiteBadges.svelte';
   import ServiceEnvTab from './ServiceEnvTab.svelte';
   import ServiceTuningTab from './ServiceTuningTab.svelte';
   import PresetSuggestionBanner from './PresetSuggestionBanner.svelte';
@@ -54,6 +55,7 @@
 <DetailPanel>
   {#key svc.name}
     <ServiceHeader {svc} />
+    <ServiceSiteBadges {svc} />
   {/key}
   <PresetSuggestionBanner {svc} />
   <DetailTabs {tabs} {active} onchange={(id) => (active = id)} />

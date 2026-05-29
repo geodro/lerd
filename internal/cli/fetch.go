@@ -13,6 +13,33 @@ import (
 // Alpine 3.16, but pinned (older xdebug, no mongodb ext) and not security-updated.
 var SupportedPHPVersions = []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"}
 
+// IsSupportedPHPVersion reports whether v is a version lerd can install.
+func IsSupportedPHPVersion(v string) bool {
+	for _, s := range SupportedPHPVersions {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// InstallPHPVersion builds the FPM image for the given version, registers its
+// quadlet and starts the service, streaming build output to w. It is the
+// programmatic entry point behind the UI's "add PHP version" flow.
+func InstallPHPVersion(version string, w io.Writer) error {
+	if !IsSupportedPHPVersion(version) {
+		return fmt.Errorf("unsupported PHP version %q", version)
+	}
+	// Always emit a line so a streamed install shows progress even when the
+	// image is already built and the build step produces no output.
+	fmt.Fprintf(w, "Installing PHP %s...\n", version)
+	if err := ensureFPMQuadletTo(version, w); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "PHP %s installed and started.\n", version)
+	return nil
+}
+
 // NewFetchCmd returns the fetch command.
 func NewFetchCmd() *cobra.Command {
 	cmd := &cobra.Command{

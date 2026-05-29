@@ -33,7 +33,7 @@
 </script>
 
 <div class="flex-1 overflow-y-auto">
-  <div class="flex flex-wrap items-center justify-between gap-y-2 px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-lerd-border">
+  <div class="flex flex-wrap items-center justify-between gap-y-2 px-3 py-3 border-b border-gray-100 dark:border-lerd-border">
     <div class="min-w-0">
       <h1 class="font-semibold text-gray-900 dark:text-white text-xl tracking-tight">{m.dashboard_title()}</h1>
       {#if everythingHealthy}
@@ -62,7 +62,7 @@
     </button>
   </div>
 
-  <div class="p-3 sm:p-4 space-y-3">
+  <div class="p-3 space-y-3">
     <OnboardingPanel />
     {#if !everythingHealthy}
       <HeroStatus />

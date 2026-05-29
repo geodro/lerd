@@ -89,7 +89,7 @@
 </script>
 
 <div class="flex-1 overflow-y-auto">
-  <div class="flex flex-wrap items-center justify-between gap-y-2 px-3 sm:px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+  <div class="flex flex-wrap items-center justify-between gap-y-2 p-3 border-b border-gray-100 dark:border-lerd-border">
     <div class="flex items-center gap-3">
       <span class="font-semibold text-gray-900 dark:text-white text-base">{m.system_nodeJs()}</span>
       {#if !$status.node_managed_by_lerd}
@@ -98,7 +98,7 @@
     </div>
   </div>
 
-  <div class="px-3 sm:px-5 py-4 space-y-3">
+  <div class="p-3 space-y-3">
     {#if !$status.node_managed_by_lerd}
       <div class="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-lg px-3 py-2.5">
         <span class="font-medium">{m.system_node_managedBySystem()}</span> {m.system_node_managedBySystemHint()}
