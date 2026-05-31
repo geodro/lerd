@@ -17,7 +17,7 @@ func TestServiceTuningMount_KnownFamilies(t *testing.T) {
 		{"mariadb family", &CustomService{Name: "mariadb-10-11", Family: "mariadb"}, "/etc/mysql/conf.d/zz-lerd-user.cnf", true},
 		{"family inferred from name", &CustomService{Name: "mariadb-11"}, "/etc/mysql/conf.d/zz-lerd-user.cnf", true},
 		{"redis family", &CustomService{Name: "redis", Family: "redis"}, "/etc/redis/lerd-user.conf", true},
-		{"postgres family (unsupported, see service_tuning.go)", &CustomService{Name: "postgres", Family: "postgres"}, "", false},
+		{"postgres family", &CustomService{Name: "postgres", Family: "postgres"}, "/etc/postgresql/conf.d/zz-lerd-user.conf", true},
 		{"untuned family", &CustomService{Name: "meilisearch", Family: "meilisearch"}, "", false},
 		{"unknown family", &CustomService{Name: "whatever"}, "", false},
 		{"nil service", nil, "", false},
@@ -37,7 +37,7 @@ func TestServiceTuningMount_KnownFamilies(t *testing.T) {
 
 func TestTuningFamilies_SortedAndComplete(t *testing.T) {
 	families := TuningFamilies()
-	want := []string{"mariadb", "mysql", "redis"}
+	want := []string{"mariadb", "mysql", "postgres", "redis"}
 	if len(families) != len(want) {
 		t.Fatalf("TuningFamilies length = %d %v, want %d %v", len(families), families, len(want), want)
 	}
@@ -47,10 +47,9 @@ func TestTuningFamilies_SortedAndComplete(t *testing.T) {
 		}
 	}
 	// Anchor the "supported: …" hint shape so the test catches accidental
-	// formatting drift (commas, spacing) when new families land. Postgres is
-	// intentionally absent — see the tuningMounts note in service_tuning.go.
-	if got := strings.Join(families, ", "); got != "mariadb, mysql, redis" {
-		t.Errorf("joined hint = %q, want %q", got, "mariadb, mysql, redis")
+	// formatting drift (commas, spacing) when new families land.
+	if got := strings.Join(families, ", "); got != "mariadb, mysql, postgres, redis" {
+		t.Errorf("joined hint = %q, want %q", got, "mariadb, mysql, postgres, redis")
 	}
 }
 
@@ -232,6 +231,7 @@ func TestServiceTuningCommand(t *testing.T) {
 		wantOK bool
 	}{
 		{"redis needs a command", &CustomService{Name: "redis", Family: "redis"}, "redis-server /etc/redis/lerd-user.conf", true},
+		{"postgres points at the wrapper config_file", &CustomService{Name: "postgres", Family: "postgres"}, "postgres -c config_file=/etc/postgresql/lerd.conf", true},
 		{"mysql auto-includes, no command", &CustomService{Name: "mysql", Family: "mysql"}, "", false},
 		{"untuned family", &CustomService{Name: "meilisearch", Family: "meilisearch"}, "", false},
 		{"nil service", nil, "", false},
@@ -246,5 +246,66 @@ func TestServiceTuningCommand(t *testing.T) {
 				t.Errorf("command = %q, want %q", cmd, tc.want)
 			}
 		})
+	}
+}
+
+// TestServiceTuningAux covers the lerd-managed helper file: only postgres
+// declares one today, and it must carry the wrapper config_file target plus
+// the include_dir content the Command depends on.
+func TestServiceTuningAux(t *testing.T) {
+	target, content, ok := ServiceTuningAux(&CustomService{Name: "postgres", Family: "postgres"})
+	if !ok {
+		t.Fatal("postgres should declare a tuning aux file")
+	}
+	if target != "/etc/postgresql/lerd.conf" {
+		t.Errorf("aux target = %q, want /etc/postgresql/lerd.conf", target)
+	}
+	if !strings.Contains(content, "include_dir = '/etc/postgresql/conf.d'") {
+		t.Errorf("aux content missing include_dir directive:\n%s", content)
+	}
+
+	for _, svc := range []*CustomService{
+		{Name: "mysql", Family: "mysql"},
+		{Name: "redis", Family: "redis"},
+		nil,
+	} {
+		if _, _, ok := ServiceTuningAux(svc); ok {
+			t.Errorf("only postgres should have an aux file, got ok for %+v", svc)
+		}
+	}
+}
+
+// TestMaterializeServiceTuning_WritesAndRefreshesAux verifies the helper file is
+// materialised for postgres and, unlike the user override, is always rewritten
+// so a new lerd version's wrapper lands without a reinstall.
+func TestMaterializeServiceTuning_WritesAndRefreshesAux(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	svc := &CustomService{Name: "postgres", Family: "postgres"}
+
+	if err := MaterializeServiceTuning(svc); err != nil {
+		t.Fatalf("MaterializeServiceTuning: %v", err)
+	}
+	auxPath := ServiceTuningAuxFile(svc.Name)
+	body, err := os.ReadFile(auxPath)
+	if err != nil {
+		t.Fatalf("aux file not created: %v", err)
+	}
+	if !strings.Contains(string(body), "include_dir = '/etc/postgresql/conf.d'") {
+		t.Errorf("aux file missing include_dir:\n%s", body)
+	}
+
+	// Aux is lerd-managed: a stale value must be overwritten on re-materialize.
+	if err := os.WriteFile(auxPath, []byte("# stale\n"), 0644); err != nil {
+		t.Fatalf("write stale aux: %v", err)
+	}
+	if err := MaterializeServiceTuning(svc); err != nil {
+		t.Fatalf("second materialize: %v", err)
+	}
+	got, err := os.ReadFile(auxPath)
+	if err != nil {
+		t.Fatalf("read back aux: %v", err)
+	}
+	if strings.Contains(string(got), "stale") {
+		t.Errorf("aux file should be rewritten, still stale:\n%s", got)
 	}
 }
