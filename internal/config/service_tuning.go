@@ -155,7 +155,7 @@ const postgresTuningTemplate = `# Lerd user tuning for this service.
 // the user override directory, so user values win without lerd ever mutating
 // PGDATA. The PGDATA path matches the value pinned by the postgres preset; if it
 // is ever absent, include_if_exists degrades gracefully rather than failing.
-const postgresTuningWrapper = `# Lerd-managed postgres config wrapper — do not edit.
+const postgresTuningWrapper = `# Lerd-managed postgres config wrapper, do not edit.
 # postgres runs with -c config_file pointing here (see service_tuning.go).
 include_if_exists = '/var/lib/postgresql/data/postgresql.conf'
 include_dir = '/etc/postgresql/conf.d'
@@ -169,7 +169,7 @@ include_dir = '/etc/postgresql/conf.d'
 // include_dir=...` is rejected at runtime ("unrecognized configuration
 // parameter") because include_dir is a config-file directive, not a GUC. So its
 // Command points postgres at an AuxContent wrapper config_file that includes the
-// cluster's own postgresql.conf and then the user override directory — additive,
+// cluster's own postgresql.conf and then the user override directory, additive,
 // never mutating PGDATA. Verified at runtime against the postgis image lerd runs.
 var tuningMounts = map[string]tuningMount{
 	"mysql": {
