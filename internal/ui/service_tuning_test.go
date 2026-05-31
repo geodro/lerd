@@ -21,6 +21,13 @@ import (
 // guard in unit tests.
 func installFakeMysqlQuadlet(t *testing.T) {
 	t.Helper()
+	// Isolate HOME too: on macOS the service manager writes launchd plists to
+	// $HOME/Library/LaunchAgents (launchAgentsDir), which is NOT covered by the
+	// XDG_* overrides. Without this, a handler that regenerates a quadlet writes
+	// a real lerd-<svc>.plist with volume sources pointing at the test's temp
+	// dirs; once the temp dir is cleaned up, `lerd start` fails with statfs on
+	// the now-missing path. Pin HOME so plist/log writes land in the sandbox.
+	t.Setenv("HOME", t.TempDir())
 	dir := config.QuadletDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir quadlet dir: %v", err)
