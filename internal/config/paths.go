@@ -279,6 +279,17 @@ func ServiceTuningFile(name string) string {
 	return filepath.Join(DataDir(), "service-tuning", name+".conf")
 }
 
+// ServiceTuningAuxFile returns the host path for a service's lerd-managed
+// tuning helper file — a static config that the family's tuning Command depends
+// on (e.g. the postgres `config_file` wrapper that `include_dir`s the user
+// override directory, because `-c include_dir` is rejected at runtime). Unlike
+// ServiceTuningFile this is regenerated on every start, never user-edited, and
+// lives alongside the override with a distinct `.aux.conf` suffix so it is never
+// mistaken for it.
+func ServiceTuningAuxFile(name string) string {
+	return filepath.Join(DataDir(), "service-tuning", name+".aux.conf")
+}
+
 // ServiceTuningBkpDir holds timestamped backups of per-service tuning
 // overrides produced when the user ticks "back up the current file first"
 // before saving in the web UI editor. It lives next to (not inside) the
