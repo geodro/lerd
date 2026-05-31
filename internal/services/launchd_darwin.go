@@ -4,7 +4,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -715,28 +714,24 @@ func (m *darwinServiceManager) Stop(name string) error {
 
 // Restart kicks the service if loaded, otherwise bootstraps it fresh.
 func (m *darwinServiceManager) Restart(name string) error {
+	// For container units, the detached podman container runs independently
+	// of launchd. Stop it explicitly so the restart is clean even if
+	// --replace is ever removed from the podman run args.
+	if running, _ := podman.ContainerRunning(name); running {
+		exec.Command(podmanBinPath(), "stop", "-t", "5", name).Run() //nolint:errcheck
+		exec.Command(podmanBinPath(), "rm", "-f", name).Run()        //nolint:errcheck
+	}
+
 	domain := uidDomain()
 	label := plistLabel(name)
 
-	out, err := launchctl("kickstart", "-k", domain+"/"+label)
-	if err != nil {
-		s := string(out)
-		// Not loaded yet — fall back to a full bootstrap
-		if strings.Contains(s, "36") || strings.Contains(s, "No such process") ||
-			strings.Contains(s, "Could not find") || strings.Contains(s, "not bootstrapped") {
-			return m.Start(name)
-		}
-		// 37 = EALREADY — job is already running, treat as success.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 37 {
-			return nil
-		}
-		if strings.Contains(s, "37") || strings.Contains(s, "already running") {
-			return nil
-		}
-		return fmt.Errorf("launchctl kickstart %s: %w\n%s", name, err, out)
+	// Bootout so the subsequent Start (bootstrap) picks up the current
+	// plist on disk. kickstart -k would use launchd's cached copy.
+	if _, err := launchctl("print", domain+"/"+label); err == nil {
+		launchctl("bootout", domain+"/"+label) //nolint:errcheck
+		time.Sleep(200 * time.Millisecond)
 	}
-	return nil
+	return m.Start(name)
 }
 
 // Enable marks the service as enabled (persists across logins) and bootstraps it.

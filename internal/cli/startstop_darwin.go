@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -69,10 +70,15 @@ func getMachineJSONPath(name string) string {
 	return ""
 }
 
+// requiredMachineMounts lists the macOS host paths that must be available
+// inside the Podman Machine VM. /Volumes is required for external drives.
+// /private and /var/folders are already Podman defaults.
+var requiredMachineMounts = []string{"/Volumes"}
+
 // checkMissingMounts parses the Podman Machine JSON configuration file and returns
-// true if any of the essential default macOS mounts (/private, /var/folders, /Volumes)
-// are missing from the configuration. This identifies existing machines that were
-// initialized before the /Volumes mount requirement was added.
+// true if any of the required mounts are missing from the configuration.
+// This identifies existing machines that were initialized before the /Volumes
+// mount requirement was added.
 func checkMissingMounts(name string) bool {
 	path := getMachineJSONPath(name)
 	if path == "" {
@@ -91,32 +97,28 @@ func checkMissingMounts(name string) bool {
 		return false
 	}
 
-	hasVolumes := false
-	hasPrivate := false
-	hasVarFolders := false
-
+	existingPaths := make(map[string]bool)
 	for _, mAny := range mounts {
 		if m, ok := mAny.(map[string]any); ok {
-			src, _ := m["Source"].(string)
-			if src == "/Volumes" {
-				hasVolumes = true
-			}
-			if src == "/private" {
-				hasPrivate = true
-			}
-			if src == "/var/folders" {
-				hasVarFolders = true
+			if src, ok := m["Source"].(string); ok {
+				existingPaths[src] = true
 			}
 		}
 	}
-	return !hasVolumes || !hasPrivate || !hasVarFolders
+
+	for _, reqPath := range requiredMachineMounts {
+		if !existingPaths[reqPath] {
+			return true
+		}
+	}
+	return false
 }
 
 // ensurePodmanMachineMounts edits the Podman Machine JSON configuration file directly
-// to inject missing volume mounts for /private, /var/folders, and /Volumes.
-// It generates deterministic virtiofs tags based on the SHA-256 hash of the host path,
-// allowing existing machines to be upgraded seamlessly without requiring a rebuild.
-// A backup of the original configuration is saved with a .bak extension.
+// to inject missing volume mounts. It generates deterministic virtiofs tags based on
+// the SHA-256 hash of the host path, allowing existing machines to be upgraded
+// seamlessly without requiring a rebuild. A backup of the original configuration is
+// saved with a .bak extension.
 func ensurePodmanMachineMounts(name string) error {
 	path := getMachineJSONPath(name)
 	if path == "" {
@@ -126,10 +128,16 @@ func ensurePodmanMachineMounts(name string) error {
 	if err != nil {
 		return err
 	}
+	
+	// Decode with number preservation to avoid float64 corruption of
+	// integer fields like VSockNumber.
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	var config map[string]any
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := dec.Decode(&config); err != nil {
 		return err
 	}
+
 	mounts, ok := config["Mounts"].([]any)
 	if !ok {
 		return fmt.Errorf("no Mounts array in config")
@@ -143,15 +151,14 @@ func ensurePodmanMachineMounts(name string) error {
 		}
 	}
 
-	requiredPaths := []string{"/private", "/var/folders", "/Volumes"}
 	added := false
 
-	for _, reqPath := range requiredPaths {
+	for _, reqPath := range requiredMachineMounts {
 		if !existingPaths[reqPath] {
 			hash := sha256.Sum256([]byte(reqPath))
 			tag := fmt.Sprintf("%x", hash)[:36]
 			newMount := map[string]any{
-				"OriginalInput": "",
+				"OriginalInput": reqPath + ":" + reqPath,
 				"ReadOnly":      false,
 				"Source":        reqPath,
 				"Tag":           tag,
@@ -174,6 +181,8 @@ func ensurePodmanMachineMounts(name string) error {
 	if err != nil {
 		return err
 	}
+	// Append trailing newline to match Podman's own formatting.
+	outData = append(outData, '\n')
 
 	// Backup original
 	os.WriteFile(path+".bak", data, 0644) //nolint:errcheck
@@ -239,9 +248,6 @@ func ensurePodmanMachineRunning() {
 	if len(machines) == 0 {
 		fmt.Println("  --> Initialising Podman Machine (first run, this may take a minute) ...")
 		cmd := exec.Command(podman.PodmanBin(), "machine", "init", "--rootful",
-			"-v", "/Users:/Users",
-			"-v", "/private:/private",
-			"-v", "/var/folders:/var/folders",
 			"-v", "/Volumes:/Volumes")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -273,22 +279,20 @@ func ensurePodmanMachineRunning() {
 
 		if needsRootful || needsMemory || needsMounts {
 			if m.running {
-				var reason string
-				switch {
-				case needsRootful && needsMemory && needsMounts:
-					reason = fmt.Sprintf("enable rootful mode, increase memory to %d MB, and update mounts", targetMemoryMiB)
-				case needsRootful && needsMemory:
-					reason = fmt.Sprintf("enable rootful mode and increase memory to %d MB", targetMemoryMiB)
-				case needsMounts && needsMemory:
-					reason = fmt.Sprintf("increase memory to %d MB and update mounts", targetMemoryMiB)
-				case needsMounts && needsRootful:
-					reason = "enable rootful mode and update mounts"
-				case needsRootful:
-					reason = "enable rootful mode"
-				case needsMounts:
-					reason = "update volume mounts for external drives"
-				default:
-					reason = fmt.Sprintf("increase memory to %d MB", targetMemoryMiB)
+				var parts []string
+				if needsRootful {
+					parts = append(parts, "enable rootful mode")
+				}
+				if needsMemory {
+					parts = append(parts, fmt.Sprintf("increase memory to %d MB", targetMemoryMiB))
+				}
+				if needsMounts {
+					parts = append(parts, "update volume mounts for external drives")
+				}
+				reason := strings.Join(parts, ", ")
+				// Replace last ", " with " and " for English grammar
+				if i := strings.LastIndex(reason, ", "); i >= 0 {
+					reason = reason[:i] + " and " + reason[i+2:]
 				}
 				fmt.Printf("  --> Stopping Podman Machine to %s ...\n", reason)
 				stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
