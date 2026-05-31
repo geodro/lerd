@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import { apiJson, apiFetch, decodeJSONResult } from '$lib/api';
+import { readSSE } from '$lib/sse';
 import type { SiteNginxBackup, LoadNginxBackupsResult, ResetNginxResult, SaveNginxResult, RestoreNginxResult } from './sites';
 
 export const phpVersions = writable<string[]>([]);
@@ -11,6 +12,50 @@ export async function loadPhpVersions() {
   } catch {
     /* keep previous */
   }
+}
+
+// installablePhpVersions returns the supported PHP versions not yet installed,
+// so the add-version modal can offer them in a dropdown. Throws on request
+// failure so the caller can distinguish an error from an empty (all-installed)
+// list rather than silently showing "all installed".
+export async function installablePhpVersions(): Promise<string[]> {
+  const list = await apiJson<string[]>('/api/php-installable');
+  return Array.isArray(list) ? list : [];
+}
+
+export interface PhpInstallEvent {
+  line?: string;
+  done?: boolean;
+  ok?: boolean;
+  version?: string;
+  error?: string;
+}
+
+// streamPhpInstall POSTs to the SSE endpoint and invokes onEvent for each build
+// log line and the final done payload. Mirrors streamWorktreeAdd. Pass a signal
+// to abort the client read when the modal closes; the server build continues and
+// reports its result via a push notification.
+export async function streamPhpInstall(
+  version: string,
+  onEvent: (e: PhpInstallEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await apiFetch('/api/php-versions/install?version=' + encodeURIComponent(version), {
+    method: 'POST',
+    signal
+  });
+  await readSSE(res, (event, data) => {
+    if (event === 'done') {
+      try {
+        const r = JSON.parse(data) as { ok?: boolean; version?: string; error?: string };
+        onEvent({ done: true, ok: Boolean(r.ok), version: r.version, error: r.error });
+      } catch {
+        onEvent({ done: true, ok: false, error: 'bad done payload' });
+      }
+    } else {
+      onEvent({ line: data });
+    }
+  });
 }
 
 async function phpAction(v: string, action: 'set-default' | 'start' | 'stop' | 'remove'): Promise<boolean> {

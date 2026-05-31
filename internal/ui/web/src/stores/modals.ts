@@ -9,6 +9,7 @@ export type ModalKind =
   | 'lanProgress'
   | 'worktreeAdd'
   | 'worktreeRemove'
+  | 'phpAdd'
   | 'envSave'
   | 'envRestore'
   | 'nginxSave'
@@ -20,6 +21,7 @@ export type ModalKind =
   | 'phpIniSave'
   | 'phpIniRestore'
   | 'phpIniReset'
+  | 'phpRemove'
   | 'tuningSave'
   | 'tuningRestore'
   | 'tuningReset'
@@ -101,6 +103,11 @@ export interface PhpIniResetTarget {
   path: string;
 }
 
+export interface PhpRemoveTarget {
+  version: string;
+  siteCount: number;
+}
+
 export interface TuningSaveTarget {
   name: string;
   content: string;
@@ -140,6 +147,7 @@ export interface ModalState {
   phpIniSave?: PhpIniSaveTarget;
   phpIniRestore?: PhpIniRestoreTarget;
   phpIniReset?: PhpIniResetTarget;
+  phpRemove?: PhpRemoveTarget;
   tuningSave?: TuningSaveTarget;
   tuningRestore?: TuningRestoreTarget;
   tuningReset?: TuningResetTarget;
@@ -173,6 +181,10 @@ export function openWorktreeAddModal(site: Site) {
 
 export function openWorktreeRemoveModal(site: Site, branch: string) {
   modal.set({ kind: 'worktreeRemove', site, branch });
+}
+
+export function openPhpAddModal() {
+  modal.set({ kind: 'phpAdd' });
 }
 
 export function openEnvSaveModal(target: EnvSaveTarget, onSuccess?: () => void) {
@@ -217,6 +229,10 @@ export function openPhpIniRestoreModal(target: PhpIniRestoreTarget, onSuccess?: 
 
 export function openPhpIniResetModal(target: PhpIniResetTarget, onSuccess?: () => void) {
   modal.set({ kind: 'phpIniReset', phpIniReset: target, onSuccess });
+}
+
+export function openPhpRemoveModal(target: PhpRemoveTarget) {
+  modal.set({ kind: 'phpRemove', phpRemove: target });
 }
 
 export function openTuningSaveModal(target: TuningSaveTarget, onSuccess?: () => void) {

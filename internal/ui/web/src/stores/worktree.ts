@@ -1,4 +1,5 @@
 import { apiFetch, apiJson } from '$lib/api';
+import { readSSE } from '$lib/sse';
 
 export interface LabeledOption {
   value: string;
@@ -82,50 +83,29 @@ export async function streamWorktreeAdd(
   if (params.build) qs.set('build', params.build);
 
   const res = await apiFetch('/api/sites/worktree-add?' + qs.toString(), { method: 'POST' });
-  if (!res.body) throw new Error('no response body');
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let eventType = '';
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        eventType = line.slice(7);
-      } else if (line.startsWith('data: ')) {
-        const payload = line.slice(6);
-        if (eventType === 'done') {
-          try {
-            const r = JSON.parse(payload) as {
-              ok?: boolean;
-              branch?: string;
-              domain?: string;
-              error?: string;
-              warnings?: string[];
-            };
-            onEvent({
-              done: true,
-              ok: Boolean(r.ok),
-              branch: r.branch,
-              domain: r.domain,
-              error: r.error,
-              warnings: Array.isArray(r.warnings) ? r.warnings : []
-            });
-          } catch {
-            onEvent({ done: true, ok: false, error: 'bad done payload' });
-          }
-        } else {
-          onEvent({ line: payload });
-        }
-        eventType = '';
-      } else if (line === '') {
-        eventType = '';
+  await readSSE(res, (event, data) => {
+    if (event === 'done') {
+      try {
+        const r = JSON.parse(data) as {
+          ok?: boolean;
+          branch?: string;
+          domain?: string;
+          error?: string;
+          warnings?: string[];
+        };
+        onEvent({
+          done: true,
+          ok: Boolean(r.ok),
+          branch: r.branch,
+          domain: r.domain,
+          error: r.error,
+          warnings: Array.isArray(r.warnings) ? r.warnings : []
+        });
+      } catch {
+        onEvent({ done: true, ok: false, error: 'bad done payload' });
       }
+    } else {
+      onEvent({ line: data });
     }
-  }
+  });
 }

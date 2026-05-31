@@ -94,7 +94,7 @@
   </div>
   <div
     bind:this={scrollEl}
-    class="flex-1 overflow-y-auto bg-gray-50 dark:bg-lerd-bg px-4 py-3 font-mono text-[11px] leading-relaxed space-y-0.5"
+    class="flex-1 overflow-y-auto bg-gray-50 dark:bg-lerd-bg px-3 py-3 font-mono text-[11px] leading-relaxed space-y-0.5"
   >
     {#if $lines.length === 0}
       <div class="text-gray-400 dark:text-gray-700 italic">{resolvedEmpty}</div>

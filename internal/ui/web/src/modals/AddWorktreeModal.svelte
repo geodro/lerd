@@ -3,6 +3,7 @@
   import Modal from '$components/Modal.svelte';
   import Dropdown from '$components/Dropdown.svelte';
   import DetailButton from '$components/DetailButton.svelte';
+  import BuildLog from '$components/BuildLog.svelte';
   import { closeModal } from '$stores/modals';
   import { sites, loadSites, type Site } from '$stores/sites';
   import {
@@ -33,7 +34,6 @@
   let error = $state('');
   let warnings = $state<string[]>([]);
   let logs = $state<string[]>([]);
-  let scrollEl: HTMLDivElement | null = $state(null);
   let optsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const localBranches = $derived(opts?.local_branches ?? []);
@@ -103,9 +103,6 @@
           }
           if (ev.line !== undefined) {
             logs = [...logs, ev.line];
-            requestAnimationFrame(() => {
-              if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
-            });
           }
         }
       );
@@ -219,17 +216,7 @@
           {m.worktreeMgr_completedWithWarnings()}
         </div>
       {/if}
-      <div
-        bind:this={scrollEl}
-        class="bg-gray-50 dark:bg-black/30 rounded-lg p-3 max-h-72 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-400 space-y-0.5"
-      >
-        {#each logs as line, i (i)}
-          <div>{line}</div>
-        {/each}
-        {#if logs.length === 0}
-          <div class="text-gray-400 dark:text-gray-500">{m.link_waitingOutput()}</div>
-        {/if}
-      </div>
+      <BuildLog {logs} />
     </div>
   {/if}
 

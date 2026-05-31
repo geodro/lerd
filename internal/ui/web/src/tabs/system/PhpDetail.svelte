@@ -4,11 +4,12 @@
   import DetailTabs, { type TabItem } from '$components/DetailTabs.svelte';
   import LogViewer from '$components/LogViewer.svelte';
   import PhpIniTab from './PhpIniTab.svelte';
-  import { status, loadStatus, fpmRunning } from '$stores/status';
-  import { setDefaultPhp, startPhp, stopPhp, removePhp } from '$stores/phpVersions';
+  import { status, loadStatus } from '$stores/status';
+  import { setDefaultPhp, startPhp, stopPhp } from '$stores/phpVersions';
   import { sites, sitesByPhp } from '$stores/sites';
   import { xdebugOn, xdebugOff, XDEBUG_MODES, type XdebugMode } from '$stores/xdebug';
   import { goToTab } from '$stores/route';
+  import { openPhpRemoveModal } from '$stores/modals';
   import { m } from '../../paraglide/messages.js';
 
   interface Props {
@@ -16,10 +17,10 @@
   }
   let { version }: Props = $props();
 
-  const running = $derived(fpmRunning(version));
   const isDefault = $derived($status.php_default === version);
   const siteCount = $derived($sitesByPhp.get(version) ?? 0);
   const fpm = $derived($status.php_fpms.find((f) => f.version === version));
+  const running = $derived(Boolean(fpm?.running));
   const xdebugEnabled = $derived(Boolean(fpm?.xdebug_enabled));
   const xdebugMode = $derived<XdebugMode>((fpm?.xdebug_mode as XdebugMode) || 'debug');
   const container = $derived('lerd-php' + version.replace('.', '') + '-fpm');
@@ -27,18 +28,15 @@
 
   let defaultBusy = $state(false);
   let fpmBusy = $state(false);
-  let removeBusy = $state(false);
   let xdebugBusy = $state(false);
-  let removeError = $state('');
   let xdebugMenuOpen = $state(false);
   let xdebugRootEl: HTMLDivElement | undefined = $state();
 
   // The parent (PhpPage) no longer wraps us in {#key version}; reset
   // per-version transient state when the version prop changes so a stale
-  // "removeError" or open xdebug menu doesn't leak across tabs.
+  // open xdebug menu doesn't leak across tabs.
   $effect(() => {
     version;
-    removeError = '';
     xdebugMenuOpen = false;
   });
 
@@ -70,7 +68,7 @@
   const tabs = $derived<TabItem<TabId>[]>([
     { id: 'logs', label: m.services_tabs_logs(), hidden: !running },
     { id: 'sites', label: m.system_php_sites() },
-    { id: 'config', label: m.services_tabs_tuning() }
+    { id: 'config', label: m.system_php_iniTab() }
   ]);
 
   $effect(() => {
@@ -94,18 +92,6 @@
       await loadStatus();
     } finally {
       fpmBusy = false;
-    }
-  }
-
-  async function onRemove() {
-    removeBusy = true;
-    removeError = '';
-    try {
-      const r = await removePhp(version);
-      if (!r) removeError = m.common_failed();
-      await loadStatus();
-    } finally {
-      removeBusy = false;
     }
   }
 
@@ -135,7 +121,7 @@
     }
   }
 
-  const headerBusy = $derived(fpmBusy || defaultBusy || removeBusy);
+  const headerBusy = $derived(fpmBusy || defaultBusy);
 
   const headerActions = $derived.by<ButtonMenuAction[]>(() => {
     if (isDefault) return [];
@@ -173,8 +159,7 @@
       icon: trashIcon,
       label: m.common_remove(),
       title: siteCount > 0 ? m.system_php_removeWarn({ count: siteCount }) : m.system_php_removeTitle(),
-      disabled: removeBusy,
-      onclick: onRemove
+      onclick: () => openPhpRemoveModal({ version, siteCount })
     });
     return acts;
   });
@@ -194,7 +179,7 @@
 {/snippet}
 
 <div
-  class="flex flex-wrap items-center justify-between gap-y-2 px-3 sm:px-5 py-4 border-b border-gray-100 dark:border-lerd-border shrink-0"
+  class="flex flex-wrap items-center justify-between gap-y-2 px-3 py-3 border-b border-gray-100 dark:border-lerd-border shrink-0"
 >
   <div class="flex items-center gap-3 flex-wrap">
     <StatusPill tone={running ? 'ok' : 'muted'} label={running ? m.common_running() : m.common_stopped()} />
@@ -262,10 +247,6 @@
     <ButtonMenu actions={headerActions} busy={headerBusy} />
   </div>
 </div>
-
-{#if removeError}
-  <div class="mx-3 sm:mx-5 my-2 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5 shrink-0">{removeError}</div>
-{/if}
 
 <DetailTabs {tabs} {active} onchange={(id) => (active = id)} />
 {#if active === 'logs' && running}

@@ -158,13 +158,13 @@
   <DetailHeader title={m.notify_settings_title()} {trailing} />
 
   {#if $permissionState === 'default'}
-    <div class="px-3 sm:px-5 pt-4 shrink-0">
+    <div class="p-3 shrink-0">
       <div class="rounded-md border border-sky-300 dark:border-sky-500/40 bg-sky-50 dark:bg-sky-900/20 p-3 text-xs text-sky-900 dark:text-sky-200">
         {m.notify_banner_subtitle()}
       </div>
     </div>
   {:else if $permissionState === 'denied'}
-    <div class="px-3 sm:px-5 pt-4 shrink-0">
+    <div class="p-3 shrink-0">
       <div class="rounded-md border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-900/20 p-3 text-xs text-red-900 dark:text-red-200">
         <p class="font-medium mb-1">{m.notify_settings_denied_title()}</p>
         <p class="mb-2">{m.notify_settings_denied_body()}</p>
@@ -194,7 +194,7 @@
       </div>
     </div>
   {:else if $permissionState === 'granted' && $autoSubscribeDisabled}
-    <div class="px-3 sm:px-5 pt-4 shrink-0">
+    <div class="p-3 shrink-0">
       <div class="rounded-md border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-900 dark:text-amber-200">
         <p class="font-medium mb-1">{m.notify_settings_unsubscribed_title()}</p>
         <p>{m.notify_settings_unsubscribed_body()}</p>
@@ -202,7 +202,7 @@
     </div>
   {/if}
 
-  <div class="flex-1 overflow-y-auto px-3 sm:px-5 py-4">
+  <div class="flex-1 overflow-y-auto p-3">
     <div class="space-y-1">
       {#each ALL_KINDS as kind (kind)}
         <div class="flex items-start justify-between gap-4 py-2.5 border-b border-gray-100 dark:border-lerd-border">

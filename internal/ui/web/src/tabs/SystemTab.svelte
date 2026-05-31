@@ -6,7 +6,7 @@
   import StatusDot from '$components/StatusDot.svelte';
   import LoadingRow from '$components/LoadingRow.svelte';
   import { routeRest, goToTab } from '$stores/route';
-  import { status, statusLoaded, lerdStatusColor, fpmRunning, allCoreRunning } from '$stores/status';
+  import { status, statusLoaded, lerdStatusColor, allCoreRunning } from '$stores/status';
   import { phpVersions } from '$stores/phpVersions';
   import { nodeVersions } from '$stores/nodeVersions';
   import { sitesByNode } from '$stores/sites';
@@ -70,25 +70,9 @@
     {#snippet nginxDot()}<StatusDot color={$status.nginx.running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'nginx'} onclick={() => select('nginx')} leading={nginxDot}>{m.system_nginx()}</ListRow>
 
-    {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
-    <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
-
-    {#snippet notifyDot()}<StatusDot color={notifyEffectiveOn ? 'green' : 'red'} />{/snippet}
-    <ListRow active={selected === 'notifications'} onclick={() => select('notifications')} leading={notifyDot}>
-      {m.notify_settings_title()}
-    </ListRow>
-
-    {#snippet dumpBridgeDot()}<StatusDot color={$dumpsStatusValue?.enabled ? 'green' : 'gray'} pulse={Boolean($dumpsStatusValue?.enabled)} />{/snippet}
-    {#snippet dumpBridgeTrailing()}
-      {#if $dumpsStatusValue?.enabled && ($dumpsStatusValue?.count ?? 0) > 0}
-        <span class="text-[10px] font-medium tabular-nums shrink-0 {selected === 'dump-bridge' ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$dumpsStatusValue.count}</span>
-      {/if}
-    {/snippet}
-    <ListRow active={selected === 'dump-bridge'} onclick={() => select('dump-bridge')} leading={dumpBridgeDot} trailing={dumpBridgeTrailing}>Dump bridge</ListRow>
-
     {#if $phpVersions.length > 0}
       {@const phpSelected = selected === 'php' || selected.startsWith('php-')}
-      {@const anyFpmRunning = $phpVersions.some((v) => fpmRunning(v))}
+      {@const anyFpmRunning = $status.php_fpms.some((f) => f.running)}
       {#snippet phpLeading()}<StatusDot color={anyFpmRunning ? 'green' : 'gray'} />{/snippet}
       {#snippet phpTrailing()}
         <span class="text-[10px] font-medium tabular-nums shrink-0 {phpSelected ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$phpVersions.length}</span>
@@ -104,12 +88,28 @@
       {m.system_nodeJs()}
     </ListRow>
 
+    {#snippet notifyDot()}<StatusDot color={notifyEffectiveOn ? 'green' : 'red'} />{/snippet}
+    <ListRow active={selected === 'notifications'} onclick={() => select('notifications')} leading={notifyDot}>
+      {m.notify_settings_title()}
+    </ListRow>
+
+    {#snippet dumpBridgeDot()}<StatusDot color={$dumpsStatusValue?.enabled ? 'green' : 'gray'} pulse={Boolean($dumpsStatusValue?.enabled)} />{/snippet}
+    {#snippet dumpBridgeTrailing()}
+      {#if $dumpsStatusValue?.enabled && ($dumpsStatusValue?.count ?? 0) > 0}
+        <span class="text-[10px] font-medium tabular-nums shrink-0 {selected === 'dump-bridge' ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$dumpsStatusValue.count}</span>
+      {/if}
+    {/snippet}
+    <ListRow active={selected === 'dump-bridge'} onclick={() => select('dump-bridge')} leading={dumpBridgeDot} trailing={dumpBridgeTrailing}>Dump bridge</ListRow>
+
     {#if $workerModeApplies}
       {#snippet workerModeDot()}<StatusDot color={$workerExecMode === 'container' ? 'sky' : 'emerald'} />{/snippet}
       <ListRow active={selected === 'workermode'} onclick={() => select('workermode')} leading={workerModeDot}>
         {m.system_workerMode_listLabel()}
       </ListRow>
     {/if}
+
+    {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
+    <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
 
     {#snippet lerdLeading()}<StatusDot color={$lerdStatusColor} />{/snippet}
     {#snippet lerdTrailing()}

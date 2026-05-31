@@ -95,7 +95,7 @@
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden min-h-0">
-  <div class="flex items-center gap-2 px-3 sm:px-5 py-2 shrink-0 border-b border-gray-100 dark:border-lerd-border">
+  <div class="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-gray-100 dark:border-lerd-border">
     {#if files.length > 0}
       <Dropdown
         value={selectedFile}
@@ -167,7 +167,7 @@
       <div class="border-b border-gray-100 dark:border-lerd-border/50">
         <button
           onclick={() => toggleEntry(i)}
-          class="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-white/3 transition-colors"
+          class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-white/3 transition-colors"
         >
           <span class="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-sm leading-tight {levelClass(entry.level)}">
             {entry.level || 'LOG'}
@@ -184,7 +184,7 @@
           </svg>
         </button>
         {#if expandedIdx === i}
-          <div class="px-4 py-3 bg-gray-50 dark:bg-lerd-bg border-t border-gray-100 dark:border-lerd-border/30 font-mono text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed">{entry.detail || entry.message || ''}</div>
+          <div class="px-3 py-3 bg-gray-50 dark:bg-lerd-bg border-t border-gray-100 dark:border-lerd-border/30 font-mono text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed">{entry.detail || entry.message || ''}</div>
         {/if}
       </div>
     {/each}

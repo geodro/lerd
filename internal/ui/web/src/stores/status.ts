@@ -1,4 +1,4 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 import { apiJson } from '$lib/api';
 import { wsMessage } from '$lib/ws';
 import { version } from './version';
@@ -83,7 +83,3 @@ export const allCoreRunning = derived(status, ($s): boolean => {
   );
 });
 
-export function fpmRunning(v: string): boolean {
-  const fpm = get(status).php_fpms.find((f) => f.version === v);
-  return Boolean(fpm?.running);
-}

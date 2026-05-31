@@ -23,3 +23,16 @@ func TestSupportedPHPVersionsAreValid(t *testing.T) {
 		}
 	}
 }
+
+func TestIsSupportedPHPVersion(t *testing.T) {
+	for _, v := range SupportedPHPVersions {
+		if !IsSupportedPHPVersion(v) {
+			t.Errorf("IsSupportedPHPVersion(%q) = false, want true", v)
+		}
+	}
+	for _, v := range []string{"", "5.6", "8", "8.9", "latest", "8.4.1"} {
+		if IsSupportedPHPVersion(v) {
+			t.Errorf("IsSupportedPHPVersion(%q) = true, want false", v)
+		}
+	}
+}

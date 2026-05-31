@@ -67,12 +67,12 @@
 </script>
 
 <div class="flex-1 overflow-y-auto">
-  <div class="flex flex-wrap items-center justify-between gap-y-2 px-3 sm:px-5 py-4 border-b border-gray-100 dark:border-lerd-border">
+  <div class="flex flex-wrap items-center justify-between gap-y-2 p-3 border-b border-gray-100 dark:border-lerd-border">
     <span class="font-semibold text-gray-900 dark:text-white text-base">{m.system_lerd()}</span>
     <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 font-mono">v{$version.current}</span>
   </div>
 
-  <div class="px-3 sm:px-5 py-4 space-y-4">
+  <div class="p-3 space-y-3">
     {#if $version.checked && !$version.hasUpdate}
       <div class="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-500">
         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
