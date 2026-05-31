@@ -26,6 +26,15 @@ type tuningMount struct {
 	// directory (mysql/mariadb) leave this empty. e.g. redis must be told
 	// "redis-server <conf>" since it loads no config file by default.
 	Command string
+	// AuxTarget / AuxContent declare a lerd-managed helper file the Command
+	// depends on, bind-mounted read-only at AuxTarget. Unlike the user override
+	// (seed-once, never clobbered) this is rewritten on every start so version
+	// bumps to the helper land automatically. Used by postgres: `-c include_dir`
+	// is rejected at runtime, so the Command points postgres at a wrapper
+	// config_file (AuxContent) that includes the cluster's own postgresql.conf
+	// and then the user override directory. Empty for families that need none.
+	AuxTarget  string
+	AuxContent string
 }
 
 // TuningSpec is the YAML shape user-authored CustomService entries use to
@@ -120,18 +129,48 @@ const redisTuningTemplate = `# Lerd user tuning for this service.
 # save ""
 `
 
+// postgresTuningTemplate seeds the postgres override. Postgres reads it via the
+// include_dir in the lerd config_file wrapper (postgresTuningWrapper), loaded
+// after the cluster's own postgresql.conf so user values win. Everything ships
+// commented so the file is an inert no-op until the user opts in.
+const postgresTuningTemplate = `# Lerd user tuning for this service.
+#
+# Lerd created this file once and will never overwrite it, so your edits survive
+# ` + "`lerd service reinstall`" + ` and ` + "`lerd update`" + `. Postgres loads it after the
+# cluster defaults, so any value set here wins. Uncomment, tune, then run
+# ` + "`lerd service restart postgres`" + ` to apply.
+
+# shared_buffers = 256MB
+# effective_cache_size = 768MB
+# work_mem = 16MB
+# maintenance_work_mem = 128MB
+# max_connections = 100
+`
+
+// postgresTuningWrapper is the lerd-managed config_file postgres is pointed at
+// via `-c config_file=`. A bare `-c include_dir=...` is rejected at runtime
+// because include_dir is a config-file directive, not a GUC, so the override
+// directory has to be pulled in from inside a real config file. This wrapper
+// includes the cluster's own postgresql.conf (every initdb default) first, then
+// the user override directory, so user values win without lerd ever mutating
+// PGDATA. The PGDATA path matches the value pinned by the postgres preset; if it
+// is ever absent, include_if_exists degrades gracefully rather than failing.
+const postgresTuningWrapper = `# Lerd-managed postgres config wrapper, do not edit.
+# postgres runs with -c config_file pointing here (see service_tuning.go).
+include_if_exists = '/var/lib/postgresql/data/postgresql.conf'
+include_dir = '/etc/postgresql/conf.d'
+`
+
 // tuningMounts maps a service family to its tuning mount. mysql and mariadb
 // are distinct families (see their presets) but share the same conf.d include
 // path. redis needs a Command because its image loads no config by default.
 //
-// Note: postgres is intentionally NOT here. The natural shape — pointing at an
-// external conf.d via `postgres -c include_dir=...` — does not work, because
-// include_dir is a postgresql.conf directive parsed during config-file load,
-// before -c runtime parameters are applied. Postgres tuning needs an
-// entrypoint-wrapper approach that appends the include line to postgresql.conf
-// before postgres starts, which is a separate PR with proper image-version
-// runtime verification (lerd's default postgis image rejected the -c form
-// outright with FATAL unrecognized configuration parameter "include_dir").
+// postgres can't use the conf.d-include shape the others do: `postgres -c
+// include_dir=...` is rejected at runtime ("unrecognized configuration
+// parameter") because include_dir is a config-file directive, not a GUC. So its
+// Command points postgres at an AuxContent wrapper config_file that includes the
+// cluster's own postgresql.conf and then the user override directory, additive,
+// never mutating PGDATA. Verified at runtime against the postgis image lerd runs.
 var tuningMounts = map[string]tuningMount{
 	"mysql": {
 		Target:   "/etc/mysql/conf.d/zz-lerd-user.cnf",
@@ -145,6 +184,13 @@ var tuningMounts = map[string]tuningMount{
 		Target:   "/etc/redis/lerd-user.conf",
 		Template: redisTuningTemplate,
 		Command:  "redis-server /etc/redis/lerd-user.conf",
+	},
+	"postgres": {
+		Target:     "/etc/postgresql/conf.d/zz-lerd-user.conf",
+		Template:   postgresTuningTemplate,
+		Command:    "postgres -c config_file=/etc/postgresql/lerd.conf",
+		AuxTarget:  "/etc/postgresql/lerd.conf",
+		AuxContent: postgresTuningWrapper,
 	},
 }
 
@@ -207,23 +253,47 @@ func ServiceTuningCommand(svc *CustomService) (command string, ok bool) {
 	return m.Command, true
 }
 
+// ServiceTuningAux returns the in-container mount target and content of svc's
+// lerd-managed tuning helper file, and whether one applies. ok is false unless
+// the effective tuningMount declares an AuxTarget (only postgres does today).
+// The matching host file is ServiceTuningAuxFile(svc.Name).
+func ServiceTuningAux(svc *CustomService) (target, content string, ok bool) {
+	m, found := resolveTuningMount(svc)
+	if !found || m.AuxTarget == "" {
+		return "", "", false
+	}
+	return m.AuxTarget, m.AuxContent, true
+}
+
 // MaterializeServiceTuning seeds svc's tuning override with its commented
 // template when the host file does not exist yet, and is a no-op once the file
-// is present so user edits are never clobbered. Services without a tuning
-// mount (neither inline nor family-keyed) are skipped. Call this before
-// GenerateCustomQuadlet so the mounted host path always exists.
+// is present so user edits are never clobbered. When the family declares a
+// lerd-managed helper file (AuxTarget), that file is (re)written every call so
+// helper changes from a new lerd version land automatically. Services without a
+// tuning mount (neither inline nor family-keyed) are skipped. Call this before
+// GenerateCustomQuadlet so every mounted host path always exists.
 func MaterializeServiceTuning(svc *CustomService) error {
 	m, ok := resolveTuningMount(svc)
 	if !ok {
 		return nil
 	}
+	dir := filepath.Dir(ServiceTuningFile(svc.Name))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Helper file: lerd-managed, always rewritten (not user-editable).
+	if m.AuxTarget != "" {
+		if err := os.WriteFile(ServiceTuningAuxFile(svc.Name), []byte(m.AuxContent), 0644); err != nil {
+			return err
+		}
+	}
+
+	// User override: seed once, never clobber.
 	path := ServiceTuningFile(svc.Name)
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	return os.WriteFile(path, []byte(m.Template), 0644)

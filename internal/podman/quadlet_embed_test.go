@@ -306,6 +306,27 @@ func TestGenerateCustomQuadlet_RedisTuningInjectsCommand(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomQuadlet_PostgresTuningMountsWrapperAndCommand(t *testing.T) {
+	// Postgres can't read an external conf.d via `-c include_dir` (rejected at
+	// runtime), so the quadlet must mount BOTH the user override and the
+	// lerd-managed wrapper config_file, and point postgres at the wrapper.
+	svc := &config.CustomService{
+		Name:   "postgres",
+		Image:  "docker.io/postgis/postgis:16-3.5-alpine",
+		Family: "postgres",
+	}
+	out := GenerateCustomQuadlet(svc)
+	if !strings.Contains(out, "Volume="+config.ServiceTuningFile(svc.Name)+":/etc/postgresql/conf.d/zz-lerd-user.conf:ro,z") {
+		t.Errorf("expected postgres user override volume, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Volume="+config.ServiceTuningAuxFile(svc.Name)+":/etc/postgresql/lerd.conf:ro,z") {
+		t.Errorf("expected postgres wrapper config_file volume, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Exec=postgres -c config_file=/etc/postgresql/lerd.conf") {
+		t.Errorf("expected postgres to be pointed at the wrapper config_file, got:\n%s", out)
+	}
+}
+
 func TestGenerateCustomQuadlet_ExplicitExecWinsOverTuningCommand(t *testing.T) {
 	// A service that declares its own Exec must keep it; the tuning command is
 	// only a fallback for images that otherwise load no config.

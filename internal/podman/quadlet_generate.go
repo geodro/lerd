@@ -82,6 +82,13 @@ func GenerateCustomQuadlet(svc *config.CustomService) string {
 		fmt.Fprintf(&b, "Volume=%s:%s:ro,z\n", config.ServiceTuningFile(svc.Name), target)
 	}
 
+	// Lerd-managed tuning helper (e.g. postgres config_file wrapper). Mounted
+	// read-only; materialised by MaterializeServiceTuning before generation so
+	// the host path is guaranteed present.
+	if auxTarget, _, ok := config.ServiceTuningAux(svc); ok {
+		fmt.Fprintf(&b, "Volume=%s:%s:ro,z\n", config.ServiceTuningAuxFile(svc.Name), auxTarget)
+	}
+
 	envKeys := make([]string, 0, len(svc.Environment))
 	for k := range svc.Environment {
 		envKeys = append(envKeys, k)

@@ -1106,6 +1106,29 @@ func TestEnsureNginxConfig_writesForwardedAndCustomD(t *testing.T) {
 	}
 }
 
+// TestEnsureNginxConfigServerNamesHashBucket guards against issue #455: a
+// worktree vhost emits a long "<branch>.<site>.test *.<branch>.<site>.test"
+// server_name that overflows nginx's default server_names_hash_bucket_size of
+// 64, crashing nginx for every site. The rendered global nginx.conf must raise
+// the bucket/max sizes so long branch names always fit.
+func TestEnsureNginxConfigServerNamesHashBucket(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := EnsureNginxConfig(); err != nil {
+		t.Fatalf("EnsureNginxConfig: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, "lerd", "nginx", "nginx.conf"))
+	if err != nil {
+		t.Fatalf("read rendered nginx.conf: %v", err)
+	}
+	if !strings.Contains(string(body), "server_names_hash_bucket_size 256;") {
+		t.Errorf("rendered nginx.conf missing server_names_hash_bucket_size directive, got:\n%s", body)
+	}
+	if !strings.Contains(string(body), "server_names_hash_max_size 1024;") {
+		t.Errorf("rendered nginx.conf missing server_names_hash_max_size directive, got:\n%s", body)
+	}
+}
+
 func TestEnsureForwardedConf_rewrittenOnEachCall(t *testing.T) {
 	confD := setupConfD(t)
 	if err := EnsureForwardedConf(); err != nil {
