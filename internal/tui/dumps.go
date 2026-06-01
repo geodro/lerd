@@ -333,6 +333,11 @@ func (m *Model) toggleDumpExpand() tea.Cmd {
 // zeroed and `lerd dump clear` runs against the daemon ring. Matches the
 // removeFocusedDomain pattern: single-key destructive actions go through
 // openConfirm so the policy is consistent across the TUI.
+// dumpsClearedMsg tells Update to zero the local dump buffer after the user
+// confirms a clear. Applied in Update so the model is never mutated from a
+// command goroutine.
+type dumpsClearedMsg struct{}
+
 func (m *Model) clearDumps() tea.Cmd {
 	count := len(m.dumps)
 	if count == 0 {
@@ -342,14 +347,11 @@ func (m *Model) clearDumps() tea.Cmd {
 		return runLerd("", "dump", "clear")
 	}
 	body := fmt.Sprintf("Drop %d buffered events from the dashboard and run `lerd dump clear` against the daemon ring? This cannot be undone.", count)
+	// Zeroing the buffer happens in Update via dumpsClearedMsg, never inside
+	// this command closure: a tea.Cmd runs on its own goroutine and mutating
+	// the model here would race View/Update.
 	m.openConfirm("Clear dumps", body, tea.Sequence(
-		func() tea.Msg {
-			m.dumps = nil
-			m.dumpsExpanded = nil
-			m.dumpsCursor = 0
-			m.dumpsScroll = 0
-			return nil
-		},
+		func() tea.Msg { return dumpsClearedMsg{} },
 		runLerd("", "dump", "clear"),
 	))
 	return nil

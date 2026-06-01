@@ -264,6 +264,42 @@ func TestClearDumps_EmptyBufferSkipsPrompt(t *testing.T) {
 	}
 }
 
+func TestClearDumps_DefersBufferMutationToUpdate(t *testing.T) {
+	m := NewModel("test")
+	m.appendDump(DumpEntry{ID: "a"})
+	m.appendDump(DumpEntry{ID: "b"})
+	if cmd := m.clearDumps(); cmd != nil {
+		t.Fatalf("clearDumps should stage a confirm, got cmd %v", cmd)
+	}
+	// Clearing happens in Update via dumpsClearedMsg, so the buffer must be
+	// untouched until then; mutating it from the command goroutine would race
+	// the render path.
+	if len(m.dumps) != 2 {
+		t.Errorf("clearDumps mutated the buffer before confirmation: len=%d", len(m.dumps))
+	}
+}
+
+func TestDumpsClearedMsg_ZeroesBuffer(t *testing.T) {
+	m := NewModel("test")
+	m.appendDump(DumpEntry{ID: "a"})
+	m.appendDump(DumpEntry{ID: "b"})
+	m.dumpsExpanded = map[string]bool{"a": true}
+	m.dumpsCursor = 1
+	m.dumpsScroll = 5
+	if _, cmd := m.Update(dumpsClearedMsg{}); cmd != nil {
+		t.Errorf("dumpsClearedMsg should not emit a command, got %v", cmd)
+	}
+	if len(m.dumps) != 0 {
+		t.Errorf("dumps not cleared: %d", len(m.dumps))
+	}
+	if m.dumpsExpanded != nil {
+		t.Error("dumpsExpanded not cleared")
+	}
+	if m.dumpsCursor != 0 || m.dumpsScroll != 0 {
+		t.Errorf("cursor/scroll not reset: cursor=%d scroll=%d", m.dumpsCursor, m.dumpsScroll)
+	}
+}
+
 func rune2id(i int) string {
 	// Pad with leading zeros so lex order matches insertion order.
 	return string(rune('a')) + string(rune('0'+(i/100))) + string(rune('0'+((i/10)%10))) + string(rune('0'+(i%10)))

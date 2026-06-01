@@ -234,6 +234,12 @@ func updateCheckCmd(current string) tea.Cmd {
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case dumpsClearedMsg:
+		m.dumps = nil
+		m.dumpsExpanded = nil
+		m.dumpsCursor = 0
+		m.dumpsScroll = 0
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil

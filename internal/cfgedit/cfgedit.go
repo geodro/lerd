@@ -396,21 +396,37 @@ func MentionsFile(output, path string) bool {
 	return strings.Contains(output, filepath.Base(path))
 }
 
+// atomicTmpPrefix is prepended to the temp file used while atomically writing
+// a config file. The dot prefix keeps the temp from matching an nginx include
+// glob such as custom.d/<domain>.conf*, so a concurrent reload during a
+// restore or rollback can never load the half-written temp.
+const atomicTmpPrefix = ".lerd-cfgtmp-"
+
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	effective := mode
 	if info, err := os.Stat(path); err == nil {
 		effective = info.Mode().Perm()
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, effective); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), atomicTmpPrefix+filepath.Base(path)+".*")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, effective); err != nil {
-		os.Remove(tmp)
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, effective); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
 		return err
 	}
 	return nil
