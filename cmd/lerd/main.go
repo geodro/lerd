@@ -145,6 +145,7 @@ func main() {
 	root.AddCommand(cli.NewDbSnapshotRmCmd())
 	root.AddCommand(cli.NewXdebugCmd())
 	root.AddCommand(cli.NewDumpCmd())
+	root.AddCommand(cli.NewWSLSetupCmd())
 	root.AddCommand(cli.NewProfileCmd())
 	root.AddCommand(cli.NewNotifyCmd())
 	root.AddCommand(cli.NewPhpExtCmd())

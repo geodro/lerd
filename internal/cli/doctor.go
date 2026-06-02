@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/services"
 	lerdUpdate "github.com/geodro/lerd/internal/update"
 	"github.com/geodro/lerd/internal/version"
+	"github.com/geodro/lerd/internal/wsl"
 	"github.com/spf13/cobra"
 )
 
@@ -115,6 +117,43 @@ func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
 		fail("data dir writable", dirErr.Error(), "mkdir -p "+dataDir)
 	} else {
 		ok("data dir writable")
+	}
+
+	// ── WSL2 ─────────────────────────────────────────────────────────────────
+	// Only on WSL: the failure modes here (podman log driver, no tray host, slow
+	// 9P bind mounts) don't exist on a native Linux or macOS host. `lerd wsl:setup`
+	// fixes the first two in one shot.
+	if wsl.IsWSL() {
+		fmt.Fprintln(w, "\n[WSL2]")
+
+		home, _ := os.UserHomeDir()
+		cc := filepath.Join(home, ".config", "containers", "containers.conf")
+		if b, readErr := os.ReadFile(cc); readErr == nil && wsl.HasEventsLoggerJournald(string(b)) {
+			ok("podman events_logger journald")
+		} else {
+			warn("podman events_logger journald", "log views fail with --follow on WSL, run lerd wsl:setup")
+		}
+
+		out, _ := exec.Command("systemctl", "--user", "is-enabled", "lerd-tray.service").Output()
+		if strings.TrimSpace(string(out)) == "masked" {
+			ok("lerd-tray masked (no WSL tray host)")
+		} else {
+			warn("lerd-tray on WSL", "no tray host on WSL2 so the unit fails, run lerd wsl:setup")
+		}
+
+		if reg, regErr := config.LoadSites(); regErr == nil {
+			var onMnt []string
+			for _, s := range reg.Sites {
+				if strings.HasPrefix(s.Path, "/mnt/") {
+					onMnt = append(onMnt, s.Name)
+				}
+			}
+			if len(onMnt) > 0 {
+				warn("project paths on the WSL fs", "slow 9P mounts for: "+strings.Join(onMnt, ", ")+", move them under $HOME")
+			} else {
+				ok("project paths on the WSL fs")
+			}
+		}
 	}
 
 	// ── Configuration ────────────────────────────────────────────────────────

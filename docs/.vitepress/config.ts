@@ -66,7 +66,7 @@ export default defineConfig({
           items: [
             { text: 'Requirements', link: '/getting-started/requirements' },
             { text: 'Installation', link: '/getting-started/installation' },
-            { text: 'Windows (WSL2)', link: '/getting-started/wsl2' },
+            { text: 'Windows (WSL2, beta)', link: '/getting-started/wsl2' },
             { text: 'Quick Start', link: '/getting-started/quick-start' },
             { text: 'Comparison', link: '/getting-started/comparison' },
           ],

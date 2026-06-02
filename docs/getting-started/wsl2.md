@@ -4,9 +4,27 @@ Lerd runs on Windows through WSL2. There is no native Windows build, the archite
 
 This page is the minimum configuration to get a working setup, with the WSL2 specific gotchas called out so you do not lose an afternoon to them.
 
+::: warning Beta
+Windows support via WSL2 is **beta**. The standard Linux build runs unchanged inside a systemd WSL2 session and is fine for daily development, but this path gets less testing than native Linux or macOS and a couple of steps still need manual Windows-side setup (mirrored networking and trusting the mkcert root CA, both below). Please report anything that misbehaves on the [issue tracker](https://github.com/geodro/lerd/issues).
+:::
+
 ::: warning Supported distros
 Ubuntu 22.04 or newer, or Debian 12 or newer, running on WSL 0.67.6 or newer (the release that brought official systemd support). Older WSL versions need workarounds like `genie` or `subsystemctl`, which are not tested here.
 :::
+
+## Automated setup
+
+Once lerd is installed (step 4 below), most of this page is one command:
+
+```bash
+lerd wsl:setup
+```
+
+It's idempotent and applies the WSL-specific tweaks for you: enabling systemd in `/etc/wsl.conf`, setting the Podman `events_logger`, turning on mirrored networking in your Windows `.wslconfig`, importing the mkcert root CA into the Windows trust store, and masking the tray. It prints anything it couldn't do (for example when Windows interop isn't reachable) so you can apply that step by hand. The one thing it can't do for you is the reboot, afterwards run `wsl --shutdown` from a Windows prompt and reopen the distro.
+
+`lerd doctor` adds a `[WSL2]` section that re-checks these on demand.
+
+The sections below document each step manually, both as the reference for what `lerd wsl:setup` does and as the fallback if you'd rather do it by hand.
 
 ## 1. Enable systemd inside WSL2
 

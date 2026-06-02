@@ -1,19 +1,20 @@
 # Lerd
 
-> Open-source Herd-like local PHP development environment for Linux and macOS.
-> Podman-native, rootless, with a built-in Web UI.
+> Open-source Herd-like local PHP development environment for Linux and macOS,
+> with Windows supported via WSL2 (beta). Podman-native, rootless, with a
+> built-in Web UI.
 
 [![CI](https://github.com/geodro/lerd/actions/workflows/ci.yml/badge.svg)](https://github.com/geodro/lerd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/geodro/lerd)](https://github.com/geodro/lerd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL2%20(beta)-lightgrey)]()
 [![Docs](https://img.shields.io/badge/docs-geodro.github.io%2Flerd-blue)](https://geodro.github.io/lerd/)
 [![Reddit](https://img.shields.io/badge/Reddit-r%2Flerd-ff2d20?logo=reddit)](https://reddit.com/r/lerd)
 
 ![Lerd dashboard tour](docs/assets/screenshots/tour.gif)
 
 Lerd runs Nginx, PHP-FPM, and your services as rootless Podman containers,
-designed for PHP developers on Linux and macOS.
+designed for PHP developers on Linux and macOS, and on Windows through WSL2 (beta).
 No Docker. No sudo. No system pollution. Just `lerd link` and your project
 is live at `project.test` with HTTPS.
 
@@ -74,10 +75,13 @@ AI:  → site_link()
 | Terminal dashboard | ✅   | ❌   | ❌    | ❌           |
 | Linux              | ✅   | ✅   | ✅    | ❌           |
 | macOS              | ✅   | ✅   | ✅    | ✅           |
+| Windows (WSL2)     | 🧪   | ✅   | ✅    | ✅           |
 | MCP server         | ✅   | ❌   | ❌    | ✅           |
 | Free & open source | ✅   | ✅   | ✅    | ❌           |
 
 🟡 DDEV runs on Docker by default and can also use Podman as an alternative runtime; Lerd is built exclusively for rootless Podman.
+
+🧪 Lerd's Windows support runs inside WSL2 and is currently **beta**, see the [Windows (WSL2) guide](https://geodro.github.io/lerd/getting-started/wsl2/).
 
 ## Install
 
