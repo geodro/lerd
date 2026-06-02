@@ -65,7 +65,7 @@ lerd mcp:inject --path ~/Lerd/another-app
 
 ### Path resolution
 
-Tools like `artisan`, `composer`, `env_setup`, `env_check`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
+Tools like `artisan`, `composer`, `env_setup`, `env_check`, `env_override`, `db_export`, `db_import`, and `db_create` accept an optional `path` argument. When omitted, the server resolves the path in this order:
 
 1. Explicit `path` argument (highest priority)
 2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
@@ -90,6 +90,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `env_setup` | Configure `.env` for lerd: detects services, starts them, creates DB (sqlite auto-created when `DB_CONNECTION=sqlite`), sets APP_KEY and APP_URL. Always follow with `setup` to run migrations. |
 | `setup` | Run the framework's post-install bootstrap steps (Laravel: `storage:link` + `migrate`; Symfony: `doctrine:migrations:migrate` when `doctrine-migrations-bundle` is installed). Mandatory after `env_setup` on new or cloned projects; idempotent. |
 | `env_check` | Compare all `.env` files against `.env.example` and flag missing or extra keys (returns structured JSON) |
+| `env_override` | Manage the personal, gitignored `.env.lerd_override`; its `KEY=VALUE` pairs win over lerd's defaults on `env_setup`, and `LERD_EXTERNAL_SERVICES=<svc,svc>` marks services lerd writes vars for but won't start/provision. Pass `set` to write entries, or call with no args to scaffold and read it back. |
 | `project_new` | Scaffold a new project via `composer create-project` in the PHP-FPM container and run `composer install` so the returned directory has a populated `vendor/`. Followed by `site_link` → `env_setup` → `setup`. |
 | `site_link` | Register a directory as a lerd site; generates nginx vhost and `.test` domain |
 | `site_unlink` | Unregister a site and remove its nginx vhost (all domains) |

@@ -232,6 +232,14 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Personal, gitignored per-project overrides (.env.lerd_override). envOverrides
+	// are layered on last so they win over every computed value; extServices names
+	// services lerd writes connection vars for but must not start or provision.
+	envOverrides, extServices := readEnvOverride(cwd)
+	if _, statErr := os.Stat(filepath.Join(cwd, envOverrideFile)); statErr == nil {
+		ensureOverrideGitignored(cwd)
+	}
+
 	// Laravel ships .env / .env.example with DB_CONNECTION=sqlite. If the user
 	// hasn't yet picked a DB service for this project, offer to swap sqlite for
 	// a lerd-managed mysql/postgres. Skipped for frameworks with explicit env
@@ -240,7 +248,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// so they don't hit a 500 from the missing .sqlite file; the user can
 	// still switch later with `lerd db set mysql` or the db_set MCP tool.
 	if len(fw.Env.Services) == 0 &&
-		!userPickedDBFromYAML(lerdYAMLServices) &&
+		!userPickedDBFromYAML(lerdYAMLServices) && !externalDBPicked(extServices) &&
 		strings.EqualFold(strings.TrimSpace(envMap["DB_CONNECTION"]), "sqlite") {
 
 		dbChoice := "sqlite"
@@ -273,7 +281,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		lerdYAMLServices[dbChoice] = true
 	}
 
-	userPickedDB := userPickedDBFromYAML(lerdYAMLServices)
+	userPickedDB := userPickedDBFromYAML(lerdYAMLServices) || externalDBPicked(extServices)
 	valkeyPicked := lerdYAMLServices["valkey"]
 
 	if len(fw.Env.Services) > 0 {
@@ -285,7 +293,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		// but the user picked mysql in the wizard.
 		for svc, def := range fw.Env.Services {
 			detectedFromEnv := frameworkServiceDetected(def, envMap)
-			pickedFromYAML := lerdYAMLServices[svc]
+			pickedFromYAML := lerdYAMLServices[svc] || extServices[svc]
 
 			if !shouldApplyService(svc, detectedFromEnv, pickedFromYAML, userPickedDB, valkeyPicked) {
 				continue
@@ -300,6 +308,9 @@ func runEnv(_ *cobra.Command, _ []string) error {
 			for _, kv := range def.Vars {
 				k, v, _ := strings.Cut(kv, "=")
 				updates[k] = applySiteHandle(v, tplCtx)
+			}
+			if externalManaged(svc, extServices) {
+				continue
 			}
 			if isDB {
 				if err := ensureServiceRunning(svc); err != nil {
@@ -356,7 +367,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		for _, svc := range knownServices() {
 			detector, ok := serviceDetectors[svc]
 			detectedFromEnv := ok && detector(envMap)
-			pickedFromYAML := lerdYAMLServices[svc]
+			pickedFromYAML := lerdYAMLServices[svc] || extServices[svc]
 
 			if !shouldApplyService(svc, detectedFromEnv, pickedFromYAML, userPickedDB, valkeyPicked) {
 				continue
@@ -377,8 +388,15 @@ func runEnv(_ *cobra.Command, _ []string) error {
 				updates[k] = v
 			}
 
-			if svc == "mysql" || svc == "postgres" {
+			isDB := svc == "mysql" || svc == "postgres"
+			if isDB {
 				updates["DB_DATABASE"] = dbName
+			}
+			if externalManaged(svc, extServices) {
+				continue
+			}
+
+			if isDB {
 				if err := ensureServiceRunning(svc); err != nil {
 					fmt.Printf("  [WARN] could not start %s: %v\n", svc, err)
 				} else {
@@ -459,7 +477,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// inside the container, mirroring what built-in mysql/postgres do above.
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
-		pickedFromYAML := lerdYAMLServices[svc.Name]
+		pickedFromYAML := lerdYAMLServices[svc.Name] || extServices[svc.Name]
 		detectedFromEnv := false
 		if svc.EnvDetect != nil {
 			if svc.EnvDetect.Key != "" {
@@ -478,9 +496,11 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		}
 		if len(svc.EnvVars) == 0 {
 			// Nothing to write — still ensure the container is up so the
-			// project can reach it once running.
-			if err := ensureServiceRunning(svc.Name); err != nil {
-				fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
+			// project can reach it once running, unless it's externally managed.
+			if !extServices[svc.Name] {
+				if err := ensureServiceRunning(svc.Name); err != nil {
+					fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
+				}
 			}
 			continue
 		}
@@ -497,6 +517,9 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		isDB := family == "mysql" || family == "mariadb" || family == "postgres"
 		if isDB {
 			updates["DB_DATABASE"] = dbName
+		}
+		if externalManaged(svc.Name, extServices) {
+			continue
 		}
 		if err := ensureServiceRunning(svc.Name); err != nil {
 			fmt.Printf("  [WARN] could not start %s: %v\n", svc.Name, err)
@@ -527,7 +550,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// 3d. Generate REVERB_ env vars if a worker with proxy config is detected and
 	// BROADCAST_CONNECTION=reverb is set.
 	if fw.HasWorker("reverb", cwd) &&
-		strings.ToLower(strings.Trim(envMap["BROADCAST_CONNECTION"], `"'`)) == "reverb" {
+		strings.ToLower(strings.Trim(overrideOr(envOverrides, envMap, "BROADCAST_CONNECTION"), `"'`)) == "reverb" {
 		fmt.Println("  Detected reverb     — configuring REVERB_ connection values")
 		for k, v := range reverbEnvUpdates(envMap, site.PrimaryDomain(), site.Secured, cwd) {
 			updates[k] = v
@@ -547,6 +570,15 @@ func runEnv(_ *cobra.Command, _ []string) error {
 		fmt.Printf("  Setting %s=%s\n", urlKey, url)
 	}
 
+	// 4e. Apply personal .env.lerd_override values last so they win over lerd's
+	// defaults and every computed value (DB_DATABASE, APP_URL, reverb, …).
+	if len(envOverrides) > 0 {
+		fmt.Printf("  Applying %d override(s) from %s\n", len(envOverrides), envOverrideFile)
+		for k, v := range envOverrides {
+			updates[k] = v
+		}
+	}
+
 	// 5. Rewrite the env file preserving order, comments, and blank lines
 	if len(updates) > 0 {
 		var writeErr error
@@ -562,7 +594,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	}
 
 	// 6. Generate application key if the framework defines key generation and the key is missing.
-	if kg := fw.Env.KeyGeneration; kg != nil && strings.TrimSpace(envMap[kg.EnvKey]) == "" {
+	if kg := fw.Env.KeyGeneration; kg != nil && strings.TrimSpace(overrideOr(envOverrides, envMap, kg.EnvKey)) == "" {
 		if kg.Command != "" {
 			if _, statErr := os.Stat(filepath.Join(cwd, "vendor")); statErr == nil {
 				fmt.Printf("  Generating %s...\n", kg.EnvKey)
