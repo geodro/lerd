@@ -71,6 +71,46 @@ After restoring, run `lerd env` again to re-apply lerd connection values.
 
 ---
 
+## Personal overrides (`.env.lerd_override`)
+
+`lerd env` writes lerd's own defaults into `.env` (for example `DB_USERNAME=lerd`). When you want different values on your machine without hand-editing `.env` after every run, drop them into a personal `.env.lerd_override` file in the project root. It is plain dotenv syntax, it is never committed (lerd adds it to `.gitignore`), and every `KEY=VALUE` in it is layered on **last** when you run `lerd env`, winning over lerd's defaults and every computed value (`DB_DATABASE`, `APP_URL`, and so on).
+
+```bash
+lerd env:override DB_USERNAME=postgres DB_PASSWORD=secret
+lerd env
+```
+
+`lerd env:override` creates the file from a commented template (and gitignores it) on first run, and seeds any `KEY=VALUE` arguments you pass. Run it with no arguments to just scaffold the file, then edit it by hand. The file is the source of truth, so you can also create or edit `.env.lerd_override` directly (or in the dashboard's Env tab); whenever it is present, `lerd env` keeps it listed in `.gitignore`. Values are written into `.env` verbatim, so quote any value that needs it (spaces, `#`), e.g. `DB_PASSWORD="p@ss word"`. Because it is a partial overlay rather than a full env file, `lerd env:check` skips it.
+
+### Using your own service instead of lerd's container
+
+The one reserved key, `LERD_EXTERNAL_SERVICES`, lists services lerd should treat as externally managed (you run your own instance). For each named service lerd still writes its connection variables into `.env`, but it does **not** start the container and does **not** create the project database or S3 bucket. Combine it with the connection overrides that point at your own instance:
+
+```dotenv
+# .env.lerd_override — point this project at my host postgres
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=mysecret
+
+LERD_EXTERNAL_SERVICES=postgres
+```
+
+The value is comma or space separated, so `LERD_EXTERNAL_SERVICES=postgres, redis` opts both out. The reserved key is consumed by lerd and is never written into `.env`.
+
+Example output with an override file present:
+
+```
+Updating existing .env...
+  postgres     externally managed (.env.lerd_override) — not starting it
+  Detected redis:        applying lerd connection values
+  Applying 5 override(s) from .env.lerd_override
+  Setting APP_URL=http://my-app.test
+Done.
+```
+
+---
+
 ## Editing .env in the dashboard
 
 The site detail panel has an **Env** tab that opens the project's env files in an inline editor with line numbers and dotenv syntax highlighting (`KEY`, comments, quoted values). On a worktree the editor opens that worktree's files, not the parent's.

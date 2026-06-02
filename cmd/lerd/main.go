@@ -99,6 +99,7 @@ func main() {
 	root.AddCommand(cli.NewNginxCmd())
 	root.AddCommand(cli.NewEnvCmd())
 	root.AddCommand(cli.NewEnvRestoreCmd())
+	root.AddCommand(cli.NewEnvOverrideCmd())
 	root.AddCommand(cli.NewEnvCheckCmd())
 	root.AddCommand(cli.NewNodeCmd())
 	root.AddCommand(cli.NewNpmCmd())

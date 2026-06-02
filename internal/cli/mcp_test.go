@@ -6,7 +6,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/geodro/lerd/internal/mcp"
 )
+
+// TestEveryMCPToolIsDocumented guards against doc drift: the injected skill and
+// guidelines files are hand-maintained const strings, not generated from the
+// tool list, so a newly registered MCP tool must be added to each by hand. This
+// fails until that happens. Names are matched backtick-wrapped to avoid
+// substring false positives (e.g. "node" inside "site_node").
+func TestEveryMCPToolIsDocumented(t *testing.T) {
+	for _, name := range mcp.ToolNames() {
+		token := "`" + name + "`"
+		if !strings.Contains(claudeSkillContent, token) {
+			t.Errorf("tool %q is missing from claudeSkillContent (.claude/skills/lerd/SKILL.md)", name)
+		}
+		// junieGuidelinesSection is also embedded verbatim in cursorRulesContent,
+		// so this one assertion covers both .junie/guidelines.md and .cursor rules.
+		if !strings.Contains(junieGuidelinesSection, token) {
+			t.Errorf("tool %q is missing from junieGuidelinesSection (.junie/guidelines.md + .cursor/rules/lerd.mdc)", name)
+		}
+	}
+}
 
 func TestWriteGlobalAISkills_writesAllThreeFiles(t *testing.T) {
 	home := t.TempDir()
@@ -512,7 +533,13 @@ func TestClaudeSkillContent_underSizeCeiling(t *testing.T) {
 	// plus their quick-reference table entry.
 	// Bumped to 53000 for the db_snapshot / db_snapshots / db_restore /
 	// db_snapshot_delete section (database snapshots).
-	const ceiling = 53000
+	// Bumped to 53500 for the env_override section (personal .env.lerd_override
+	// with LERD_EXTERNAL_SERVICES); section already condensed to one paragraph.
+	// Bumped to 55500 to document nine tools the skill had silently dropped
+	// (service_config, service_check_updates, workers_health, workers_heal,
+	// framework_search, framework_install, dns_diagnose, analyze_queries,
+	// site_nginx); TestEveryMCPToolIsDocumented now guards against re-drift.
+	const ceiling = 55500
 	if got := len(claudeSkillContent); got > ceiling {
 		t.Errorf("claudeSkillContent is %d bytes, ceiling is %d — trim before raising", got, ceiling)
 	}

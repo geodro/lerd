@@ -68,6 +68,7 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd rebuild [name]` | Rebuild the custom container image from Containerfile and restart |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run (skipped if lerd has already written to the file) |
 | `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
+| `lerd env:override [KEY=VALUE ...]` | Create/seed a personal, gitignored `.env.lerd_override` whose values win over lerd's defaults on `lerd env`; `LERD_EXTERNAL_SERVICES=` marks services lerd should not start or provision |
 | `lerd env:check` | Compare all `.env` files against `.env.example` and flag missing or extra keys |
 
 ## LAN

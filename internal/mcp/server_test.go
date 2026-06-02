@@ -187,7 +187,9 @@ func TestToolList_underSizeCeiling(t *testing.T) {
 	// override, with --branch worktree support); description already terse.
 	// Bumped to 30700 for analyze_queries (N+1 / slow-query report) plus the
 	// kind filter on dumps_recent; both descriptions trimmed to the bone first.
-	const ceiling = 30700
+	// Bumped to 31000 for env_override (personal .env.lerd_override file with
+	// LERD_EXTERNAL_SERVICES support); description already trimmed.
+	const ceiling = 31000
 	got, err := json.Marshal(toolList())
 	if err != nil {
 		t.Fatalf("marshal tool list: %v", err)

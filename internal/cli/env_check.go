@@ -67,7 +67,10 @@ func findEnvFiles(dir string) []string {
 		if !strings.HasPrefix(name, ".env") || e.IsDir() {
 			continue
 		}
-		if name == ".env.example" {
+		// Skip files lerd manages internally: .env.example is the baseline we
+		// compare against, .env.lerd_override is a partial personal overlay, and
+		// .env.before_lerd is a pre-lerd backup — none are full env files.
+		if name == ".env.example" || name == envOverrideFile || name == ".env.before_lerd" {
 			continue
 		}
 		files = append(files, filepath.Join(dir, name))

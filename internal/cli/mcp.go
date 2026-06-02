@@ -591,7 +591,7 @@ This project runs on **lerd**, a Podman-based Laravel development environment fo
 
 ## Path resolution
 
-Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `db_set` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
+Tools that accept a ` + bt + `path` + bt + ` argument (` + bt + `artisan` + bt + `, ` + bt + `composer` + bt + `, ` + bt + `env_setup` + bt + `, ` + bt + `env_check` + bt + `, ` + bt + `env_override` + bt + `, ` + bt + `db_set` + bt + `, ` + bt + `site_link` + bt + `, ` + bt + `site_unlink` + bt + `, ` + bt + `site_domain` + bt + `, ` + bt + `db_export` + bt + `, ` + bt + `db_import` + bt + `, ` + bt + `db_create` + bt + `, etc.) resolve it in this order:
 1. Explicit ` + bt + `path` + bt + ` argument
 2. ` + bt + `LERD_SITE_PATH` + bt + ` env var (set when using project-scoped ` + bt + `mcp:inject` + bt + `)
 3. **Current working directory** — the directory Claude was opened in
@@ -839,6 +839,12 @@ Once installed, presets are normal custom services — manage them with ` + bt +
 ### ` + bt + `service_env` + bt + `
 Return the recommended Laravel ` + bt + `.env` + bt + ` connection variables for a service — built-in or custom — as a key/value map. Use this when you need to inspect or manually apply connection settings without running ` + bt + `env_setup` + bt + `.
 
+### ` + bt + `service_config` + bt + `
+Read, write, restore, reset, or list backups of a service's runtime tuning override (e.g. ` + bt + `my.cnf` + bt + ` / ` + bt + `redis.conf` + bt + ` fragments). Built-in ` + bt + `mysql` + bt + ` / ` + bt + `mariadb` + bt + ` / ` + bt + `redis` + bt + ` ship a tunable file; custom services opt in with a ` + bt + `tuning:` + bt + ` block in their YAML. ` + bt + `action` + bt + `: ` + bt + `read` + bt + ` (default) / ` + bt + `write` + bt + ` / ` + bt + `restore` + bt + ` / ` + bt + `reset` + bt + ` / ` + bt + `list_backups` + bt + `; ` + bt + `write` + bt + ` takes ` + bt + `content` + bt + ` and optional ` + bt + `backup: true` + bt + `.
+
+### ` + bt + `service_check_updates` + bt + `
+Check the registry for newer service images. Reports a ` + bt + `latest_tag` + bt + ` (safe in-strategy update) and an ` + bt + `upgrade_tag` + bt + ` (cross-strategy upgrade that may need data migration). Omit ` + bt + `name` + bt + ` to scan every active service.
+
 ### ` + bt + `env_setup` + bt + `
 Configure the project's ` + bt + `.env` + bt + ` for lerd in one call:
 - Creates ` + bt + `.env` + bt + ` from ` + bt + `.env.example` + bt + ` if it doesn't exist
@@ -913,6 +919,9 @@ Returns: ` + bt + `{"in_sync": bool, "keys": [{key, in_example, files: {filename
 Arguments:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project root — defaults to the current working directory (or ` + bt + `LERD_SITE_PATH` + bt + ` if set by ` + bt + `mcp:inject` + bt + `)
 
+### ` + bt + `env_override` + bt + `
+Manage the personal, gitignored ` + bt + `.env.lerd_override` + bt + `. Every ` + bt + `KEY=VALUE` + bt + ` in it is layered on **last** by ` + bt + `env_setup` + bt + `, beating lerd's defaults and computed values (` + bt + `DB_DATABASE` + bt + `, ` + bt + `APP_URL` + bt + `, …) — handy for per-developer credentials without hand-editing ` + bt + `.env` + bt + `. Distinct from ` + bt + `.lerd.yaml` + bt + ` ` + bt + `env_overrides` + bt + ` (committed, templated, worktree-only): this file is personal and never committed. Reserved key ` + bt + `LERD_EXTERNAL_SERVICES=<svc,svc>` + bt + ` marks services lerd writes vars for but won't start/provision (you run your own). Pass ` + bt + `set` + bt + ` (array of ` + bt + `KEY=VALUE` + bt + `, quote values with spaces) to write entries; call with no ` + bt + `set` + bt + ` to scaffold and read it back. Run ` + bt + `env_setup` + bt + ` after to apply. Example: ` + bt + `env_override(set: ["DB_USERNAME=postgres", "LERD_EXTERNAL_SERVICES=postgres"])` + bt + ` then ` + bt + `env_setup()` + bt + `.
+
 ### ` + bt + `site_link` + bt + ` / ` + bt + `site_unlink` + bt + `
 Register or unregister a directory as a lerd site. Arguments for ` + bt + `site_link` + bt + `:
 - ` + bt + `path` + bt + ` (optional): absolute path to the project directory — defaults to ` + bt + `LERD_SITE_PATH` + bt + ` set by ` + bt + `mcp:inject` + bt + `
@@ -965,6 +974,9 @@ Capture and inspect ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` output
 - ` + bt + `dumps_toggle({ enable: true | false })` + bt + ` flips the global on/off via a sentinel file inside the always-mounted bridge directory. ` + bt + `enable: true` + bt + ` touches the sentinel, ` + bt + `enable: false` + bt + ` removes it. No FPM container is restarted by either path.
 
 Events ship as JSON with ` + bt + `ts` + bt + ` (RFC3339Nano), ` + bt + `ctx` + bt + ` (type, site, request, pid), ` + bt + `src` + bt + ` (file:line of the dump call), ` + bt + `label` + bt + ` (the keyword arg name when present), and ` + bt + `text` + bt + ` (Symfony VarDumper's CliDumper output). Capacity is 500 events; older entries roll off.
+
+### ` + bt + `analyze_queries` + bt + `
+N+1 and slow-query report over captured queries, grouped per request with the ` + bt + `file:line` + bt + ` to fix. Workflow: ` + bt + `dumps_toggle({enable: true})` + bt + `, ` + bt + `dumps_clear` + bt + `, hit the page, then ` + bt + `analyze_queries` + bt + `. Options: ` + bt + `site` + bt + `, ` + bt + `min_repeat` + bt + `, ` + bt + `slow_ms` + bt + `.
 
 ### ` + bt + `profiler_toggle` + bt + ` / ` + bt + `profiler_status` + bt + ` / ` + bt + `profiler_clear` + bt + `
 Turn the SPX profiler on or off globally. While on, every HTTP request to every PHP-FPM site is profiled into a flame graph.
@@ -1069,6 +1081,12 @@ Arguments:
 - ` + bt + `name` + bt + ` (required): worker name to remove
 - ` + bt + `global` + bt + `: remove from global framework overlay instead of ` + bt + `.lerd.yaml` + bt + `
 
+### ` + bt + `workers_health` + bt + `
+List failed worker units grouped per site. Read-only — quick triage of which workers have crashed.
+
+### ` + bt + `workers_heal` + bt + `
+Reset the failed state and restart every failed worker unit. Pass ` + bt + `unit` + bt + ` (full ` + bt + `lerd-<worker>-<site>` + bt + ` name) to heal just one; omit to heal all. Never writes ` + bt + `.lerd.yaml` + bt + ` or unit files.
+
 ### ` + bt + `worktree` + bt + `
 Manage git worktrees for a site. Watcher auto-installs deps on add and presents a unified asset-worker / npm-build prompt (workers with ` + bt + `replaces_build` + bt + ` + ` + bt + `per_worktree` + bt + ` appear alongside npm scripts; picked workers start ad-hoc with ` + bt + `persist=false` + bt + `, leaving ` + bt + `.lerd.yaml workers:` + bt + ` as the source of truth). Worktrees on secured sites get ` + bt + `*.<branch>.<site>.test` + bt + ` wildcard cert SANs and nginx ` + bt + `server_name` + bt + ` automatically.
 
@@ -1146,6 +1164,12 @@ framework_add(
 ### ` + bt + `framework_remove` + bt + `
 Delete a user-defined framework YAML. For ` + bt + `laravel` + bt + `, removes only custom worker and setup command additions (built-in queue/schedule/reverb workers and storage:link/migrate/db:seed setup remain). Takes ` + bt + `name` + bt + ` (required).
 
+### ` + bt + `framework_search` + bt + `
+Search the community framework store by name or label (case-insensitive).
+
+### ` + bt + `framework_install` + bt + `
+Install a framework definition from the community store. Pass ` + bt + `name` + bt + ` (e.g. ` + bt + `symfony` + bt + `, ` + bt + `wordpress` + bt + `) and optional ` + bt + `version` + bt + ` (auto-detected from ` + bt + `composer.lock` + bt + ` when omitted).
+
 ### ` + bt + `site_php` + bt + ` / ` + bt + `site_node` + bt + `
 Change the PHP or Node.js version for a registered site. Both take ` + bt + `site` + bt + ` (required), ` + bt + `version` + bt + ` (required), and an optional ` + bt + `branch` + bt + ` (worktree).
 
@@ -1196,6 +1220,9 @@ Switch the PHP runtime for a site between the shared PHP-FPM container (` + bt +
 
 FrankenPHP is framework-aware: Laravel uses ` + bt + `octane:start --server=frankenphp --workers=auto` + bt + ` (needs pcntl, installed at container start); Symfony uses ` + bt + `frankenphp php-server --worker=public/index.php --watch` + bt + ` for live reload; unknown frameworks fall back to ` + bt + `frankenphp php-server` + bt + ` rooted at the framework's public dir. Switching to ` + bt + `fpm` + bt + ` removes the runtime fields from ` + bt + `.lerd.yaml` + bt + ` and regenerates the FPM vhost. Not supported on custom-container sites (their runtime comes from their Containerfile). Xdebug is not wired up for FrankenPHP; switch back to ` + bt + `fpm` + bt + ` to debug.
 
+### ` + bt + `site_nginx` + bt + `
+Read, write, or reset a site's custom nginx override block. Saving runs ` + bt + `nginx -t` + bt + `, backs up the prior file, and reloads nginx. ` + bt + `branch=<name>` + bt + ` targets a worktree (new worktrees inherit main's override); ` + bt + `content` + bt + ` is the full file on write.
+
 ### ` + bt + `stripe` + bt + `
 Start or stop a Stripe webhook listener for a site using the Stripe CLI container. On ` + bt + `start` + bt + ` it reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
 
@@ -1236,6 +1263,9 @@ Optional ` + bt + `lines` + bt + ` parameter (default: 50).
 
 ### ` + bt + `status` + bt + `
 Return the health status of core lerd services as structured JSON: DNS resolution (ok + tld), nginx (running), PHP-FPM containers (running per version), and the file watcher (running). **Call this first when a site isn't loading** — it pinpoints which service is down before suggesting fixes.
+
+### ` + bt + `dns_diagnose` + bt + `
+Walk the whole DNS chain — container, config, port 5300, ` + bt + `dig` + bt + `, resolver hookup, interface routing, system lookup — and report which rung is broken. Use when ` + bt + `.test` + bt + ` sites don't resolve.
 
 ### ` + bt + `which` + bt + `
 Show the resolved PHP version, Node version, document root, and nginx config path for the current site. Call this to confirm which runtime versions a project will use before running commands.
@@ -1479,6 +1509,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `env_setup` + bt + ` | Configure ` + bt + `.env` + bt + ` for lerd: detects services, starts them, creates DB, generates APP_KEY (leaves ` + bt + `DB_CONNECTION=sqlite` + bt + ` alone — call ` + bt + `db_set` + bt + ` first); ` + bt + `APP_URL` + bt + ` follows ` + bt + `.lerd.yaml app_url` + bt + ` → ` + bt + `sites.yaml app_url` + bt + ` → default chain |
 | ` + bt + `db_set` + bt + ` | Pick the database for a Laravel project: ` + bt + `sqlite` + bt + `, a built-in (` + bt + `mysql` + bt + ` / ` + bt + `postgres` + bt + `), or any installed family alternate (` + bt + `mariadb` + bt + `, ` + bt + `postgres-pgvector` + bt + `, ` + bt + `mysql-5-7` + bt + `, …); persists to ` + bt + `.lerd.yaml` + bt + `, rewrites ` + bt + `DB_` + bt + ` keys in ` + bt + `.env` + bt + `, starts the service, creates the database |
 | ` + bt + `env_check` + bt + ` | Compare all ` + bt + `.env` + bt + ` files against ` + bt + `.env.example` + bt + ` — returns structured JSON with per-key sync status |
+| ` + bt + `env_override` + bt + ` | Manage the personal, gitignored ` + bt + `.env.lerd_override` + bt + ` (` + bt + `KEY=VALUE` + bt + ` pairs win over lerd's defaults on ` + bt + `env_setup` + bt + `; ` + bt + `LERD_EXTERNAL_SERVICES=<svc,svc>` + bt + ` marks services lerd writes vars for but won't start) |
 | ` + bt + `site_link` + bt + ` | Register a directory as a lerd site — **non-PHP projects** must have a Containerfile (default name ` + bt + `Containerfile.lerd` + bt + `; set ` + bt + `container.containerfile` + bt + ` for a different path, e.g. ` + bt + `Dockerfile` + bt + `) + ` + bt + `.lerd.yaml` + bt + ` with ` + bt + `container: {port: N}` + bt + ` written first, otherwise the site registers as PHP (wrong) |
 | ` + bt + `site_unlink` + bt + ` | Unregister a site and remove its nginx vhost (all domains) |
 | ` + bt + `site_domain` + bt + ` | Add or remove a site domain (without TLD) — ` + bt + `action` + bt + `: ` + bt + `add` + bt + ` / ` + bt + `remove` + bt + `; cannot remove last |
@@ -1487,6 +1518,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `site_tls` + bt + ` | Enable or disable HTTPS for a site (mkcert) — ` + bt + `action` + bt + `: ` + bt + `enable` + bt + ` / ` + bt + `disable` + bt + `; updates APP_URL automatically |
 | ` + bt + `xdebug` + bt + ` | Manage Xdebug for a PHP version (port 9003) — ` + bt + `action` + bt + `: ` + bt + `on` + bt + ` / ` + bt + `off` + bt + ` / ` + bt + `status` + bt + `; optional ` + bt + `mode` + bt + ` on ` + bt + `on` + bt + ` (default ` + bt + `debug` + bt + `; also ` + bt + `coverage` + bt + `, ` + bt + `develop` + bt + `, ` + bt + `profile` + bt + `, ` + bt + `trace` + bt + `, ` + bt + `gcstats` + bt + `, or comma combos) |
 | ` + bt + `dumps_recent` + bt + ` / ` + bt + `dumps_status` + bt + ` / ` + bt + `dumps_clear` + bt + ` / ` + bt + `dumps_toggle` + bt + ` | Inspect / clear / toggle the lerd debug bridge that captures ` + bt + `dump()` + bt + ` / ` + bt + `dd()` + bt + ` calls. Off by default; enable with ` + bt + `dumps_toggle({enable: true})` + bt + ` |
+| ` + bt + `analyze_queries` + bt + ` | N+1 and slow-query report over captured queries, grouped per request with the ` + bt + `file:line` + bt + ` to fix (loop: ` + bt + `dumps_toggle` + bt + ` enable → ` + bt + `dumps_clear` + bt + ` → hit the page → ` + bt + `analyze_queries` + bt + `) |
 | ` + bt + `profiler_toggle` + bt + ` / ` + bt + `profiler_status` + bt + ` / ` + bt + `profiler_clear` + bt + ` | Turn the SPX profiler on/off globally so every PHP-FPM site's HTTP requests are profiled into flame graphs, or clear captured reports |
 | ` + bt + `service_control` + bt + ` | Start, stop, pin, or unpin a built-in or custom service — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` / ` + bt + `pin` + bt + ` / ` + bt + `unpin` + bt + ` |
 | ` + bt + `service_add` + bt + ` | Register a new custom OCI service (MongoDB, RabbitMQ, …); supports ` + bt + `depends_on` + bt + ` for service dependencies |
@@ -1495,6 +1527,8 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `service_remove` + bt + ` | Stop and deregister a custom service |
 | ` + bt + `service_expose` + bt + ` | Add or remove an extra published port on a built-in service (persisted) |
 | ` + bt + `service_env` + bt + ` | Return the recommended ` + bt + `.env` + bt + ` connection variables for a service |
+| ` + bt + `service_config` + bt + ` | Read/write/restore/reset/list_backups a service's runtime tuning override (built-in mysql/mariadb/redis; custom services opt in via ` + bt + `tuning:` + bt + ` in YAML) |
+| ` + bt + `service_check_updates` + bt + ` | Check the registry for newer service images (safe in-strategy update vs cross-strategy upgrade); omit ` + bt + `name` + bt + ` to scan all active |
 | ` + bt + `db_export` + bt + ` | Export a database to a SQL dump file — auto-detects service and database; accepts optional ` + bt + `service` + bt + ` override |
 | ` + bt + `db_import` + bt + ` | Import a SQL dump file into the project database — auto-detects service and database; starts the service if needed |
 | ` + bt + `db_create` + bt + ` | Create a database and ` + bt + `_testing` + bt + ` variant — auto-detects service and name; starts the service if needed |
@@ -1507,21 +1541,31 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `worker_list` + bt + ` | List all workers for a site's framework with running status, host/per_worktree/replaces_build flags; pass ` + bt + `branch` + bt + ` for per-worktree unit state |
 | ` + bt + `worker_add` + bt + ` | Add a custom worker to a project or global framework overlay |
 | ` + bt + `worker_remove` + bt + ` | Remove a custom worker; stops it if running |
+| ` + bt + `workers_health` + bt + ` | List failed worker units grouped per site (read-only) |
+| ` + bt + `workers_heal` + bt + ` | Reset and restart failed worker units; pass ` + bt + `unit` + bt + ` for one, omit to heal all (never edits config) |
+| ` + bt + `commands_list` + bt + ` | List on-demand framework commands for a site (framework defaults merged with the project's ` + bt + `.lerd.yaml` + bt + ` ` + bt + `commands:` + bt + ` block) |
+| ` + bt + `commands_run` + bt + ` | Run a framework command on a site by name; ` + bt + `force: true` + bt + ` is required for confirm-gated commands |
+| ` + bt + `command_add` + bt + ` | Add or update a project command in ` + bt + `.lerd.yaml` + bt + `'s ` + bt + `commands:` + bt + ` block (same name as a framework default replaces it) |
+| ` + bt + `command_remove` + bt + ` | Remove a project command from ` + bt + `.lerd.yaml` + bt + ` by name (use ` + bt + `command_add` + bt + ` with ` + bt + `disabled: true` + bt + ` to hide a framework default) |
 | ` + bt + `worktree` + bt + ` | Manage git worktrees — ` + bt + `action` + bt + `: ` + bt + `list` + bt + ` / ` + bt + `add` + bt + ` / ` + bt + `remove` + bt + ` / ` + bt + `db_isolate` + bt + ` / ` + bt + `db_share` + bt + `; secured sites get auto wildcard cert + ` + bt + `server_name` + bt + ` for ` + bt + `*.<branch>.<site>.test` + bt + ` |
 | ` + bt + `project_new` + bt + ` | Scaffold a new PHP project (runs the framework's create command); follow with ` + bt + `site_link` + bt + ` + ` + bt + `env_setup` + bt + ` |
 | ` + bt + `framework_list` + bt + ` | List all framework definitions with their workers and setup commands |
 | ` + bt + `framework_add` + bt + ` | Add or update a framework definition; use ` + bt + `name: "laravel"` + bt + ` to add custom workers or setup commands to Laravel |
 | ` + bt + `framework_remove` + bt + ` | Remove a user-defined framework; for laravel removes only custom worker and setup additions |
+| ` + bt + `framework_search` + bt + ` | Search the community framework store by name or label |
+| ` + bt + `framework_install` + bt + ` | Install a framework from the community store (auto-detects version from ` + bt + `composer.lock` + bt + ` if omitted) |
 | ` + bt + `site_php` + bt + ` | Change PHP version for a site — writes ` + bt + `.php-version` + bt + `, updates registry, regenerates nginx vhost; pass ` + bt + `branch` + bt + ` to pin per-worktree (writes inside the worktree, persists to its ` + bt + `.lerd.yaml` + bt + `) |
 | ` + bt + `site_node` + bt + ` | Change Node.js version for a site — writes ` + bt + `.node-version` + bt + `, installs via fnm if needed; pass ` + bt + `branch` + bt + ` to pin per-worktree |
 | ` + bt + `workers_mode` + bt + ` | Show or set the macOS worker runtime mode (exec / container); no-op on Linux |
 | ` + bt + `bug_report` + bt + ` | Generate a diagnostic report for GitHub issues — anonymises site names / domains / parked paths by default; returns the file path |
 | ` + bt + `site_control` + bt + ` | Pause, unpause, restart, or rebuild a site — ` + bt + `action` + bt + `: ` + bt + `pause` + bt + ` / ` + bt + `unpause` + bt + ` / ` + bt + `restart` + bt + ` / ` + bt + `rebuild` + bt + ` (pause replaces vhost with landing page; rebuild only for custom containers) |
 | ` + bt + `site_runtime` + bt + ` | Switch between shared PHP-FPM and per-site FrankenPHP runtime (supports worker mode) |
+| ` + bt + `site_nginx` + bt + ` | Read/write/reset a site's custom nginx override (saving runs ` + bt + `nginx -t` + bt + `, backs up the prior file, reloads); ` + bt + `branch` + bt + ` targets a worktree |
 | ` + bt + `stripe` + bt + ` | Start or stop a Stripe webhook listener for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
 | ` + bt + `doctor` + bt + ` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates |
+| ` + bt + `dns_diagnose` + bt + ` | Walk the DNS chain (container, config, port 5300, dig, resolver, interface routing, system lookup) and report which rung is broken |
 | ` + bt + `which` + bt + ` | Show resolved PHP version, Node version, document root, and nginx config for the current site |
 | ` + bt + `check` + bt + ` | Validate ` + bt + `.lerd.yaml` + bt + ` as structured JSON — PHP version, services, framework references with per-field ok/warn/fail |
 
