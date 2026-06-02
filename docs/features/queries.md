@@ -80,9 +80,13 @@ Queries, Mail and Views are captured **agnostically** at the shared library ever
 
 Cache still comes solely from the Laravel adapter. Symfony spreads cache across many adapter classes with the read path living in a trait, so there's no single canonical seam to observe; the only single-class option is the dev-only `TraceableAdapter`, which is also extremely noisy (the framework hammers its system pools every request). It's deferred rather than captured half-complete. The Debug sub-tabs reflect this: a Symfony site shows Dumps, Queries, Mail, Views, Events, Jobs and HTTP; a Laravel site shows all of them.
 
-## Queue workers are excluded
+## Queue workers (opt-in)
 
-Long-running queue and scheduler workers (`queue:work`, `horizon`, `schedule:work`, `messenger:consume`) poll the database constantly. Capturing that would flood the in-memory buffer and bury the web-request queries you're actually debugging, so the extension detects worker processes (from their command line, once at startup) and skips them. Web requests and one-off CLI commands (artisan, tinker, migrations) are still captured. Per-job capture for workers is planned alongside the framework adapter.
+Long-running queue and scheduler workers (`queue:work`, `horizon`, `schedule:work`, `messenger:consume`) poll the database constantly, so capturing them by default would flood the in-memory buffer and bury the web-request queries you're actually debugging. Worker capture is therefore **off by default**: web requests and one-off CLI commands (artisan, tinker, migrations) are always captured, but worker processes are skipped unless you opt in.
+
+Turn it on with the **Show worker queries** checkbox in the Debug window toolbar (present on every lens: Queries, Jobs, Views, Mail, Cache, Events, HTTP). Checking it arms worker capture by writing the `devtools-workers.flag` sentinel; from then on each worker invocation is captured and grouped on its own, labelled by the worker command, and a per-command filter dropdown appears so you can narrow to one worker. The Laravel adapter resets the request id on every `JobProcessing`, so each queued job is its own group rather than a worker's jobs lumping together.
+
+Unchecking **Show worker queries** does two things: it stops capturing worker output going forward, and it immediately hides the worker rows already buffered in the view, so the lenses fall back to web and CLI activity without waiting for a buffer clear. The toggle is independent of the main Debug on/off switch.
 
 ## N+1 warnings
 

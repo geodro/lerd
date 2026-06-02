@@ -34,12 +34,15 @@ features:
   - icon: 🖥️
     title: Web UI, TUI & tray
     details: Browser dashboard with command palette, btop-style TUI (`lerd tui`), and a system tray applet, all wired to the same live event bus.
+  - icon: ✏️
+    title: Edit config in the browser
+    details: Per-site and global nginx, per-version php.ini, .env files, and database/service runtime tuning, edited in the dashboard with validation, timestamped backups, and one-click restore.
   - icon: 🧪
     title: Tinker tab
     details: In-browser PHP REPL per site with autocomplete, live linting, and collapsible dump trees. Works on Laravel, Symfony, and other PHP projects.
   - icon: 🛰️
-    title: Live dump() / dd() viewer
-    details: Every `dump()` and `dd()` call from your running app streams to the dashboard, TUI, MCP, and CLI tail, scoped per site and per worktree branch.
+    title: Debug window
+    details: Live `dump()` / `dd()` capture plus SQL queries with N+1 and slow-query detection, mail, views, events, jobs, and outgoing HTTP, across Laravel and Symfony, streamed to the dashboard, TUI, MCP, and CLI.
   - icon: 🔥
     title: SPX profiler
     details: One global toggle and every PHP-FPM request becomes a flame graph viewable in the dashboard's Profiler view. No FPM restart, no code changes, `lerd profile run` for one-shot CLI commands.
