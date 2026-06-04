@@ -26,8 +26,10 @@ If `laravel/horizon` is present in `composer.json`, lerd detects it automaticall
 |---|---|
 | `lerd horizon:start` | Start Horizon for the current project as a systemd service |
 | `lerd horizon:stop` | Stop Horizon for the current project |
+| `lerd horizon:reload [on\|off]` | Toggle auto-reload on file changes (prints the current state with no argument) |
 | `lerd horizon start` | Same as `horizon:start` (subcommand form) |
 | `lerd horizon stop` | Same as `horizon:stop` (subcommand form) |
+| `lerd horizon reload [on\|off]` | Same as `horizon:reload` (subcommand form) |
 
 Horizon manages its own worker pools via `config/horizon.php` and does not accept `--queue`, `--tries`, or `--timeout` flags. Those are configured in the Horizon config file instead.
 
@@ -35,6 +37,25 @@ The systemd unit is named `lerd-horizon-{sitename}`. Logs:
 ```bash
 journalctl --user -u lerd-horizon-my-app -f
 ```
+
+### Auto-reload on file changes
+
+By default lerd runs `php artisan horizon`, which boots the app once and caches your code, so after editing a job, listener, or any class a worker touches you have to restart Horizon for the change to take effect.
+
+Turn on auto-reload to run `php artisan horizon:listen` instead. Horizon then watches your project and restarts its workers automatically whenever a file changes, so you never stop/restart Horizon by hand while developing. The dashboard and `config/horizon.php` keep working exactly the same.
+
+```bash
+lerd horizon:reload on    # use horizon:listen (auto-restart on file changes)
+lerd horizon:reload off   # back to standard horizon
+lerd horizon:reload       # show the current state
+```
+
+Auto-reload is off by default. The preference is per project, stored as `reload_workers` in the project's `.lerd.yaml` (a list of worker names opted into reload mode, currently just `horizon`), so one project can develop with auto-reload while another stays in standard mode. In the dashboard the Horizon toggle and the reload toggle sit together as one grouped control, and the reload toggle only appears while Horizon is running, since reload is a property of a live worker. Either way, the running Horizon worker for the project is restarted so the change applies immediately, and the new state is pushed to every open dashboard over the websocket.
+
+Two notes:
+
+- The watcher shells out to Node and resolves [`chokidar`](https://www.npmjs.com/package/chokidar) from your project's `node_modules`. Horizon ships the watcher script but not chokidar itself, so the project has to provide it. It used to arrive for free as a transitive dependency of Vite, but Vite 8 dropped it, so a plain `npm install` is no longer enough. If chokidar is missing, the toggle never silently reads as on: from the dashboard, enabling pops a modal that offers a one-click `npm install --save-dev chokidar` and then turns reload on once the watcher is present; from the CLI, `lerd horizon:reload on` refuses with the same `npm install -D chokidar` hint.
+- lerd adds `--poll` where the container can't see host filesystem events: on macOS, where workers run in the podman virtual machine, and under WSL2, where projects on `/mnt` (9p) mounts get no inotify delivery. On native Linux the container shares the host filesystem directly and inotify works, so polling is left off to avoid the wasted CPU.
 
 ## Generic workers (`lerd worker`)
 

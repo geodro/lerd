@@ -96,8 +96,18 @@ type FrameworkFrankenPHP struct {
 // The Command is executed inside the PHP-FPM container for the site unless
 // Host is true, in which case it runs directly on the host via fnm.
 type FrameworkWorker struct {
-	Label         string         `yaml:"label,omitempty"`
-	Command       string         `yaml:"command"`
+	Label   string `yaml:"label,omitempty"`
+	Command string `yaml:"command"`
+	// ReloadCommand is the alternate command run when a project opts this
+	// worker into auto-reload (restart on file changes) for development.
+	// Empty means the worker has no reload variant. Laravel's horizon worker
+	// sets it to "php artisan horizon:listen"; core selects it over Command
+	// when the project enables reload for the worker and, on platforms where
+	// the container cannot observe host filesystem events, appends the polling
+	// flag (see resolveWorkerCommand). Keeping the literal command text in the
+	// framework definition rather than rewriting Command in Go means the store
+	// stays the single source of truth for what actually runs.
+	ReloadCommand string         `yaml:"reload_command,omitempty"`
 	Restart       string         `yaml:"restart,omitempty"`        // always | on-failure (default: always)
 	Schedule      string         `yaml:"schedule,omitempty"`       // systemd OnCalendar expression (e.g. "minutely"); when set, the worker is run as a Type=oneshot service triggered by a .timer rather than a long-running daemon. Use this for Laravel <=10 schedule:run, cron-style cleanup tasks, etc.
 	Check         *FrameworkRule `yaml:"check,omitempty"`          // only show when check passes (file exists or composer package installed)
@@ -460,6 +470,7 @@ var laravelFramework = &Framework{
 		"horizon": {
 			Label:         "Horizon",
 			Command:       "php artisan horizon",
+			ReloadCommand: "php artisan horizon:listen",
 			Restart:       "always",
 			Check:         &FrameworkRule{Composer: "laravel/horizon"},
 			ConflictsWith: []string{"queue"},

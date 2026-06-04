@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/services"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
+	"github.com/geodro/lerd/internal/wsl"
 	"github.com/spf13/cobra"
 )
 
@@ -212,6 +214,84 @@ func requireFrameworkWorker(cwd, workerName string) error {
 	return nil
 }
 
+// resolveWorkerCommand returns the command to run for a worker, substituting the
+// worker's reload variant (restart on file changes) when the project opted the
+// worker into reload mode and the framework declares the variant. The variant
+// text comes from the framework definition (FrameworkWorker.ReloadCommand), so
+// the store stays the single source of truth and core never rewrites command
+// strings.
+//
+// The polling flag is appended where the watcher can't see host filesystem
+// events. lerd runs workers inside a container; on macOS that container lives
+// in the podman virtual machine while the project is shared in from the host,
+// so inotify events raised on the host never reach the watcher in the VM. Under
+// WSL2 the same gap exists for projects on 9p (/mnt) mounts, where inotify is
+// not delivered across the boundary. On native Linux the container shares the
+// host filesystem directly and inotify works, so polling is left off to avoid
+// the wasted CPU. See watcherNeedsPolling.
+//
+// The reload command's watcher shells out to node and resolves the chokidar npm
+// package from the project's node_modules; when chokidar is missing we keep the
+// standard command and tell the user how to enable the watcher rather than
+// letting the worker fail to boot. Enabling reload from the CLI or UI refuses
+// up front when chokidar is absent (see ApplyHorizonReload), so this fallback
+// only bites if the package is removed after the fact.
+func resolveWorkerCommand(sitePath, workerName string, w config.FrameworkWorker) string {
+	if w.ReloadCommand == "" || !config.ProjectReloadsWorker(sitePath, workerName) {
+		return w.Command
+	}
+	if !projectHasChokidar(sitePath) {
+		fmt.Printf("[WARN] %s auto-reload is on but chokidar is not installed in %s, running the standard command. Install it with: npm install -D chokidar\n", workerName, sitePath)
+		return w.Command
+	}
+	command := w.ReloadCommand
+	if watcherNeedsPolling(sitePath) {
+		command += " --poll"
+	}
+	return command
+}
+
+// watcherNeedsPolling reports whether the reload watcher has to poll because
+// host filesystem events don't reach it: always on macOS (workers run in the
+// podman VM), and on WSL2 only for projects under a /mnt (9p) mount, where
+// inotify isn't delivered. WSL projects on the native Linux filesystem get
+// inotify and are left alone, mirroring the doctor's /mnt check.
+func watcherNeedsPolling(sitePath string) bool {
+	if runtime.GOOS == "darwin" {
+		return true
+	}
+	return wsl.IsWSL() && strings.HasPrefix(sitePath, "/mnt/")
+}
+
+// projectHasChokidar reports whether the chokidar package, required by the
+// reload command's file watcher, is installed in the project.
+func projectHasChokidar(sitePath string) bool {
+	info, err := os.Stat(filepath.Join(sitePath, "node_modules", "chokidar"))
+	return err == nil && info.IsDir()
+}
+
+// ProjectHasChokidar is the exported view of projectHasChokidar, for the UI
+// snapshot to report whether Horizon auto-reload can be enabled for a site.
+func ProjectHasChokidar(sitePath string) bool {
+	return projectHasChokidar(sitePath)
+}
+
+// InstallChokidar runs `npm install --save-dev chokidar` in the project (via
+// runNpmCaptured, the shared fnm helper) so Horizon's horizon:listen watcher
+// can resolve chokidar (Vite 8 no longer ships it transitively). Output is
+// folded into the error on failure so the UI can show why it failed.
+func InstallChokidar(sitePath string) error {
+	out, err := runNpmCaptured(sitePath, "install", "--save-dev", "chokidar")
+	if err != nil {
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("npm install --save-dev chokidar failed: %s", msg)
+	}
+	return nil
+}
+
 // WorkerStartForSite writes a systemd unit for the given framework worker and starts it.
 // The unit name is lerd-{workerName}-{siteName}.
 // If the worker has a Proxy config, the proxy port is auto-assigned and the
@@ -240,7 +320,7 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		WorkerStopForSite(siteName, sitePath, conflict) //nolint:errcheck
 	}
 
-	command := w.Command
+	command := resolveWorkerCommand(sitePath, workerName, w)
 
 	// Handle proxy port assignment and command augmentation.
 	if w.Proxy != nil && w.Proxy.PortEnvKey != "" {

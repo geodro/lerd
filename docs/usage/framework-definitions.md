@@ -128,6 +128,13 @@ workers:
   messenger:
     label: Messenger
     command: php bin/console messenger:consume async --time-limit=3600
+    reload_command: ""            # alternate command for auto-reload (restart on
+                                  # file changes) during development (optional). When a
+                                  # project opts this worker into reload mode, lerd runs
+                                  # this command instead of `command`, and on macOS
+                                  # appends `--poll` since the container cannot observe
+                                  # host filesystem events. Laravel's horizon worker sets
+                                  # it to `php artisan horizon:listen`.
     restart: always               # always | on-failure (default: always)
     schedule: ""                  # systemd OnCalendar expression (optional). When set, the
                                   # worker is run as a Type=oneshot service triggered by a

@@ -217,5 +217,8 @@ func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.F
 	if label == "" {
 		label = workerName
 	}
-	writeWorkerUnitFile(unitName, label, displaySite, sitePath, phpVersion, w.Command, restart, w.Schedule, fpmUnit, w.Host) //nolint:errcheck
+	// Resolve the same way WorkerStartForSite does so a project opted into
+	// auto-reload keeps its reload command across lerd start and reboots.
+	command := resolveWorkerCommand(sitePath, workerName, w)
+	writeWorkerUnitFile(unitName, label, displaySite, sitePath, phpVersion, command, restart, w.Schedule, fpmUnit, w.Host) //nolint:errcheck
 }

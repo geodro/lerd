@@ -41,12 +41,30 @@ type PhaseEvent struct {
 }
 
 // InstallPresetStreaming runs the full install flow and emits a PhaseEvent
-// at every step. The image is pulled before StartUnit so the hidden
-// on-demand pull latency becomes visible progress in the UI.
+// at every step. The image is pulled before the service is registered (config
+// + quadlet) so a failed pull never leaves a registered-but-broken service
+// behind; pulling here also turns the hidden on-demand pull latency into
+// visible progress in the UI. Registration precedes the dependency-start loop
+// so a dependency that fails to start still leaves the service installed on
+// disk; this matters for reinstall, which has already removed the prior copy.
 func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*config.CustomService, error) {
-	emit(PhaseEvent{Phase: "installing_config"})
-	svc, err := InstallPresetByName(name, version)
+	svc, err := resolvePresetForInstall(name, version)
 	if err != nil {
+		return nil, err
+	}
+
+	if svc.Image != "" && !podman.ImageExists(svc.Image) {
+		emit(PhaseEvent{Phase: "pulling_image", Image: svc.Image})
+		pullErr := podman.PullImageWithProgress(svc.Image, func(line string) {
+			emit(PhaseEvent{Phase: "pulling_image", Message: line})
+		})
+		if pullErr != nil {
+			return nil, pullErr
+		}
+	}
+
+	emit(PhaseEvent{Phase: "installing_config"})
+	if err := registerPreset(svc); err != nil {
 		return nil, err
 	}
 
@@ -56,16 +74,6 @@ func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*confi
 			return svc, fmt.Errorf("starting dependency %q: %w", dep, err)
 		}
 		emit(PhaseEvent{Phase: "starting_deps", Dep: dep, State: "ready"})
-	}
-
-	if svc.Image != "" && !podman.ImageExists(svc.Image) {
-		emit(PhaseEvent{Phase: "pulling_image", Image: svc.Image})
-		pullErr := podman.PullImageWithProgress(svc.Image, func(line string) {
-			emit(PhaseEvent{Phase: "pulling_image", Message: line})
-		})
-		if pullErr != nil {
-			return svc, pullErr
-		}
 	}
 
 	unit := "lerd-" + svc.Name
@@ -93,8 +101,25 @@ func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*confi
 
 // InstallPresetByName materialises a bundled preset as a custom service.
 // version selects a tag for multi-version presets; empty falls back to the
-// preset's DefaultVersion.
+// preset's DefaultVersion. It resolves and registers in one shot; callers that
+// need to pull the image before registering (so a failed pull leaves nothing
+// behind) should use resolvePresetForInstall + registerPreset instead.
 func InstallPresetByName(name, version string) (*config.CustomService, error) {
+	svc, err := resolvePresetForInstall(name, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := registerPreset(svc); err != nil {
+		return nil, err
+	}
+	return svc, nil
+}
+
+// resolvePresetForInstall loads and validates a preset into a CustomService
+// without writing anything to disk. Separating resolution from registration
+// lets the streaming install pull the image first and bail before any state is
+// written when the pull fails.
+func resolvePresetForInstall(name, version string) (*config.CustomService, error) {
 	preset, err := config.LoadPreset(name)
 	if err != nil {
 		return nil, err
@@ -111,38 +136,90 @@ func InstallPresetByName(name, version string) (*config.CustomService, error) {
 	}
 	// Quadlet presence is the install-state truth (see ServiceInstalled); a
 	// yaml-only remnant from a partial install gets silently rewritten by
-	// SaveCustomService + EnsureCustomServiceQuadlet below as the heal path.
+	// registerPreset as the heal path.
 	if ServiceInstalled(svc.Name) {
 		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
 	}
 	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
 		return nil, fmt.Errorf("preset %q requires service(s) %s to be installed first", svc.Name, strings.Join(missing, ", "))
 	}
+	return svc, nil
+}
+
+// registerPreset persists a resolved preset: it saves the YAML config, writes
+// the quadlet, and regenerates family consumers. Run only after any required
+// image pull has succeeded.
+func registerPreset(svc *config.CustomService) error {
 	if err := config.SaveCustomService(svc); err != nil {
-		return nil, fmt.Errorf("saving service config: %w", err)
+		return fmt.Errorf("saving service config: %w", err)
 	}
 	if err := EnsureCustomServiceQuadlet(svc); err != nil {
-		return nil, fmt.Errorf("writing quadlet: %w", err)
+		return fmt.Errorf("writing quadlet: %w", err)
 	}
 	if svc.Family != "" {
 		RegenerateFamilyConsumers(svc.Family)
 	}
-	return svc, nil
+	return nil
 }
 
-// MissingPresetDependencies returns the names of services that svc declares
-// in depends_on but which are not currently installed. Install-state is
-// resolved through ServiceInstalled (quadlet presence), so a dep that has a
-// quadlet but a missing YAML still counts as installed.
+// MissingPresetDependencies returns declared dependencies that are not
+// installed. A dependency the service discovers via discover_family is met by
+// any installed member of that family or a sibling family it co-discovers.
 func MissingPresetDependencies(svc *config.CustomService) []string {
 	var missing []string
 	for _, dep := range svc.DependsOn {
-		if ServiceInstalled(dep) {
+		if dependencyInstalled(svc, dep) {
 			continue
 		}
 		missing = append(missing, dep)
 	}
 	return missing
+}
+
+// dependencyInstalled reports whether dep is met by an exact service match
+// (quadlet presence) or by any installed member of a family that satisfies it.
+func dependencyInstalled(svc *config.CustomService, dep string) bool {
+	if ServiceInstalled(dep) {
+		return true
+	}
+	for fam := range satisfyingFamilies(svc, dep) {
+		for _, host := range config.ServicesInFamily(fam) {
+			if ServiceInstalled(strings.TrimPrefix(host, "lerd-")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// satisfyingFamilies returns the families the service co-discovers with dep via
+// discover_family (empty if it discovers none): a tool that discovers a family
+// can use any member, so phpmyadmin's mysql dep is also met by a mariadb.
+func satisfyingFamilies(svc *config.CustomService, dep string) map[string]bool {
+	out := map[string]bool{}
+	for _, directive := range svc.DynamicEnv {
+		parts := strings.SplitN(directive, ":", 2)
+		if len(parts) != 2 || parts[0] != "discover_family" {
+			continue
+		}
+		fams := strings.Split(parts[1], ",")
+		listed := false
+		for _, f := range fams {
+			if strings.TrimSpace(f) == dep {
+				listed = true
+				break
+			}
+		}
+		if !listed {
+			continue
+		}
+		for _, f := range fams {
+			if f = strings.TrimSpace(f); config.IsKnownFamily(f) {
+				out[f] = true
+			}
+		}
+	}
+	return out
 }
 
 // EnsureDefaultPresetQuadlet writes the quadlet for a default-preset service

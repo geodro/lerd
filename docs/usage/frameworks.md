@@ -146,7 +146,7 @@ Default workers:
 | `queue` | Queue Worker | `php artisan queue:work --queue=default --tries=3 --timeout=60` | - | - |
 | `schedule` | Task Scheduler | `php artisan schedule:work` | - | - |
 | `reverb` | Reverb WebSocket | `php artisan reverb:start` | `laravel/reverb` | proxy at `/app`, auto-assigned port |
-| `horizon` | Horizon | `php artisan horizon` | `laravel/horizon` | conflicts with `queue` |
+| `horizon` | Horizon | `php artisan horizon` | `laravel/horizon` | conflicts with `queue`; auto-reload via `horizon:listen` (see [queue workers](queue-workers.md)) |
 
 ### Adding workers to Laravel
 

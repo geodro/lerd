@@ -510,3 +510,60 @@ image: docker.io/pgvector/pgvector:pg18
 		})
 	}
 }
+
+// ── SetProjectWorkerReload ──────────────────────────────────────────────────
+
+func TestSetProjectWorkerReload_EnableCreatesMissingFile(t *testing.T) {
+	dir := t.TempDir() // no .lerd.yaml on disk
+
+	if err := SetProjectWorkerReload(dir, "horizon", true); err != nil {
+		t.Fatalf("SetProjectWorkerReload: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); err != nil {
+		t.Fatalf("expected .lerd.yaml to be created, stat: %v", err)
+	}
+	if !ProjectReloadsWorker(dir, "horizon") {
+		t.Errorf("horizon should be opted into reload after enabling")
+	}
+}
+
+func TestSetProjectWorkerReload_DisableOnMissingFileIsNoOp(t *testing.T) {
+	dir := t.TempDir() // no .lerd.yaml on disk
+
+	if err := SetProjectWorkerReload(dir, "horizon", false); err != nil {
+		t.Fatalf("SetProjectWorkerReload: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); !os.IsNotExist(err) {
+		t.Errorf("disabling on a project with no .lerd.yaml must not create one (stat err: %v)", err)
+	}
+}
+
+func TestSetProjectWorkerReload_Toggle(t *testing.T) {
+	dir := setupProjectConfig(t, &ProjectConfig{Domains: []string{"app"}})
+
+	if err := SetProjectWorkerReload(dir, "horizon", true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if !loadConfig(t, dir).ReloadsWorker("horizon") {
+		t.Fatalf("horizon should be enabled")
+	}
+
+	// Enabling again is idempotent (no duplicate entries).
+	if err := SetProjectWorkerReload(dir, "horizon", true); err != nil {
+		t.Fatalf("re-enable: %v", err)
+	}
+	if got := loadConfig(t, dir).ReloadWorkers; len(got) != 1 {
+		t.Fatalf("expected one entry, got %v", got)
+	}
+
+	if err := SetProjectWorkerReload(dir, "horizon", false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	cfg := loadConfig(t, dir)
+	if cfg.ReloadsWorker("horizon") {
+		t.Errorf("horizon should be disabled")
+	}
+	if len(cfg.Domains) != 1 || cfg.Domains[0] != "app" {
+		t.Errorf("unrelated fields should survive the toggle, got domains %v", cfg.Domains)
+	}
+}

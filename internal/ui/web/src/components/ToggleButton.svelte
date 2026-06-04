@@ -8,6 +8,10 @@
     loading?: boolean;
     disabled?: boolean;
     title?: string;
+    // Rounding/border utility classes for the outer button. Defaults to a
+    // standalone pill; pass e.g. 'rounded-l-md border-r-0' to join it into a
+    // segmented control.
+    rounding?: string;
     onclick?: (e: MouseEvent) => void;
     trailing?: Snippet;
   }
@@ -18,6 +22,7 @@
     loading = false,
     disabled = false,
     title = '',
+    rounding = 'rounded-md',
     onclick,
     trailing
   }: Props = $props();
@@ -50,7 +55,7 @@
   {disabled}
   {title}
   {onclick}
-  class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-gray-200 dark:border-lerd-border transition-colors text-xs font-medium text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed {tintClass}"
+  class="inline-flex items-center gap-1.5 h-7 px-2.5 {rounding} border border-gray-200 dark:border-lerd-border transition-colors text-xs font-medium text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed {tintClass}"
 >
   {#if state === 'loading'}
     <svg class="w-2.5 h-2.5 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">

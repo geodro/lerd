@@ -159,7 +159,10 @@ func workerLogHint(unitName string, host bool) string {
 // other infra containers are up. Starting here would race against container
 // readiness and cause errors like "lerd-redis: name does not resolve".
 func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) {
-	command := w.Command
+	// Resolve the same way WorkerStartForSite does so a project opted into
+	// auto-reload keeps its reload command across lerd start and reboots,
+	// instead of silently coming back in standard mode.
+	command := resolveWorkerCommand(sitePath, workerName, w)
 	if w.Proxy != nil && w.Proxy.PortEnvKey != "" {
 		envPath := filepath.Join(sitePath, ".env")
 		port := envfile.ReadKey(envPath, w.Proxy.PortEnvKey)

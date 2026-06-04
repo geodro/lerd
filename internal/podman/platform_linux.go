@@ -8,3 +8,8 @@ package podman
 func PlatformPodmanArgs(_, _ string) string {
 	return ""
 }
+
+// PlatformPullArgs is a no-op on Linux (see PlatformPodmanArgs).
+func PlatformPullArgs(_ string) []string {
+	return nil
+}

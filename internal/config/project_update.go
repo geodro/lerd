@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -53,6 +54,35 @@ func AddProjectWorker(dir, name string) error {
 		}
 		cfg.Workers = append(cfg.Workers, name)
 	})
+}
+
+// SetProjectWorkerReload opts the named worker into or out of auto-reload mode
+// (restart on file changes) for the project, persisting to .lerd.yaml. Enabling
+// creates .lerd.yaml when it does not exist yet, so the preference survives
+// rather than silently no-op'ing. Disabling on a project with no .lerd.yaml is
+// a no-op: the worker is already in standard mode, so no file is created.
+func SetProjectWorkerReload(dir, name string, enabled bool) error {
+	if !enabled {
+		return updateProjectConfig(dir, func(cfg *ProjectConfig) {
+			cfg.ReloadWorkers = removeWorkerName(cfg.ReloadWorkers, name)
+		})
+	}
+
+	cfg, err := LoadProjectConfig(dir)
+	if err != nil {
+		return err
+	}
+	if cfg.ReloadsWorker(name) {
+		return nil
+	}
+	cfg.ReloadWorkers = append(cfg.ReloadWorkers, name)
+	return SaveProjectConfig(dir, cfg)
+}
+
+// removeWorkerName returns names with every occurrence of name removed, reusing
+// the backing array (the caller's slice is a fresh clone from LoadProjectConfig).
+func removeWorkerName(names []string, name string) []string {
+	return slices.DeleteFunc(names, func(w string) bool { return w == name })
 }
 
 // SetProjectDomains replaces the domains list. No-op if .lerd.yaml does not exist.

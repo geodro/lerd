@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	nodeDet "github.com/geodro/lerd/internal/node"
@@ -48,6 +49,38 @@ func NewNpxCmd() *cobra.Command {
 			return runWithFnm("npx", args)
 		},
 	}
+}
+
+// runNpmCaptured runs `npm <args>` in dir using the project's Node version via
+// fnm, capturing combined output. Unlike runWithFnm (which streams to the
+// terminal and os.Exit's on failure for CLI use), this is for non-interactive
+// callers like the UI: it returns the output and never exits the process, and
+// it surfaces a failed `fnm install` instead of swallowing it. Shares the same
+// fnm lookup, version detection, and npm_config_prefix handling as runWithFnm.
+func runNpmCaptured(dir string, args ...string) (string, error) {
+	fnm := filepath.Join(config.BinDir(), "fnm")
+	if _, err := os.Stat(fnm); err != nil {
+		return "", fmt.Errorf("fnm not found at %s, run 'lerd install' first", fnm)
+	}
+
+	version, _ := nodeDet.DetectVersion(dir)
+	if version == "" {
+		version = "default"
+	}
+	if version != "default" {
+		if out, err := exec.Command(fnm, "install", version).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("installing Node %s via fnm: %s", version, strings.TrimSpace(string(out)))
+		}
+	} else if exec.Command(fnm, "exec", "--using=default", "--", "true").Run() != nil {
+		return "", fmt.Errorf("no Node.js version available via lerd, run: lerd node:install 22")
+	}
+
+	cmdArgs := append([]string{"exec", "--using=" + version, "--", "npm"}, args...)
+	cmd := exec.Command(fnm, cmdArgs...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "npm_config_prefix="+config.NodeGlobalDir())
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func runWithFnm(bin string, args []string) error {

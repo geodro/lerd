@@ -5,6 +5,7 @@
     setSiteVersion,
     toggleQueue,
     toggleHorizon,
+    setHorizonReload,
     toggleSchedule,
     toggleReverb,
     toggleStripe,
@@ -17,6 +18,8 @@
   import { nodeVersions } from '$stores/nodeVersions';
   import { status } from '$stores/status';
   import WorktreeDBIsolateModal from './WorktreeDBIsolateModal.svelte';
+  import HorizonControl from './HorizonControl.svelte';
+  import HorizonReloadWatcherModal from './HorizonReloadWatcherModal.svelte';
   import CommandsDropdown from '$components/CommandsDropdown.svelte';
   import Dropdown from '$components/Dropdown.svelte';
   import ToggleButton from '$components/ToggleButton.svelte';
@@ -146,6 +149,45 @@
     await Promise.all([loadSites(), loadServices()]);
   }
 
+  let watcherModalOpen = $state(false);
+  // Held for the whole reload toggle, which restarts Horizon under the hood.
+  // Horizon's running flag dips false mid-restart; without this the segment
+  // would flicker to "off". We keep it in its loading-dot state instead, the
+  // same as a worker that's starting, until the restart settles.
+  let reloadRestarting = $state(false);
+
+  // Flip Horizon auto-reload and ride out the restart. Any failure surfaces so
+  // a click always gives feedback rather than silently reverting.
+  async function applyReload(desired: boolean) {
+    if (reloadRestarting) return;
+    reloadRestarting = true;
+    try {
+      const r = await setHorizonReload(site, desired);
+      if (!r.ok) {
+        alert(m.sites_controls_horizonReloadFailed({ error: r.error || '' }));
+        return;
+      }
+      await Promise.all([loadSites(), loadServices()]);
+    } finally {
+      // Always release the guard, even on a thrown rejection, so the toggle
+      // can't deadlock in its loading state.
+      reloadRestarting = false;
+    }
+  }
+
+  // Enabling needs the chokidar watcher. When it's missing (Vite 8 no longer
+  // ships it) we open a modal offering to install it rather than letting the
+  // toggle silently refuse. Disabling, and enabling when chokidar is already
+  // present, go straight through.
+  async function onToggleHorizonReload() {
+    const desired = !site.horizon_reload;
+    if (desired && !site.horizon_reload_ready) {
+      watcherModalOpen = true;
+      return;
+    }
+    await applyReload(desired);
+  }
+
   async function onPhpChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value;
     versionBusy = true;
@@ -256,14 +298,14 @@
       {/if}
 
       {#if site.has_horizon}
-        <ToggleButton
-          label={m.sites_controls_horizon()}
-          on={Boolean(site.horizon_running)}
+        <HorizonControl
+          running={Boolean(site.horizon_running)}
           failing={Boolean(site.horizon_failing)}
-          loading={isPending('horizon')}
-          disabled={isPending('horizon')}
-          onclick={() => transition('horizon', !site.horizon_running, () => toggleHorizon(site))}
-          title={site.horizon_failing ? m.sites_controls_horizonToggle_failing() : site.horizon_running ? m.sites_controls_horizonToggle_on() : m.sites_controls_horizonToggle_off()}
+          reload={Boolean(site.horizon_reload)}
+          horizonLoading={isPending('horizon') || reloadRestarting}
+          reloadLoading={reloadRestarting}
+          onToggle={() => transition('horizon', !site.horizon_running, () => toggleHorizon(site))}
+          onToggleReload={onToggleHorizonReload}
         />
       {/if}
 
@@ -340,3 +382,10 @@
     }}
   />
 {/if}
+
+<HorizonReloadWatcherModal
+  open={watcherModalOpen}
+  {site}
+  onclose={() => (watcherModalOpen = false)}
+  oninstalled={() => void applyReload(true)}
+/>

@@ -47,6 +47,12 @@ type ProjectConfig struct {
 	Services      []ProjectService           `yaml:"services,omitempty"`
 	Workers       []string                   `yaml:"workers,omitempty"`
 	CustomWorkers map[string]FrameworkWorker `yaml:"custom_workers,omitempty"`
+	// ReloadWorkers lists worker names this project runs in auto-reload mode
+	// (restart on file changes) for development, for workers that declare a
+	// reload_command variant. Per project so one project can develop with
+	// reload while another stays in standard mode. Laravel's horizon worker is
+	// currently the only worker with a reload variant.
+	ReloadWorkers []string `yaml:"reload_workers,omitempty"`
 	// Commands extends or overrides the framework's command set. Entries with
 	// a Name matching a framework command replace it (set Disabled: true to
 	// suppress instead). Entries with a new Name are appended. See
@@ -88,10 +94,31 @@ type ProjectConfig struct {
 func (c *ProjectConfig) IsEmpty() bool {
 	return len(c.Domains) == 0 && c.PHPVersion == "" && c.NodeVersion == "" &&
 		c.Framework == "" && c.PublicDir == "" && len(c.Services) == 0 &&
-		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && !c.Secured &&
+		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && len(c.ReloadWorkers) == 0 && !c.Secured &&
 		c.AppURL == "" && c.DB.Service == "" && c.DB.Database == "" &&
 		c.Container == nil && c.Runtime == "" && !c.RuntimeWorker &&
 		!c.DBIsolated && len(c.EnvOverrides) == 0 && c.RequestTimeout == 0
+}
+
+// ReloadsWorker reports whether the named worker is opted into auto-reload
+// (restart on file changes) for this project.
+func (c *ProjectConfig) ReloadsWorker(name string) bool {
+	for _, w := range c.ReloadWorkers {
+		if w == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ProjectReloadsWorker reports whether the project at dir opts the named worker
+// into auto-reload mode. Returns false when .lerd.yaml is absent or unreadable.
+func ProjectReloadsWorker(dir, name string) bool {
+	cfg, err := LoadProjectConfig(dir)
+	if err != nil || cfg == nil {
+		return false
+	}
+	return cfg.ReloadsWorker(name)
 }
 
 // ServiceNames returns the name of every service in the config, for callers
@@ -323,6 +350,9 @@ func cloneProjectConfig(in *ProjectConfig) *ProjectConfig {
 	}
 	if in.Workers != nil {
 		out.Workers = append([]string(nil), in.Workers...)
+	}
+	if in.ReloadWorkers != nil {
+		out.ReloadWorkers = append([]string(nil), in.ReloadWorkers...)
 	}
 	if in.CustomWorkers != nil {
 		out.CustomWorkers = make(map[string]FrameworkWorker, len(in.CustomWorkers))
