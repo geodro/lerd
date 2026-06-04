@@ -35,7 +35,7 @@ export function dismissSuggestion(name: string) {
   dismissedSuggestions.update((list) => (list.includes(name) ? list : [...list, name]));
 }
 
-export function detectServiceFamily(svc: Service): string | null {
+export function detectServiceFamily(svc: Service | null | undefined): string | null {
   if (!svc || !svc.name) return null;
   if (SUGGESTIONS[svc.name]) return svc.name;
   if (svc.connection_url) {
@@ -61,23 +61,28 @@ export function adminServiceFor(svc: Service, services: Service[]): Service | nu
 }
 
 export function suggestedPresetFor(svc: Service): Preset | null {
-  if (!svc || !svc.name) return null;
-  const presetName = SUGGESTIONS[svc.name];
+  const family = detectServiceFamily(svc);
+  if (!family) return null;
+  const presetName = SUGGESTIONS[family];
   if (!presetName) return null;
   if (get(dismissedSuggestions).includes(presetName)) return null;
+  // missing_deps: admin tools hard-depend on the bare family service (pgadmin ->
+  // postgres), so don't suggest one whose dependency isn't installed; the install
+  // would only fail. Matches the installablePresets filter.
   const p = get(presets).find((x) => x.name === presetName);
-  if (!p || p.installed) return null;
+  if (!p || p.installed || (p.missing_deps || []).length > 0) return null;
   return p;
 }
 
 // Reactive helper so UIs can bind to it
 export const suggestionFor = (svc: Service | null | undefined) =>
   derived([presets, dismissedSuggestions], ([$presets, $dismissed]): Preset | null => {
-    if (!svc || !svc.name) return null;
-    const presetName = SUGGESTIONS[svc.name];
+    const family = detectServiceFamily(svc);
+    if (!family) return null;
+    const presetName = SUGGESTIONS[family];
     if (!presetName) return null;
     if ($dismissed.includes(presetName)) return null;
     const p = $presets.find((x) => x.name === presetName);
-    if (!p || p.installed) return null;
+    if (!p || p.installed || (p.missing_deps || []).length > 0) return null;
     return p;
   });

@@ -162,19 +162,64 @@ func registerPreset(svc *config.CustomService) error {
 	return nil
 }
 
-// MissingPresetDependencies returns the names of services that svc declares
-// in depends_on but which are not currently installed. Install-state is
-// resolved through ServiceInstalled (quadlet presence), so a dep that has a
-// quadlet but a missing YAML still counts as installed.
+// MissingPresetDependencies returns declared dependencies that are not
+// installed. A dependency the service discovers via discover_family is met by
+// any installed member of that family or a sibling family it co-discovers.
 func MissingPresetDependencies(svc *config.CustomService) []string {
 	var missing []string
 	for _, dep := range svc.DependsOn {
-		if ServiceInstalled(dep) {
+		if dependencyInstalled(svc, dep) {
 			continue
 		}
 		missing = append(missing, dep)
 	}
 	return missing
+}
+
+// dependencyInstalled reports whether dep is met by an exact service match
+// (quadlet presence) or by any installed member of a family that satisfies it.
+func dependencyInstalled(svc *config.CustomService, dep string) bool {
+	if ServiceInstalled(dep) {
+		return true
+	}
+	for fam := range satisfyingFamilies(svc, dep) {
+		for _, host := range config.ServicesInFamily(fam) {
+			if ServiceInstalled(strings.TrimPrefix(host, "lerd-")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// satisfyingFamilies returns the families the service co-discovers with dep via
+// discover_family (empty if it discovers none): a tool that discovers a family
+// can use any member, so phpmyadmin's mysql dep is also met by a mariadb.
+func satisfyingFamilies(svc *config.CustomService, dep string) map[string]bool {
+	out := map[string]bool{}
+	for _, directive := range svc.DynamicEnv {
+		parts := strings.SplitN(directive, ":", 2)
+		if len(parts) != 2 || parts[0] != "discover_family" {
+			continue
+		}
+		fams := strings.Split(parts[1], ",")
+		listed := false
+		for _, f := range fams {
+			if strings.TrimSpace(f) == dep {
+				listed = true
+				break
+			}
+		}
+		if !listed {
+			continue
+		}
+		for _, f := range fams {
+			if f = strings.TrimSpace(f); config.IsKnownFamily(f) {
+				out[f] = true
+			}
+		}
+	}
+	return out
 }
 
 // EnsureDefaultPresetQuadlet writes the quadlet for a default-preset service
