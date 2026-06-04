@@ -319,6 +319,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	}
 
 	args := []string{"pull", "--policy=always"}
+	args = append(args, PlatformPullArgs(ref)...)
 	if tmpAuth != nil {
 		args = append(args, "--authfile="+tmpAuth.Name())
 	}

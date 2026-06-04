@@ -90,9 +90,18 @@ func LocalImageDigest(image string) []string {
 	return digests
 }
 
+// pullArgs builds the `podman pull` argv for image, splicing in any
+// host-specific flags (e.g. --platform=linux/amd64 for postgis on Apple
+// Silicon, where the image ships no arm64 manifest). Keeping every pull path
+// on this helper means pull and run never disagree on platform.
+func pullArgs(image string) []string {
+	args := append([]string{"pull"}, PlatformPullArgs(image)...)
+	return append(args, image)
+}
+
 // PullImageTo pulls the named image, writing progress output to w.
 func PullImageTo(image string, w io.Writer) error {
-	cmd := exec.Command(PodmanBin(), "pull", image)
+	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {
@@ -107,7 +116,7 @@ func PullImageWithProgress(image string, onLine func(string)) error {
 	if onLine == nil {
 		return PullImageIfMissing(image)
 	}
-	cmd := exec.Command(PodmanBin(), "pull", image)
+	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
 	w := &lineWriter{onLine: onLine}
 	cmd.Stdout = w
 	cmd.Stderr = w
@@ -155,7 +164,7 @@ func PullImageIfMissing(image string) error {
 	if ImageExists(image) {
 		return nil
 	}
-	cmd := exec.Command(PodmanBin(), "pull", image)
+	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

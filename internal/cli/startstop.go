@@ -114,7 +114,8 @@ func ensureImages() {
 			jobs = append(jobs, BuildJob{
 				Label: "Pulling " + label,
 				Run: func(w io.Writer) error {
-					cmd := podman.Cmd("pull", label)
+					args := append(append([]string{"pull"}, podman.PlatformPullArgs(label)...), label)
+					cmd := podman.Cmd(args...)
 					cmd.Stdout = w
 					cmd.Stderr = w
 					return cmd.Run()
@@ -671,7 +672,8 @@ func startRestoredServices() {
 		pullJobs = append(pullJobs, BuildJob{
 			Label: "Pulling " + img,
 			Run: func(w io.Writer) error {
-				cmd := podman.Cmd("pull", img)
+				args := append(append([]string{"pull"}, podman.PlatformPullArgs(img)...), img)
+				cmd := podman.Cmd(args...)
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()

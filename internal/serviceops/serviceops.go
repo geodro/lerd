@@ -41,11 +41,12 @@ type PhaseEvent struct {
 }
 
 // InstallPresetStreaming runs the full install flow and emits a PhaseEvent
-// at every step. The image is pulled before StartUnit so the hidden
-// on-demand pull latency becomes visible progress in the UI.
+// at every step. The image is pulled before the service is registered (config
+// + quadlet) so a failed pull never leaves a registered-but-broken service
+// behind; pulling here also turns the hidden on-demand pull latency into
+// visible progress in the UI.
 func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*config.CustomService, error) {
-	emit(PhaseEvent{Phase: "installing_config"})
-	svc, err := InstallPresetByName(name, version)
+	svc, err := resolvePresetForInstall(name, version)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +54,7 @@ func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*confi
 	for _, dep := range svc.DependsOn {
 		emit(PhaseEvent{Phase: "starting_deps", Dep: dep, State: "starting"})
 		if err := EnsureServiceRunning(dep); err != nil {
-			return svc, fmt.Errorf("starting dependency %q: %w", dep, err)
+			return nil, fmt.Errorf("starting dependency %q: %w", dep, err)
 		}
 		emit(PhaseEvent{Phase: "starting_deps", Dep: dep, State: "ready"})
 	}
@@ -64,8 +65,13 @@ func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*confi
 			emit(PhaseEvent{Phase: "pulling_image", Message: line})
 		})
 		if pullErr != nil {
-			return svc, pullErr
+			return nil, pullErr
 		}
+	}
+
+	emit(PhaseEvent{Phase: "installing_config"})
+	if err := registerPreset(svc); err != nil {
+		return nil, err
 	}
 
 	unit := "lerd-" + svc.Name
@@ -93,8 +99,25 @@ func InstallPresetStreaming(name, version string, emit func(PhaseEvent)) (*confi
 
 // InstallPresetByName materialises a bundled preset as a custom service.
 // version selects a tag for multi-version presets; empty falls back to the
-// preset's DefaultVersion.
+// preset's DefaultVersion. It resolves and registers in one shot; callers that
+// need to pull the image before registering (so a failed pull leaves nothing
+// behind) should use resolvePresetForInstall + registerPreset instead.
 func InstallPresetByName(name, version string) (*config.CustomService, error) {
+	svc, err := resolvePresetForInstall(name, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := registerPreset(svc); err != nil {
+		return nil, err
+	}
+	return svc, nil
+}
+
+// resolvePresetForInstall loads and validates a preset into a CustomService
+// without writing anything to disk. Separating resolution from registration
+// lets the streaming install pull the image first and bail before any state is
+// written when the pull fails.
+func resolvePresetForInstall(name, version string) (*config.CustomService, error) {
 	preset, err := config.LoadPreset(name)
 	if err != nil {
 		return nil, err
@@ -111,23 +134,30 @@ func InstallPresetByName(name, version string) (*config.CustomService, error) {
 	}
 	// Quadlet presence is the install-state truth (see ServiceInstalled); a
 	// yaml-only remnant from a partial install gets silently rewritten by
-	// SaveCustomService + EnsureCustomServiceQuadlet below as the heal path.
+	// registerPreset as the heal path.
 	if ServiceInstalled(svc.Name) {
 		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
 	}
 	if missing := MissingPresetDependencies(svc); len(missing) > 0 {
 		return nil, fmt.Errorf("preset %q requires service(s) %s to be installed first", svc.Name, strings.Join(missing, ", "))
 	}
+	return svc, nil
+}
+
+// registerPreset persists a resolved preset: it saves the YAML config, writes
+// the quadlet, and regenerates family consumers. Run only after any required
+// image pull has succeeded.
+func registerPreset(svc *config.CustomService) error {
 	if err := config.SaveCustomService(svc); err != nil {
-		return nil, fmt.Errorf("saving service config: %w", err)
+		return fmt.Errorf("saving service config: %w", err)
 	}
 	if err := EnsureCustomServiceQuadlet(svc); err != nil {
-		return nil, fmt.Errorf("writing quadlet: %w", err)
+		return fmt.Errorf("writing quadlet: %w", err)
 	}
 	if svc.Family != "" {
 		RegenerateFamilyConsumers(svc.Family)
 	}
-	return svc, nil
+	return nil
 }
 
 // MissingPresetDependencies returns the names of services that svc declares
