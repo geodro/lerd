@@ -87,3 +87,28 @@ func TestWorktreeDBName_underscoreSlug(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveDBService(t *testing.T) {
+	// Container/PHP site: DB_HOST names the service directly.
+	if got := resolveDBService(&config.Site{}, "lerd-postgres"); got != "postgres" {
+		t.Errorf("lerd-postgres -> %q, want postgres", got)
+	}
+	if got := resolveDBService(&config.Site{}, "lerd-mariadb-11"); got != "mariadb-11" {
+		t.Errorf("lerd-mariadb-11 -> %q, want mariadb-11", got)
+	}
+
+	// Host-proxy site: DB_HOST is loopback, so the DB service is recovered from
+	// the .lerd.yaml services list (postgres here, redis ignored).
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("services:\n  - redis\n  - postgres\nproxy:\n  command: npm run start:dev\n  port: 3100\n"), 0644)
+	if got := resolveDBService(&config.Site{Path: dir}, "127.0.0.1"); got != "postgres" {
+		t.Errorf("host-proxy loopback -> %q, want postgres (from .lerd.yaml)", got)
+	}
+
+	// No DB service anywhere → empty.
+	noDB := t.TempDir()
+	os.WriteFile(filepath.Join(noDB, ".lerd.yaml"), []byte("services:\n  - redis\n"), 0644)
+	if got := resolveDBService(&config.Site{Path: noDB}, "127.0.0.1"); got != "" {
+		t.Errorf("no db service -> %q, want empty", got)
+	}
+}

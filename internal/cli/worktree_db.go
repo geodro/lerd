@@ -49,6 +49,28 @@ func liveWorktreeBranches(site *config.Site) map[string]bool {
 // branch), records the worktree-DB pair in the registry, and rewrites
 // DB_DATABASE in the worktree's .env. On disable it drops the DB and restores
 // the parent's value. Idempotent.
+// resolveDBService returns the lerd service backing the parent site's database.
+// Container/PHP sites name it directly in DB_HOST (lerd-postgres -> postgres);
+// host-proxy sites rewrite DB_HOST to loopback, so the service is recovered from
+// the mysql/mariadb/postgres-family entry in the site's .lerd.yaml instead.
+// Returns "" when no lerd-managed database can be resolved.
+func resolveDBService(site *config.Site, parentHost string) string {
+	if strings.HasPrefix(parentHost, "lerd-") {
+		return strings.TrimPrefix(parentHost, "lerd-")
+	}
+	proj, err := config.LoadProjectConfig(site.Path)
+	if err != nil {
+		return ""
+	}
+	for _, svc := range proj.Services {
+		switch config.FamilyOfName(svc.Name) {
+		case "mysql", "mariadb", "postgres":
+			return svc.Name
+		}
+	}
+	return ""
+}
+
 func SetWorktreeDBIsolated(site *config.Site, branch string, isolated bool, source string) error {
 	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
 	if err != nil {
@@ -70,10 +92,10 @@ func SetWorktreeDBIsolated(site *config.Site, branch string, isolated bool, sour
 	parentEnv := filepath.Join(site.Path, ".env")
 	parentDB := envfile.ReadKey(parentEnv, "DB_DATABASE")
 	parentHost := envfile.ReadKey(parentEnv, "DB_HOST")
-	if parentDB == "" || !strings.HasPrefix(parentHost, "lerd-") {
+	service := resolveDBService(site, parentHost)
+	if parentDB == "" || service == "" {
 		return fmt.Errorf("parent site does not use a lerd-managed mysql/postgres (DB_HOST=%q, DB_DATABASE=%q)", parentHost, parentDB)
 	}
-	service := strings.TrimPrefix(parentHost, "lerd-")
 	dbName := WorktreeDBName(parentDB, branch)
 
 	if isolated {
