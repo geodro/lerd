@@ -15,7 +15,7 @@ import (
 // retry once. Two things are corrupt after an unclean shutdown: the VM's
 // overlay base mount, and the lerd-* container layers built on it. A machine
 // restart remounts the base; force-removing the stale containers makes the
-// retry's `podman run` allocate fresh container storage — the path a manual
+// retry's `podman run` allocate fresh container storage, the path a manual
 // `podman run` takes when it succeeds where a remount alone doesn't. lerd's
 // persistent data is host bind-mounted, so both steps are non-destructive.
 // Returns true when recovery ran and the caller should retry the start pass.
@@ -58,7 +58,7 @@ func reportOverlayHealOutcome(err error) {
 	fmt.Println()
 	fmt.Println("  Podman Machine container storage is still corrupted after a restart.")
 	fmt.Println("  This happens when the host shuts down while the VM is running.")
-	fmt.Println("  Your databases and site data are safe — they live on the host, not in the VM.")
+	fmt.Println("  Your databases and site data are safe; they live on the host, not in the VM.")
 	fmt.Println("  Recreate the VM to fix it (images are rebuilt automatically on the next start):")
 	fmt.Println("      lerd machine reset")
 }

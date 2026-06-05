@@ -120,7 +120,7 @@ func removeLerdContainersForGvproxyHeal() {
 
 // forceRemoveLerdContainers force-removes lerd-* containers so the next
 // StartUnit pass recreates them fresh via `podman run`. includeStopped adds
-// `-a` to also catch created/exited containers — used by the overlay heal,
+// `-a` to also catch created/exited containers, used by the overlay heal,
 // where the failed containers never reached running state. announce is
 // printed only when at least one container matched.
 func forceRemoveLerdContainers(includeStopped bool, announce string) {

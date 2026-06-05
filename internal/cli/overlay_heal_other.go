@@ -2,7 +2,7 @@
 
 package cli
 
-// healOverlayCorruptionIfNeeded is a no-op on non-darwin platforms — the
+// healOverlayCorruptionIfNeeded is a no-op on non-darwin platforms; the
 // overlay-storage corruption it heals is specific to the macOS Podman Machine
 // VM. Native rootless podman on Linux doesn't use a separate VM.
 func healOverlayCorruptionIfNeeded(_ error) bool { return false }

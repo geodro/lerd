@@ -9,10 +9,10 @@ import "strings"
 // both gated tightly so unrelated failures (port conflicts, missing images, bad
 // flags) don't trip the heal:
 //
-//	1. graph-driver info query — `getting graph driver info "<id>": readlink
-//	   /var/lib/containers/storage/overlay: invalid argument`
-//	2. container mount — `mounting storage for container <id>: readlink
-//	   /var/lib/containers/storage/overlay/<layer>/diff: no such file or directory`
+//  1. graph-driver info query: `getting graph driver info "<id>": readlink
+//     /var/lib/containers/storage/overlay: invalid argument`
+//  2. container mount: `mounting storage for container <id>: readlink
+//     /var/lib/containers/storage/overlay/<layer>/diff: no such file or directory`
 //
 // Variant 2 was observed reproducing a broken container layer (image layers
 // intact, so a fresh `podman run` still works); rebuilding the containers

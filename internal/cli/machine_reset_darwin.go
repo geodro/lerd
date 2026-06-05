@@ -19,7 +19,7 @@ import (
 func runMachineReset(assumeYes bool) error {
 	name := selectedMachineName()
 	if name == "" {
-		fmt.Println("No Podman Machine found — nothing to reset. Run `lerd start` to create one.")
+		fmt.Println("No Podman Machine found; nothing to reset. Run `lerd start` to create one.")
 		return nil
 	}
 
@@ -32,8 +32,8 @@ func runMachineReset(assumeYes bool) error {
 		line, _ := reader.ReadString('\n')
 		ans := strings.ToLower(strings.TrimSpace(line))
 		if ans != "y" && ans != "yes" {
-			// Declining the prompt is a normal choice, not a failure — print a
-			// plain notice and exit zero rather than letting cobra render
+			// Declining the prompt is a normal choice, not a failure, so print
+			// a plain notice and exit zero rather than letting cobra render
 			// "Error: aborted" with a non-zero status.
 			fmt.Println("Cancelled.")
 			return nil

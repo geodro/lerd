@@ -588,8 +588,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if healOverlayCorruptionIfNeeded(serviceErr) {
 		serviceErr = RunParallel(makeJobs(serviceUnits))
 	}
-	// If the storage is still corrupt, every worker — and the DNS and tray steps
-	// below — would fail the same way and bury the recovery guidance. Stop here
+	// If the storage is still corrupt, every worker (and the DNS and tray steps
+	// below) would fail the same way and bury the recovery guidance. Stop here
 	// so the guidance is the last thing the user sees.
 	if isOverlayStorageError(serviceErr) {
 		reportOverlayHealOutcome(serviceErr)

@@ -376,7 +376,7 @@ readlink /var/lib/containers/storage/overlay: invalid argument
 
 Cause: the macOS host was shut down ungracefully (forced power-off, battery death, kernel panic) while the Podman Machine VM was still running. The VM's container storage is left with a stale overlay mount and corrupt container layers, so no container can start until the storage is remounted and the stale containers are rebuilt.
 
-`lerd start` detects this and **self-heals automatically** on the first run: it restarts the Podman Machine to remount the storage, force-removes the stale `lerd-*` containers so they rebuild on fresh storage, and retries the start pass once. Your data is safe throughout — lerd bind-mounts every database and site directory to the host, not into the VM.
+`lerd start` detects this and **self-heals automatically** on the first run: it restarts the Podman Machine to remount the storage, force-removes the stale `lerd-*` containers so they rebuild on fresh storage, and retries the start pass once. Your data is safe throughout: lerd bind-mounts every database and site directory to the host, not into the VM.
 
 If the automatic recovery isn't enough (it prints guidance pointing here), recreate the VM:
 
