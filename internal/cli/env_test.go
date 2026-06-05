@@ -238,3 +238,104 @@ func TestShouldApplyService(t *testing.T) {
 		})
 	}
 }
+
+// ── host-proxy env rewriting ──────────────────────────────────────────────────
+
+func TestSplitHostContainerPort(t *testing.T) {
+	cases := []struct {
+		in         string
+		host, cont string
+		ok         bool
+	}{
+		{"3411:3306", "3411", "3306", true},
+		{"6379:6379", "6379", "6379", true},
+		{"127.0.0.1:3411:3306", "3411", "3306", true},
+		{"3411:3306/tcp", "3411", "3306", true},
+		{"3306", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		host, cont, ok := splitHostContainerPort(c.in)
+		if host != c.host || cont != c.cont || ok != c.ok {
+			t.Errorf("splitHostContainerPort(%q) = (%q,%q,%v), want (%q,%q,%v)", c.in, host, cont, ok, c.host, c.cont, c.ok)
+		}
+	}
+}
+
+func TestApplyHostProxyEnv_rewritesHostAndPort(t *testing.T) {
+	// mariadb: container 3306 publishes on host 3411.
+	updates := map[string]string{
+		"DB_HOST":     "lerd-mariadb-11",
+		"DB_PORT":     "3306",
+		"DB_DATABASE": "gonitro",
+		"REDIS_HOST":  "lerd-redis",
+		"REDIS_PORT":  "6379",
+		"APP_URL":     "https://gonitro.test",
+		"APP_NAME":    "ecom",
+	}
+	applyHostProxyEnv(updates, map[string]string{"3306": "3411", "6379": "6379"})
+
+	if updates["DB_HOST"] != "127.0.0.1" {
+		t.Errorf("DB_HOST = %q, want 127.0.0.1", updates["DB_HOST"])
+	}
+	if updates["REDIS_HOST"] != "127.0.0.1" {
+		t.Errorf("REDIS_HOST = %q, want 127.0.0.1", updates["REDIS_HOST"])
+	}
+	if updates["DB_PORT"] != "3411" {
+		t.Errorf("DB_PORT = %q, want 3411 (published host port)", updates["DB_PORT"])
+	}
+	if updates["REDIS_PORT"] != "6379" {
+		t.Errorf("REDIS_PORT = %q, want 6379 (unchanged when host==container)", updates["REDIS_PORT"])
+	}
+	// Non-service values must be left alone.
+	if updates["DB_DATABASE"] != "gonitro" {
+		t.Errorf("DB_DATABASE was mangled: %q", updates["DB_DATABASE"])
+	}
+	if updates["APP_URL"] != "https://gonitro.test" {
+		t.Errorf("APP_URL was mangled: %q", updates["APP_URL"])
+	}
+	if updates["APP_NAME"] != "ecom" {
+		t.Errorf("APP_NAME was mangled: %q", updates["APP_NAME"])
+	}
+}
+
+func TestApplyHostProxyEnv_rewritesEmbeddedUrlHosts(t *testing.T) {
+	// Services configured via a URL (mongo, elasticsearch, …) carry the container
+	// hostname inside the value; the host must be rewritten to loopback and the
+	// embedded port remapped, while credentials and path survive.
+	updates := map[string]string{
+		"MONGO_DSN":         "mongodb://root:lerd@lerd-mongo:27017/site?authSource=admin",
+		"ELASTICSEARCH_URL": "http://lerd-elasticsearch:9200",
+		"DB_PORT":           "3306",
+	}
+	applyHostProxyEnv(updates, map[string]string{"27017": "27017", "9200": "9200", "3306": "3411"})
+
+	if got := updates["MONGO_DSN"]; got != "mongodb://root:lerd@127.0.0.1:27017/site?authSource=admin" {
+		t.Errorf("MONGO_DSN = %q", got)
+	}
+	if got := updates["ELASTICSEARCH_URL"]; got != "http://127.0.0.1:9200" {
+		t.Errorf("ELASTICSEARCH_URL = %q", got)
+	}
+	// A standalone *_PORT with no host token is still remapped.
+	if got := updates["DB_PORT"]; got != "3411" {
+		t.Errorf("DB_PORT = %q, want 3411", got)
+	}
+}
+
+func TestRewriteEnvForHostProxy_usesPresetPorts(t *testing.T) {
+	// postgres + redis are default presets resolvable from the embedded YAML,
+	// so the full path (preset lookup -> port map -> rewrite) works offline.
+	updates := map[string]string{
+		"DB_HOST":    "lerd-postgres",
+		"DB_PORT":    "5432",
+		"REDIS_HOST": "lerd-redis",
+		"REDIS_PORT": "6379",
+	}
+	rewriteEnvForHostProxy(updates, []string{"postgres", "redis"})
+	if updates["DB_HOST"] != "127.0.0.1" || updates["REDIS_HOST"] != "127.0.0.1" {
+		t.Errorf("hosts not rewritten to loopback: %+v", updates)
+	}
+	if updates["DB_PORT"] != "5432" || updates["REDIS_PORT"] != "6379" {
+		t.Errorf("ports changed unexpectedly: %+v", updates)
+	}
+}
