@@ -40,6 +40,29 @@ commands:
 	}
 }
 
+// TestParseFrameworkEnvVars_YAML guards the env.vars schema wiring — the
+// unconditional env defaults a framework always applies (e.g. CodeIgniter's
+// CI_ENVIRONMENT=development).
+func TestParseFrameworkEnvVars_YAML(t *testing.T) {
+	src := []byte(`
+name: codeigniter
+version: "4"
+public_dir: public
+env:
+  file: .env
+  url_key: app.baseURL
+  vars:
+    - "CI_ENVIRONMENT=development"
+`)
+	var fw Framework
+	if err := yaml.Unmarshal(src, &fw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if want := []string{"CI_ENVIRONMENT=development"}; !reflect.DeepEqual(fw.Env.Vars, want) {
+		t.Errorf("env.vars = %v, want %v", fw.Env.Vars, want)
+	}
+}
+
 func TestParseProjectCommands_YAML(t *testing.T) {
 	src := []byte(`
 framework: laravel

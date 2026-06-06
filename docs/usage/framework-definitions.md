@@ -88,6 +88,8 @@ env:
   fallback_file: settings.php     # used when file doesn't exist (optional)
   fallback_format: php-const
   url_key: DEFAULT_URI            # env key holding the app URL (default: APP_URL)
+  vars:                           # unconditional env defaults, always applied (optional)
+    - "CI_ENVIRONMENT=development" # e.g. force CodeIgniter into dev mode for local work
   key_generation:                 # application key generation (optional)
     env_key: APP_KEY
     command: key:generate

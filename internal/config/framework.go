@@ -271,6 +271,14 @@ type FrameworkEnvConf struct {
 	// URLKey is the env key that holds the application URL (default: APP_URL).
 	URLKey string `yaml:"url_key,omitempty"`
 
+	// Vars are unconditional KEY=VALUE env defaults the framework always wants
+	// applied during `lerd env`, regardless of which services are detected
+	// (e.g. CodeIgniter's CI_ENVIRONMENT=development for local dev). They
+	// support the same {{...}} template placeholders as service vars and are
+	// applied as defaults, so detected-service values and personal
+	// .env.lerd_override entries still win over them.
+	Vars []string `yaml:"vars,omitempty"`
+
 	// Services defines per-service detection rules and env vars to apply.
 	// Keys match the built-in service names: mysql, postgres, redis, meilisearch, rustfs, mailpit.
 	Services map[string]FrameworkServiceDef `yaml:"services,omitempty"`
@@ -282,7 +290,7 @@ type FrameworkEnvConf struct {
 // EnvKeyGeneration describes how to generate an application encryption key.
 type EnvKeyGeneration struct {
 	EnvKey         string `yaml:"env_key"`                   // env var to check/set (e.g. "APP_KEY")
-	Command        string `yaml:"command,omitempty"`         // artisan command to run if vendor/ exists (e.g. "key:generate")
+	Command        string `yaml:"command,omitempty"`         // console command to run if vendor/ exists, via the framework's console binary (e.g. "key:generate")
 	FallbackPrefix string `yaml:"fallback_prefix,omitempty"` // prefix for random key fallback (e.g. "base64:")
 }
 

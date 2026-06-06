@@ -239,6 +239,30 @@ func TestShouldApplyService(t *testing.T) {
 	}
 }
 
+// TestConsoleExecArgs guards that key generation runs the framework's own
+// console binary, not a hardcoded "artisan". CodeIgniter (spark) was the first
+// store framework to define key_generation on a non-artisan console, which is
+// what surfaced the original bug.
+func TestConsoleExecArgs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		console string
+		want    string // the console binary expected in the exec args
+	}{
+		{"codeigniter uses spark", "spark", "spark"},
+		{"laravel uses artisan", "artisan", "artisan"},
+		{"empty console falls back to artisan", "", "artisan"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := consoleExecArgs("/proj", "8.4", tc.console, "key:generate")
+			want := []string{"exec", "-i", "-w", "/proj", "lerd-php84-fpm", "php", tc.want, "key:generate"}
+			if strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Errorf("consoleExecArgs(console=%q) = %v, want %v", tc.console, got, want)
+			}
+		})
+	}
+}
+
 // ── host-proxy env rewriting ──────────────────────────────────────────────────
 
 func TestSplitHostContainerPort(t *testing.T) {
