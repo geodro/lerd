@@ -363,6 +363,39 @@ func RemoveSite(name string) error {
 	return SaveSites(reg)
 }
 
+// ReorderSites permutes the registry so its sites follow the given order of
+// names. Names that don't match a site are ignored, and any site whose name is
+// absent from order is kept and appended after the ordered ones in its original
+// relative position, so paused sites and grouped secondaries are never dropped.
+func ReorderSites(order []string) error {
+	reg, err := LoadSites()
+	if err != nil {
+		return err
+	}
+
+	byName := make(map[string]int, len(reg.Sites))
+	for i, s := range reg.Sites {
+		byName[s.Name] = i
+	}
+
+	out := make([]Site, 0, len(reg.Sites))
+	placed := make([]bool, len(reg.Sites))
+	for _, name := range order {
+		if i, ok := byName[name]; ok && !placed[i] {
+			out = append(out, reg.Sites[i])
+			placed[i] = true
+		}
+	}
+	for i, s := range reg.Sites {
+		if !placed[i] {
+			out = append(out, s)
+		}
+	}
+
+	reg.Sites = out
+	return SaveSites(reg)
+}
+
 // IgnoreSite marks a site as ignored (used for parked sites that have been unlinked).
 func IgnoreSite(name string) error {
 	reg, err := LoadSites()

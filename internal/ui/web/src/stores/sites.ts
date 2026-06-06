@@ -407,6 +407,20 @@ export async function restoreSiteNginx(
   }
 }
 
+export async function reorderSites(order: string[]): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await apiFetch('/api/sites/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order })
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    return { ok: Boolean(data.ok), error: data.error };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
 export const restartSite = (d: string) => postAction(site(d, 'restart'));
 export const pauseSite = (d: string) => postAction(site(d, 'pause'));
 export const resumeSite = (d: string) => postAction(site(d, 'unpause'));

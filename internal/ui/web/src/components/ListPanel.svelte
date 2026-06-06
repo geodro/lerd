@@ -5,14 +5,16 @@
   interface Props {
     title: string;
     actions?: Snippet;
+    overlay?: Snippet; // pinned to the panel, floats over the scroll area
     children: Snippet;
   }
-  let { title, actions, children }: Props = $props();
+  let { title, actions, overlay, children }: Props = $props();
 </script>
 
-<div class="flex flex-col h-full">
+<div class="relative flex flex-col h-full">
   <ListPanelHeader {title} {actions} />
   <div class="flex-1 overflow-y-auto">
     {@render children()}
   </div>
+  {#if overlay}{@render overlay()}{/if}
 </div>

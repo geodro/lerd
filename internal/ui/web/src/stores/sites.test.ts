@@ -192,6 +192,46 @@ describe('sites store', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reorderSites POSTs the name order to /api/sites/reorder', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { reorderSites } = await import('./sites');
+
+    const res = await reorderSites(['gamma', 'alpha', 'beta']);
+
+    expect(res.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/api\/sites\/reorder$/);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ order: ['gamma', 'alpha', 'beta'] });
+    vi.unstubAllGlobals();
+  });
+
+  it('reorderSites surfaces backend errors verbatim', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: false, error: 'saving registry: disk full' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    );
+    const { reorderSites } = await import('./sites');
+
+    const res = await reorderSites(['a']);
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('saving registry: disk full');
+    vi.unstubAllGlobals();
+  });
+
   it('saveSiteEnv surfaces backend errors verbatim', async () => {
     vi.stubGlobal(
       'fetch',

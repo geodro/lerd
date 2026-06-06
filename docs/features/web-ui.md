@@ -81,6 +81,8 @@ Use `↑` / `↓` to move the selection, `↵` to execute, `esc` to close. The p
 
 The middle panel lists all registered projects. Active sites show a status dot (green when FPM is running), domain name, and small indicator dots for running workers (amber for queue/horizon, sky for reverb, emerald for schedule, violet for custom workers). Paused sites appear in a separate collapsible section.
 
+A **sort button** floats in the bottom-right corner of the list; clicking it opens a small menu with **Most used** (sites with the most recent app-log activity float to the top), **Alphabetical** (by domain), and **Newest first** (reverses the order sites were linked in). The choice is remembered across reloads. A drag handle appears on a site row when you hover it; grab it to drag the row into a new position, with the dragged row and the rest of the list animating smoothly into place. Dragging switches the list into a manual order seeded from whatever you were looking at, so there's no separate "manual" mode to pick. The new order is saved to `sites.yaml` and pushed live to any other open tab. Grouped subdomains always travel with their main site, and the paused section stays at the bottom.
+
 ![Site detail with the Overview tab open](/assets/screenshots/site-detail-overview.png)
 
 Selecting a site opens the detail panel with:

@@ -212,6 +212,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/node-versions/install", withCORS(publishAfter(handleInstallNodeVersion, eventbus.KindStatus)))
 	mux.HandleFunc("/api/node-versions/", withCORS(publishAfter(handleNodeVersionAction, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/link", withCORS(publishAfter(handleSiteLink, eventbus.KindSites)))
+	mux.HandleFunc("/api/sites/reorder", withCORS(publishAfter(handleSiteReorder, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/worktree-options", withCORS(handleSiteWorktreeOptions))
 	mux.HandleFunc("/api/sites/worktree-add", withCORS(publishAfter(handleSiteWorktreeAdd, eventbus.KindSites)))
 	mux.HandleFunc("/api/browse", withCORS(handleBrowse))
@@ -4614,6 +4615,29 @@ func handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 // handleSiteLink links a directory as a site via POST /api/sites/link.
 // It streams command output as SSE events and sends a final "done" event.
+// SiteReorderRequest is the JSON body for POST /api/sites/reorder.
+type SiteReorderRequest struct {
+	Order []string `json:"order"` // site names in the desired display order
+}
+
+func handleSiteReorder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+
+	var req SiteReorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, SiteActionResponse{Error: "invalid request body"})
+		return
+	}
+	if err := config.ReorderSites(req.Order); err != nil {
+		writeJSON(w, SiteActionResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, SiteActionResponse{OK: true})
+}
+
 func handleSiteLink(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
