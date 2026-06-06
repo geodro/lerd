@@ -35,6 +35,11 @@ export interface Site {
   host_proxy?: boolean;
   host_port?: number;
   host_has_dev_server?: boolean;
+  group?: string;
+  group_subdomain?: string;
+  group_main_domain?: string;
+  group_shared_db?: boolean;
+  multi_tenant?: boolean;
   worktrees?: Array<{
     branch?: string;
     domain?: string;
@@ -124,6 +129,10 @@ export function nodeSiteCount(v: string): number {
 
 export function findSite(domain: string): Site | undefined {
   return get(sites).find((s) => s.domain === domain);
+}
+
+export function isGroupSecondary(s: Site): boolean {
+  return Boolean(s.group) && Boolean(s.group_subdomain);
 }
 
 export function siteWorkerFailing(s: Site): boolean {

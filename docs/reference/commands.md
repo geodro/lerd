@@ -66,6 +66,11 @@ Setup steps include common tasks (composer install, npm install, lerd env) plus 
 | `lerd unpause [name]` | Resume a paused site: start container, restore vhost, restart workers |
 | `lerd restart [name]` | Restart the container for the current or named site (custom container or PHP-FPM) |
 | `lerd rebuild [name]` | Rebuild the custom container image from Containerfile and restart |
+| `lerd group add <main> <label>` | Group the current site under `<main>` (name or domain) at `<label>.<main-domain>`; add `--share-db` to share the main's database. See [Site Groups](../usage/site-groups.md) |
+| `lerd group label <label>` | Change the current secondary's subdomain label |
+| `lerd group db <share\|separate>` | Switch the current secondary between sharing the main's database and keeping its own |
+| `lerd group remove` | Ungroup the current secondary, restoring a standalone domain |
+| `lerd group list` | List all site groups and their members |
 | `lerd env` | Configure `.env` for the current project with lerd service connection settings; backs up the original as `.env.before_lerd` on first run (skipped if lerd has already written to the file) |
 | `lerd env:restore` | Restore `.env` from the pre-lerd backup (`.env.before_lerd`) |
 | `lerd env:override [KEY=VALUE ...]` | Create/seed a personal, gitignored `.env.lerd_override` whose values win over lerd's defaults on `lerd env`; `LERD_EXTERNAL_SERVICES=` marks services lerd should not start or provision |

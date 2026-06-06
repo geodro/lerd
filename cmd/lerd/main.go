@@ -159,6 +159,7 @@ func main() {
 	}
 	root.AddCommand(cli.NewShareCmd())
 	root.AddCommand(cli.NewDomainCmd())
+	root.AddCommand(cli.NewGroupCmd())
 	root.AddCommand(cli.NewFrameworkCmd())
 	root.AddCommand(cli.NewWorkerCmd())
 	root.AddCommand(cli.NewWorkersCmd())
@@ -614,7 +615,9 @@ func scanWorktrees() bool {
 		// the watcher was offline (event-driven cleanup needs fsnotify).
 		site := s
 		cli.DropOrphanedWorktreeDBs(&site)
-		worktrees, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+		// ServableWorktrees excludes any worktree whose subdomain is owned by a
+		// group secondary: the secondary serves that exact host already.
+		worktrees, err := gitpkg.ServableWorktrees(s.Path, s.PrimaryDomain())
 		if err != nil {
 			continue
 		}
@@ -718,7 +721,7 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 	if site.Paused {
 		return false
 	}
-	worktrees, err := gitpkg.DetectWorktrees(sitePath, site.PrimaryDomain())
+	worktrees, err := gitpkg.ServableWorktrees(sitePath, site.PrimaryDomain())
 	if err != nil {
 		return false
 	}
@@ -858,6 +861,13 @@ func removeStaleWorktreeVhosts(site *config.Site, worktrees []gitpkg.Worktree) b
 	changed := false
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), suffix) && !current[e.Name()] {
+			// A conf whose domain belongs to a separately-registered site (e.g. a
+			// group secondary at <label>.<primary>) is not a stale worktree vhost;
+			// leave it alone.
+			domain := strings.TrimSuffix(e.Name(), ".conf")
+			if _, err := config.FindSiteByDomain(domain); err == nil {
+				continue
+			}
 			_ = os.Remove(filepath.Join(confD, e.Name()))
 			changed = true
 		}
@@ -877,8 +887,15 @@ func removeWorktreeVhosts(site *config.Site) []string {
 	var removed []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), suffix) {
+			// A conf whose domain belongs to a separately-registered site (e.g. a
+			// group secondary at <label>.<primary>) is not a worktree vhost; never
+			// delete it, or the secondary stops being served.
+			domain := strings.TrimSuffix(e.Name(), ".conf")
+			if _, err := config.FindSiteByDomain(domain); err == nil {
+				continue
+			}
 			_ = os.Remove(filepath.Join(confD, e.Name()))
-			removed = append(removed, strings.TrimSuffix(e.Name(), ".conf"))
+			removed = append(removed, domain)
 		}
 	}
 	return removed

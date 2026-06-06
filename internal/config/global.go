@@ -278,6 +278,16 @@ func invalidateGlobalCache() {
 	globalCacheMu.Unlock()
 }
 
+// EffectiveTLD returns the configured DNS TLD, falling back to "test" when the
+// global config can't be loaded or leaves it empty. Single source of truth for
+// the many callers that need the active TLD with that default.
+func EffectiveTLD() string {
+	if cfg, err := LoadGlobal(); err == nil && cfg.DNS.TLD != "" {
+		return cfg.DNS.TLD
+	}
+	return "test"
+}
+
 // LoadGlobal reads config.yaml via viper, returning defaults if the file is absent.
 func LoadGlobal() (*GlobalConfig, error) {
 	cfgFile := GlobalConfigFile()

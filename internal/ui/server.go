@@ -35,6 +35,7 @@ import (
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/eventbus"
 	gitpkg "github.com/geodro/lerd/internal/git"
+	"github.com/geodro/lerd/internal/grouping"
 	"github.com/geodro/lerd/internal/nginx"
 	lerdNode "github.com/geodro/lerd/internal/node"
 	phpPkg "github.com/geodro/lerd/internal/php"
@@ -713,6 +714,15 @@ type SiteResponse struct {
 	HostProxy        bool     `json:"host_proxy,omitempty"`
 	HostPort         int      `json:"host_port,omitempty"`
 	HostHasDevServer bool     `json:"host_has_dev_server,omitempty"`
+	// Grouping — Group is the group key (main site's name); GroupSubdomain is the
+	// label a secondary occupies; GroupMainDomain is the group main's base domain.
+	// MultiTenant flags a main whose project declares env_overrides (wildcard
+	// tenant subdomains) so the UI can warn that a secondary carves out a label.
+	Group           string `json:"group,omitempty"`
+	GroupSubdomain  string `json:"group_subdomain,omitempty"`
+	GroupMainDomain string `json:"group_main_domain,omitempty"`
+	GroupSharedDB   bool   `json:"group_shared_db,omitempty"`
+	MultiTenant     bool   `json:"multi_tenant,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -728,6 +738,15 @@ func buildSites() []SiteResponse {
 		return []SiteResponse{}
 	}
 	_ = siteinfo.PersistVersionChanges(enriched)
+
+	// Map each group key to its main site's base domain so secondaries can
+	// report group_main_domain without a second lookup.
+	groupMainDomain := map[string]string{}
+	for _, e := range enriched {
+		if e.Group != "" && e.GroupSubdomain == "" {
+			groupMainDomain[e.Group] = e.PrimaryDomain()
+		}
+	}
 
 	sites := make([]SiteResponse, 0, len(enriched))
 	for _, e := range enriched {
@@ -836,6 +855,11 @@ func buildSites() []SiteResponse {
 			HostProxy:          e.HostPort > 0,
 			HostPort:           e.HostPort,
 			HostHasDevServer:   e.HostPort > 0 && e.HostCommand != "",
+			Group:              e.Group,
+			GroupSubdomain:     e.GroupSubdomain,
+			GroupMainDomain:    groupMainDomain[e.Group],
+			GroupSharedDB:      e.GroupSharedDB,
+			MultiTenant:        e.Group != "" && e.GroupSubdomain == "" && siteHasEnvOverrides(e.Path),
 		})
 	}
 	return sites
@@ -3334,6 +3358,11 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
 			fmt.Fprintf(os.Stderr, "lerd-ui: syncing .env to new primary domain: %v\n", err)
 		}
+		if site.IsGroupMain() {
+			if err := grouping.CascadeMainDomainChange(site); err != nil {
+				fmt.Fprintf(os.Stderr, "lerd-ui: cascading group domain change: %v\n", err)
+			}
+		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
 	case "domain:remove":
@@ -3408,6 +3437,68 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		_ = nginx.Reload()
 		if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
 			fmt.Fprintf(os.Stderr, "lerd-ui: syncing .env to new primary domain: %v\n", err)
+		}
+		if site.IsGroupMain() {
+			if err := grouping.CascadeMainDomainChange(site); err != nil {
+				fmt.Fprintf(os.Stderr, "lerd-ui: cascading group domain change: %v\n", err)
+			}
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "group:assign":
+		secondaryDomain := r.URL.Query().Get("secondary")
+		label := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("label")))
+		if secondaryDomain == "" || label == "" {
+			writeJSON(w, SiteActionResponse{Error: "secondary and label parameters required"})
+			return
+		}
+		secondary, secErr := config.FindSiteByDomain(secondaryDomain)
+		if secErr != nil {
+			writeJSON(w, SiteActionResponse{Error: "secondary site not found: " + secondaryDomain})
+			return
+		}
+		shareDB := r.URL.Query().Get("share_db") == "1"
+		if err := grouping.AssignSecondary(site, secondary, label, shareDB); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "group:set-db":
+		share := r.URL.Query().Get("share") == "1"
+		if err := grouping.SetSecondarySharedDB(site, share); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "group:unassign":
+		if err := grouping.UnassignSecondary(site); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "group:set-label":
+		label := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("label")))
+		if label == "" {
+			writeJSON(w, SiteActionResponse{Error: "label parameter required"})
+			return
+		}
+		if err := grouping.SetSecondaryLabel(site, label); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "group:remove":
+		if site.Group == "" {
+			writeJSON(w, SiteActionResponse{Error: "site is not part of a group"})
+			return
+		}
+		if err := grouping.DissolveGroup(site.Group); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
@@ -4372,6 +4463,18 @@ func siteHasEnv(sitePath string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+// siteHasEnvOverrides reports whether the project declares env_overrides in its
+// .lerd.yaml, which lerd uses for per-tenant/per-worktree subdomain templating.
+// The UI warns when grouping a secondary under such a main, since the chosen
+// subdomain is carved out of the main's wildcard tenant space.
+func siteHasEnvOverrides(sitePath string) bool {
+	if sitePath == "" {
+		return false
+	}
+	cfg, err := config.LoadProjectConfig(sitePath)
+	return err == nil && cfg != nil && len(cfg.EnvOverrides) > 0
 }
 
 // resolveSitePath returns the filesystem path for the site or one of its

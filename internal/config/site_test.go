@@ -552,6 +552,41 @@ func TestSaveLoad_HostProxy_RoundTrip(t *testing.T) {
 	}
 }
 
+// ── Group fields round-trip ─────────────────────────────────────────────────
+
+func TestSaveLoad_GroupFields_RoundTrip(t *testing.T) {
+	setDataDir(t)
+
+	reg := &SiteRegistry{
+		Sites: []Site{
+			{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov", Group: "astrolov"},
+			{Name: "admin-astrolov", Domains: []string{"admin.astrolov.test"}, Path: "/srv/admin",
+				Group: "astrolov", GroupSubdomain: "admin"},
+		},
+	}
+	if err := SaveSites(reg); err != nil {
+		t.Fatalf("SaveSites: %v", err)
+	}
+
+	got, err := LoadSites()
+	if err != nil {
+		t.Fatalf("LoadSites: %v", err)
+	}
+	main, sec := got.Sites[0], got.Sites[1]
+	if main.Group != "astrolov" || main.GroupSubdomain != "" {
+		t.Errorf("main group fields = %q/%q, want astrolov/empty", main.Group, main.GroupSubdomain)
+	}
+	if !main.IsGroupMain() || main.IsGroupSecondary() {
+		t.Errorf("main classification wrong: IsGroupMain=%v IsGroupSecondary=%v", main.IsGroupMain(), main.IsGroupSecondary())
+	}
+	if sec.Group != "astrolov" || sec.GroupSubdomain != "admin" {
+		t.Errorf("secondary group fields = %q/%q, want astrolov/admin", sec.Group, sec.GroupSubdomain)
+	}
+	if !sec.IsGroupSecondary() || sec.IsGroupMain() {
+		t.Errorf("secondary classification wrong: IsGroupSecondary=%v IsGroupMain=%v", sec.IsGroupSecondary(), sec.IsGroupMain())
+	}
+}
+
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
 func TestLoadSites_CacheReturnsIndependentCopy(t *testing.T) {

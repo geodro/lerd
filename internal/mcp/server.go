@@ -221,7 +221,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "service_control",
-			Description: "Lifecycle. update=pull. migrate=dump+restore. rollback=revert. remove=delete; remove_data also wipes data dir (rename-aside). reinstall=stop+remove+install same version; reset_data wipes data and reprovisions linked sites' DBs/buckets.",
+			Description: "Lifecycle. update=pull. migrate=dump+restore. rollback=revert. remove=delete; remove_data also wipes data dir (rename-aside). reinstall=stop+remove+install same ver; reset_data wipes data, reprovisions linked DBs/buckets.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -247,7 +247,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "site_nginx",
-			Description: "Read/write/reset a site's custom nginx override. Saving runs nginx -t, backs up the prior file, and reloads. branch=<name> targets a worktree (new worktrees inherit main's override).",
+			Description: "Read/write/reset a site's custom nginx override. Saving runs nginx -t, backs up, reloads. branch=<name> targets a worktree (inherits main's override).",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -424,7 +424,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_setup",
-			Description: "Configure .env (services, DBs, APP_KEY, APP_URL). Call after site_link, then ALWAYS follow with setup to run migrations. For sqlite DB_CONNECTION, pick db_set first if you want mysql/postgres instead.",
+			Description: "Configure .env (services, DBs, APP_KEY, APP_URL). Call after site_link, then ALWAYS follow with setup to run migrations. Pick db_set first for mysql/postgres over sqlite.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -434,7 +434,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "setup",
-			Description: "Run the framework's post-install steps (migrations, storage:link, etc.). MANDATORY after env_setup on new or cloned projects — otherwise migrations never run. Idempotent.",
+			Description: "Run the framework's post-install steps (migrations, storage:link, …). MANDATORY after env_setup on new/cloned projects or migrations never run. Idempotent.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -444,7 +444,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "db_set",
-			Description: "Pick the project database: sqlite, mysql, postgres, or an installed family alternate (mariadb, postgres-pgvector, …). Persists to .lerd.yaml, rewrites DB_ keys, starts service, creates DB + _testing.",
+			Description: "Pick the project database: sqlite, mysql, postgres, or a family alternate (mariadb, pgvector…). Persists to .lerd.yaml, rewrites DB_ keys, starts service, creates DB + _testing.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -466,7 +466,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "env_override",
-			Description: "Manage the personal, gitignored .env.lerd_override; its KEY=VALUE pairs win over lerd's defaults on env_setup. LERD_EXTERNAL_SERVICES=<svc,svc> marks services lerd writes vars for but won't start. No 'set' scaffolds and shows the file.",
+			Description: "Manage the personal, gitignored .env.lerd_override; its KEY=VALUE win over lerd defaults on env_setup. LERD_EXTERNAL_SERVICES=<svc,svc> marks vars lerd writes but won't start. No 'set' shows it.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -498,7 +498,7 @@ func toolList() []mcpTool {
 		},
 		{
 			Name:        "site_domain",
-			Description: "Add or remove a site domain (no .test TLD). Can't remove the last one.",
+			Description: "Add/remove a site domain (no .test TLD). Can't remove the last.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -510,8 +510,24 @@ func toolList() []mcpTool {
 			},
 		},
 		{
+			Name:        "site_group",
+			Description: "Group sites: a main owns a base domain, secondaries occupy its subdomains. path=secondary. assign(main,label[,share_db]); label; db=share|separate; unassign; list. One level deep.",
+			InputSchema: mcpSchema{
+				Type: "object",
+				Properties: map[string]mcpProp{
+					"action":   {Type: "string", Enum: []string{"assign", "unassign", "label", "db", "list"}},
+					"path":     {Type: "string", Description: "Secondary dir. Default cwd."},
+					"main":     {Type: "string", Description: "assign: main name/domain."},
+					"label":    {Type: "string", Description: "assign/label: subdomain, e.g. admin."},
+					"share_db": {Type: "boolean", Description: "assign: share the main's DB."},
+					"db":       {Type: "string", Enum: []string{"share", "separate"}},
+				},
+				Required: []string{"action"},
+			},
+		},
+		{
 			Name:        "site_tls",
-			Description: "Toggle HTTPS for a site (mkcert). Syncs APP_URL + VITE_REVERB_* in .env, reloads nginx, restarts Stripe listener and LAN share.",
+			Description: "Toggle HTTPS (mkcert). Syncs APP_URL/VITE_REVERB_* in .env, reloads nginx, restarts Stripe + LAN share.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -809,7 +825,7 @@ func toolList() []mcpTool {
 	tools = append(tools,
 		mcpTool{
 			Name:        "worker",
-			Description: "Start or stop a framework-defined worker. Call worker_list first. Pass branch=<name> to target a per-worktree unit (lerd-<worker>-<site>-<branch>) for workers with per_worktree:true (e.g. vite). Without branch, the parent site's unit is targeted.",
+			Description: "Start or stop a framework-defined worker (call worker_list first). branch=<name> targets a per-worktree unit (per_worktree workers like vite); without it, the parent site's unit.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -885,7 +901,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "workers_mode",
-			Description: "Show or set the macOS worker runtime mode. exec=one podman exec per worker, supervised by launchd (default; lower memory). container=one detached container per worker (1:1 supervisor boundary). Linux always uses exec under systemd, this setting is a no-op there. Setting on macOS restarts active workers in the new shape.",
+			Description: "Show or set the macOS worker runtime mode. exec=one podman exec per worker via launchd (default, lower memory); container=one detached container each. No-op on Linux. Restarts active workers.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -955,7 +971,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "bug_report",
-			Description: "Generate a plain-text diagnostic report (lerd doctor + config + systemd / podman state + recent logs + env vars) for attaching to a GitHub issue. Site names, domains and parked-directory paths are anonymised by default. Returns the file path.",
+			Description: "Generate a plain-text diagnostic report (doctor + config + systemd/podman state + logs + env) for a GitHub issue. Names, domains and paths anonymised by default. Returns the file path.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1051,7 +1067,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_php",
-			Description: "Change a site's PHP version. Writes .php-version and regenerates the nginx vhost. Pass branch=<name> to pin the version on a specific worktree (writes .php-version + .lerd.yaml override inside the worktree's checkout, regenerates only that worktree's vhost) instead of the parent site.",
+			Description: "Change a site's PHP version (writes .php-version, regenerates the vhost). Pass branch=<name> to pin it on that worktree's checkout instead of the parent site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1067,7 +1083,7 @@ func toolList() []mcpTool {
 		},
 		mcpTool{
 			Name:        "site_node",
-			Description: "Change a site's Node.js version. Writes .node-version; installs via fnm if needed. Pass branch=<name> to pin the version on a specific worktree (writes .node-version + .lerd.yaml override inside the worktree's checkout) instead of the parent site.",
+			Description: "Change a site's Node.js version (writes .node-version, installs via fnm if needed). Pass branch=<name> to pin it on that worktree's checkout instead of the parent site.",
 			InputSchema: mcpSchema{
 				Type: "object",
 				Properties: map[string]mcpProp{
@@ -1353,6 +1369,22 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 			return execSiteDomainRemove(args)
 		default:
 			return unknownAction("site_domain")
+		}
+
+	case "site_group":
+		switch action {
+		case "assign":
+			return execSiteGroupAssign(args)
+		case "unassign":
+			return execSiteGroupUnassign(args)
+		case "label":
+			return execSiteGroupLabel(args)
+		case "db":
+			return execSiteGroupDB(args)
+		case "list":
+			return execSiteGroupList(args)
+		default:
+			return unknownAction("site_group")
 		}
 
 	case "site_tls":

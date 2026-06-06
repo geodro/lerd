@@ -3,6 +3,7 @@ import type { Site } from './sites';
 
 export type ModalKind =
   | 'domain'
+  | 'group'
   | 'link'
   | 'preset'
   | 'remoteControl'
@@ -157,6 +158,10 @@ export const modal = writable<ModalState>({ kind: null });
 
 export function openDomainModal(site: Site) {
   modal.set({ kind: 'domain', site });
+}
+
+export function openGroupModal(site: Site) {
+  modal.set({ kind: 'group', site });
 }
 
 export function openLinkModal() {

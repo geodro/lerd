@@ -41,46 +41,91 @@ func runSites(_ *cobra.Command, _ []string) error {
 
 	width := termWidth()
 
+	// Print each main/standalone site, immediately followed by its group
+	// secondaries (a secondary occupies <label>.<main-domain> and reads as a
+	// child of the main, like aliases and worktrees do).
+	secondariesByGroup := map[string][]siteinfo.EnrichedSite{}
 	for _, s := range sites {
-		site := config.Site{
-			Name:        s.Name,
-			Domains:     s.Domains,
-			Path:        s.Path,
-			PHPVersion:  s.PHPVersion,
-			NodeVersion: s.NodeVersion,
-			Secured:     s.Secured,
-			Paused:      s.Paused,
+		if s.Group != "" && s.GroupSubdomain != "" {
+			secondariesByGroup[s.Group] = append(secondariesByGroup[s.Group], s)
 		}
-
-		switch {
-		case width >= 120:
-			printSiteWide(site, s.FrameworkLabel)
-			for _, d := range s.Domains[1:] {
-				printAliasDomainWide(d)
-			}
-			for _, wt := range s.Worktrees {
-				printWorktreeWide(wt, site)
-			}
-		case width >= 80:
-			printSiteMedium(site, s.FrameworkLabel)
-			for _, d := range s.Domains[1:] {
-				printAliasDomainMedium(d)
-			}
-			for _, wt := range s.Worktrees {
-				printWorktreeMedium(wt, site)
-			}
-		default:
-			printSiteCompact(site, s.FrameworkLabel)
-			for _, d := range s.Domains[1:] {
-				printAliasDomainCompact(d)
-			}
-			for _, wt := range s.Worktrees {
-				printWorktreeCompact(wt, site)
-			}
+	}
+	seen := map[string]bool{}
+	for _, s := range sites {
+		if s.GroupSubdomain != "" {
+			continue // printed under its main
+		}
+		printEnrichedSite(s, width, false)
+		seen[s.Name] = true
+		for _, sec := range secondariesByGroup[s.Group] {
+			printEnrichedSite(sec, width, true)
+			seen[sec.Name] = true
+		}
+	}
+	// Any secondary whose main isn't listed (shouldn't happen, but never hide a site).
+	for _, s := range sites {
+		if s.GroupSubdomain != "" && !seen[s.Name] {
+			printEnrichedSite(s, width, true)
 		}
 	}
 
 	return nil
+}
+
+// printEnrichedSite prints one site row (plus its alias domains and worktrees)
+// at the right layout for the terminal width. When grouped is true the site is
+// a group secondary and is rendered indented beneath its main.
+func printEnrichedSite(s siteinfo.EnrichedSite, width int, grouped bool) {
+	site := config.Site{
+		Name:           s.Name,
+		Domains:        s.Domains,
+		Path:           s.Path,
+		PHPVersion:     s.PHPVersion,
+		NodeVersion:    s.NodeVersion,
+		Secured:        s.Secured,
+		Paused:         s.Paused,
+		Group:          s.Group,
+		GroupSubdomain: s.GroupSubdomain,
+	}
+
+	switch {
+	case width >= 120:
+		if grouped {
+			printGroupSecondaryWide(site, s.FrameworkLabel)
+		} else {
+			printSiteWide(site, s.FrameworkLabel)
+		}
+		for _, d := range s.Domains[1:] {
+			printAliasDomainWide(d)
+		}
+		for _, wt := range s.Worktrees {
+			printWorktreeWide(wt, site)
+		}
+	case width >= 80:
+		if grouped {
+			printGroupSecondaryMedium(site, s.FrameworkLabel)
+		} else {
+			printSiteMedium(site, s.FrameworkLabel)
+		}
+		for _, d := range s.Domains[1:] {
+			printAliasDomainMedium(d)
+		}
+		for _, wt := range s.Worktrees {
+			printWorktreeMedium(wt, site)
+		}
+	default:
+		if grouped {
+			printGroupSecondaryCompact(site, s.FrameworkLabel)
+		} else {
+			printSiteCompact(site, s.FrameworkLabel)
+		}
+		for _, d := range s.Domains[1:] {
+			printAliasDomainCompact(d)
+		}
+		for _, wt := range s.Worktrees {
+			printWorktreeCompact(wt, site)
+		}
+	}
 }
 
 func pausedTag() string { return "\033[33mpaused\033[0m" }
@@ -121,6 +166,20 @@ func printWorktreeWide(wt siteinfo.WorktreeInfo, s config.Site) {
 		s.PHPVersion, s.NodeVersion, "—", "", "", wt.Path)
 }
 
+func printGroupSecondaryWide(s config.Site, fwLabel string) {
+	tls := "No"
+	if s.Secured {
+		tls = "Yes"
+	}
+	statusCol := fmt.Sprintf("%-8s", "")
+	if s.Paused {
+		statusCol = pausedTag() + "  "
+	}
+	fmt.Printf("  %-20s %-32s %-6s %-6s %-4s %-10s %s %s\n",
+		"↳ grp "+truncate(s.Name, 14), truncate(s.PrimaryDomain(), 32),
+		s.PHPVersion, s.NodeVersion, tls, fwLabel, statusCol, s.Path)
+}
+
 // Medium layout: Domain PHP TLS Framework Status Path  (80–119 cols, no Node, shorter Name)
 func printSiteMedium(s config.Site, fwLabel string) {
 	if !siteMediumHeaderPrinted {
@@ -154,6 +213,19 @@ func printWorktreeMedium(wt siteinfo.WorktreeInfo, s config.Site) {
 		"↳ "+truncate(wt.Domain, 24), s.PHPVersion, "—", "", "", wt.Path)
 }
 
+func printGroupSecondaryMedium(s config.Site, fwLabel string) {
+	tls := "No"
+	if s.Secured {
+		tls = "Yes"
+	}
+	statusCol := fmt.Sprintf("%-8s", "")
+	if s.Paused {
+		statusCol = pausedTag() + "  "
+	}
+	fmt.Printf("  %-26s %-6s %-4s %-10s %s %s\n",
+		"↳ grp "+truncate(s.PrimaryDomain(), 20), s.PHPVersion, tls, fwLabel, statusCol, s.Path)
+}
+
 // Compact layout: two lines per site  (<80 cols)
 func printSiteCompact(s config.Site, fwLabel string) {
 	status := ""
@@ -182,6 +254,26 @@ func printAliasDomainCompact(domain string) {
 func printWorktreeCompact(wt siteinfo.WorktreeInfo, _ config.Site) {
 	fmt.Printf("  ↳ %s\n", wt.Domain)
 	fmt.Printf("    %s\n", truncate(wt.Path, 74))
+}
+
+func printGroupSecondaryCompact(s config.Site, fwLabel string) {
+	status := ""
+	if s.Paused {
+		status = " [" + pausedTag() + "]"
+	}
+	tls := ""
+	if s.Secured {
+		tls = " 🔒"
+	}
+	meta := s.PHPVersion
+	if fwLabel != "" {
+		meta += " · " + fwLabel
+	}
+	fmt.Printf("  ↳ grp %s%s%s\n", s.PrimaryDomain(), tls, status)
+	fmt.Printf("    %s\n", truncate(s.Path, 74))
+	if meta != "" {
+		fmt.Printf("    \033[2m%s\033[0m\n", meta)
+	}
 }
 
 // package-level header guards so headers print once per run

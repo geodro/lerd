@@ -72,6 +72,39 @@ func filteredSortedSites(list []siteinfo.EnrichedSite, filter string, mode siteS
 	default:
 		sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	}
+	return groupSecondariesUnderMains(out)
+}
+
+// groupSecondariesUnderMains reorders a sorted site list so each group secondary
+// immediately follows its main, keeping the sort order among mains/standalone
+// sites. A secondary whose main isn't in the list (e.g. filtered out) keeps its
+// own place so it never disappears.
+func groupSecondariesUnderMains(list []siteinfo.EnrichedSite) []siteinfo.EnrichedSite {
+	hasMain := map[string]bool{}
+	for _, s := range list {
+		if s.Group != "" && s.GroupSubdomain == "" {
+			hasMain[s.Group] = true
+		}
+	}
+	secByGroup := map[string][]siteinfo.EnrichedSite{}
+	for _, s := range list {
+		if s.Group != "" && s.GroupSubdomain != "" && hasMain[s.Group] {
+			secByGroup[s.Group] = append(secByGroup[s.Group], s)
+		}
+	}
+	if len(secByGroup) == 0 {
+		return list
+	}
+	out := make([]siteinfo.EnrichedSite, 0, len(list))
+	for _, s := range list {
+		if s.Group != "" && s.GroupSubdomain != "" && hasMain[s.Group] {
+			continue // placed under its main below
+		}
+		out = append(out, s)
+		if s.Group != "" && s.GroupSubdomain == "" {
+			out = append(out, secByGroup[s.Group]...)
+		}
+	}
 	return out
 }
 

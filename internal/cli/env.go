@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
+	"github.com/geodro/lerd/internal/grouping"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
@@ -116,6 +117,11 @@ func projectDBName(path string) string {
 	if reg, err := config.LoadSites(); err == nil {
 		for _, s := range reg.Sites {
 			if s.Path == path {
+				// A shared-DB group secondary uses the group main's database, so
+				// env setup must not reset it to the secondary's own slug.
+				if shared, ok := grouping.SharedDBNameFor(&s); ok {
+					return shared
+				}
 				name = s.Name
 				break
 			}

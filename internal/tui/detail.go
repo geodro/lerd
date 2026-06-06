@@ -527,6 +527,40 @@ func detailContentLines(m *Model, site *siteinfo.EnrichedSite, focused bool, inn
 	if site.Path != "" {
 		addPlain(dimStyle.Render("  path: ") + site.Path)
 	}
+	if site.Group != "" {
+		if site.GroupSubdomain != "" {
+			// Resolve the main from the registry rather than trimming the label
+			// off this site's own domain, which breaks if the primary isn't
+			// literally <label>.<main> (e.g. an alias was promoted to primary).
+			mainDomain := ""
+			for _, s := range m.snap.Sites {
+				if s.Group == site.Group && s.GroupSubdomain == "" {
+					mainDomain = s.PrimaryDomain()
+					break
+				}
+			}
+			if mainDomain == "" {
+				mainDomain = strings.TrimPrefix(site.PrimaryDomain(), site.GroupSubdomain+".")
+			}
+			line := "  group: secondary of " + mainDomain
+			if site.GroupSharedDB {
+				line += " · shared db"
+			}
+			addPlain(dimStyle.Render(line))
+		} else {
+			n := 0
+			for _, s := range m.snap.Sites {
+				if s.Group == site.Group && s.GroupSubdomain != "" {
+					n++
+				}
+			}
+			noun := "secondaries"
+			if n == 1 {
+				noun = "secondary"
+			}
+			addPlain(dimStyle.Render(fmt.Sprintf("  group: main · %d %s", n, noun)))
+		}
+	}
 
 	scheme := "http"
 	if site.Secured {

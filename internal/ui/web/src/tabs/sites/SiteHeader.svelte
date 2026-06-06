@@ -14,7 +14,13 @@
     toggleTLS,
     toggleLANShare
   } from '$stores/sites';
-  import { openDomainModal, openWorktreeAddModal, openWorktreeRemoveModal } from '$stores/modals';
+  import {
+    openDomainModal,
+    openGroupModal,
+    openWorktreeAddModal,
+    openWorktreeRemoveModal
+  } from '$stores/modals';
+  import Icon from '$components/Icon.svelte';
   import { accessMode } from '$stores/accessMode';
   import { status, loadStatus } from '$stores/status';
   import { xdebugOn, xdebugOff, type XdebugMode } from '$stores/xdebug';
@@ -379,6 +385,23 @@
       {/if}
 
       <DomainMorePill {site} />
+
+      {#if !activeWorktreeBranch && !site.host_proxy}
+        <button
+          type="button"
+          onclick={() => openGroupModal(site)}
+          title={site.group ? 'Manage group' : 'Group with another site'}
+          aria-label="Manage group"
+          class="inline-flex items-center gap-1 shrink-0 text-xs transition-colors {site.group
+            ? 'text-lerd-red'
+            : 'text-gray-400 dark:text-gray-500 hover:text-lerd-red'}"
+        >
+          <Icon name="group" class="w-3.5 h-3.5" />
+          {#if site.group_subdomain}
+            <span class="font-mono">{site.group_subdomain}.</span>
+          {/if}
+        </button>
+      {/if}
 
       <span class="flex items-center gap-1.5 shrink-0">
         {#if activeFrameworkLabel}

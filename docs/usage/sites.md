@@ -158,6 +158,8 @@ When a site is secured with HTTPS, the certificate is automatically reissued to 
 
 Subdomains (e.g. `anything.myapp.test`) are automatically routed to the same site. Git worktree subdomains take priority when they exist.
 
+To route a subdomain to a **different** site instead (for example a separate admin app at `admin.myapp.test`), group the two sites rather than adding an alias. See [Site Groups](site-groups.md).
+
 ---
 
 ## Domain conflicts

@@ -124,6 +124,12 @@ type EnrichedSite struct {
 	// Custom framework workers
 	FrameworkWorkers []WorkerInfo
 
+	// Grouping — Group is the group key (the main site's name); GroupSubdomain
+	// is the label a secondary occupies on the main's base domain.
+	Group          string
+	GroupSubdomain string
+	GroupSharedDB  bool
+
 	// Git
 	Branch    string
 	Worktrees []WorktreeInfo
@@ -260,6 +266,9 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		Runtime:             s.Runtime,
 		RuntimeWorker:       s.RuntimeWorker,
 		FrameworkName:       s.Framework,
+		Group:               s.Group,
+		GroupSubdomain:      s.GroupSubdomain,
+		GroupSharedDB:       s.GroupSharedDB,
 		OriginalPHPVersion:  s.PHPVersion,
 		OriginalNodeVersion: s.NodeVersion,
 	}
@@ -554,7 +563,7 @@ func enrichWorktreeWorkers(siteName, wtPath string, fw *config.Framework) []Work
 
 func (e *EnrichedSite) enrichGit() {
 	e.Branch = gitpkg.MainBranch(e.Path)
-	if wts, err := gitpkg.DetectWorktrees(e.Path, e.PrimaryDomain()); err == nil {
+	if wts, err := gitpkg.ServableWorktrees(e.Path, e.PrimaryDomain()); err == nil {
 		for _, wt := range wts {
 			info := WorktreeInfo{
 				Branch:      wt.Branch,

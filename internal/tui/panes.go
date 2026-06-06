@@ -409,6 +409,11 @@ func renderSiteRow(selected bool, s siteinfo.EnrichedSite, paneW int) string {
 	if name == "" {
 		name = s.Name
 	}
+	// Group secondaries are listed directly under their main; the marker reads
+	// them as a child occupying a subdomain of the main above.
+	if s.GroupSubdomain != "" {
+		name = "↳ " + name
+	}
 	if s.Paused {
 		name += " (paused)"
 	}

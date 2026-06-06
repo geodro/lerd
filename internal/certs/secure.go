@@ -51,7 +51,7 @@ func SecureSite(site config.Site) error {
 	}
 
 	// Regenerate SSL vhosts and sync APP_URL + VITE_REVERB_* for worktrees.
-	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
+	if worktrees, err := gitpkg.ServableWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 			_ = nginx.GenerateWorktreeSSLVhost(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Name, wt.Branch)
@@ -79,7 +79,7 @@ func issueCertWithWorktrees(site config.Site) error {
 	certsDir := filepath.Join(config.CertsDir(), "sites")
 
 	var wtDomains []string
-	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
+	if worktrees, err := gitpkg.ServableWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			wtDomains = append(wtDomains, wt.Domain)
 		}
@@ -124,7 +124,7 @@ func UnsecureSite(site config.Site) error {
 	}
 
 	// Switch any worktree SSL vhosts back to plain HTTP and sync env.
-	if worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain()); err == nil {
+	if worktrees, err := gitpkg.ServableWorktrees(site.Path, site.PrimaryDomain()); err == nil {
 		for _, wt := range worktrees {
 			effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 			_ = nginx.GenerateWorktreeVhost(wt.Domain, wt.Path, effectivePHP, site.Name, wt.Branch)

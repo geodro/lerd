@@ -1,6 +1,7 @@
 <script lang="ts">
   import { modal } from '$stores/modals';
   import DomainModal from './DomainModal.svelte';
+  import GroupModal from './GroupModal.svelte';
   import LinkModal from './LinkModal.svelte';
   import PresetModal from './PresetModal.svelte';
   import RemoteControlModal from './RemoteControlModal.svelte';
@@ -27,6 +28,8 @@
 
 {#if $modal.kind === 'domain' && $modal.site}
   <DomainModal site={$modal.site} />
+{:else if $modal.kind === 'group' && $modal.site}
+  <GroupModal site={$modal.site} />
 {:else if $modal.kind === 'link'}
   <LinkModal />
 {:else if $modal.kind === 'preset'}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/grouping"
 	"github.com/geodro/lerd/internal/nginx"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/siteops"
@@ -129,6 +130,12 @@ func runDomainAdd(_ *cobra.Command, args []string) error {
 		fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
 	}
 
+	if site.IsGroupMain() {
+		if err := grouping.CascadeMainDomainChange(site); err != nil {
+			fmt.Printf("[WARN] cascading group domain change: %v\n", err)
+		}
+	}
+
 	fmt.Printf("Added domain %s to site %s\n", fullDomain, site.Name)
 	return nil
 }
@@ -195,6 +202,12 @@ func runDomainRemove(_ *cobra.Command, args []string) error {
 
 	if err := siteops.SyncEnvIfPrimaryChanged(site, oldPrimary); err != nil {
 		fmt.Printf("[WARN] syncing .env to new primary domain: %v\n", err)
+	}
+
+	if site.IsGroupMain() {
+		if err := grouping.CascadeMainDomainChange(site); err != nil {
+			fmt.Printf("[WARN] cascading group domain change: %v\n", err)
+		}
 	}
 
 	fmt.Printf("Removed domain %s from site %s\n", fullDomain, site.Name)

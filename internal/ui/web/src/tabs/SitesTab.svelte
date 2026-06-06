@@ -17,6 +17,31 @@
   const selected = $derived($routeRest);
   const active = $derived($sites.filter((s) => !s.paused));
   const paused = $derived($sites.filter((s) => s.paused));
+  function secondariesFor(s: Site): Site[] {
+    if (!s.group) return [];
+    return active.filter((x) => x.group === s.group && x.group_subdomain);
+  }
+
+  // Ordered active rows: each main followed by its secondaries (marked grouped).
+  // Any active secondary whose main isn't active (e.g. the main is paused) is
+  // appended on its own so it never disappears from the sidebar.
+  const orderedActive = $derived.by(() => {
+    const rows: Array<{ site: Site; grouped: boolean }> = [];
+    const seen = new Set<string>();
+    for (const s of active) {
+      if (s.group_subdomain) continue;
+      rows.push({ site: s, grouped: false });
+      seen.add(s.domain);
+      for (const sec of secondariesFor(s)) {
+        rows.push({ site: sec, grouped: true });
+        seen.add(sec.domain);
+      }
+    }
+    for (const s of active) {
+      if (s.group_subdomain && !seen.has(s.domain)) rows.push({ site: s, grouped: true });
+    }
+    return rows;
+  });
 
   function select(s: Site) {
     goToTab('sites', s.domain);
@@ -50,48 +75,55 @@
   {@html m.sites_emptyHint({ cmd: '<code class="bg-gray-100 dark:bg-white/5 px-1 rounded-sm">lerd park</code>' })}
 {/snippet}
 
+{#snippet siteRow(s: Site, grouped = false)}
+  <button
+    onclick={() => select(s)}
+    class="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50 {selected === s.domain
+      ? 'bg-lerd-red/10 text-lerd-red'
+      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/3'}"
+  >
+    {#if grouped}
+      <Icon name="group" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+    {/if}
+    <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
+      {#if s.custom_container}
+        <svg class="w-4 h-4 {s.fpm_running ? 'text-violet-500' : 'text-gray-300 dark:text-gray-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+        </svg>
+      {:else if s.has_favicon}
+        <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-xs object-contain" loading="lazy" alt="" />
+      {:else}
+        <StatusDot color={s.fpm_running ? 'green' : 'gray'} />
+      {/if}
+    </span>
+    <span class="flex-1 text-sm truncate">{s.domain}</span>
+    {#if s.tls}
+      <svg class="w-3 h-3 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+    {/if}
+    {#if s.worktrees && s.worktrees.length > 0}
+      <svg class="w-3 h-3 shrink-0 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+        <path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/>
+      </svg>
+    {/if}
+    {#if siteWorkerFailing(s)}
+      <span title={m.sites_workerFailing()}><StatusDot color="red" size="xs" pulse /></span>
+    {/if}
+    {#each runningWorkerDots(s) as c, i (i + ':' + c)}
+      <StatusDot color={c as 'amber' | 'violet' | 'emerald' | 'sky' | 'indigo'} size="xs" />
+    {/each}
+  </button>
+{/snippet}
+
 <ListPanel title={m.sites_title()} {actions}>
   {#if !$sitesLoaded}
     <LoadingRow />
   {:else if $sites.length === 0}
     <EmptyState title={m.sites_empty()} hint={parkHint} size="sm" />
   {:else}
-    {#each active as s (s.domain)}
-      <button
-        onclick={() => select(s)}
-        class="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors border-b border-gray-50 dark:border-lerd-border/50 {selected === s.domain
-          ? 'bg-lerd-red/10 text-lerd-red'
-          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/3'}"
-      >
-        <span class="relative shrink-0 w-4 h-4 flex items-center justify-center">
-          {#if s.custom_container}
-            <svg class="w-4 h-4 {s.fpm_running ? 'text-violet-500' : 'text-gray-300 dark:text-gray-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-            </svg>
-          {:else if s.has_favicon}
-            <img src={apiBase + '/api/sites/' + s.domain + '/favicon'} class="w-4 h-4 rounded-xs object-contain" loading="lazy" alt="" />
-          {:else}
-            <StatusDot color={s.fpm_running ? 'green' : 'gray'} />
-          {/if}
-        </span>
-        <span class="flex-1 text-sm truncate">{s.domain}</span>
-        {#if s.tls}
-          <svg class="w-3 h-3 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-          </svg>
-        {/if}
-        {#if s.worktrees && s.worktrees.length > 0}
-          <svg class="w-3 h-3 shrink-0 text-violet-400" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-            <path d="M6 3v12M15 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 9a9 9 0 0 1-9 9"/>
-          </svg>
-        {/if}
-        {#if siteWorkerFailing(s)}
-          <span title={m.sites_workerFailing()}><StatusDot color="red" size="xs" pulse /></span>
-        {/if}
-        {#each runningWorkerDots(s) as c, i (i + ':' + c)}
-          <StatusDot color={c as 'amber' | 'violet' | 'emerald' | 'sky' | 'indigo'} size="xs" />
-        {/each}
-      </button>
+    {#each orderedActive as row (row.site.domain)}
+      {@render siteRow(row.site, row.grouped)}
     {/each}
 
     {#if paused.length > 0}

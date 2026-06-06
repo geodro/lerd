@@ -57,6 +57,29 @@ type Site struct {
 	// (e.g. "npm run start:dev"). Empty means proxy-only: the user runs the
 	// server themselves and lerd only wires the proxy.
 	HostCommand string `yaml:"host_command,omitempty"`
+	// Group is the group key shared by a main site and its secondaries. It is
+	// set to the main site's name. Empty when the site is not grouped.
+	Group string `yaml:"group,omitempty"`
+	// GroupSubdomain is the subdomain label a secondary occupies on the group
+	// main's base domain (e.g. "admin" -> admin.<main-domain>). Empty on the
+	// main site; non-empty identifies a secondary.
+	GroupSubdomain string `yaml:"group_subdomain,omitempty"`
+	// GroupSharedDB, when true on a secondary, means the site shares the group
+	// main's database instead of its own: DB_DATABASE in its .env is kept in
+	// sync with the main's database name.
+	GroupSharedDB bool `yaml:"group_shared_db,omitempty"`
+}
+
+// IsGroupMain returns true when the site owns a group's base domain: it has a
+// group key but no subdomain of its own.
+func (s *Site) IsGroupMain() bool {
+	return s.Group != "" && s.GroupSubdomain == ""
+}
+
+// IsGroupSecondary returns true when the site occupies a subdomain of its
+// group main's base domain.
+func (s *Site) IsGroupSecondary() bool {
+	return s.Group != "" && s.GroupSubdomain != ""
 }
 
 // IsCustomContainer returns true when the site uses a per-project custom
@@ -109,51 +132,57 @@ func (s *Site) HasDomain(domain string) bool {
 // siteYAML is the on-disk YAML representation of a Site, supporting both the
 // legacy single "domain" field and the new "domains" array.
 type siteYAML struct {
-	Name          string   `yaml:"name"`
-	Domain        string   `yaml:"domain,omitempty"`  // legacy single domain
-	Domains       []string `yaml:"domains,omitempty"` // new multi-domain
-	Path          string   `yaml:"path"`
-	PHPVersion    string   `yaml:"php_version"`
-	NodeVersion   string   `yaml:"node_version"`
-	Secured       bool     `yaml:"secured"`
-	Ignored       bool     `yaml:"ignored,omitempty"`
-	Paused        bool     `yaml:"paused,omitempty"`
-	PausedWorkers []string `yaml:"paused_workers,omitempty"`
-	Framework     string   `yaml:"framework,omitempty"`
-	PublicDir     string   `yaml:"public_dir,omitempty"`
-	AppURL        string   `yaml:"app_url,omitempty"`
-	LANPort       int      `yaml:"lan_port,omitempty"`
-	ContainerPort int      `yaml:"container_port,omitempty"`
-	ContainerSSL  bool     `yaml:"container_ssl,omitempty"`
-	Runtime       string   `yaml:"runtime,omitempty"`
-	RuntimeWorker bool     `yaml:"runtime_worker,omitempty"`
-	HostPort      int      `yaml:"host_port,omitempty"`
-	HostSSL       bool     `yaml:"host_ssl,omitempty"`
-	HostCommand   string   `yaml:"host_command,omitempty"`
+	Name           string   `yaml:"name"`
+	Domain         string   `yaml:"domain,omitempty"`  // legacy single domain
+	Domains        []string `yaml:"domains,omitempty"` // new multi-domain
+	Path           string   `yaml:"path"`
+	PHPVersion     string   `yaml:"php_version"`
+	NodeVersion    string   `yaml:"node_version"`
+	Secured        bool     `yaml:"secured"`
+	Ignored        bool     `yaml:"ignored,omitempty"`
+	Paused         bool     `yaml:"paused,omitempty"`
+	PausedWorkers  []string `yaml:"paused_workers,omitempty"`
+	Framework      string   `yaml:"framework,omitempty"`
+	PublicDir      string   `yaml:"public_dir,omitempty"`
+	AppURL         string   `yaml:"app_url,omitempty"`
+	LANPort        int      `yaml:"lan_port,omitempty"`
+	ContainerPort  int      `yaml:"container_port,omitempty"`
+	ContainerSSL   bool     `yaml:"container_ssl,omitempty"`
+	Runtime        string   `yaml:"runtime,omitempty"`
+	RuntimeWorker  bool     `yaml:"runtime_worker,omitempty"`
+	HostPort       int      `yaml:"host_port,omitempty"`
+	HostSSL        bool     `yaml:"host_ssl,omitempty"`
+	HostCommand    string   `yaml:"host_command,omitempty"`
+	Group          string   `yaml:"group,omitempty"`
+	GroupSubdomain string   `yaml:"group_subdomain,omitempty"`
+	GroupSharedDB  bool     `yaml:"group_shared_db,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
 	return siteYAML{
-		Name:          s.Name,
-		Domains:       s.Domains,
-		Path:          s.Path,
-		PHPVersion:    s.PHPVersion,
-		NodeVersion:   s.NodeVersion,
-		Secured:       s.Secured,
-		Ignored:       s.Ignored,
-		Paused:        s.Paused,
-		PausedWorkers: s.PausedWorkers,
-		Framework:     s.Framework,
-		PublicDir:     s.PublicDir,
-		AppURL:        s.AppURL,
-		LANPort:       s.LANPort,
-		ContainerPort: s.ContainerPort,
-		ContainerSSL:  s.ContainerSSL,
-		Runtime:       s.Runtime,
-		RuntimeWorker: s.RuntimeWorker,
-		HostPort:      s.HostPort,
-		HostSSL:       s.HostSSL,
-		HostCommand:   s.HostCommand,
+		Name:           s.Name,
+		Domains:        s.Domains,
+		Path:           s.Path,
+		PHPVersion:     s.PHPVersion,
+		NodeVersion:    s.NodeVersion,
+		Secured:        s.Secured,
+		Ignored:        s.Ignored,
+		Paused:         s.Paused,
+		PausedWorkers:  s.PausedWorkers,
+		Framework:      s.Framework,
+		PublicDir:      s.PublicDir,
+		AppURL:         s.AppURL,
+		LANPort:        s.LANPort,
+		ContainerPort:  s.ContainerPort,
+		ContainerSSL:   s.ContainerSSL,
+		Runtime:        s.Runtime,
+		RuntimeWorker:  s.RuntimeWorker,
+		HostPort:       s.HostPort,
+		HostSSL:        s.HostSSL,
+		HostCommand:    s.HostCommand,
+		Group:          s.Group,
+		GroupSubdomain: s.GroupSubdomain,
+		GroupSharedDB:  s.GroupSharedDB,
 	}
 }
 
@@ -163,26 +192,29 @@ func (sy siteYAML) toSite() Site {
 		domains = []string{sy.Domain}
 	}
 	return Site{
-		Name:          sy.Name,
-		Domains:       domains,
-		Path:          sy.Path,
-		PHPVersion:    sy.PHPVersion,
-		NodeVersion:   sy.NodeVersion,
-		Secured:       sy.Secured,
-		Ignored:       sy.Ignored,
-		Paused:        sy.Paused,
-		PausedWorkers: sy.PausedWorkers,
-		Framework:     sy.Framework,
-		PublicDir:     sy.PublicDir,
-		AppURL:        sy.AppURL,
-		LANPort:       sy.LANPort,
-		ContainerPort: sy.ContainerPort,
-		ContainerSSL:  sy.ContainerSSL,
-		Runtime:       sy.Runtime,
-		RuntimeWorker: sy.RuntimeWorker,
-		HostPort:      sy.HostPort,
-		HostSSL:       sy.HostSSL,
-		HostCommand:   sy.HostCommand,
+		Name:           sy.Name,
+		Domains:        domains,
+		Path:           sy.Path,
+		PHPVersion:     sy.PHPVersion,
+		NodeVersion:    sy.NodeVersion,
+		Secured:        sy.Secured,
+		Ignored:        sy.Ignored,
+		Paused:         sy.Paused,
+		PausedWorkers:  sy.PausedWorkers,
+		Framework:      sy.Framework,
+		PublicDir:      sy.PublicDir,
+		AppURL:         sy.AppURL,
+		LANPort:        sy.LANPort,
+		ContainerPort:  sy.ContainerPort,
+		ContainerSSL:   sy.ContainerSSL,
+		Runtime:        sy.Runtime,
+		RuntimeWorker:  sy.RuntimeWorker,
+		HostPort:       sy.HostPort,
+		HostSSL:        sy.HostSSL,
+		HostCommand:    sy.HostCommand,
+		Group:          sy.Group,
+		GroupSubdomain: sy.GroupSubdomain,
+		GroupSharedDB:  sy.GroupSharedDB,
 	}
 }
 
