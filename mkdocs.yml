@@ -87,6 +87,7 @@ nav:
       - Site Management: usage/sites.md
       - PHP: usage/php.md
       - Node: usage/node.md
+      - Host-Proxy Sites: usage/host-proxy.md
       - Services: usage/services.md
       - Database: usage/database.md
       - Frameworks & Workers: usage/frameworks.md

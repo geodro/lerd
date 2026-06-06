@@ -794,7 +794,7 @@ func restoreSiteInfrastructure() {
 		}
 
 		// Restore FPM quadlet for this site's PHP version (PHP sites only).
-		if !s.IsCustomContainer() {
+		if !s.IsCustomContainer() && !s.IsHostProxy() {
 			phpVer := s.PHPVersion
 			if phpVer == "" {
 				cfg, _ := config.LoadGlobal()
@@ -810,6 +810,14 @@ func restoreSiteInfrastructure() {
 		proj, _ := config.LoadProjectConfig(s.Path)
 		if proj == nil {
 			continue
+		}
+
+		// Restore the host-proxy dev-server worker unit. Phase 2 of runStart
+		// launches it (it is enumerated by registeredFrameworkWorkerUnits).
+		if s.IsHostProxy() && proj.Proxy != nil {
+			if w, ok := hostProxyWorker(proj.Proxy); ok && !services.Mgr.IsEnabled(hostProxyWorkerUnit(s.Name)) {
+				restoreWorker(s.Name, s.Path, "", hostProxyWorkerName, w)
+			}
 		}
 
 		// Resolve() returns the rendered CustomService for inline + preset
@@ -977,6 +985,9 @@ func registeredFrameworkWorkerUnits() []string {
 				continue
 			}
 			out = append(out, "lerd-"+w+"-"+s.Name)
+		}
+		if s.IsHostProxy() && proj.Proxy != nil && proj.Proxy.Command != "" {
+			out = append(out, hostProxyWorkerUnit(s.Name))
 		}
 	}
 	return out

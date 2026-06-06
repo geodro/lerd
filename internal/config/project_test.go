@@ -340,6 +340,123 @@ func TestProjectConfig_NoContainer(t *testing.T) {
 	}
 }
 
+// ── Proxy (host-proxy sites) ─────────────────────────────────────────────────
+
+func TestProjectConfig_Proxy(t *testing.T) {
+	input := `domains:
+  - nestapp
+proxy:
+  command: "npm run start:dev"
+  port: 3000
+  ssl: false
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cfg.Proxy == nil {
+		t.Fatal("Proxy is nil")
+	}
+	if cfg.Proxy.Command != "npm run start:dev" {
+		t.Errorf("Command = %q, want npm run start:dev", cfg.Proxy.Command)
+	}
+	if cfg.Proxy.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", cfg.Proxy.Port)
+	}
+	if cfg.Proxy.SSL {
+		t.Error("SSL = true, want false")
+	}
+}
+
+func TestProjectConfig_Proxy_PortOnly(t *testing.T) {
+	// Proxy-only mode: no command, just a port lerd proxies to.
+	input := `proxy:
+  port: 4200
+`
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cfg.Proxy == nil {
+		t.Fatal("Proxy is nil")
+	}
+	if cfg.Proxy.Port != 4200 {
+		t.Errorf("Port = %d, want 4200", cfg.Proxy.Port)
+	}
+	if cfg.Proxy.Command != "" {
+		t.Errorf("Command = %q, want empty (proxy-only mode)", cfg.Proxy.Command)
+	}
+}
+
+func TestProjectConfig_Proxy_RoundTrip(t *testing.T) {
+	cfg := ProjectConfig{
+		Domains: []string{"nestapp"},
+		Proxy: &ProxyConfig{
+			Command:    "npm run start:dev",
+			Port:       3000,
+			SSL:        true,
+			PortEnvKey: "APP_PORT",
+		},
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProjectConfig
+	if err := yaml.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Proxy == nil {
+		t.Fatal("Proxy is nil after round-trip")
+	}
+	if restored.Proxy.Command != "npm run start:dev" {
+		t.Errorf("Command = %q", restored.Proxy.Command)
+	}
+	if restored.Proxy.Port != 3000 || !restored.Proxy.SSL || restored.Proxy.PortEnvKey != "APP_PORT" {
+		t.Errorf("Proxy not persisted correctly: %+v", restored.Proxy)
+	}
+}
+
+func TestProjectConfig_Proxy_IsEmpty(t *testing.T) {
+	cfg := &ProjectConfig{}
+	if !cfg.IsEmpty() {
+		t.Error("empty config should be empty")
+	}
+	cfg.Proxy = &ProxyConfig{Port: 3000}
+	if cfg.IsEmpty() {
+		t.Error("config with proxy should not be empty")
+	}
+}
+
+func TestCloneProjectConfig_DeepCopiesProxy(t *testing.T) {
+	in := &ProjectConfig{Proxy: &ProxyConfig{Command: "npm run dev", Port: 3000}}
+	out := cloneProjectConfig(in)
+	if out == nil || out.Proxy == nil {
+		t.Fatal("cloneProjectConfig dropped Proxy")
+	}
+	out.Proxy.Port = 9999
+	if in.Proxy.Port != 3000 {
+		t.Errorf("clone shares Proxy pointer; original mutated to %d", in.Proxy.Port)
+	}
+}
+
+func TestProjectConfig_Validate_ProxyAndContainerConflict(t *testing.T) {
+	cfg := &ProjectConfig{
+		Container: &ContainerConfig{Port: 3000},
+		Proxy:     &ProxyConfig{Port: 3000},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error when both proxy: and container: are set")
+	}
+	// Either alone is valid.
+	if err := (&ProjectConfig{Proxy: &ProxyConfig{Port: 3000}}).Validate(); err != nil {
+		t.Errorf("proxy-only config should validate: %v", err)
+	}
+	if err := (&ProjectConfig{Container: &ContainerConfig{Port: 3000}}).Validate(); err != nil {
+		t.Errorf("container-only config should validate: %v", err)
+	}
+}
+
 func TestCloneProjectConfig_DeepCopiesEnvOverrides(t *testing.T) {
 	in := &ProjectConfig{
 		EnvOverrides: map[string]string{"APP_URL": "http://orig.test"},

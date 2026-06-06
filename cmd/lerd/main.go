@@ -484,10 +484,10 @@ func newWatchCmd() *cobra.Command {
 						}
 						siteChanged := false
 
-						// Custom container sites don't use PHP/Node version
-						// detection — skip re-detection to avoid overwriting
+						// Custom container and host-proxy sites don't use PHP/Node
+						// version detection — skip re-detection to avoid overwriting
 						// the empty values with defaults.
-						if !site.IsCustomContainer() {
+						if !site.IsCustomContainer() && !site.IsHostProxy() {
 							// Re-detect PHP version in case .lerd.yaml or .php-version changed.
 							{
 								phpMin, phpMax := "", ""
@@ -644,6 +644,17 @@ func scanWorktrees() bool {
 				gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured, nil)
 				release()
 			}
+			// Host-proxy sites mirror the parent dev command on a per-worktree
+			// port behind the worktree domain; no PHP vhost or framework workers.
+			if site.IsHostProxy() {
+				if err := cli.SetupHostProxyWorktree(site, wt.Path, wt.Domain); err != nil {
+					fmt.Printf("[WARN] worktree host-proxy for %s: %v\n", wt.Domain, err)
+					continue
+				}
+				fmt.Printf("Worktree vhost: %s -> %s (host proxy)\n", wt.Branch, wt.Domain)
+				generated = true
+				continue
+			}
 			vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, s.PHPVersion, s.PrimaryDomain(), s.Name, wt.Branch, s.Secured)
 			if vhostErr != nil {
 				fmt.Printf("[WARN] worktree vhost for %s: %v\n", wt.Domain, vhostErr)
@@ -724,6 +735,21 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 		if release, ok, _ := gitpkg.TryLockInstall(wt.Path); ok {
 			gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured, nil)
 			release()
+		}
+		// Host-proxy worktrees run their own dev server behind the worktree
+		// domain; wire that instead of a PHP vhost + framework workers.
+		if site.IsHostProxy() {
+			if err := cli.SetupHostProxyWorktree(*site, wt.Path, wt.Domain); err != nil {
+				fmt.Printf("[WARN] worktree host-proxy for %s: %v\n", wt.Domain, err)
+				return false
+			}
+			if site.Secured {
+				if reissueErr := certs.ReissueCertForWorktree(*site); reissueErr != nil {
+					fmt.Printf("[WARN] reissue cert for worktree %s: %v\n", wt.Domain, reissueErr)
+				}
+			}
+			fmt.Printf("Worktree %s: %s -> %s (host proxy)\n", action, wt.Branch, wt.Domain)
+			return true
 		}
 		effectivePHP := config.WorktreePHPVersion(wt.Path, site.PHPVersion)
 		vhostErr := nginx.GenerateWorktreeVhostFor(wt.Domain, wt.Path, effectivePHP, site.PrimaryDomain(), site.Name, wt.Branch, site.Secured)

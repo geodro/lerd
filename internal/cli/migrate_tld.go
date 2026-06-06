@@ -98,7 +98,7 @@ func migrateSiteTLD(oldTLD, newTLD string, forceUnsecure bool) []string {
 				fmt.Printf("    WARN: %s: migrate custom nginx override: %v\n", s.Name, err)
 			}
 		}
-		migrateWorktreeVhosts(worktrees, newPrimary, s.PHPVersion, s.Name, s.Secured)
+		migrateWorktreeVhosts(worktrees, newPrimary, s.PHPVersion, s.Name, s.Secured, s.IsHostProxy())
 
 		// Reissue the parent cert under the NEW primary so wildcard SANs
 		// cover the renamed worktree subdomains. Without this, SSL
@@ -138,10 +138,28 @@ func migrateSiteTLD(oldTLD, newTLD string, forceUnsecure bool) []string {
 // <branch>.<newPrimary> domain, and rewrites the worktree's .env APP_URL.
 // Worktree errors are warnings, not fatal; the parent site rename has already
 // landed and partial worktree state is preferable to abandoning the migration.
-func migrateWorktreeVhosts(worktrees []gitpkg.Worktree, newPrimary, phpVersion, siteName string, secured bool) {
+func migrateWorktreeVhosts(worktrees []gitpkg.Worktree, newPrimary, phpVersion, siteName string, secured, hostProxy bool) {
 	for _, wt := range worktrees {
 		removeStaleVhosts(wt.Domain)
 		newWTDomain := wt.Branch + "." + newPrimary
+		// Host-proxy worktrees keep their dev server (the unit is keyed by site
+		// and branch, not domain); only the proxy vhost domain changes.
+		if hostProxy {
+			if proj, err := config.LoadProjectConfig(wt.Path); err == nil && proj.Proxy != nil {
+				port := WorktreeHostPort(proj.Proxy.Port, wt.Path, hostProxyPortEnvKey(proj.Proxy))
+				if err := nginx.GenerateWorktreeHostProxyVhostFor(newWTDomain, wt.Path, newPrimary, port, proj.Proxy.SSL, secured); err != nil {
+					fmt.Printf("    WARN: worktree %s: regenerate vhost: %v\n", wt.Branch, err)
+				}
+			}
+			scheme := "http"
+			if secured {
+				scheme = "https"
+			}
+			if err := envfile.UpdateAppURL(wt.Path, scheme, newWTDomain); err != nil {
+				fmt.Printf("    WARN: worktree %s: update .env: %v\n", wt.Branch, err)
+			}
+			continue
+		}
 		effectivePHP := config.WorktreePHPVersion(wt.Path, phpVersion)
 		err := nginx.GenerateWorktreeVhostFor(newWTDomain, wt.Path, effectivePHP, newPrimary, siteName, wt.Branch, secured)
 		if err != nil {

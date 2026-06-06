@@ -303,6 +303,21 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 				continue
 			}
 			switch {
+			case site.IsHostProxy():
+				if site.Secured {
+					if err := nginx.GenerateHostProxySSLVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+						continue
+					}
+					sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+					mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+					os.Remove(mainConf)          //nolint:errcheck
+					os.Rename(sslConf, mainConf) //nolint:errcheck
+				} else {
+					if err := nginx.GenerateHostProxyVhost(site); err != nil {
+						fmt.Printf("\n    WARN %s: %v", site.PrimaryDomain(), err)
+					}
+				}
 			case site.IsCustomContainer():
 				if site.Secured {
 					if err := nginx.GenerateCustomSSLVhost(site); err != nil {

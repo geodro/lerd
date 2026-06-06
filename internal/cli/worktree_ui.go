@@ -261,7 +261,11 @@ func RunWorktreeAdd(site *config.Site, req WorktreeAddRequest, log io.Writer) (s
 		logf(log, "Dependencies installed.")
 	}
 
-	applyWorktreeBuildRequest(site, checkoutPath, req.Build, log)
+	// Host-proxy worktrees have no asset build step; their dev server (wired by
+	// the watcher's worktree sync) is the running process.
+	if !site.IsHostProxy() {
+		applyWorktreeBuildRequest(site, checkoutPath, req.Build, log)
+	}
 
 	if err := ApplyWorktreeDBChoice(site, branch, req.DBChoice, log); err != nil {
 		logf(log, "[WARN] database setup skipped: %v", err)

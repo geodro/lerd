@@ -77,7 +77,12 @@ func writeWorkerHostUnit(unitName, sitePath, command, restart string) (bool, err
 	scriptPath := filepath.Join(workersDir, unitName+".sh")
 
 	fnmBin := filepath.Join(config.BinDir(), "fnm")
-	nodeVersion := resolveNodeVersionForHostWorker(sitePath)
+	// Node projects resolve a version via fnm; host-proxy sites in any other
+	// language run the command directly (empty nodeVersion signals "no fnm").
+	nodeVersion := ""
+	if isNodeProject(sitePath) {
+		nodeVersion = resolveNodeVersionForHostWorker(sitePath)
+	}
 
 	script := buildDarwinHostWorkerGuardScript(fnmBin, config.BinDir(), nodeVersion, sitePath, command)
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {

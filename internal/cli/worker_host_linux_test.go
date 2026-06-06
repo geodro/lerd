@@ -74,6 +74,46 @@ func TestWriteHostWorkerUnitFile_useFnmExec(t *testing.T) {
 	}
 }
 
+// A host-proxy site in a non-Node language (no package.json / .nvmrc /
+// .node-version) must run its command directly, not through fnm, so it doesn't
+// depend on Node being installed.
+func TestWriteHostWorkerUnitFile_nonNodeRunsDirectly(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+
+	binDir := filepath.Join(tmp, "lerd", "bin")
+	os.MkdirAll(binDir, 0755)
+	os.WriteFile(filepath.Join(binDir, "fnm"), []byte("#!/bin/sh"), 0755)
+
+	// A Python project: no Node markers at all.
+	sitePath := t.TempDir()
+	os.WriteFile(filepath.Join(sitePath, "manage.py"), []byte("# django"), 0644)
+
+	if _, err := writeWorkerUnitFile(
+		"lerd-app-pysite", "Dev Server", "pysite",
+		sitePath, "", "python manage.py runserver 0.0.0.0:8000",
+		"always", "", "", true,
+	); err != nil {
+		t.Fatalf("writeWorkerUnitFile (host): %v", err)
+	}
+
+	unit, err := os.ReadFile(filepath.Join(tmp, "systemd", "user", "lerd-app-pysite.service"))
+	if err != nil {
+		t.Fatalf("read unit: %v", err)
+	}
+	s := string(unit)
+	if strings.Contains(s, "fnm") {
+		t.Errorf("non-Node host worker must not route through fnm:\n%s", s)
+	}
+	if !strings.Contains(s, "python manage.py runserver") {
+		t.Errorf("command missing from unit:\n%s", s)
+	}
+	if !strings.Contains(s, "/bin/sh -c") {
+		t.Errorf("command should still be wrapped in /bin/sh -c:\n%s", s)
+	}
+}
+
 func TestWriteWorkerUnitFile_hostFalse_usesPodman(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)

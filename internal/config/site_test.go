@@ -506,6 +506,52 @@ func TestSaveLoad_ContainerPort_RoundTrip(t *testing.T) {
 	}
 }
 
+// ── IsHostProxy ───────────────────────────────────────────────────────────────
+
+func TestIsHostProxy(t *testing.T) {
+	s := &Site{HostPort: 3000}
+	if !s.IsHostProxy() {
+		t.Error("expected IsHostProxy() = true for port 3000")
+	}
+}
+
+func TestIsHostProxy_False(t *testing.T) {
+	s := &Site{}
+	if s.IsHostProxy() {
+		t.Error("expected IsHostProxy() = false for zero port")
+	}
+}
+
+func TestSaveLoad_HostProxy_RoundTrip(t *testing.T) {
+	setDataDir(t)
+
+	reg := &SiteRegistry{
+		Sites: []Site{
+			{Name: "nestapp", Domains: []string{"nestapp.test"}, Path: "/srv/nestapp",
+				HostPort: 3000, HostSSL: true, HostCommand: "npm run start:dev"},
+			{Name: "phpapp", Domains: []string{"phpapp.test"}, Path: "/srv/phpapp", PHPVersion: "8.4"},
+		},
+	}
+	if err := SaveSites(reg); err != nil {
+		t.Fatalf("SaveSites: %v", err)
+	}
+
+	got, err := LoadSites()
+	if err != nil {
+		t.Fatalf("LoadSites: %v", err)
+	}
+	if got.Sites[0].HostPort != 3000 || !got.Sites[0].HostSSL ||
+		got.Sites[0].HostCommand != "npm run start:dev" {
+		t.Errorf("nestapp host-proxy fields not persisted: %+v", got.Sites[0])
+	}
+	if !got.Sites[0].IsHostProxy() {
+		t.Error("nestapp should be host proxy")
+	}
+	if got.Sites[1].IsHostProxy() {
+		t.Error("phpapp should not be host proxy")
+	}
+}
+
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
 func TestLoadSites_CacheReturnsIndependentCopy(t *testing.T) {

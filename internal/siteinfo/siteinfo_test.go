@@ -236,6 +236,32 @@ func TestEnrichWorkers_CustomContainerFromLerdYAML(t *testing.T) {
 	})
 }
 
+func TestEnrich_HostProxyDevServerIsNotAWorker(t *testing.T) {
+	// The dev server is the site's main process, not a togglable worker. It must
+	// not appear in the worker list (which would render a stop control), but its
+	// health must drive FPMRunning so the site shows running/stopped.
+	origUnit := unitStatusFn
+	unitStatusFn = func(name string) (string, error) {
+		if name == config.HostProxyWorkerUnit("nestapp") {
+			return "active", nil
+		}
+		return "", nil
+	}
+	defer func() { unitStatusFn = origUnit }()
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("proxy:\n  command: npm run start:dev\n  port: 3100\n"), 0644)
+
+	e := Enrich(config.Site{Name: "nestapp", Path: dir, HostPort: 3100, HostCommand: "npm run start:dev"}, EnrichFPM|EnrichWorkers)
+
+	if !e.FPMRunning {
+		t.Error("expected FPMRunning = true reflecting the dev-server unit status")
+	}
+	if e.HasQueueWorker || len(e.FrameworkWorkers) != 0 {
+		t.Errorf("dev server must not be surfaced as a worker, got HasQueue=%v workers=%d", e.HasQueueWorker, len(e.FrameworkWorkers))
+	}
+}
+
 // ── DetectFavicon ───────────────────────────────────────────────────────────
 
 func TestDetectFavicon(t *testing.T) {

@@ -87,7 +87,7 @@ func regenerateVhosts() error {
 	}
 	for i := range reg.Sites {
 		s := reg.Sites[i]
-		if s.Ignored || s.Paused || s.IsCustomContainer() || s.IsFrankenPHP() {
+		if s.Ignored || s.Paused || s.IsCustomContainer() || s.IsFrankenPHP() || s.IsHostProxy() {
 			continue
 		}
 		if err := siteops.RegenerateSiteVhost(&s, s.PrimaryDomain()); err != nil {

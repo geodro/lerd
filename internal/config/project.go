@@ -30,6 +30,16 @@ type ContainerConfig struct {
 	SSL           bool   `yaml:"ssl,omitempty"`           // proxy to the container via HTTPS (app serves TLS on its port)
 }
 
+// ProxyConfig holds per-project host-proxy settings. When present in
+// .lerd.yaml the site runs no container: lerd supervises the dev command on
+// the host and nginx reverse-proxies the domain to it on the given port.
+type ProxyConfig struct {
+	Command    string `yaml:"command,omitempty"`      // dev command, e.g. "npm run start:dev"; empty = proxy-only
+	Port       int    `yaml:"port"`                   // host port the app binds (required)
+	SSL        bool   `yaml:"ssl,omitempty"`          // app serves TLS on its port; proxy via https
+	PortEnvKey string `yaml:"port_env_key,omitempty"` // env var the port is injected as (default "PORT")
+}
+
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
 	Domains          []string   `yaml:"domains,omitempty"`
@@ -65,6 +75,9 @@ type ProjectConfig struct {
 	AppURL    string           `yaml:"app_url,omitempty"`
 	DB        ProjectDB        `yaml:"db,omitempty"`
 	Container *ContainerConfig `yaml:"container,omitempty"`
+	// Proxy, when set, makes this a host-proxy site (see ProxyConfig). Mutually
+	// exclusive with Container; Validate rejects setting both.
+	Proxy *ProxyConfig `yaml:"proxy,omitempty"`
 	// Runtime selects how the site's PHP is served. "fpm" (default) uses the
 	// shared lerd-php{version}-fpm container; "frankenphp" spins up a
 	// per-site dunglas/frankenphp container that keeps PHP resident.
@@ -96,8 +109,17 @@ func (c *ProjectConfig) IsEmpty() bool {
 		c.Framework == "" && c.PublicDir == "" && len(c.Services) == 0 &&
 		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && len(c.ReloadWorkers) == 0 && !c.Secured &&
 		c.AppURL == "" && c.DB.Service == "" && c.DB.Database == "" &&
-		c.Container == nil && c.Runtime == "" && !c.RuntimeWorker &&
+		c.Container == nil && c.Proxy == nil && c.Runtime == "" && !c.RuntimeWorker &&
 		!c.DBIsolated && len(c.EnvOverrides) == 0 && c.RequestTimeout == 0
+}
+
+// Validate reports configuration that can't be honoured. A site is either a
+// custom container or a host proxy, never both.
+func (c *ProjectConfig) Validate() error {
+	if c.Container != nil && c.Proxy != nil {
+		return fmt.Errorf(".lerd.yaml sets both container: and proxy:; a site can only be one")
+	}
+	return nil
 }
 
 // ReloadsWorker reports whether the named worker is opted into auto-reload
@@ -324,6 +346,11 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 		cfg.PublicDir = ""
 	}
 
+	if err := cfg.Validate(); err != nil {
+		fmt.Printf("[WARN] %s: %v, ignoring proxy:\n", path, err)
+		cfg.Proxy = nil
+	}
+
 	projectConfigCacheMu.Lock()
 	projectConfigCache[path] = projectConfigCacheEntry{
 		cfg: &cfg, mtime: info.ModTime(), size: info.Size(),
@@ -369,6 +396,10 @@ func cloneProjectConfig(in *ProjectConfig) *ProjectConfig {
 	if in.Container != nil {
 		cp := *in.Container
 		out.Container = &cp
+	}
+	if in.Proxy != nil {
+		cp := *in.Proxy
+		out.Proxy = &cp
 	}
 	if in.FrameworkDef != nil {
 		out.FrameworkDef = cloneFrameworkMutable(in.FrameworkDef)

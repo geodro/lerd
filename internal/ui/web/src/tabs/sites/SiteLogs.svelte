@@ -30,6 +30,9 @@
     // Static sites have no PHP-FPM (or container) runtime, so skip the runtime
     // log tab entirely; only PHP sites and custom containers have one.
     if (site.uses_php || site.custom_container) xs.push({ id: 'fpm', label: fpmTabLabelI18n(site) });
+    // Host-proxy sites run a supervised dev server on the host; surface its
+    // journal as a read-only tab (no start/stop, the site owns its lifecycle).
+    if (site.host_has_dev_server) xs.push({ id: 'devserver', label: m.sites_tabs_devServer() });
     if (activeWorktreeBranch) {
       // Shared queue/horizon/stripe/schedule/reverb run against main and
       // their journals don't filter per worktree, so drop them here to
@@ -80,6 +83,7 @@
     if (active === 'stripe') return `/api/stripe/${name}/logs`;
     if (active === 'schedule') return `/api/schedule/${name}/logs`;
     if (active === 'reverb') return `/api/reverb/${name}/logs`;
+    if (active === 'devserver') return `/api/worker/${name}/app/logs`;
     if (active.startsWith('worker:')) {
       const workerName = active.slice(7);
       // Per-worktree units live under lerd-<worker>-<site>-<wtBase>;

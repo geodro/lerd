@@ -195,15 +195,17 @@
         {/if}
       </div>
 
-      <div class="space-y-1.5">
-        <div class="text-xs font-medium text-gray-500 dark:text-gray-400">{m.worktreeMgr_assetsHeading()}</div>
-        <Dropdown
-          value={build}
-          width="full"
-          options={buildOptions.length ? buildOptions : [{ value: 'auto', label: '…' }]}
-          onchange={(v) => (build = v)}
-        />
-      </div>
+      {#if buildOptions.length > 0}
+        <div class="space-y-1.5">
+          <div class="text-xs font-medium text-gray-500 dark:text-gray-400">{m.worktreeMgr_assetsHeading()}</div>
+          <Dropdown
+            value={build}
+            width="full"
+            options={buildOptions}
+            onchange={(v) => (build = v)}
+          />
+        </div>
+      {/if}
     </div>
   {:else}
     <div class="px-5 py-3 space-y-2">

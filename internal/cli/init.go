@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -93,8 +94,13 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	framework, hasFramework := resolveFramework(cwd)
 	hasComposer := fileExists(filepath.Join(cwd, "composer.json"))
 	hasContainerfile := podman.HasContainerfile(cwd)
+	hasPkgJSON := fileExists(filepath.Join(cwd, "package.json"))
 	alreadyCustom := defaults.Container != nil
+	alreadyProxy := defaults.Proxy != nil
 
+	if alreadyProxy {
+		return runHostProxyWizard(cwd, defaults, gcfg)
+	}
 	if alreadyCustom {
 		return runCustomContainerWizard(cwd, defaults, gcfg)
 	}
@@ -102,6 +108,25 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		return runCustomContainerWizard(cwd, defaults, gcfg)
 	}
 	if !hasFramework && !hasComposer {
+		// Non-PHP project. With a package.json, offer to run the dev server on
+		// the host (proxy) — the default — or build a custom container.
+		if hasPkgJSON {
+			const proxyChoice = "Dev server (proxy to a host port)"
+			const customChoice = "Custom container"
+			choice := proxyChoice
+			if err := huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("This looks like a Node project. How should lerd run it?").
+					Options(huh.NewOptions(proxyChoice, customChoice)...).
+					Value(&choice),
+			)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+				return nil, err
+			}
+			if choice == customChoice {
+				return runCustomContainerWizard(cwd, defaults, gcfg)
+			}
+			return runHostProxyWizard(cwd, defaults, gcfg)
+		}
 		useCustom := false
 		if err := huh.NewForm(huh.NewGroup(
 			huh.NewConfirm().
@@ -541,17 +566,7 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 
 	// Services: same flow as the PHP wizard but without the database select
 	// since custom containers manage their own database connections.
-	defaultPresets := knownServices()
-	serviceOptions := make([]string, 0, len(defaultPresets))
-	serviceOptions = append(serviceOptions, defaultPresets...)
-	if customs, err := config.ListCustomServices(); err == nil {
-		for _, svc := range customs {
-			if len(svc.EnvVars) == 0 && svc.EnvDetect == nil {
-				continue
-			}
-			serviceOptions = append(serviceOptions, svc.Name)
-		}
-	}
+	serviceOptions := nonDatabaseServiceOptions()
 
 	serviceDefaults := defaults.ServiceNames()
 	var selectedServices []string
@@ -592,9 +607,59 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 	}
 
 	// Build services list.
-	defaultNames := knownServices()
-	builtIn := make(map[string]bool, len(defaultNames))
-	for _, s := range defaultNames {
+	services := buildProjectServices(selectedServices, defaults)
+
+	// Filter custom workers.
+	var filteredCustomWorkers map[string]config.FrameworkWorker
+	if len(keepCustomWorkers) > 0 {
+		filteredCustomWorkers = make(map[string]config.FrameworkWorker, len(keepCustomWorkers))
+		for _, name := range keepCustomWorkers {
+			if w, ok := defaults.CustomWorkers[name]; ok {
+				filteredCustomWorkers[name] = w
+			}
+		}
+	}
+
+	containerCfg := &config.ContainerConfig{
+		Port: port,
+	}
+	if containerfile != "Containerfile.lerd" && containerfile != "" {
+		containerCfg.Containerfile = containerfile
+	}
+
+	return &config.ProjectConfig{
+		Secured:       secured,
+		Services:      services,
+		CustomWorkers: filteredCustomWorkers,
+		Container:     containerCfg,
+		AppURL:        defaults.AppURL,
+		Domains:       defaults.Domains,
+	}, nil
+}
+
+// nonDatabaseServiceOptions returns selectable service names for the container
+// and host-proxy wizards: all built-in presets plus custom services that
+// integrate with .env. No database split — those wizards manage their own DB
+// connections.
+func nonDatabaseServiceOptions() []string {
+	options := append([]string{}, knownServices()...)
+	if customs, err := config.ListCustomServices(); err == nil {
+		for _, svc := range customs {
+			if len(svc.EnvVars) == 0 && svc.EnvDetect == nil {
+				continue
+			}
+			options = append(options, svc.Name)
+		}
+	}
+	return options
+}
+
+// buildProjectServices turns selected service names into ProjectService entries,
+// resolving built-ins, presets, and inline custom services. Shared by the
+// container and host-proxy wizards.
+func buildProjectServices(selectedServices []string, defaults *config.ProjectConfig) []config.ProjectService {
+	builtIn := make(map[string]bool)
+	for _, s := range knownServices() {
 		builtIn[s] = true
 	}
 	inlineByName := map[string]*config.CustomService{}
@@ -626,32 +691,126 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 		}
 		services[i] = config.ProjectService{Name: name, Custom: loaded}
 	}
+	return services
+}
 
-	// Filter custom workers.
-	var filteredCustomWorkers map[string]config.FrameworkWorker
-	if len(keepCustomWorkers) > 0 {
-		filteredCustomWorkers = make(map[string]config.FrameworkWorker, len(keepCustomWorkers))
-		for _, name := range keepCustomWorkers {
-			if w, ok := defaults.CustomWorkers[name]; ok {
-				filteredCustomWorkers[name] = w
+// runHostProxyWizard runs the init wizard for a host-proxy (Node) project: lerd
+// supervises the dev command on the host and nginx proxies the domain to it.
+// Collects the command, port, HTTPS, and services.
+func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config.GlobalConfig) (*config.ProjectConfig, error) {
+	manifest := readPackageManifest(cwd)
+	devScripts := manifest.devScripts()
+
+	const otherOption = "Other (enter a command)"
+	command := ""
+	if defaults.Proxy != nil {
+		command = defaults.Proxy.Command
+	}
+
+	// Pick the dev command: choose a detected npm script or enter a custom one.
+	selected := otherOption
+	if len(devScripts) > 0 {
+		selected = devScripts[0]
+		options := append(append([]string{}, devScripts...), otherOption)
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Dev command").
+				Description("How lerd starts the app (lerd supervises and restarts it)").
+				Options(huh.NewOptions(options...)...).
+				Value(&selected),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+	}
+	if selected == otherOption {
+		if command == "" {
+			command = "npm run start:dev"
+		}
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewInput().
+				Title("Dev command").
+				Description("Leave blank to run the server yourself (proxy-only mode)").
+				Value(&command),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
+	} else {
+		command = selected
+	}
+
+	// Port: default from an explicit flag in the command, else the tool's
+	// conventional port, else 3000.
+	port := 0
+	if defaults.Proxy != nil && defaults.Proxy.Port > 0 {
+		port = defaults.Proxy.Port
+	}
+	if port == 0 {
+		if p := portFromCommand(command); p > 0 {
+			port = p
+		} else {
+			// No explicit port: auto-assign from the default base, walking up
+			// past anything already taken (other sites, lerd services).
+			siteName := ""
+			if s, err := config.FindSiteByPath(cwd); err == nil {
+				siteName = s.Name
 			}
+			port = allocateHostPort(defaultDevServerPort, siteName)
+		}
+	}
+	portStr := strconv.Itoa(port)
+	secured := defaults.Secured
+	if !secured {
+		if site, err := config.FindSiteByPath(cwd); err == nil && site.Secured {
+			secured = true
 		}
 	}
 
-	containerCfg := &config.ContainerConfig{
-		Port: port,
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Port").
+			Description("The port the dev server listens on (lerd injects PORT and proxies here)").
+			Value(&portStr).
+			Validate(func(s string) error {
+				if s == "" {
+					return fmt.Errorf("port is required")
+				}
+				for _, c := range s {
+					if c < '0' || c > '9' {
+						return fmt.Errorf("port must be a number")
+					}
+				}
+				return nil
+			}),
+		huh.NewConfirm().
+			Title("Enable HTTPS?").
+			Value(&secured),
+	)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return nil, err
 	}
-	if containerfile != "Containerfile.lerd" && containerfile != "" {
-		containerCfg.Containerfile = containerfile
+	port = 0
+	fmt.Sscanf(portStr, "%d", &port)
+
+	// Services multi-select (same flow as the custom container wizard).
+	serviceOptions := nonDatabaseServiceOptions()
+	selectedServices := defaults.ServiceNames()
+	if len(serviceOptions) > 0 {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Services").
+				Options(huh.NewOptions(serviceOptions...)...).
+				Value(&selectedServices),
+		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &config.ProjectConfig{
-		Secured:       secured,
-		Services:      services,
-		CustomWorkers: filteredCustomWorkers,
-		Container:     containerCfg,
-		AppURL:        defaults.AppURL,
-		Domains:       defaults.Domains,
+		Secured:     secured,
+		Services:    buildProjectServices(selectedServices, defaults),
+		Proxy:       &config.ProxyConfig{Command: command, Port: port, SSL: false},
+		AppURL:      defaults.AppURL,
+		Domains:     defaults.Domains,
+		NodeVersion: defaults.NodeVersion,
 	}, nil
 }
 

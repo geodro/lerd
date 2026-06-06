@@ -123,9 +123,9 @@ func regenNginxVhost(siteName, sitePath string) {
 		return
 	}
 
-	// Custom container sites handle proxying through the main container
-	// template, so the PHP-specific vhost regeneration is not needed.
-	if site.IsCustomContainer() {
+	// Custom container and host-proxy sites handle proxying through their own
+	// vhost, so the PHP-specific vhost regeneration is not needed.
+	if site.IsCustomContainer() || site.IsHostProxy() {
 		return
 	}
 

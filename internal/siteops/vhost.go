@@ -24,7 +24,23 @@ func RegenerateSiteVhost(site *config.Site, oldPrimary string) error {
 		}
 	}
 
-	if site.IsCustomContainer() {
+	if site.IsHostProxy() {
+		if site.Secured {
+			if err := nginx.GenerateHostProxySSLVhost(*site); err != nil {
+				return fmt.Errorf("generating host-proxy SSL vhost: %w", err)
+			}
+			sslConf := filepath.Join(config.NginxConfD(), newPrimary+"-ssl.conf")
+			mainConf := filepath.Join(config.NginxConfD(), newPrimary+".conf")
+			_ = os.Remove(mainConf)
+			if err := os.Rename(sslConf, mainConf); err != nil {
+				return fmt.Errorf("installing host-proxy SSL vhost: %w", err)
+			}
+		} else {
+			if err := nginx.GenerateHostProxyVhost(*site); err != nil {
+				return fmt.Errorf("generating host-proxy vhost: %w", err)
+			}
+		}
+	} else if site.IsCustomContainer() {
 		if site.Secured {
 			if err := nginx.GenerateCustomSSLVhost(*site); err != nil {
 				return fmt.Errorf("generating custom SSL vhost: %w", err)

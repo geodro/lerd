@@ -364,7 +364,7 @@ func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
 
 	if reg, regErr := config.LoadSites(); regErr == nil {
 		for _, site := range reg.Sites {
-			if site.Ignored || site.IsCustomContainer() || site.IsFrankenPHP() {
+			if site.Ignored || site.IsCustomContainer() || site.IsFrankenPHP() || site.IsHostProxy() {
 				continue
 			}
 			hints := config.DetectFrankenPHPHints(site.Path)

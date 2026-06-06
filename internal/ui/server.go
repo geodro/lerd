@@ -702,14 +702,17 @@ type SiteResponse struct {
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
-	Services        []string `json:"services,omitempty"`
-	LANPort         int      `json:"lan_port,omitempty"`
-	LANShareURL     string   `json:"lan_share_url,omitempty"`
-	CustomContainer bool     `json:"custom_container,omitempty"`
-	ContainerPort   int      `json:"container_port,omitempty"`
-	ContainerImage  string   `json:"container_image,omitempty"`
-	Runtime         string   `json:"runtime,omitempty"`
-	RuntimeWorker   bool     `json:"runtime_worker,omitempty"`
+	Services         []string `json:"services,omitempty"`
+	LANPort          int      `json:"lan_port,omitempty"`
+	LANShareURL      string   `json:"lan_share_url,omitempty"`
+	CustomContainer  bool     `json:"custom_container,omitempty"`
+	ContainerPort    int      `json:"container_port,omitempty"`
+	ContainerImage   string   `json:"container_image,omitempty"`
+	Runtime          string   `json:"runtime,omitempty"`
+	RuntimeWorker    bool     `json:"runtime_worker,omitempty"`
+	HostProxy        bool     `json:"host_proxy,omitempty"`
+	HostPort         int      `json:"host_port,omitempty"`
+	HostHasDevServer bool     `json:"host_has_dev_server,omitempty"`
 }
 
 func handleSites(w http.ResponseWriter, _ *http.Request) {
@@ -830,6 +833,9 @@ func buildSites() []SiteResponse {
 			ContainerImage:     e.ContainerImage,
 			Runtime:            e.Runtime,
 			RuntimeWorker:      e.RuntimeWorker,
+			HostProxy:          e.HostPort > 0,
+			HostPort:           e.HostPort,
+			HostHasDevServer:   e.HostPort > 0 && e.HostCommand != "",
 		})
 	}
 	return sites
@@ -2961,6 +2967,10 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "custom container sites do not use PHP versions"})
 			return
 		}
+		if site.IsHostProxy() {
+			writeJSON(w, SiteActionResponse{Error: "host-proxy sites do not use PHP versions"})
+			return
+		}
 		_ = config.SetProjectPHPVersion(site.Path, version)
 		site.PHPVersion = version
 		if site.IsFrankenPHP() {
@@ -4609,6 +4619,11 @@ type labeledOption struct {
 // build script, and "Skip". The parent path is used as a proxy for the
 // not-yet-created worktree (a fresh worktree is a checkout of the same tree).
 func worktreeBuildOptions(site *config.Site) []labeledOption {
+	// Host-proxy worktrees run a dev server continuously; there is no
+	// build-then-serve step to choose, so the Assets picker is omitted.
+	if site.IsHostProxy() {
+		return nil
+	}
 	opts := []labeledOption{{Value: "auto", Label: "Automatic (recommended)"}}
 	var workers map[string]config.FrameworkWorker
 	if fw, ok := config.GetFrameworkForDir(site.Framework, site.Path); ok {

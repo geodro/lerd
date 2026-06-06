@@ -32,6 +32,9 @@ export interface Site {
   custom_container?: boolean;
   container_image?: string;
   container_port?: number;
+  host_proxy?: boolean;
+  host_port?: number;
+  host_has_dev_server?: boolean;
   worktrees?: Array<{
     branch?: string;
     domain?: string;

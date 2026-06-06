@@ -134,7 +134,7 @@ func TestMigrateWorktreeVhosts_RewritesConfsAndEnv(t *testing.T) {
 	worktrees := []gitpkg.Worktree{
 		{Name: "wt", Branch: "feat-x", Path: wtPath, Domain: "feat-x.alpha.test"},
 	}
-	migrateWorktreeVhosts(worktrees, "alpha.localhost", "8.4", "alpha", false)
+	migrateWorktreeVhosts(worktrees, "alpha.localhost", "8.4", "alpha", false, false)
 
 	if _, err := os.Stat(staleConf); !os.IsNotExist(err) {
 		t.Errorf("stale worktree conf should be gone; stat err = %v", err)

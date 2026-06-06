@@ -140,6 +140,24 @@ func UnpauseSite(name string) error {
 				return fmt.Errorf("generating custom vhost: %w", err)
 			}
 		}
+	case site.IsHostProxy():
+		// No container; the dev-server worker is restarted below from
+		// PausedWorkers. Just restore the proxy vhost.
+		if site.Secured {
+			if err := nginx.GenerateHostProxySSLVhost(*site); err != nil {
+				return fmt.Errorf("generating host-proxy SSL vhost: %w", err)
+			}
+			sslConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+"-ssl.conf")
+			mainConf := filepath.Join(config.NginxConfD(), site.PrimaryDomain()+".conf")
+			_ = os.Remove(mainConf)
+			if err := os.Rename(sslConf, mainConf); err != nil {
+				return fmt.Errorf("installing host-proxy SSL vhost: %w", err)
+			}
+		} else {
+			if err := nginx.GenerateHostProxyVhost(*site); err != nil {
+				return fmt.Errorf("generating host-proxy vhost: %w", err)
+			}
+		}
 	case site.IsFrankenPHP():
 		_ = podman.StartUnit(podman.FrankenPHPContainerName(site.Name))
 		if site.Secured {
@@ -308,6 +326,14 @@ func collectRunningWorkers(site *config.Site) []string {
 		active = append(active, "stripe")
 	}
 
+	// Host-proxy sites supervise a single "app" dev-server worker that is
+	// neither a framework worker nor in proj.Workers, and on macOS lives as a
+	// launchd plist rather than a SystemdUserDir .service file (so the orphan
+	// scan below won't see it). Check it explicitly.
+	if site.IsHostProxy() && unitIsActiveOrActivating(hostProxyWorkerUnit(site.Name)) {
+		active = append(active, hostProxyWorkerName)
+	}
+
 	// Detect orphaned workers — running units with no framework definition.
 	known := make(map[string]bool, len(active))
 	for _, a := range active {
@@ -344,6 +370,12 @@ func resumeWorkerByName(site *config.Site, workerName, phpVersion string) {
 			scheme = "https"
 		}
 		StripeStartForSite(site.Name, site.Path, scheme+"://"+site.PrimaryDomain()) //nolint:errcheck
+		return
+	}
+	if workerName == hostProxyWorkerName {
+		if proj, _ := config.LoadProjectConfig(site.Path); proj != nil && proj.Proxy != nil {
+			startHostProxyWorker(*site, proj.Proxy)
+		}
 		return
 	}
 	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)

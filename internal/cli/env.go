@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,91 @@ import (
 	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/spf13/cobra"
 )
+
+// hostProxyLoopback is the address a host-proxy app uses to reach lerd services.
+// Host-proxy apps run on the host, off the podman bridge, so they reach services
+// through the loopback ports those services publish rather than container DNS.
+const hostProxyLoopback = "127.0.0.1"
+
+// rewriteEnvForHostProxy adapts lerd's computed service connection values for a
+// host-proxy app. Bare "lerd-*" hostnames become 127.0.0.1, and *_PORT values
+// map from the container port to the service's published host port (e.g. mariadb
+// 3306 -> 3411). Containerised sites keep the container DNS names untouched.
+func rewriteEnvForHostProxy(updates map[string]string, serviceNames []string) {
+	containerToHost := map[string]string{}
+	for _, name := range serviceNames {
+		for _, mapping := range servicePortMappings(name) {
+			if host, container, ok := splitHostContainerPort(mapping); ok {
+				containerToHost[container] = host
+			}
+		}
+	}
+	applyHostProxyEnv(updates, containerToHost)
+}
+
+// lerdContainerHostRe matches a lerd container hostname with an optional
+// trailing :port, both as a bare value (DB_HOST=lerd-redis) and embedded in a
+// connection string (MONGO_DSN=mongodb://root:pw@lerd-mongo:27017/db).
+var lerdContainerHostRe = regexp.MustCompile(`lerd-[a-z0-9-]+(?::\d+)?`)
+
+// applyHostProxyEnv is the pure rewrite step: every "lerd-<name>[:port]" token
+// (bare or inside a URL) becomes loopback with the service's published host
+// port, and a discrete *_PORT value with no host alongside is remapped too.
+// Split from rewriteEnvForHostProxy so the logic is testable without services.
+func applyHostProxyEnv(updates, containerToHost map[string]string) {
+	for k, v := range updates {
+		nv := lerdContainerHostRe.ReplaceAllStringFunc(v, func(m string) string {
+			_, port, found := strings.Cut(m, ":")
+			if !found {
+				return hostProxyLoopback
+			}
+			if mapped, ok := containerToHost[port]; ok {
+				port = mapped
+			}
+			return hostProxyLoopback + ":" + port
+		})
+		if nv != v {
+			updates[k] = nv
+			continue
+		}
+		// No host token to anchor on: a standalone *_PORT (e.g. DB_PORT=3306)
+		// still needs remapping to its published host port.
+		if strings.HasSuffix(k, "_PORT") {
+			if mapped, ok := containerToHost[v]; ok {
+				updates[k] = mapped
+			}
+		}
+	}
+}
+
+// servicePortMappings returns the "host:container" port mappings a service
+// publishes. The installed/custom service is consulted first so a pinned or
+// non-canonical version reports its real published port; the default preset is
+// the fallback for services not separately registered.
+func servicePortMappings(name string) []string {
+	if svc, err := config.LoadCustomService(name); err == nil && len(svc.Ports) > 0 {
+		return svc.Ports
+	}
+	if svc, err := config.DefaultPresetMeta(name); err == nil && len(svc.Ports) > 0 {
+		return svc.Ports
+	}
+	return nil
+}
+
+// splitHostContainerPort parses a podman port mapping ("3411:3306", or
+// "127.0.0.1:3411:3306" with an optional "/tcp" suffix) into host and container.
+func splitHostContainerPort(mapping string) (host, container string, ok bool) {
+	parts := strings.Split(mapping, ":")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	host = parts[len(parts)-2]
+	container = strings.SplitN(parts[len(parts)-1], "/", 2)[0]
+	if host == "" || container == "" {
+		return "", "", false
+	}
+	return host, container, true
+}
 
 // projectDBName returns a safe database name for the project at path.
 // It uses the registered site name, falling back to the directory name,
@@ -568,6 +654,16 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	if url := resolveAppURL(cwd, site); url != "" {
 		updates[urlKey] = url
 		fmt.Printf("  Setting %s=%s\n", urlKey, url)
+	}
+
+	// 4d. Host-proxy apps run on the host, so point service connections at
+	// loopback and the published host ports instead of container DNS names.
+	if site.IsHostProxy() {
+		names := make([]string, 0, len(lerdYAMLServices))
+		for n := range lerdYAMLServices {
+			names = append(names, n)
+		}
+		rewriteEnvForHostProxy(updates, names)
 	}
 
 	// 4e. Apply personal .env.lerd_override values last so they win over lerd's

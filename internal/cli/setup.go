@@ -101,6 +101,8 @@ func runSetup(allSteps, skipOpen bool) error {
 	}
 
 	_, vendorMissing := os.Stat(cwd + "/vendor")
+	_, composerJSONErr := os.Stat(cwd + "/composer.json")
+	hasComposerJSON := composerJSONErr == nil
 	_, nodeModulesMissing := os.Stat(cwd + "/node_modules")
 	_, pkgJSONErr := os.Stat(cwd + "/package.json")
 	hasPackageJSON := pkgJSONErr == nil
@@ -118,14 +120,19 @@ func runSetup(allSteps, skipOpen bool) error {
 	// runSetupInit -> applyProjectConfig already ran `lerd env`; do not
 	// duplicate it here.
 
-	steps := []setupStep{
-		{
+	steps := []setupStep{}
+	// composer install only makes sense for a PHP project; skip it entirely for
+	// Node-only / host-proxy sites that have no composer.json.
+	if hasComposerJSON {
+		steps = append(steps, setupStep{
 			label:   "composer install",
 			enabled: os.IsNotExist(vendorMissing),
 			run: func() error {
 				return composerInContainer(cwd, "install")
 			},
-		},
+		})
+	}
+	steps = append(steps, []setupStep{
 		{
 			label:   "npm install/ci",
 			enabled: os.IsNotExist(nodeModulesMissing) && hasPackageJSON,
@@ -170,7 +177,7 @@ func runSetup(allSteps, skipOpen bool) error {
 				return runWithFnm("npm", []string{"run", buildScript})
 			},
 		},
-	}
+	}...)
 
 	// Framework setup commands (one-off bootstrap steps like migrations, storage:link, etc.)
 	if site != nil {

@@ -139,6 +139,12 @@ type EnrichedSite struct {
 	ContainerSSL   bool
 	ContainerImage string
 
+	// Host proxy — non-zero HostPort means nginx proxies the domain to a dev
+	// server lerd supervises on the host (the "app" worker).
+	HostPort    int
+	HostSSL     bool
+	HostCommand string
+
 	// Runtime — "" / "fpm" is the shared PHP-FPM image; "frankenphp" is the
 	// per-site dunglas/frankenphp container. RuntimeWorker toggles worker mode
 	// when running under frankenphp.
@@ -248,6 +254,9 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		ContainerPort:       s.ContainerPort,
 		ContainerSSL:        s.ContainerSSL,
 		ContainerImage:      containerImage(s),
+		HostPort:            s.HostPort,
+		HostSSL:             s.HostSSL,
+		HostCommand:         s.HostCommand,
 		Runtime:             s.Runtime,
 		RuntimeWorker:       s.RuntimeWorker,
 		FrameworkName:       s.Framework,
@@ -347,8 +356,8 @@ func containerImage(s config.Site) string {
 }
 
 func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw bool) {
-	// Custom container sites don't use PHP/Node version detection.
-	if s.IsCustomContainer() {
+	// Custom container and host-proxy sites don't use PHP/Node version detection.
+	if s.IsCustomContainer() || s.IsHostProxy() {
 		return
 	}
 
@@ -374,6 +383,14 @@ func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw
 }
 
 func (e *EnrichedSite) enrichFPM() {
+	if e.HostPort > 0 {
+		// Host-proxy sites have no container; "running" reflects the
+		// supervised dev-server worker. Proxy-only sites (no worker) stay
+		// false. Match the activating-state handling used for worker rows.
+		st, _ := unitStatusFn(config.HostProxyWorkerUnit(e.Name))
+		e.FPMRunning = st == "active" || st == "activating"
+		return
+	}
 	if e.ContainerPort > 0 {
 		e.FPMRunning, _ = containerRunningFn("lerd-custom-" + e.Name)
 		return
@@ -406,6 +423,12 @@ func (e *EnrichedSite) enrichWorkers(fw *config.Framework, hasFw bool) {
 			hasFw = true
 		}
 	}
+
+	// A host-proxy site's dev server is the site's main process, not a togglable
+	// worker: its lifecycle follows the site (start/pause), and its health is
+	// surfaced via FPMRunning in enrichFPM. So it is deliberately NOT listed as
+	// a worker row here, otherwise the dashboard would offer a stop control that
+	// just 502s the site.
 
 	if !hasFw || fw.Workers == nil {
 		return
@@ -498,7 +521,7 @@ func enrichWorktreeWorkers(siteName, wtPath string, fw *config.Framework) []Work
 	if fw == nil || fw.Workers == nil {
 		return nil
 	}
-	wtBase := filepath.Base(wtPath)
+	wtBase := config.WorktreeUnitSlug(filepath.Base(wtPath))
 	names := make([]string, 0, len(fw.Workers))
 	for n, wDef := range fw.Workers {
 		if !wDef.IsPerWorktree() {

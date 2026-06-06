@@ -26,11 +26,22 @@ func IsParkedSite(sitePath string, parkedDirs []string) bool {
 	return false
 }
 
-// UnlinkSiteCore performs the shared unlink steps: remove vhost, remove certs,
-// update registry (ignore if parked, remove otherwise), update container hosts,
-// and reload nginx. It does NOT stop workers or clean up unused services/FPMs —
-// callers that need those should do them before calling this function.
+// StopSiteWorkers, when set, stops all running workers for a site as part of
+// UnlinkSiteCore. It is wired up by the cli package (which owns worker
+// lifecycle) at init time, mirroring podman.AfterUnitChange. Without it, the
+// MCP and parked-watcher unlink paths — which call UnlinkSiteCore directly —
+// would leave a host-proxy site's always-restart dev-server worker (and any
+// framework workers) running after the site is gone.
+var StopSiteWorkers func(site *config.Site)
+
+// UnlinkSiteCore performs the shared unlink steps: stop workers, remove vhost,
+// remove certs, update registry (ignore if parked, remove otherwise), update
+// container hosts, and reload nginx.
 func UnlinkSiteCore(site *config.Site, parkedDirs []string) error {
+	if StopSiteWorkers != nil {
+		StopSiteWorkers(site)
+	}
+
 	_ = nginx.RemoveVhost(site.PrimaryDomain())
 
 	if site.Secured {

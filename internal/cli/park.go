@@ -231,7 +231,7 @@ func RegisterProject(projectDir string, cfg *config.GlobalConfig) (bool, error) 
 			return false, nil
 		}
 	}
-	if existing, err := config.FindSiteByPath(projectDir); err == nil && existing != nil && existing.IsCustomContainer() {
+	if existing, err := config.FindSiteByPath(projectDir); err == nil && existing != nil && (existing.IsCustomContainer() || existing.IsHostProxy()) {
 		return false, nil
 	}
 

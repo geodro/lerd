@@ -102,6 +102,16 @@ func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
 	if reg, err := config.LoadSites(); err == nil {
 		sites = reg.Sites
 	}
+	// A host-proxy site's dev server (lerd-app-<site>) is the site's main
+	// process, never an orphan; recognised here so no caller has to special-case
+	// it around every FindOrphanedWorkers call.
+	hostProxySite := false
+	for _, s := range sites {
+		if s.Name == siteName && s.IsHostProxy() {
+			hostProxySite = true
+			break
+		}
+	}
 	var orphans []string
 	for _, e := range entries {
 		name := e.Name()
@@ -111,6 +121,9 @@ func FindOrphanedWorkers(siteName string, known map[string]bool) []string {
 		workerName := strings.TrimPrefix(name, prefix)
 		workerName = strings.TrimSuffix(workerName, suffix)
 		if workerName == "" {
+			continue
+		}
+		if hostProxySite && workerName == config.HostProxyWorkerName {
 			continue
 		}
 		// Skip non-worker units.

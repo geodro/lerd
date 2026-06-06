@@ -52,6 +52,18 @@ func RestartSite(name string) error {
 		return nil
 	}
 
+	if site.IsHostProxy() {
+		if site.HostCommand == "" {
+			return fmt.Errorf("site %q is proxy-only (no command); lerd does not manage its process", name)
+		}
+		unit := hostProxyWorkerUnit(site.Name)
+		if err := podman.RestartUnit(unit); err != nil {
+			return fmt.Errorf("restarting dev server: %w", err)
+		}
+		fmt.Printf("Restarted: %s (%s)\n", name, unit)
+		return nil
+	}
+
 	// A static site (no PHP, no container) is served directly by nginx and has
 	// no per-site runtime. Restarting would bounce the shared FPM container,
 	// disrupting every other PHP site on that version, so refuse instead.

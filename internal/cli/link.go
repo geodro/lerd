@@ -160,6 +160,31 @@ func runLink(args []string) error {
 		return linkApplyServices(cwd, proj)
 	}
 
+	// Host-proxy path: the project runs a dev server on the host and nginx
+	// reverse-proxies to it. No container, no PHP/framework detection.
+	if proj != nil && proj.Proxy != nil && proj.Proxy.Port > 0 {
+		secured := siteops.CleanupRelink(cwd, name) || proj.Secured
+		site := config.Site{
+			Name:        name,
+			Domains:     domains,
+			Path:        cwd,
+			Secured:     secured,
+			HostPort:    proj.Proxy.Port,
+			HostSSL:     proj.Proxy.SSL,
+			HostCommand: proj.Proxy.Command,
+		}
+		if err := config.AddSite(site); err != nil {
+			return fmt.Errorf("registering site: %w", err)
+		}
+		_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
+		if err := siteops.FinishHostProxyLink(site); err != nil {
+			return err
+		}
+		startHostProxyWorker(site, proj.Proxy)
+		fmt.Printf("Linked: %s -> %s (host proxy, port %d)\n", name, strings.Join(domains, ", "), proj.Proxy.Port)
+		return linkApplyServices(cwd, proj)
+	}
+
 	framework, ok := resolveFramework(cwd)
 	detectedPublicDir := ""
 	if proj != nil && proj.PublicDir != "" {

@@ -62,7 +62,7 @@ func IsPHPProject(dir string) bool {
 // public dir with an index.php entrypoint all count as PHP. Custom containers
 // and static sites (a public dir of HTML only) return false.
 func SiteUsesPHP(s config.Site) bool {
-	if s.IsCustomContainer() {
+	if s.IsCustomContainer() || s.IsHostProxy() {
 		return false
 	}
 	if s.Framework != "" || IsPHPProject(s.Path) {

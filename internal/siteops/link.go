@@ -210,6 +210,35 @@ func FinishFrankenPHPLink(site config.Site) error {
 	return nil
 }
 
+// FinishHostProxyLink performs the post-registration steps for a host-proxy
+// site: no container is built or started. It refreshes the host.containers.internal
+// mapping (so nginx can reach the host), generates the proxy vhost, and reloads
+// nginx. The dev-server process is started separately by the caller (in the cli
+// package) because siteops must not import cli.
+func FinishHostProxyLink(site config.Site) error {
+	_ = podman.WriteContainerHosts()
+
+	if site.Secured {
+		if err := certs.SecureSite(site); err != nil {
+			return fmt.Errorf("securing site: %w", err)
+		}
+	} else {
+		if err := nginx.GenerateHostProxyVhost(site); err != nil {
+			return fmt.Errorf("generating host-proxy vhost: %w", err)
+		}
+	}
+
+	if err := nginx.Reload(); err != nil {
+		return fmt.Errorf("nginx reload: %w", err)
+	}
+
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
+	}
+
+	return nil
+}
+
 // FinishCustomLink performs the post-registration steps for a custom container
 // site: build the image, write a dedicated quadlet, generate a proxy vhost,
 // update container hosts, and reload nginx.

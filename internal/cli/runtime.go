@@ -43,6 +43,9 @@ func runRuntime(cmd *cobra.Command, args []string) error {
 	if site.IsCustomContainer() {
 		return fmt.Errorf("site uses a custom Containerfile; the runtime is defined by your Containerfile.lerd")
 	}
+	if site.IsHostProxy() {
+		return fmt.Errorf("site is a host-proxy site; it runs your dev command on the host, not a PHP runtime")
+	}
 
 	if len(args) == 0 {
 		fmt.Printf("Runtime: %s\n", runtimeLabel(site))

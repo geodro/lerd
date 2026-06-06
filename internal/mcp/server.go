@@ -5113,6 +5113,9 @@ func execSitePHP(args map[string]any) (any, *rpcError) {
 	if site.IsCustomContainer() {
 		return toolErr("custom container sites do not use PHP versions — the container defines its own runtime"), nil
 	}
+	if site.IsHostProxy() {
+		return toolErr("host-proxy sites do not use PHP versions — they run your dev command on the host"), nil
+	}
 
 	if branch := strArg(args, "branch"); branch != "" {
 		cwd, errResp := resolveWorkerCwd(site, branch)
@@ -5282,6 +5285,9 @@ func execSiteRuntime(args map[string]any) (any, *rpcError) {
 	}
 	if site.IsCustomContainer() {
 		return toolErr("site uses a custom Containerfile; runtime is defined by Containerfile.lerd"), nil
+	}
+	if site.IsHostProxy() {
+		return toolErr("host-proxy sites run your dev command on the host, not a PHP runtime"), nil
 	}
 
 	if runtime == "fpm" {

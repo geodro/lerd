@@ -46,6 +46,17 @@ type Site struct {
 	Runtime string `yaml:"runtime,omitempty"`
 	// RuntimeWorker toggles FrankenPHP worker mode when Runtime=="frankenphp".
 	RuntimeWorker bool `yaml:"runtime_worker,omitempty"`
+	// HostPort, when non-zero, means this site is a host-proxy site: it has no
+	// container, and nginx reverse-proxies the domain to a process running on
+	// the host (the dev server) listening on this port.
+	HostPort int `yaml:"host_port,omitempty"`
+	// HostSSL, when true, means the host process serves TLS on its port; nginx
+	// proxies via HTTPS with ssl_verify off.
+	HostSSL bool `yaml:"host_ssl,omitempty"`
+	// HostCommand is the dev command lerd supervises for a host-proxy site
+	// (e.g. "npm run start:dev"). Empty means proxy-only: the user runs the
+	// server themselves and lerd only wires the proxy.
+	HostCommand string `yaml:"host_command,omitempty"`
 }
 
 // IsCustomContainer returns true when the site uses a per-project custom
@@ -58,6 +69,23 @@ func (s *Site) IsCustomContainer() bool {
 // dunglas/frankenphp container instead of the shared PHP-FPM image.
 func (s *Site) IsFrankenPHP() bool {
 	return s.Runtime == "frankenphp"
+}
+
+// IsHostProxy returns true when the site is a host-proxy site: nginx
+// reverse-proxies the domain to a host process instead of a container.
+func (s *Site) IsHostProxy() bool {
+	return s.HostPort > 0
+}
+
+// HostProxyWorkerName is the worker name of a host-proxy site's supervised
+// dev server. There is exactly one per site.
+const HostProxyWorkerName = "app"
+
+// HostProxyWorkerUnit returns the worker unit name for a host-proxy site's dev
+// server (lerd-app-<site>). Single source of truth for the cli (which starts
+// and stops it) and siteinfo (which reports its health).
+func HostProxyWorkerUnit(siteName string) string {
+	return "lerd-" + HostProxyWorkerName + "-" + siteName
 }
 
 // PrimaryDomain returns the first (primary) domain for the site.
@@ -99,6 +127,9 @@ type siteYAML struct {
 	ContainerSSL  bool     `yaml:"container_ssl,omitempty"`
 	Runtime       string   `yaml:"runtime,omitempty"`
 	RuntimeWorker bool     `yaml:"runtime_worker,omitempty"`
+	HostPort      int      `yaml:"host_port,omitempty"`
+	HostSSL       bool     `yaml:"host_ssl,omitempty"`
+	HostCommand   string   `yaml:"host_command,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
@@ -120,6 +151,9 @@ func (s Site) toYAML() siteYAML {
 		ContainerSSL:  s.ContainerSSL,
 		Runtime:       s.Runtime,
 		RuntimeWorker: s.RuntimeWorker,
+		HostPort:      s.HostPort,
+		HostSSL:       s.HostSSL,
+		HostCommand:   s.HostCommand,
 	}
 }
 
@@ -146,6 +180,9 @@ func (sy siteYAML) toSite() Site {
 		ContainerSSL:  sy.ContainerSSL,
 		Runtime:       sy.Runtime,
 		RuntimeWorker: sy.RuntimeWorker,
+		HostPort:      sy.HostPort,
+		HostSSL:       sy.HostSSL,
+		HostCommand:   sy.HostCommand,
 	}
 }
 
