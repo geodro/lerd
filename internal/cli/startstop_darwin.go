@@ -247,8 +247,18 @@ func ensurePodmanMachineRunning() {
 
 	if len(machines) == 0 {
 		fmt.Println("  --> Initialising Podman Machine (first run, this may take a minute) ...")
-		cmd := exec.Command(podman.PodmanBin(), "machine", "init", "--rootful",
-			"-v", "/Volumes:/Volumes")
+		// Size memory at init so a fresh VM (first run, or one recreated by
+		// `lerd machine reset`) boots at the host-scaled target rather than
+		// podman's stock default. The existing-machine branch below only
+		// resizes machines that already exist.
+		cfg, _ := config.LoadGlobal()
+		execMode := cfg != nil && cfg.WorkerExecMode() != config.WorkerExecModeContainer
+		targetMemoryMiB := recommendedVMMemoryMiB(hostMemoryGiB(), execMode)
+		initArgs := []string{"machine", "init", "--rootful", "-v", "/Volumes:/Volumes"}
+		if targetMemoryMiB > 0 {
+			initArgs = append(initArgs, "--memory", strconv.FormatInt(targetMemoryMiB, 10))
+		}
+		cmd := exec.Command(podman.PodmanBin(), initArgs...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

@@ -6,8 +6,9 @@ import "strings"
 // that surfaces after an ungraceful host shutdown leaves the Podman Machine's
 // container storage corrupt. Every container start fails until the VM remounts
 // its storage and the stale containers are rebuilt. Two variants are matched,
-// both gated tightly so unrelated failures (port conflicts, missing images, bad
-// flags) don't trip the heal:
+// both anchored on the overlay store path so unrelated failures (port
+// conflicts, missing images, bad flags, or graph-driver/readlink errors that
+// don't touch the overlay store) don't trip the destructive heal:
 //
 //  1. graph-driver info query: `getting graph driver info "<id>": readlink
 //     /var/lib/containers/storage/overlay: invalid argument`
@@ -24,8 +25,7 @@ func isOverlayStorageError(err error) bool {
 	msg := strings.ToLower(err.Error())
 
 	if strings.Contains(msg, "graph driver") {
-		return strings.Contains(msg, "/containers/storage/overlay") ||
-			(strings.Contains(msg, "readlink") && strings.Contains(msg, "invalid argument"))
+		return strings.Contains(msg, "/containers/storage/overlay")
 	}
 
 	if strings.Contains(msg, "mounting storage for container") {

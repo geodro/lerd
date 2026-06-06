@@ -50,10 +50,12 @@ func restartPodmanMachineForHeal() {
 }
 
 // reportOverlayHealOutcome prints recovery guidance when the overlay-storage
-// error persisted after the automatic machine restart and retry.
-func reportOverlayHealOutcome(err error) {
+// error persisted after the automatic machine restart and retry, and reports
+// whether it claimed the error so the caller can stop the start. It returns
+// false for any other error, leaving the normal start flow to continue.
+func reportOverlayHealOutcome(err error) bool {
 	if !isOverlayStorageError(err) {
-		return
+		return false
 	}
 	fmt.Println()
 	fmt.Println("  Podman Machine container storage is still corrupted after a restart.")
@@ -61,4 +63,5 @@ func reportOverlayHealOutcome(err error) {
 	fmt.Println("  Your databases and site data are safe; they live on the host, not in the VM.")
 	fmt.Println("  Recreate the VM to fix it (images are rebuilt automatically on the next start):")
 	fmt.Println("      lerd machine reset")
+	return true
 }

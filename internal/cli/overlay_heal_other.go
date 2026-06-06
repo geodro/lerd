@@ -7,5 +7,7 @@ package cli
 // VM. Native rootless podman on Linux doesn't use a separate VM.
 func healOverlayCorruptionIfNeeded(_ error) bool { return false }
 
-// reportOverlayHealOutcome is a no-op on non-darwin platforms.
-func reportOverlayHealOutcome(_ error) {}
+// reportOverlayHealOutcome is a no-op on non-darwin platforms: the overlay
+// corruption it guards against is specific to the macOS Podman Machine VM, so
+// it never claims the error and the start flow continues unchanged.
+func reportOverlayHealOutcome(_ error) bool { return false }

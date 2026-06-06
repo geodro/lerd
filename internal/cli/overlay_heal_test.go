@@ -23,7 +23,7 @@ func TestIsOverlayStorageError(t *testing.T) {
 		want bool
 	}{
 		{"real overlay corruption", realErr, true},
-		{"graph driver with readlink+invalid", errors.New(`getting graph driver info "x": readlink /foo: invalid argument`), true},
+		{"graph driver readlink+invalid but not overlay store", errors.New(`getting graph driver info "x": readlink /foo: invalid argument`), false},
 		{"container mount broken overlay layer", mountErr, true},
 		{"nil error", nil, false},
 		{"port conflict", errors.New("rootlessport cannot expose privileged port 80, bind: address already in use"), false},

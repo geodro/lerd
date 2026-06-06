@@ -588,11 +588,13 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if healOverlayCorruptionIfNeeded(serviceErr) {
 		serviceErr = RunParallel(makeJobs(serviceUnits))
 	}
-	// If the storage is still corrupt, every worker (and the DNS and tray steps
-	// below) would fail the same way and bury the recovery guidance. Stop here
-	// so the guidance is the last thing the user sees.
-	if isOverlayStorageError(serviceErr) {
-		reportOverlayHealOutcome(serviceErr)
+	// If the storage is still corrupt the heal couldn't fix it; every worker
+	// (and the DNS and tray steps below) would fail the same way and bury the
+	// recovery guidance. reportOverlayHealOutcome prints the guidance and
+	// reports true only on the platform where this error occurs (macOS), so we
+	// stop there; on every other platform it is a no-op that returns false and
+	// the start continues as normal.
+	if reportOverlayHealOutcome(serviceErr) {
 		return nil
 	}
 	if len(workerUnits) > 0 {
