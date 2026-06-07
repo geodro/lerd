@@ -204,6 +204,8 @@
   "sites_empty": "Nenhum site ainda",
   "sites_emptyHint": "Execute {cmd}",
   "sites_select": "Selecione um site",
+  "sites_dash_overview": "Visão geral",
+  "sites_dash_otherFramework": "Outros",
   "sites_paused": "Pausado",
   "sites_pausedDetail_title": "Este site está pausado",
   "sites_pausedDetail_hint": "O nginx não está a servir {domain} enquanto estiver pausado. Retome para voltar a colocá-lo online.",

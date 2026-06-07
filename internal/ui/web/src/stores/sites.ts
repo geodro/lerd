@@ -145,6 +145,21 @@ export function siteWorkerFailing(s: Site): boolean {
   );
 }
 
+export type WorkerDotColor = 'amber' | 'violet' | 'emerald' | 'sky' | 'indigo';
+
+// Colors for each running worker, used as little status dots in list rows and
+// dashboard tiles. Kept here so the row and tile views never drift apart.
+export function runningWorkerColors(s: Site): WorkerDotColor[] {
+  const dots: WorkerDotColor[] = [];
+  if (s.queue_running) dots.push('amber');
+  if (s.horizon_running) dots.push('amber');
+  if (s.stripe_running) dots.push('violet');
+  if (s.schedule_running) dots.push('emerald');
+  if (s.reverb_running) dots.push('sky');
+  for (const w of s.framework_workers || []) if (w.running) dots.push('indigo');
+  return dots;
+}
+
 export function openSiteInBrowser(s: Site, branch: string = '') {
   const target = activeWorktreeDomain(s, branch);
   const useTLS = Boolean(s.tls);

@@ -204,6 +204,8 @@
   "sites_empty": "Noch keine Sites",
   "sites_emptyHint": "Führe {cmd} aus",
   "sites_select": "Site auswählen",
+  "sites_dash_overview": "Übersicht",
+  "sites_dash_otherFramework": "Andere",
   "sites_paused": "Pausiert",
   "sites_pausedDetail_title": "Diese Site ist pausiert",
   "sites_pausedDetail_hint": "Nginx liefert {domain} nicht aus, solange die Site pausiert ist. Fortsetzen, um sie wieder online zu bringen.",

@@ -204,6 +204,8 @@
   "sites_empty": "Belum ada situs",
   "sites_emptyHint": "Jalankan {cmd}",
   "sites_select": "Pilih sebuah situs",
+  "sites_dash_overview": "Ikhtisar",
+  "sites_dash_otherFramework": "Lainnya",
   "sites_paused": "Dijeda",
   "sites_pausedDetail_title": "Situs ini dijeda",
   "sites_pausedDetail_hint": "Nginx tidak menyajikan {domain} saat dijeda. Lanjutkan untuk membuatnya online kembali.",

@@ -204,6 +204,8 @@
   "sites_empty": "Aucun site pour l'instant",
   "sites_emptyHint": "Exécutez {cmd}",
   "sites_select": "Sélectionnez un site",
+  "sites_dash_overview": "Aperçu",
+  "sites_dash_otherFramework": "Autres",
   "sites_paused": "En pause",
   "sites_pausedDetail_title": "Ce site est en pause",
   "sites_pausedDetail_hint": "Nginx ne sert pas {domain} tant que le site est en pause. Reprenez-le pour le remettre en ligne.",
