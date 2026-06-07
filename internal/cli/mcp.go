@@ -1246,13 +1246,16 @@ FrankenPHP is framework-aware: Laravel uses ` + bt + `octane:start --server=fran
 Read, write, or reset a site's custom nginx override block. Saving runs ` + bt + `nginx -t` + bt + `, backs up the prior file, and reloads nginx. ` + bt + `branch=<name>` + bt + ` targets a worktree (new worktrees inherit main's override); ` + bt + `content` + bt + ` is the full file on write.
 
 ### ` + bt + `stripe` + bt + `
-Start or stop a Stripe webhook listener for a site using the Stripe CLI container. On ` + bt + `start` + bt + ` it reads ` + bt + `STRIPE_SECRET` + bt + ` from the site's ` + bt + `.env` + bt + ` and forwards webhooks to ` + bt + `/stripe/webhook` + bt + ` by default.
+Start, stop, or configure a Stripe webhook listener for a site using the Stripe CLI container. Works for any framework, not just Laravel. On ` + bt + `start` + bt + ` the secret is auto-detected from the site's ` + bt + `.env` + bt + ` (probing ` + bt + `STRIPE_SECRET` + bt + `, ` + bt + `STRIPE_SECRET_KEY` + bt + `, then ` + bt + `STRIPE_API_KEY` + bt + `) and events are forwarded to ` + bt + `/stripe/webhook` + bt + ` by default.
 
 Arguments:
-- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + ` or ` + bt + `"stop"` + bt + `
+- ` + bt + `action` + bt + ` (required): ` + bt + `"start"` + bt + `, ` + bt + `"stop"` + bt + `, or ` + bt + `"config"` + bt + `
 - ` + bt + `site` + bt + ` (required): site name from ` + bt + `sites` + bt + ` tool
-- ` + bt + `api_key` + bt + ` (optional, ` + bt + `start` + bt + ` only): Stripe secret key (defaults to ` + bt + `STRIPE_SECRET` + bt + ` in the site's ` + bt + `.env` + bt + `)
-- ` + bt + `webhook_path` + bt + ` (optional, ` + bt + `start` + bt + ` only): webhook route path (default: ` + bt + `"/stripe/webhook"` + bt + `)
+- ` + bt + `api_key` + bt + ` (optional, ` + bt + `start` + bt + ` only): Stripe secret key (defaults to the secret auto-detected in the site's ` + bt + `.env` + bt + `)
+- ` + bt + `webhook_path` + bt + ` (optional): forward route path, persisted to ` + bt + `.lerd.yaml` + bt + ` (default: ` + bt + `"/stripe/webhook"` + bt + `)
+- ` + bt + `secret_env_key` + bt + ` (optional): which ` + bt + `.env` + bt + ` key holds the secret, persisted to ` + bt + `.lerd.yaml` + bt + ` (empty auto-detects)
+
+Use ` + bt + `action="config"` + bt + ` to set ` + bt + `webhook_path` + bt + `/` + bt + `secret_env_key` + bt + ` without starting the listener; passing ` + bt + `config` + bt + ` with no fields reports the current settings.
 
 ### ` + bt + `db_export` + bt + `
 Export a database to a SQL dump file. Works with any project type — service and database are auto-detected. Arguments:
@@ -1585,7 +1588,7 @@ Read ` + bt + `status()` + bt + ` for ` + bt + `dns.tld` + bt + ` and ` + bt + `
 | ` + bt + `site_control` + bt + ` | Pause, unpause, restart, or rebuild a site — ` + bt + `action` + bt + `: ` + bt + `pause` + bt + ` / ` + bt + `unpause` + bt + ` / ` + bt + `restart` + bt + ` / ` + bt + `rebuild` + bt + ` (pause replaces vhost with landing page; rebuild only for custom containers) |
 | ` + bt + `site_runtime` + bt + ` | Switch between shared PHP-FPM and per-site FrankenPHP runtime (supports worker mode) |
 | ` + bt + `site_nginx` + bt + ` | Read/write/reset a site's custom nginx override (saving runs ` + bt + `nginx -t` + bt + `, backs up the prior file, reloads); ` + bt + `branch` + bt + ` targets a worktree |
-| ` + bt + `stripe` + bt + ` | Start or stop a Stripe webhook listener for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` |
+| ` + bt + `stripe` + bt + ` | Start, stop, or configure a Stripe webhook listener for a site — ` + bt + `action` + bt + `: ` + bt + `start` + bt + ` / ` + bt + `stop` + bt + ` / ` + bt + `config` + bt + ` (secret auto-detected; ` + bt + `config` + bt + ` sets ` + bt + `webhook_path` + bt + `/` + bt + `secret_env_key` + bt + ` in ` + bt + `.lerd.yaml` + bt + `) |
 | ` + bt + `logs` + bt + ` | Fetch container logs — defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | ` + bt + `status` + bt + ` | Health snapshot of DNS, nginx, PHP-FPM containers, and the file watcher |
 | ` + bt + `doctor` + bt + ` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates |

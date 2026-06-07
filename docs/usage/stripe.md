@@ -1,4 +1,6 @@
-# Stripe / Laravel Cashier
+# Stripe
+
+The webhook listener works for any project type, not just Laravel. It runs the Stripe CLI in a container and forwards events to your app, so a NestJS or plain Node site reached through the host proxy is supported the same way a Laravel Cashier site is. The secret is auto-detected from common env keys and the forward route is configurable per project.
 
 ## stripe-mock
 
@@ -35,13 +37,43 @@ Forwards live or test webhook events from Stripe to your local app. Lerd runs th
 ```bash
 cd ~/Lerd/myapp
 lerd stripe:listen                         # forwards to https://myapp.test/stripe/webhook
-lerd stripe:listen --path /webhooks/stripe # custom webhook path
+lerd stripe:listen --path /webhooks/stripe # custom webhook path (persisted to .lerd.yaml)
 lerd stripe:listen --api-key sk_test_...   # override key
+lerd stripe:listen --secret-env-key STRIPE_SECRET_KEY # pin the .env key (persisted)
 ```
 
-Lerd reads `STRIPE_SECRET` automatically from the project's `.env` file. No flags are required if the key is set there.
-
 The target URL is auto-detected from the registered site in the current directory. Run `lerd link` first if the project is not yet registered.
+
+### Secret detection
+
+Lerd resolves the Stripe secret from the project's `.env` automatically, probing these keys in order until one is set:
+
+1. `STRIPE_SECRET` — Laravel / Cashier
+2. `STRIPE_SECRET_KEY` — the common Stripe Node / NestJS convention
+3. `STRIPE_API_KEY` — the generic SDK name
+
+No flags are required if any of these is present. To force a specific key (for example a project that stores it under a non-standard name), pin it with `--secret-env-key` or the `stripe.secret_env_key` field in `.lerd.yaml`.
+
+### Configuring the route without starting
+
+`lerd stripe:config` shows or sets the webhook path and secret env key without touching the listener:
+
+```bash
+lerd stripe:config                              # show current route and resolved secret key
+lerd stripe:config --path /webhooks/stripe      # set the forward route
+lerd stripe:config --secret-env-key STRIPE_API_KEY
+```
+
+Both `stripe:config` and `stripe:listen` write the same optional `stripe:` block to the project's `.lerd.yaml`, so the route survives reinstalls and is shared by the CLI, the MCP server, and the web UI:
+
+```yaml
+# .lerd.yaml
+stripe:
+  path: /webhooks/stripe      # optional, defaults to /stripe/webhook
+  secret_env_key: STRIPE_API_KEY  # optional, defaults to auto-detection
+```
+
+Both fields are optional. Routes are normalised to a leading slash and rejected if they contain whitespace, so the generated systemd unit stays well formed. Changing the route while the listener is running re-forwards it to the new path automatically.
 
 ### Stopping the listener
 
@@ -65,14 +97,17 @@ Logs are also available live in the **web UI**, see [Web UI](#web-ui) below.
 
 ### Options
 
+These flags apply to `stripe:listen`; `stripe:config` accepts `--path` and `--secret-env-key` only.
+
 | Flag | Default | Description |
 |---|---|---|
-| `--api-key` | `$STRIPE_SECRET` / `.env` | Stripe secret key (`sk_test_…` or `sk_live_…`) |
-| `--path` | `/stripe/webhook` | Webhook route path on your app |
+| `--api-key` | resolved from `.env` | Stripe secret key (`sk_test_…` or `sk_live_…`) |
+| `--path` | `/stripe/webhook` | Webhook route path on your app (persisted to `.lerd.yaml`) |
+| `--secret-env-key` | auto-detected | Which `.env` key holds the Stripe secret (persisted to `.lerd.yaml`) |
 
 ### Web UI
 
-When `STRIPE_SECRET` is present in a site's `.env`, a **Stripe** toggle appears in the site detail panel alongside HTTPS and Queue. Toggling it starts or stops the listener. While running:
+When a Stripe secret is detected in a site's `.env` (under any of the recognised keys), a **Stripe** toggle appears in the site detail panel alongside HTTPS and Queue. Toggling it starts or stops the listener. A gear next to the toggle opens a small modal for setting the webhook route, mirroring the Horizon control. While running:
 
 - A violet dot appears next to the site in the sidebar.
 - A **Stripe** log tab opens automatically beside PHP-FPM and Queue.

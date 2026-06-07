@@ -133,7 +133,7 @@ Once the MCP server is connected, your AI assistant has access to:
 | `site_node` | Change the Node.js version for a registered site: writes `.node-version`, installs via fnm if needed. Accepts an optional `branch` to set the version per worktree |
 | `site_control` | Pause, unpause, restart, or rebuild a site — `action`: `pause` / `unpause` / `restart` / `rebuild` (pause replaces vhost with landing page; rebuild only for custom containers) |
 | `site_runtime` | Switch between shared PHP-FPM and per-site FrankenPHP runtime; supports framework-aware worker mode (Laravel Octane, Symfony runtime) |
-| `stripe` | Start or stop a Stripe webhook listener for a site — `action`: `start` / `stop` (reads `STRIPE_SECRET` from `.env` on start) |
+| `stripe` | Start, stop, or configure a Stripe webhook listener for a site — `action`: `start` / `stop` / `config` (secret auto-detected from `STRIPE_SECRET`, `STRIPE_SECRET_KEY`, or `STRIPE_API_KEY`; `config` sets `webhook_path` / `secret_env_key` in `.lerd.yaml`) |
 | `logs` | Fetch container logs; defaults to current site's FPM; optionally specify nginx, service name, PHP version, or site name |
 | `status` | Health snapshot of DNS, nginx, PHP-FPM containers, and the watcher; use when a site isn't loading |
 | `doctor` | Full diagnostic as structured JSON: podman, systemd, DNS, ports, PHP images, config, updates; use when the user reports setup issues |

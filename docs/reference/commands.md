@@ -258,6 +258,7 @@ Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with
 |---|---|
 | `lerd stripe:listen` | Start a Stripe webhook listener for the current project as a background service |
 | `lerd stripe:listen stop` | Stop the Stripe webhook listener |
+| `lerd stripe:config` | Show or set the webhook path and secret env key in `.lerd.yaml` without starting the listener |
 
 ## Console & runtime passthrough
 
