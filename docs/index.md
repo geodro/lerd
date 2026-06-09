@@ -48,7 +48,7 @@ features:
     details: One global toggle and every PHP-FPM request becomes a flame graph viewable in the dashboard's Profiler view. No FPM restart, no code changes, `lerd profile run` for one-shot CLI commands.
   - icon: 🤖
     title: AI integration (MCP)
-    details: Built-in Model Context Protocol server. Claude Code, Cursor, Windsurf, and Junie scaffold projects and run migrations straight from chat.
+    details: Built-in Model Context Protocol server with ten grouped tools. Claude Code, Cursor, Codex, Gemini, GitHub Copilot, Google Antigravity, JetBrains Junie, and Windsurf scaffold projects and run migrations straight from chat.
   - icon: ⚡
     title: FrankenPHP runtime
     details: Per-site FrankenPHP as an alternative to shared PHP-FPM, with Laravel Octane and Symfony Runtime worker mode wired up out of the box.
@@ -60,5 +60,8 @@ features:
     details: YAML framework definitions for Laravel, Symfony, WordPress, Drupal, CakePHP, and Statamic, auto-detected and applied on `lerd link`.
   - icon: 🧱
     title: Polyglot sites
-    details: Drop a `Containerfile.lerd` to run Node, Python, Ruby, or Go sites alongside your PHP ones, with the same HTTPS, DNS, and worker pipeline.
+    details: Drop a `Containerfile.lerd` to run Node, Python, Ruby, or Go sites alongside your PHP ones, or point a host-proxy site at a dev server running on your host. Same HTTPS, DNS, and worker pipeline either way.
+  - icon: 🔗
+    title: Site groups
+    details: Group related sites so a main owns a base domain and the rest occupy its subdomains, with optional shared databases, for multi-app and multi-tenant setups.
 ---
