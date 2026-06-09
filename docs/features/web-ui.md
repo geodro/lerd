@@ -83,6 +83,8 @@ The middle panel lists all registered projects. Active sites show a status dot (
 
 A **sort button** floats in the bottom-right corner of the list; clicking it opens a small menu with **Most used** (sites with the most recent app-log activity float to the top), **Alphabetical** (by domain), and **Newest first** (reverses the order sites were linked in). The choice is remembered across reloads. A drag handle appears on a site row when you hover it; grab it to drag the row into a new position, with the dragged row and the rest of the list animating smoothly into place. Dragging switches the list into a manual order seeded from whatever you were looking at, so there's no separate "manual" mode to pick. The new order is saved to `sites.yaml` and pushed live to any other open tab. Grouped subdomains always travel with their main site, and the paused section stays at the bottom.
 
+Before you pick a site the detail panel shows a **sites overview** instead of an empty prompt. The header carries an Overview line with the running-vs-total count, a paused tally, and a failing-workers indicator. Below it your sites are laid out as click-through tiles grouped by framework (Laravel, WordPress, and so on, with anything unrecognised folded into a trailing Other group), and a final Paused group for any suspended sites. Each tile shows the site favicon or status dot, the domain, a framework and PHP/Node subline, a TLS lock, a worktree marker, the same running-worker dots as the list, and an open-in-browser shortcut. A **Link new site** action sits at the bottom in loopback mode.
+
 ![Site detail with the Overview tab open](/assets/screenshots/site-detail-overview.png)
 
 Selecting a site opens the detail panel with:

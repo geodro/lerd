@@ -189,6 +189,8 @@
   "sites_empty": "No sites yet",
   "sites_emptyHint": "Run {cmd}",
   "sites_select": "Select a site",
+  "sites_dash_overview": "Overview",
+  "sites_dash_otherFramework": "Other",
   "sites_paused": "Paused",
   "sites_pausedDetail_title": "This site is paused",
   "sites_pausedDetail_hint": "Nginx is not serving {domain} while it's paused. Resume to bring it back online.",

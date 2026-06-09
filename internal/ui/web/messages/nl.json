@@ -204,6 +204,8 @@
   "sites_empty": "Nog geen sites",
   "sites_emptyHint": "Voer {cmd} uit",
   "sites_select": "Selecteer een site",
+  "sites_dash_overview": "Overzicht",
+  "sites_dash_otherFramework": "Overige",
   "sites_paused": "Gepauzeerd",
   "sites_pausedDetail_title": "Deze site is gepauzeerd",
   "sites_pausedDetail_hint": "Nginx serveert {domain} niet zolang de site gepauzeerd is. Hervat om hem weer online te brengen.",

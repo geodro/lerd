@@ -204,6 +204,8 @@
   "sites_empty": "Henüz site yok",
   "sites_emptyHint": "Şunu çalıştırın: {cmd}",
   "sites_select": "Bir site seçin",
+  "sites_dash_overview": "Genel bakış",
+  "sites_dash_otherFramework": "Diğer",
   "sites_paused": "Duraklatıldı",
   "sites_pausedDetail_title": "Bu site duraklatıldı",
   "sites_pausedDetail_hint": "Site duraklatıldığı sürece Nginx {domain} adresini sunmuyor. Tekrar çevrimiçi yapmak için devam ettirin.",

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import StatusDot from '$components/StatusDot.svelte';
   import Icon from '$components/Icon.svelte';
+  import DashboardHeader from '$components/DashboardHeader.svelte';
+  import DashboardSection from '$components/DashboardSection.svelte';
   import InstalledServiceTile from './InstalledServiceTile.svelte';
   import PresetCard from './PresetCard.svelte';
   import { coreServices, servicesLoaded } from '$stores/services';
@@ -26,29 +28,7 @@
 </script>
 
 <div class="flex-1 overflow-y-auto">
-  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 border-b border-gray-100 dark:border-lerd-border">
-    <h1 class="text-base font-semibold text-gray-900 dark:text-white">{m.services_dash_overview()}</h1>
-    {#if $servicesLoaded && total > 0}
-      <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-        <span class="inline-flex items-center gap-1.5">
-          <StatusDot color={running > 0 ? 'green' : 'gray'} />
-          {m.dashboard_services_summary({ running, total })}
-        </span>
-        {#if updates > 0}
-          <span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-            <span>↑</span>
-            {m.dashboard_services_updates({ count: updates })}
-          </span>
-        {/if}
-        {#if sitesServed > 0}
-          <span class="inline-flex items-center gap-1.5">
-            <Icon name="sites" class="w-3.5 h-3.5" />
-            {m.services_dash_sitesServed({ count: sitesServed })}
-          </span>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  <DashboardHeader title={m.services_dash_overview()} stats={$servicesLoaded && total > 0 ? summary : undefined} />
 
   <div class="p-4 space-y-6">
     <section class="space-y-2.5">
@@ -83,14 +63,11 @@
         {:else}
           <div class="space-y-4">
             {#each groups as group (group.key)}
-              <div class="space-y-2">
-                <h3 class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{CATEGORY_LABELS[group.key]()}</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {#each group.presets as preset (preset.name)}
-                    <PresetCard {preset} category={group.key} />
-                  {/each}
-                </div>
-              </div>
+              <DashboardSection label={CATEGORY_LABELS[group.key]()} sub>
+                {#each group.presets as preset (preset.name)}
+                  <PresetCard {preset} category={group.key} />
+                {/each}
+              </DashboardSection>
             {/each}
           </div>
         {/if}
@@ -98,3 +75,22 @@
     {/if}
   </div>
 </div>
+
+{#snippet summary()}
+  <span class="inline-flex items-center gap-1.5">
+    <StatusDot color={running > 0 ? 'green' : 'gray'} />
+    {m.dashboard_services_summary({ running, total })}
+  </span>
+  {#if updates > 0}
+    <span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+      <span>↑</span>
+      {m.dashboard_services_updates({ count: updates })}
+    </span>
+  {/if}
+  {#if sitesServed > 0}
+    <span class="inline-flex items-center gap-1.5">
+      <Icon name="sites" class="w-3.5 h-3.5" />
+      {m.services_dash_sitesServed({ count: sitesServed })}
+    </span>
+  {/if}
+{/snippet}
