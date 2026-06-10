@@ -13,7 +13,13 @@ export const LOCALE_LABELS: Record<Locale, string> = {
   de: 'Deutsch',
   id: 'Bahasa Indonesia',
   nl: 'Nederlands',
-  tr: 'Türkçe'
+  tr: 'Türkçe',
+  zh: '简体中文',
+  ja: '日本語',
+  ro: 'Română',
+  it: 'Italiano',
+  pl: 'Polski',
+  vi: 'Tiếng Việt'
 };
 
 export const LOCALE_CODES: Record<Locale, string> = {
@@ -24,7 +30,13 @@ export const LOCALE_CODES: Record<Locale, string> = {
   de: 'DE',
   id: 'ID',
   nl: 'NL',
-  tr: 'TR'
+  tr: 'TR',
+  zh: 'ZH',
+  ja: 'JA',
+  ro: 'RO',
+  it: 'IT',
+  pl: 'PL',
+  vi: 'VI'
 };
 
 // Reactive store mirroring Paraglide's active locale. Paraglide stores the

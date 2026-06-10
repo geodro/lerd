@@ -7,9 +7,15 @@ import de from '../../messages/de.json';
 import id from '../../messages/id.json';
 import nl from '../../messages/nl.json';
 import tr from '../../messages/tr.json';
+import zh from '../../messages/zh.json';
+import ja from '../../messages/ja.json';
+import ro from '../../messages/ro.json';
+import itLocale from '../../messages/it.json';
+import pl from '../../messages/pl.json';
+import viLocale from '../../messages/vi.json';
 import { LOCALES, LOCALE_LABELS, LOCALE_CODES } from '../stores/locale';
 
-const locales: Record<string, Record<string, unknown>> = { en, es, pt, fr, de, id, nl, tr };
+const locales: Record<string, Record<string, unknown>> = { en, es, pt, fr, de, id, nl, tr, zh, ja, ro, it: itLocale, pl, vi: viLocale };
 const baseKeys = Object.keys(en).sort();
 
 describe('UI locale message files', () => {
@@ -40,5 +46,11 @@ describe('UI locale message files', () => {
     expect(LOCALES).toContain('id');
     expect(LOCALES).toContain('nl');
     expect(LOCALES).toContain('tr');
+    expect(LOCALES).toContain('zh');
+    expect(LOCALES).toContain('ja');
+    expect(LOCALES).toContain('ro');
+    expect(LOCALES).toContain('it');
+    expect(LOCALES).toContain('pl');
+    expect(LOCALES).toContain('vi');
   });
 });

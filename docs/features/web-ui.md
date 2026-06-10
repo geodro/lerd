@@ -40,7 +40,7 @@ On mobile the dashboard, list, and detail panels are full-screen with a bottom t
 
 ### Language
 
-The dashboard ships in seven languages: English, German, Spanish, French, Indonesian, Dutch, and Portuguese. The first time you open the dashboard, the language is autodetected from your browser's preferred locale (Paraglide reads `navigator.language` and picks the closest match, falling back to English). To change it later, open **System → Lerd** and use the language picker in the settings section; the choice persists in `localStorage` so subsequent sessions open in the same language. Strings are wired through Paraglide; new keys fall back to English when a locale hasn't been translated yet.
+The dashboard ships in fourteen languages: English, German, Spanish, French, Indonesian, Dutch, Portuguese, Turkish, Simplified Chinese, Japanese, Romanian, Italian, Polish, and Vietnamese. The first time you open the dashboard, the language is autodetected from your browser's preferred locale (Paraglide reads `navigator.language` and picks the closest match, falling back to English). To change it later, open **System → Lerd** and use the language picker in the settings section; the choice persists in `localStorage` so subsequent sessions open in the same language. Strings are wired through Paraglide; new keys fall back to English when a locale hasn't been translated yet.
 
 ![System → Lerd settings with the language picker](/assets/screenshots/system-lerd.png)
 
