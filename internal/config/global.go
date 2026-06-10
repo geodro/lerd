@@ -49,6 +49,10 @@ type GlobalConfig struct {
 		// build needs. Keyed by extension (deps don't vary by PHP version).
 		// lerd already knows the deps for some extensions; this is for the rest.
 		ExtApkDeps map[string][]string `yaml:"ext_apk_deps,omitempty" mapstructure:"ext_apk_deps"`
+		// Packages maps a PHP version to extra Alpine packages to install in the
+		// FPM image's runtime stage (lerd php:pkg). For CLI tools and runtime
+		// libraries users want available in the container; re-applied on rebuild.
+		Packages map[string][]string `yaml:"packages,omitempty" mapstructure:"packages"`
 	} `yaml:"php" mapstructure:"php"`
 	Node struct {
 		DefaultVersion string `yaml:"default_version" mapstructure:"default_version"`
@@ -565,6 +569,47 @@ func (c *GlobalConfig) RemoveExtension(version, ext string) {
 		if len(c.PHP.ExtApkDeps) == 0 {
 			c.PHP.ExtApkDeps = nil
 		}
+	}
+}
+
+// GetPackages returns the extra Alpine packages configured for the given PHP
+// version's FPM image.
+func (c *GlobalConfig) GetPackages(version string) []string {
+	if c.PHP.Packages == nil {
+		return nil
+	}
+	return c.PHP.Packages[version]
+}
+
+// AddPackage adds pkg to the extra-packages list for version (no-op if present).
+func (c *GlobalConfig) AddPackage(version, pkg string) {
+	if c.PHP.Packages == nil {
+		c.PHP.Packages = map[string][]string{}
+	}
+	for _, p := range c.PHP.Packages[version] {
+		if p == pkg {
+			return
+		}
+	}
+	c.PHP.Packages[version] = append(c.PHP.Packages[version], pkg)
+}
+
+// RemovePackage removes pkg from the extra-packages list for version.
+func (c *GlobalConfig) RemovePackage(version, pkg string) {
+	if c.PHP.Packages == nil {
+		return
+	}
+	pkgs := c.PHP.Packages[version]
+	filtered := pkgs[:0]
+	for _, p := range pkgs {
+		if p != pkg {
+			filtered = append(filtered, p)
+		}
+	}
+	if len(filtered) == 0 {
+		delete(c.PHP.Packages, version)
+	} else {
+		c.PHP.Packages[version] = filtered
 	}
 }
 

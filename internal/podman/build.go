@@ -248,7 +248,7 @@ func BuildFPMImage(version string, local bool) error {
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, false, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), os.Stdout)
+	return buildFPMImage(version, false, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), cfg.GetPackages(version), os.Stdout)
 }
 
 // BuildFPMImageTo builds the PHP-FPM image writing output to w.
@@ -258,7 +258,7 @@ func BuildFPMImageTo(version string, local bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, false, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), w)
+	return buildFPMImage(version, false, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), cfg.GetPackages(version), w)
 }
 
 // RebuildFPMImage force-removes and rebuilds the PHP-FPM image for the given version.
@@ -268,7 +268,7 @@ func RebuildFPMImage(version string, local bool) error {
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, true, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), os.Stdout)
+	return buildFPMImage(version, true, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), cfg.GetPackages(version), os.Stdout)
 }
 
 // RebuildFPMImageTo force-rebuilds the PHP-FPM image writing output to w.
@@ -278,7 +278,7 @@ func RebuildFPMImageTo(version string, local bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return buildFPMImage(version, true, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), w)
+	return buildFPMImage(version, true, local, cfg.GetExtensions(version), cfg.AllExtApkDeps(), cfg.GetPackages(version), w)
 }
 
 // baseContainerfileHash returns a 12-character SHA-256 prefix of the Containerfile
@@ -291,6 +291,7 @@ func baseContainerfileHash() (string, error) {
 	}
 	base := strings.ReplaceAll(tmpl, "{{.CustomExtensions}}", "")
 	base = strings.ReplaceAll(base, "{{.CustomExtensionsRuntime}}", "")
+	base = strings.ReplaceAll(base, "{{.CustomPackages}}", "")
 	base = strings.ReplaceAll(base, "{{.MkcertCA}}", "")
 	sum := sha256.Sum256([]byte(base))
 	return fmt.Sprintf("%x", sum)[:12], nil
@@ -335,7 +336,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	return ref
 }
 
-func buildFPMImage(version string, force, local bool, customExts []string, extDeps map[string][]string, w io.Writer) error {
+func buildFPMImage(version string, force, local bool, customExts []string, extDeps map[string][]string, packages []string, w io.Writer) error {
 	imageName := FPMImageName(version)
 
 	if !force {
@@ -370,6 +371,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 			containerfile = "FROM " + baseRef + "\n" +
 				"RUN mkdir -p /etc/my.cnf.d && printf '[client]\\nssl=0\\n' > /etc/my.cnf.d/lerd-no-ssl.cnf\n" +
 				buildCustomExtBlock(customExts, extDeps) +
+				buildCustomPackagesBlock(packages) +
 				mkcertCABlock(tmp)
 			goto build
 		}
@@ -391,6 +393,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 		containerfile = strings.ReplaceAll(tmpl, "{{.Version}}", version)
 		containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensions}}", buildCustomExtBlock(customExts, extDeps))
 		containerfile = strings.ReplaceAll(containerfile, "{{.CustomExtensionsRuntime}}", buildCustomExtRuntimeDeps(customExts, extDeps))
+		containerfile = strings.ReplaceAll(containerfile, "{{.CustomPackages}}", buildCustomPackagesBlock(packages))
 		containerfile = strings.ReplaceAll(containerfile, "{{.MkcertCA}}", mkcertCABlock(tmp))
 	}
 
@@ -515,6 +518,28 @@ func buildCustomExtBlock(exts []string, userDeps map[string][]string) string {
 		))
 	}
 	return sb.String()
+}
+
+// buildCustomPackagesBlock emits an apk RUN line installing user-requested
+// extra Alpine packages (lerd php:pkg) into the runtime stage, deduped and in a
+// stable order. Names are validated so a bad entry can't break out of the apk
+// command; invalid ones are dropped. Empty when there are no packages.
+func buildCustomPackagesBlock(packages []string) string {
+	seen := map[string]bool{}
+	var valid []string
+	for _, p := range packages {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] || !validApkPkgName.MatchString(p) {
+			continue
+		}
+		seen[p] = true
+		valid = append(valid, p)
+	}
+	if len(valid) == 0 {
+		return ""
+	}
+	return "# User-requested extra packages (lerd php:pkg)\nRUN apk add --no-cache " +
+		strings.Join(valid, " ") + " && rm -rf /var/cache/apk/*\n"
 }
 
 // phpExtensionLoaded reports whether ext appears in `php -m` output (case-insensitive).

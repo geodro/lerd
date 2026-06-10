@@ -154,6 +154,7 @@ func main() {
 	root.AddCommand(cli.NewProfileCmd())
 	root.AddCommand(cli.NewNotifyCmd())
 	root.AddCommand(cli.NewPhpExtCmd())
+	root.AddCommand(cli.NewPhpPkgCmd())
 	root.AddCommand(cli.NewPhpIniCmd())
 	for _, cmd := range cli.NewStripeCmds() {
 		root.AddCommand(cmd)

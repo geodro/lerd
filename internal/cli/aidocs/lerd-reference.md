@@ -63,6 +63,7 @@ Actions: `setup`, `check`, `override`.
 #### `runtime` — PHP/Node versions & extensions
 Actions: `versions`, `node_install`, `node_uninstall`, `php_list`, `ext_list`, `ext_add`, `ext_remove`.
 - `ext_add`/`ext_remove` rebuild the FPM image and restart the container (slow); `ext_add` accepts `apk_deps` for extra Alpine build packages
+- **extra Alpine packages**: `lerd php:pkg add/remove/list <packages> [--php version]` (CLI) bakes runtime apk packages (CLI tools, libs) into the FPM image, saved in config under `php.packages` and re-applied on every rebuild, so they survive `php:rebuild` and base image updates. Layered onto the shared image, not the published base.
 
 #### `worker` — background workers
 Actions: `list` (CALL FIRST), `start`, `stop`, `add`, `remove`, `health`, `heal`, `mode_get`, `mode_set`, and the framework workers `queue_start`, `queue_stop`, `horizon_start`, `horizon_stop`, `reverb_start`, `reverb_stop`, `schedule_start`, `schedule_stop`, `stripe_start`, `stripe_stop`, `stripe_config`.

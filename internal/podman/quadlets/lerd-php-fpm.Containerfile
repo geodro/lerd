@@ -150,6 +150,9 @@ RUN apk add --no-cache icu-data-full 2>/dev/null || true
 # imap needs c-client.so). Empty when no custom exts have apk deps.
 {{.CustomExtensionsRuntime}}
 
+# User-requested extra Alpine packages (lerd php:pkg). Empty until opted in.
+{{.CustomPackages}}
+
 # Compiled extensions + config from the builder stage; ~25 extensions
 # plus xdebug + pecl modules without dragging autoconf/make/g++ across.
 COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/

@@ -40,6 +40,7 @@ jobs:
               content = f.read()
           content = content.replace('{{.CustomExtensions}}', '')
           content = content.replace('{{.CustomExtensionsRuntime}}', '')
+          content = content.replace('{{.CustomPackages}}', '')
           content = content.replace('{{.MkcertCA}}', '')
           h = hashlib.sha256(content.encode()).hexdigest()[:12]
           print(f'Computed base image tag: {h}')
@@ -60,6 +61,7 @@ jobs:
           content = content.replace('{{.Version}}', version)
           content = content.replace('{{.CustomExtensions}}', '')
           content = content.replace('{{.CustomExtensionsRuntime}}', '')
+          content = content.replace('{{.CustomPackages}}', '')
           content = content.replace('{{.MkcertCA}}', '')
           with open('/tmp/Containerfile', 'w') as f:
               f.write(content)
@@ -157,6 +159,7 @@ jobs:
               content = f.read()
           content = content.replace('{{.CustomExtensions}}', '')
           content = content.replace('{{.CustomExtensionsRuntime}}', '')
+          content = content.replace('{{.CustomPackages}}', '')
           content = content.replace('{{.MkcertCA}}', '')
           h = hashlib.sha256(content.encode()).hexdigest()[:12]
           with open('/tmp/tag_output', 'w') as f:
