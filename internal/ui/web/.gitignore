@@ -1,3 +1,7 @@
 node_modules/
 .vite/
 *.log
+# npm's package-lock.json is the committed lockfile; ignore bun's so a
+# bun-based build (lerd on a host where Node is unmanaged) doesn't leave one.
+bun.lockb
+bun.lock

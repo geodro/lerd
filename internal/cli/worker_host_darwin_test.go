@@ -34,9 +34,10 @@ func (m *trackingHostMgr) WriteServiceUnit(name, content string) error {
 }
 
 // withTempXDGAndBin redirects XDG_DATA_HOME so config.RunDir /
-// config.BinDir resolve under a throwaway tempdir, and seeds an empty
-// `fnm` binary at config.BinDir()/fnm so resolveNodeVersionForHostWorker
-// can find it. Returns the tempdir for further assertions.
+// config.BinDir resolve under a throwaway tempdir, and seeds empty `fnm`
+// and `node` binaries at config.BinDir() so resolveNodeVersionForHostWorker
+// can find fnm and lerdManagesNode() reports true (the host worker only
+// pins via fnm when lerd manages Node). Returns the tempdir for assertions.
 func withTempXDGAndBin(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
@@ -45,6 +46,7 @@ func withTempXDGAndBin(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	_ = os.MkdirAll(config.BinDir(), 0755)
 	_ = os.WriteFile(filepath.Join(config.BinDir(), "fnm"), []byte("#!/bin/sh\nexit 0\n"), 0755)
+	_ = os.WriteFile(filepath.Join(config.BinDir(), "node"), []byte("#!/bin/sh\nexit 0\n"), 0755)
 	return tmp
 }
 

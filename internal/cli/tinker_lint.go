@@ -41,8 +41,7 @@ func LintTinkerCode(ctx context.Context, sitePath, code string) ([]LintDiagnosti
 		}
 		version = cfg.PHP.DefaultVersion
 	}
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(sitePath, version)
 	if running, _ := podman.ContainerRunning(container); !running {
 		return nil, fmt.Errorf("PHP %s FPM container is not running", version)
 	}

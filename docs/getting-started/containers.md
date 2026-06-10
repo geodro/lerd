@@ -86,6 +86,8 @@ services:
 
 ::: info Port matters
 `container.port` is the port your app listens on *inside* the container. Nginx will `proxy_pass` to that port on the container's internal network address. You don't publish it on the host.
+
+For a **PHP** project, omit the port instead: lerd then builds your `Containerfile.lerd` into a per-site PHP-FPM image and serves it by fastcgi rather than reverse-proxying. See [Custom image (Containerfile)](../usage/php.md#custom-image-containerfile).
 :::
 
 ---

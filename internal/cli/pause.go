@@ -74,6 +74,9 @@ func PauseSite(name string) error {
 	if site.IsFrankenPHP() {
 		_ = podman.StopUnit(podman.FrankenPHPContainerName(site.Name))
 	}
+	if site.IsCustomFPM() {
+		_ = podman.StopUnit(podman.CustomFPMContainerName(site.Name))
+	}
 
 	// Release the LAN share port while paused. The site's stored LANPort is
 	// preserved so unpause restores the same address.
@@ -184,7 +187,10 @@ func UnpauseSite(name string) error {
 			phpVersion = detected
 		}
 
-		if phpVersion != "" {
+		if site.IsCustomFPM() {
+			// Per-site FPM container; the shared lerd-php<ver>-fpm is not used.
+			_ = podman.StartUnit(podman.CustomFPMContainerName(site.Name))
+		} else if phpVersion != "" {
 			if err := ensureFPMQuadlet(phpVersion); err != nil {
 				fmt.Printf("[WARN] ensuring FPM for PHP %s: %v\n", phpVersion, err)
 			}

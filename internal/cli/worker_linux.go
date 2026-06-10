@@ -115,8 +115,22 @@ func writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, resta
 	// wrapper `npm run build && npm run preview` would pass "&&" as a literal
 	// argument. Single quotes are escaped via the standard '"'"' idiom so the
 	// wrapper survives any user-provided string verbatim.
+	home, _ := os.UserHomeDir()
+	// lerd's shim must lead PATH so wayfinder + friends find `php`; we
+	// rebuild the path systemd's user default would have supplied so
+	// `~/.local/bin` stays reachable — issue #375.
+	envPath := config.BinDir() + ":" + filepath.Join(home, ".local", "bin") + ":/usr/local/bin:/usr/bin:/bin"
+
 	shellCommand := command
-	if isNodeProject(sitePath) {
+	if bun := bunRunnerFor(sitePath); bun != "" {
+		// bun is self-contained: rewrite npm/npx/node to bun/bunx and run it
+		// directly, no fnm wrap. Put ~/.bun/bin on PATH so a bare `bun` resolves.
+		shellCommand = nodeDet.Bunify(command)
+		envPath = filepath.Dir(bun) + ":" + envPath
+	} else if isNodeProject(sitePath) && lerdManagesNode() {
+		// Only route through fnm when lerd is actually managing Node; otherwise
+		// run the command directly so the user's system node/npm on PATH is used
+		// (after node:unmanage there is no fnm Node to exec into).
 		fnm := filepath.Join(config.BinDir(), "fnm")
 		nodeVersion, err := nodeDet.DetectVersion(sitePath)
 		if err != nil {
@@ -130,11 +144,6 @@ func writeHostWorkerUnitFile(unitName, label, siteName, sitePath, command, resta
 		shellCommand = fmt.Sprintf("%s exec --using=%s -- %s", fnm, nodeVersion, command)
 	}
 	escaped := strings.ReplaceAll(shellCommand, "'", `'"'"'`)
-	// lerd's shim must lead PATH so wayfinder + friends find `php`; we
-	// rebuild the path systemd's user default would have supplied so
-	// `~/.local/bin` stays reachable — issue #375.
-	home, _ := os.UserHomeDir()
-	envPath := config.BinDir() + ":" + filepath.Join(home, ".local", "bin") + ":/usr/local/bin:/usr/bin:/bin"
 	// Order after and pull up the site's FPM container: host tools like Vite
 	// run wayfinder (php artisan) at startup, which fails if FPM isn't up yet
 	// at boot. Wants, not BindsTo, so a transient FPM restart can't kill Vite.

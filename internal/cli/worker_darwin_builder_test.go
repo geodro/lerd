@@ -130,7 +130,7 @@ func TestBuildDarwinHostWorkerGuardScript_WrapsFnmExec(t *testing.T) {
 	sitePath := "/Users/u/alpha"
 	command := "npm run dev"
 
-	script := buildDarwinHostWorkerGuardScript(fnm, binDir, "22", sitePath, command)
+	script := buildDarwinHostWorkerGuardScript(fnm, binDir, "22", sitePath, command, "")
 
 	if !strings.HasPrefix(script, "#!/bin/sh") {
 		t.Errorf("guard script should start with shebang, got:\n%s", script)
@@ -155,7 +155,7 @@ func TestBuildDarwinHostWorkerGuardScript_EscapesSingleQuotes(t *testing.T) {
 	// as separate shell tokens.
 	script := buildDarwinHostWorkerGuardScript(
 		"/bin/fnm", "/Users/u/.local/share/lerd/bin", "22", "/site",
-		`node -e 'console.log("x")'`,
+		`node -e 'console.log("x")'`, "",
 	)
 	if !strings.Contains(script, `'"'"'console.log("x")'"'"'`) {
 		t.Errorf("expected escaped single quotes in guard script, got:\n%s", script)
@@ -167,7 +167,7 @@ func TestBuildDarwinHostWorkerGuardScript_EscapesSingleQuotes(t *testing.T) {
 // it must lead PATH for the subprocess to find them — issue #375.
 func TestBuildDarwinHostWorkerGuardScript_PrependsLerdBinDirToPath(t *testing.T) {
 	binDir := "/Users/u/.local/share/lerd/bin"
-	script := buildDarwinHostWorkerGuardScript("/bin/fnm", binDir, "22", "/site", "npm run dev")
+	script := buildDarwinHostWorkerGuardScript("/bin/fnm", binDir, "22", "/site", "npm run dev", "")
 	want := `export PATH="/Users/u/.local/share/lerd/bin:/opt/homebrew/bin:`
 	if !strings.Contains(script, want) {
 		t.Errorf("guard script must prepend lerd BinDir to PATH; got:\n%s", script)

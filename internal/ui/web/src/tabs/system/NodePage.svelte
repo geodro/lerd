@@ -1,6 +1,6 @@
 <script lang="ts">
   import { status, loadStatus } from '$stores/status';
-  import { nodeVersions, loadNodeVersions, setDefaultNode, removeNode, installNode } from '$stores/nodeVersions';
+  import { nodeVersions, loadNodeVersions, setDefaultNode, removeNode, installNode, manageNode, unmanageNode } from '$stores/nodeVersions';
   import { sites, sitesByNode, openSiteInBrowser } from '$stores/sites';
   import { goToTab } from '$stores/route';
   import DetailButton from '$components/DetailButton.svelte';
@@ -86,20 +86,71 @@
   function sitesForVersion(v: string) {
     return $sites.filter((s) => s.node_version === v || (!s.node_version && v === nodeDefault));
   }
+
+  let manageBusy = $state(false);
+  let manageError = $state('');
+
+  async function onToggleManage(manage: boolean) {
+    manageBusy = true;
+    manageError = '';
+    try {
+      const ok = manage ? await manageNode() : await unmanageNode();
+      if (!ok) manageError = m.common_failed();
+      await loadStatus();
+      await loadNodeVersions();
+    } catch (e) {
+      manageError = e instanceof Error ? e.message : m.common_failed();
+    } finally {
+      manageBusy = false;
+    }
+  }
 </script>
 
 <div class="flex-1 overflow-y-auto">
   <div class="flex flex-wrap items-center justify-between gap-y-2 p-3 border-b border-gray-100 dark:border-lerd-border">
     <div class="flex items-center gap-3">
-      <span class="font-semibold text-gray-900 dark:text-white text-base">{m.system_nodeJs()}</span>
+      <span class="font-semibold text-gray-900 dark:text-white text-base">{$status.using_system_bun ? m.dashboard_health_jsRuntime() : m.system_nodeJs()}</span>
       {#if !$status.node_managed_by_lerd}
         <span class="text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 rounded-sm px-1.5 py-0.5">{m.system_system()}</span>
+      {/if}
+      {#if $status.bun_available}
+        <span
+          class="inline-flex items-center gap-1 text-[10px] font-medium rounded-sm px-1.5 py-0.5
+            {$status.using_system_bun
+              ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10'
+              : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-white/5'}"
+          title={$status.using_system_bun ? m.system_node_usingBunHint() : ''}
+        >🥟 bun {$status.bun_version}</span>
+      {/if}
+    </div>
+    <div class="flex items-center gap-2">
+      {#if manageError}<span class="text-xs text-red-500">{manageError}</span>{/if}
+      {#if $status.node_managed_by_lerd}
+        <DetailButton
+          tone="warn"
+          onclick={() => onToggleManage(false)}
+          disabled={manageBusy}
+          loading={manageBusy}
+          title={m.system_node_unmanageHint()}
+        >{m.system_node_unmanage()}</DetailButton>
+      {:else}
+        <DetailButton
+          tone="primary"
+          onclick={() => onToggleManage(true)}
+          disabled={manageBusy}
+          loading={manageBusy}
+          title={m.system_node_manageHint()}
+        >{m.system_node_manage()}</DetailButton>
       {/if}
     </div>
   </div>
 
   <div class="p-3 space-y-3">
-    {#if !$status.node_managed_by_lerd}
+    {#if $status.using_system_bun}
+      <div class="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg px-3 py-2.5">
+        <span class="font-medium">🥟 {m.system_node_usingBun()} {$status.bun_version}.</span> {m.system_node_usingBunHint()}
+      </div>
+    {:else if !$status.node_managed_by_lerd}
       <div class="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-lg px-3 py-2.5">
         <span class="font-medium">{m.system_node_managedBySystem()}</span> {m.system_node_managedBySystemHint()}
       </div>

@@ -16,7 +16,7 @@ server {
     ssl_certificate_key /etc/nginx/certs/{{.CertDomain}}.key;
 {{if .Proxy}}
     location {{.ProxyPath}} {
-        set $proxybackend "lerd-php{{.PHPVersionShort}}-fpm";
+        set $proxybackend "{{.FPMContainer}}";
         proxy_pass http://$proxybackend:{{.ProxyPort}};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -34,7 +34,7 @@ server {
     }
 
     location ~ \.php$ {
-        set $fpm "lerd-php{{.PHPVersionShort}}-fpm";
+        set $fpm "{{.FPMContainer}}";
         fastcgi_pass $fpm:9000;
         fastcgi_index index.php;
         fastcgi_read_timeout {{.RequestTimeout}}s;

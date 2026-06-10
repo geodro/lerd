@@ -80,12 +80,16 @@
       <ListRow active={phpSelected} onclick={() => select('php')} leading={phpLeading} trailing={phpTrailing}>PHP</ListRow>
     {/if}
 
-    {#snippet nodeLeading()}<StatusDot color={$status.node_managed_by_lerd ? 'green' : 'blue'} />{/snippet}
+    {#snippet nodeLeading()}<StatusDot color={$status.using_system_bun ? 'amber' : $status.node_managed_by_lerd ? 'green' : 'blue'} />{/snippet}
     {#snippet nodeTrailing()}
-      <span class="text-[10px] font-medium tabular-nums shrink-0 {selected === 'node' ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$nodeVersions.length}</span>
+      {#if $status.using_system_bun}
+        <span class="text-[10px] font-medium shrink-0 text-amber-600 dark:text-amber-400">🥟 {$status.bun_version}</span>
+      {:else}
+        <span class="text-[10px] font-medium tabular-nums shrink-0 {selected === 'node' ? 'text-lerd-red/70' : 'text-gray-400 dark:text-gray-600'}">{$nodeVersions.length}</span>
+      {/if}
     {/snippet}
     <ListRow active={selected === 'node'} onclick={() => select('node')} leading={nodeLeading} trailing={nodeTrailing}>
-      {m.system_nodeJs()}
+      {$status.using_system_bun ? m.dashboard_health_jsRuntime() : m.system_nodeJs()}
     </ListRow>
 
     {#snippet notifyDot()}<StatusDot color={notifyEffectiveOn ? 'green' : 'red'} />{/snippet}

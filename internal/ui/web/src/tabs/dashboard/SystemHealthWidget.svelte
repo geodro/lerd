@@ -98,17 +98,28 @@
     </div>
   {/if}
 
-  {#if nodeVersions.length > 0}
+  {#if nodeVersions.length > 0 || $status.bun_available}
     <div class="pt-2 border-t border-gray-100 dark:border-lerd-border">
-      <div class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">{m.dashboard_health_node()}</div>
+      <div class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">{$status.using_system_bun ? m.dashboard_health_jsRuntime() : m.dashboard_health_node()}</div>
       <div class="flex flex-wrap gap-2">
-        {#each nodeVersions as [version, count] (version)}
-          <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-sm bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
-            <StatusDot color={version === $status.node_default ? 'emerald' : 'gray'} size="xs" />
-            {version}
-            <span class="text-gray-400 dark:text-gray-500">· {count}</span>
-          </span>
-        {/each}
+        {#if !$status.using_system_bun}
+          {#each nodeVersions as [version, count] (version)}
+            <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-sm bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300">
+              <StatusDot color={version === $status.node_default ? 'emerald' : 'gray'} size="xs" />
+              {version}
+              <span class="text-gray-400 dark:text-gray-500">· {count}</span>
+            </span>
+          {/each}
+        {/if}
+        {#if $status.bun_available}
+          <span
+            class="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-sm
+              {$status.using_system_bun
+                ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300'}"
+            title={$status.using_system_bun ? m.system_node_usingBunHint() : ''}
+          >🥟 bun {$status.bun_version}</span>
+        {/if}
       </div>
     </div>
   {/if}

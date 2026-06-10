@@ -228,6 +228,8 @@ func installedCustomContainerUnits() []string {
 			unitName = podman.CustomContainerName(site.Name)
 		case site.IsFrankenPHP():
 			unitName = podman.FrankenPHPContainerName(site.Name)
+		case site.IsCustomFPM():
+			unitName = podman.CustomFPMContainerName(site.Name)
 		default:
 			continue
 		}
@@ -797,8 +799,26 @@ func restoreSiteInfrastructure() {
 			}
 		}
 
-		// Restore FPM quadlet for this site's PHP version (PHP sites only).
-		if !s.IsCustomContainer() && !s.IsHostProxy() {
+		// Restore the per-site quadlet (and image, if missing) for custom-FPM
+		// PHP sites, so they come back up on `lerd start` after a reinstall.
+		if s.IsCustomFPM() {
+			unitName := podman.CustomFPMContainerName(s.Name)
+			if !services.Mgr.ContainerUnitInstalled(unitName) {
+				proj, _ := config.LoadProjectConfig(s.Path)
+				if proj != nil && proj.Container != nil {
+					if !podman.CustomImageExists(s.Name) {
+						_ = podman.BuildCustomImage(s.Name, s.Path, proj.Container)
+					}
+					if err := podman.WriteCustomFPMQuadlet(s.Name, s.PHPVersion); err != nil {
+						fmt.Printf("[WARN] restoring custom FPM unit for %s: %v\n", s.Name, err)
+					}
+				}
+			}
+		}
+
+		// Restore FPM quadlet for this site's PHP version (shared-FPM PHP sites
+		// only; custom-FPM sites use their per-site container handled above).
+		if !s.IsCustomContainer() && !s.IsHostProxy() && !s.IsCustomFPM() {
 			phpVer := s.PHPVersion
 			if phpVer == "" {
 				cfg, _ := config.LoadGlobal()

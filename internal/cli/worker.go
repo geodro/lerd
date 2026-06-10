@@ -627,6 +627,8 @@ func resolveWorkerFPMUnit(siteName, phpVersion string) string {
 			return podman.CustomContainerName(siteName)
 		case site.IsFrankenPHP():
 			return podman.FrankenPHPContainerName(siteName)
+		case site.IsCustomFPM():
+			return podman.CustomFPMContainerName(siteName)
 		}
 	}
 	return "lerd-php" + strings.ReplaceAll(phpVersion, ".", "") + "-fpm"

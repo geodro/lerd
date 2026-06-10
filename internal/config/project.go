@@ -42,9 +42,15 @@ type ProxyConfig struct {
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.
 type ProjectConfig struct {
-	Domains          []string   `yaml:"domains,omitempty"`
-	PHPVersion       string     `yaml:"php_version,omitempty"`
-	NodeVersion      string     `yaml:"node_version,omitempty"`
+	Domains     []string `yaml:"domains,omitempty"`
+	PHPVersion  string   `yaml:"php_version,omitempty"`
+	NodeVersion string   `yaml:"node_version,omitempty"`
+	// JSRuntime pins the JavaScript runtime for this project's host workers and
+	// install/build steps: "bun" forces bun, "node" (or "npm") forces Node/npm
+	// and opts out of the no-Node bun fallback. Empty auto-detects bun from a
+	// bun.lockb / bunfig.toml / packageManager field. Use "node" for apps bun
+	// can't run (e.g. NestJS with native addons). See node.UsesBun.
+	JSRuntime        string     `yaml:"js_runtime,omitempty"`
 	Framework        string     `yaml:"framework,omitempty"`
 	FrameworkVersion string     `yaml:"framework_version,omitempty"`
 	FrameworkDef     *Framework `yaml:"framework_def,omitempty"`
@@ -110,6 +116,7 @@ type ProjectConfig struct {
 // typically means .lerd.yaml did not exist.
 func (c *ProjectConfig) IsEmpty() bool {
 	return len(c.Domains) == 0 && c.PHPVersion == "" && c.NodeVersion == "" &&
+		c.JSRuntime == "" &&
 		c.Framework == "" && c.PublicDir == "" && len(c.Services) == 0 &&
 		len(c.Workers) == 0 && len(c.CustomWorkers) == 0 && len(c.ReloadWorkers) == 0 && !c.Secured &&
 		c.AppURL == "" && c.DB.Service == "" && c.DB.Database == "" &&

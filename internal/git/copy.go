@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"github.com/geodro/lerd/internal/config"
+	nodeDet "github.com/geodro/lerd/internal/node"
 )
 
 // CopyTree copies src to dst recursively. It first tries a reflink-aware
@@ -301,6 +302,15 @@ func runIn(dir string, out io.Writer, name string, args ...string) error {
 // PATH first, then falling back to well-known macOS package-manager prefixes
 // when the lerd-watcher daemon runs under launchd's restricted PATH.
 func lookJSBin(name string) (string, bool) {
+	// bun has its own resolver (handles ~/.bun/bin and Homebrew, both off the
+	// lerd-watcher daemon's restricted PATH); reuse it so the lookup stays in
+	// one place.
+	if name == "bun" {
+		if p := nodeDet.BunPath(); p != "" {
+			return p, true
+		}
+		return "", false
+	}
 	if p, err := exec.LookPath(name); err == nil {
 		return p, true
 	}

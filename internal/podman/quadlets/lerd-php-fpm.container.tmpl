@@ -25,6 +25,10 @@ Volume={{.DevtoolsIniPath}}:/usr/local/etc/php/conf.d/96-lerd-devtools.ini:ro
 Volume={{.SpxIniPath}}:/usr/local/etc/php/conf.d/zz-lerd-spx.ini:ro
 Volume={{.SpxDataDir}}:/var/spx:rw
 Volume={{.ZshHistoryDir}}:/root/.zsh_state:rw
+# Persistent home for an optional in-container musl bun (lerd php:bun install).
+# bun installs and self-updates here; survives image rebuilds and is shared
+# across PHP versions. Empty until the user opts in.
+Volume={{.BunVolumeDir}}:/root/.bun:rw
 Environment=HOME=/root
 PodmanArgs=--security-opt=label=disable
 Exec=php-fpm -F -R

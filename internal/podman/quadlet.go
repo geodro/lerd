@@ -247,6 +247,18 @@ func StopUnit(name string) error {
 	return nil
 }
 
+// ResetFailedUnit clears a unit's failed / start-rate-limit state so a
+// following RestartUnit recovers a crash-looped worker instead of being
+// refused. Linux only: DBusRestartUnit does not reset-failed the way
+// DBusStartUnit does. On macOS launchd has no separate failed state (the
+// bootstrap path replaces the job), so this is a no-op. Best-effort.
+func ResetFailedUnit(name string) {
+	if UnitLifecycle != nil {
+		return
+	}
+	_ = systemd.DBusResetFailed(name)
+}
+
 // RestartUnit restarts a service unit.
 func RestartUnit(name string) error {
 	logUnitOp("restart", name)

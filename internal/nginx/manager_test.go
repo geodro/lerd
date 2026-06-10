@@ -51,6 +51,52 @@ func TestResolvePublicDir_FallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestGenerateVhost_customFPMUsesPerSiteContainer(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{
+		Name:    "myapp",
+		Domains: []string{"myapp.test"},
+		Path:    "/srv/myapp",
+		Runtime: "fpm-custom",
+	}
+	if err := GenerateVhost(site, "8.4"); err != nil {
+		t.Fatalf("GenerateVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "myapp.test.conf"))
+	if !strings.Contains(content, `set $fpm "lerd-cfpm-myapp"`) {
+		t.Errorf("custom-FPM vhost should fastcgi to lerd-cfpm-myapp, got:\n%s", content)
+	}
+	if strings.Contains(content, "lerd-php84-fpm") {
+		t.Errorf("custom-FPM vhost must not reference the shared lerd-php84-fpm:\n%s", content)
+	}
+}
+
+func TestGenerateVhost_plainSiteUsesSharedContainer(t *testing.T) {
+	confD := setupConfD(t)
+	site := config.Site{Name: "plain", Domains: []string{"plain.test"}, Path: "/srv/plain"}
+	if err := GenerateVhost(site, "8.4"); err != nil {
+		t.Fatalf("GenerateVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "plain.test.conf"))
+	if !strings.Contains(content, `set $fpm "lerd-php84-fpm"`) {
+		t.Errorf("plain vhost should fastcgi to lerd-php84-fpm, got:\n%s", content)
+	}
+}
+
+// Worktree vhosts render the fastcgi template too. With no registered site they
+// must fall back to the shared container, not an empty $fpm (the regression the
+// FPMContainer change could have introduced).
+func TestGenerateWorktreeVhost_unknownSiteUsesSharedContainer(t *testing.T) {
+	confD := setupConfD(t)
+	if err := GenerateWorktreeVhost("feat.myapp.test", "/srv/myapp-feat", "8.3", "myapp", "feat"); err != nil {
+		t.Fatalf("GenerateWorktreeVhost: %v", err)
+	}
+	content := readConf(t, filepath.Join(confD, "feat.myapp.test.conf"))
+	if !strings.Contains(content, `set $fpm "lerd-php83-fpm"`) {
+		t.Errorf("worktree vhost should fastcgi to lerd-php83-fpm, got:\n%s", content)
+	}
+}
+
 func TestGenerateVhost_honoursSitePublicDir(t *testing.T) {
 	confD := setupConfD(t)
 	site := config.Site{

@@ -41,6 +41,21 @@
   const effectiveNode = $derived(activeWorktree?.node_version ?? site.node_version ?? '');
   const phpInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.php_version_override);
   const nodeInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.node_version_override);
+  // When host bun is available, the Node dropdown offers a "bun" entry that
+  // pins .lerd.yaml js_runtime (project-level), leaving node_version intact.
+  // js_runtime is project-level, so the bun toggle only belongs on the main
+  // site dropdown — offering it per worktree would let a worktree action flip
+  // the whole project's runtime and show a confusing selection.
+  const usingBun = $derived(!activeWorktreeBranch && site.js_runtime === 'bun');
+  // Bake "Node " into the version labels so the bun entry can stay bare "bun"
+  // instead of reading "Node bun" (the Dropdown prefixes its label onto rows).
+  const nodeOptions = $derived([
+    ...$nodeVersions.map((v) => ({ value: v, label: 'Node ' + v })),
+    ...(!activeWorktreeBranch && $status.bun_available
+      ? [{ value: 'bun', label: 'bun', description: 'JS runtime' }]
+      : [])
+  ]);
+  const nodeValue = $derived(usingBun ? 'bun' : effectiveNode);
   const dbCapable = $derived((site.services || []).some((s) => /^(mysql|mariadb|postgres)/.test(s)));
   const dbIsolated = $derived(Boolean(activeWorktree?.db_isolated));
   let dbBusy = $state(false);
@@ -226,6 +241,10 @@
       <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
         {m.sites_controls_proxyBadge()}{site.host_port ? ' :' + site.host_port : ''}
       </span>
+    {:else if site.runtime === 'fpm-custom'}
+      <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
+        PHP {effectivePhp} · custom image
+      </span>
     {:else if site.uses_php}
       {#if $phpVersions.length > 0}
         <Dropdown
@@ -246,11 +265,10 @@
 
     {#if $status.node_managed_by_lerd && $nodeVersions.length > 0}
       <Dropdown
-        label="Node"
-        value={effectiveNode}
-        options={$nodeVersions}
+        value={nodeValue}
+        options={nodeOptions}
         disabled={versionBusy}
-        inherited={nodeInherited}
+        inherited={nodeInherited && !usingBun}
         inheritedSuffix={m.sites_controls_inheritedSuffix()}
         title={nodeInherited ? m.sites_controls_inheritsFromMain() : ''}
         placeholder={$status.node_default ? m.sites_controls_nodeDefaultVersion({ version: $status.node_default }) : m.sites_controls_nodeDefault()}

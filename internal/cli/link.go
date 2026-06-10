@@ -258,12 +258,25 @@ func runLink(args []string) error {
 		site.Runtime = proj.Runtime
 		site.RuntimeWorker = proj.RuntimeWorker
 	}
+	// A container: config with no port on a PHP project means the site is served
+	// by fastcgi from its own image, built from the project's Containerfile.
+	if proj != nil && proj.Container != nil && proj.Container.Port == 0 {
+		site.Runtime = "fpm-custom"
+	}
 
 	if err := config.AddSite(site); err != nil {
 		return fmt.Errorf("registering site: %w", err)
 	}
 
 	_ = config.SyncProjectDomains(cwd, site.Domains, cfg.DNS.TLD)
+
+	if site.IsCustomFPM() {
+		if err := siteops.FinishCustomFPMLink(site, proj.Container); err != nil {
+			return err
+		}
+		fmt.Printf("Linked: %s -> %s (custom FPM image, PHP %s, Framework: %s)\n", name, strings.Join(domains, ", "), phpVersion, framework)
+		return linkApplyServices(cwd, proj)
+	}
 
 	if site.IsFrankenPHP() {
 		if err := siteops.FinishFrankenPHPLink(site); err != nil {

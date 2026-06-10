@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
@@ -47,8 +46,7 @@ func runConsole(_ *cobra.Command, args []string) error {
 		version = cfg.PHP.DefaultVersion
 	}
 
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(cwd, version)
 
 	if running, _ := podman.ContainerRunning(container); !running {
 		return fmt.Errorf("PHP %s FPM container is not running — start it with: systemctl --user start %s", version, container)

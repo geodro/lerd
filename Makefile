@@ -6,6 +6,18 @@ BUILD_DIR   = ./build
 INSTALL_DIR = $(HOME)/.local/bin
 UI_DIR      = internal/ui/web
 
+# JS runtime for the web UI build. Prefer npm (when lerd manages Node), fall
+# back to bun so lerd can be built on a host where Node is unmanaged. Checks
+# ~/.bun/bin too since the bun installer may leave it off a non-login PATH.
+# Both run the same package.json scripts; only the install verb differs
+# (npm ci vs bun install).
+JS_PM := $(shell command -v npm 2>/dev/null || command -v bun 2>/dev/null || echo $(HOME)/.bun/bin/bun)
+ifeq ($(notdir $(JS_PM)),bun)
+JS_INSTALL = install
+else
+JS_INSTALL = ci
+endif
+
 PKG        = github.com/geodro/lerd/internal/version
 LDFLAGS    = -s -w \
              -X $(PKG).Version=$(VERSION) \
@@ -19,14 +31,14 @@ UI_INSTALL_STAMP = $(UI_DIR)/node_modules/.package-lock.json
 install-ui-deps: $(UI_INSTALL_STAMP)
 
 $(UI_INSTALL_STAMP): $(UI_DIR)/package-lock.json $(UI_DIR)/package.json
-	cd $(UI_DIR) && npm ci
+	cd $(UI_DIR) && $(JS_PM) $(JS_INSTALL)
 	@touch $@
 
 build-ui: $(UI_INSTALL_STAMP)
-	cd $(UI_DIR) && npm run build
+	cd $(UI_DIR) && $(JS_PM) run build
 
 test-ui: $(UI_INSTALL_STAMP)
-	cd $(UI_DIR) && npm test
+	cd $(UI_DIR) && $(JS_PM) run test
 
 build: build-ui
 	CGO_ENABLED=0 go build -tags nogui -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/lerd

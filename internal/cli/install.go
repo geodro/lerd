@@ -16,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/nginx"
+	nodeDet "github.com/geodro/lerd/internal/node"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
@@ -160,10 +161,23 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		wantLaravelInstaller = confirmInstallPrompt("Install Laravel installer (laravel new)?")
 	}
 
+	// lerd never installs bun itself, but if the user already has it we say so
+	// and soften the Node prompt: a bun user can decline lerd-managed Node and
+	// keep a clean system. Detected bun is used automatically for bun projects
+	// and mirrored into the PHP container on setup.
+	bunPath := nodeDet.BunPath()
+	if bunPath != "" {
+		fmt.Printf("  --> bun detected at %s — lerd will use it automatically for projects that use bun\n", bunPath)
+	}
+
 	wantLerdNode := true
 	if systemNode := detectSystemNode(); systemNode != "" {
 		fmt.Printf("  --> Node.js detected at %s\n", systemNode)
-		wantLerdNode = confirmInstallPrompt("Let lerd manage Node.js versions (installs fnm shims, may override system node)?")
+		prompt := "Let lerd manage Node.js versions (installs fnm shims, may override system node)?"
+		if bunPath != "" {
+			prompt += " Decline to keep your system Node and use bun."
+		}
+		wantLerdNode = confirmInstallPrompt(prompt)
 	}
 
 	// Ask whether lerd should manage local DNS. Prompted on every direct
@@ -824,6 +838,16 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	if wantLerdNode {
 		ensureDefaultNode()
+	}
+
+	// Re-sync host workers to the current JS runtime once the Node-management
+	// state is finalized. This makes "install bun, then `lerd update`" switch
+	// Vite and friends onto bun with no manual re-link. Gated on bun being
+	// present (no reason to touch workers otherwise) and on autostart (don't
+	// start units the user disabled); change-detection inside means only
+	// workers whose command actually changes get restarted.
+	if autostartOn && bunPath != "" {
+		regenerateHostWorkers()
 	}
 
 	refreshStoreFrameworks()

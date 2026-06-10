@@ -80,8 +80,7 @@ func RunTinker(ctx context.Context, sitePath, siteName, branch, code string) (Ti
 		}
 		version = cfg.PHP.DefaultVersion
 	}
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(sitePath, version)
 
 	if running, _ := podman.ContainerRunning(container); !running {
 		return res, fmt.Errorf("PHP %s FPM container is not running", version)

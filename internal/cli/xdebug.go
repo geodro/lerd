@@ -113,12 +113,31 @@ func runXdebugToggle(args []string, enable bool, mode string) error {
 		fmt.Printf("FPM container restarted.\n")
 	}
 
+	// Custom-FPM sites on this version mount the same xdebug ini; restart their
+	// per-site containers so the toggle takes effect there too.
+	restartCustomFPMContainersForVersion(version)
+
 	if res.Enabled {
 		fmt.Printf("Xdebug enabled for PHP %s (mode=%s, port 9003, host.containers.internal)\n", version, res.Mode)
 	} else {
 		fmt.Printf("Xdebug disabled for PHP %s\n", version)
 	}
 	return nil
+}
+
+// restartCustomFPMContainersForVersion restarts the per-site FPM container of
+// every custom-FPM site on the given PHP version, so per-version ini changes
+// (xdebug, dumps, profiler) reach them too.
+func restartCustomFPMContainersForVersion(version string) {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return
+	}
+	for _, s := range reg.Sites {
+		if s.IsCustomFPM() && s.PHPVersion == version {
+			_ = podman.RestartUnit(podman.CustomFPMContainerName(s.Name))
+		}
+	}
 }
 
 func runXdebugStatus(_ *cobra.Command, _ []string) error {

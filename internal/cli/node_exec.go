@@ -83,6 +83,89 @@ func runNpmCaptured(dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// bunRunnerFor returns the host bun binary to use for dir, or "" to fall back
+// to npm/fnm. When the project is configured for bun but no bun is installed it
+// prints a one-line install hint and returns "" so the caller uses npm instead
+// of failing. lerd never installs or version-manages the host bun itself.
+func bunRunnerFor(dir string) string {
+	// An explicit `js_runtime: node` pins the project to Node and opts out of
+	// both bun detection and the no-Node fallback — for apps bun can't run, e.g.
+	// NestJS with native addons. (JSRuntime normalizes node/nodejs/npm.)
+	if nodeDet.JSRuntime(dir) == "node" {
+		return ""
+	}
+	bun := nodeDet.BunPath()
+	if nodeDet.UsesBun(dir) {
+		if bun == "" {
+			fmt.Fprintln(os.Stderr, "lerd: this project uses bun but bun isn't installed — falling back to npm.")
+			fmt.Fprintln(os.Stderr, "      install it with: curl -fsSL https://bun.sh/install | bash")
+		}
+		return bun
+	}
+	// Fallback: when lerd isn't managing Node and there's no system Node on
+	// PATH but bun is installed, use bun as the JS runtime — it's a drop-in for
+	// npm and is the only thing left that can run JS (e.g. after node:unmanage).
+	if bun != "" && !lerdManagesNode() && !systemNodeAvailable() {
+		return bun
+	}
+	return ""
+}
+
+// systemNodeAvailable reports whether a `node` binary is resolvable on PATH
+// (outside lerd's own fnm shims). Used to decide the bun fallback.
+func systemNodeAvailable() bool {
+	return nodeDet.SystemNodeAvailable()
+}
+
+// runBun execs the host bun binary in dir, streaming to the terminal and
+// os.Exit'ing on failure to mirror runWithFnm's CLI behaviour. bun is
+// self-contained, so unlike node it needs no fnm wrapper or version pin.
+func runBun(dir, bun string, args []string) error {
+	cmd := exec.Command(bun, args...)
+	cmd.Dir = dir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			os.Exit(exit.ExitCode())
+		}
+		return err
+	}
+	return nil
+}
+
+// runJSInstall installs JS dependencies in dir: `bun install` when the project
+// uses bun (frozen adds --frozen-lockfile), otherwise `npm ci`/`npm install`
+// via fnm.
+func runJSInstall(dir string, frozen bool) error {
+	if bun := bunRunnerFor(dir); bun != "" {
+		args := []string{"install"}
+		// --frozen-lockfile only makes sense when a bun lockfile exists; npm's
+		// package-lock (the `frozen` arg) doesn't apply to bun.
+		for _, lf := range []string{"bun.lockb", "bun.lock"} {
+			if _, err := os.Stat(filepath.Join(dir, lf)); err == nil {
+				args = append(args, "--frozen-lockfile")
+				break
+			}
+		}
+		return runBun(dir, bun, args)
+	}
+	if frozen {
+		return runWithFnm("npm", []string{"ci"})
+	}
+	return runWithFnm("npm", []string{"install"})
+}
+
+// runJSScript runs a package.json script in dir via `bun run <script>` when the
+// project uses bun, otherwise `npm run <script>` via fnm.
+func runJSScript(dir, script string) error {
+	if bun := bunRunnerFor(dir); bun != "" {
+		return runBun(dir, bun, []string{"run", script})
+	}
+	return runWithFnm("npm", []string{"run", script})
+}
+
 func runWithFnm(bin string, args []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {

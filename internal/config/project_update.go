@@ -195,6 +195,23 @@ func SetProjectRuntime(dir, runtime string, worker bool) error {
 	})
 }
 
+// SetProjectJSRuntime pins the JavaScript runtime ("bun" or "node") in
+// .lerd.yaml, preserving every other field (notably node_version). Unlike
+// updateProjectConfig it creates .lerd.yaml when missing so the toggle persists
+// for sites that never had one. Passing "" clears the pin (back to autodetect).
+func SetProjectJSRuntime(dir, runtime string) error {
+	cfg := &ProjectConfig{}
+	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); err == nil {
+		loaded, lerr := LoadProjectConfig(dir)
+		if lerr != nil {
+			return lerr
+		}
+		cfg = loaded
+	}
+	cfg.JSRuntime = runtime
+	return SaveProjectConfig(dir, cfg)
+}
+
 // SetProjectFrameworkVersion updates framework_version. No-op if .lerd.yaml
 // does not exist or the version hasn't changed.
 func SetProjectFrameworkVersion(dir string, version string) error {

@@ -75,14 +75,7 @@ func newPhpExtAddCmd() *cobra.Command {
 				return fmt.Errorf("extension %q was not installed (config reverted): %w", ext, err)
 			}
 
-			short := strings.ReplaceAll(version, ".", "")
-			unit := "lerd-php" + short + "-fpm"
-			if err := podman.RestartUnit(unit); err != nil {
-				fmt.Printf("[WARN] restart %s: %v\n", unit, err)
-				fmt.Printf("Run: systemctl --user restart %s\n", unit)
-			} else {
-				fmt.Printf("FPM container restarted.\n")
-			}
+			restartFPMUnit(version)
 
 			fmt.Printf("Extension %q installed for PHP %s.\n", ext, version)
 			return nil
@@ -122,14 +115,7 @@ func newPhpExtRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			short := strings.ReplaceAll(version, ".", "")
-			unit := "lerd-php" + short + "-fpm"
-			if err := podman.RestartUnit(unit); err != nil {
-				fmt.Printf("[WARN] restart %s: %v\n", unit, err)
-				fmt.Printf("Run: systemctl --user restart %s\n", unit)
-			} else {
-				fmt.Printf("FPM container restarted.\n")
-			}
+			restartFPMUnit(version)
 
 			fmt.Printf("Extension %q removed for PHP %s.\n", ext, version)
 			return nil

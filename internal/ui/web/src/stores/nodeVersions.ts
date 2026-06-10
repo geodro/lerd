@@ -36,6 +36,24 @@ export async function removeNode(v: string): Promise<boolean> {
   }
 }
 
+export async function manageNode(): Promise<boolean> {
+  try {
+    const res = await apiFetch('/api/node/manage', { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function unmanageNode(): Promise<boolean> {
+  try {
+    const res = await apiFetch('/api/node/unmanage', { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function installNode(v: string): Promise<boolean> {
   try {
     const res = await apiFetch('/api/node-versions/install', {

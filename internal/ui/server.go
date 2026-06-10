@@ -211,6 +211,8 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/node-versions", withCORS(handleNodeVersions))
 	mux.HandleFunc("/api/node-versions/install", withCORS(publishAfter(handleInstallNodeVersion, eventbus.KindStatus)))
 	mux.HandleFunc("/api/node-versions/", withCORS(publishAfter(handleNodeVersionAction, eventbus.KindStatus, eventbus.KindSites)))
+	mux.HandleFunc("/api/node/manage", withCORS(publishAfter(handleNodeManage, eventbus.KindStatus, eventbus.KindSites)))
+	mux.HandleFunc("/api/node/unmanage", withCORS(publishAfter(handleNodeUnmanage, eventbus.KindStatus, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/link", withCORS(publishAfter(handleSiteLink, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/reorder", withCORS(publishAfter(handleSiteReorder, eventbus.KindSites)))
 	mux.HandleFunc("/api/sites/worktree-options", withCORS(handleSiteWorktreeOptions))
@@ -551,7 +553,14 @@ type StatusResponse struct {
 	PHPDefault        string       `json:"php_default"`
 	NodeDefault       string       `json:"node_default"`
 	NodeManagedByLerd bool         `json:"node_managed_by_lerd"`
-	WatcherRunning    bool         `json:"watcher_running"`
+	// BunAvailable is true when a bun binary is installed on the host;
+	// BunVersion carries its version for an at-a-glance reference.
+	// UsingSystemBun is true when lerd isn't managing Node and there's no system
+	// Node, so bun is what actually runs JS host workers (Vite, installs).
+	BunAvailable   bool   `json:"bun_available"`
+	BunVersion     string `json:"bun_version"`
+	UsingSystemBun bool   `json:"using_system_bun"`
+	WatcherRunning bool   `json:"watcher_running"`
 }
 
 type DNSStatus struct {
@@ -612,6 +621,12 @@ func buildStatus() StatusResponse {
 	nodeShim := filepath.Join(config.BinDir(), "node")
 	_, nodeShimErr := os.Stat(nodeShim)
 	nodeManagedByLerd := nodeShimErr == nil
+	bunAvailable := lerdNode.BunPath() != ""
+	bunVersion := ""
+	if bunAvailable {
+		bunVersion = lerdNode.BunVersion()
+	}
+	usingSystemBun := bunAvailable && !nodeManagedByLerd && !lerdNode.SystemNodeAvailable()
 	return StatusResponse{
 		DNS:               DNSStatus{OK: dnsStatus == dns.StatusOK, Status: string(dnsStatus), VPN: dns.VPNActive(), Enabled: dnsEnabled, TLD: tld},
 		Nginx:             ServiceCheck{Running: nginxRunning},
@@ -619,6 +634,9 @@ func buildStatus() StatusResponse {
 		PHPDefault:        phpDefault,
 		NodeDefault:       nodeDefault,
 		NodeManagedByLerd: nodeManagedByLerd,
+		BunAvailable:      bunAvailable,
+		BunVersion:        bunVersion,
+		UsingSystemBun:    usingSystemBun,
 		WatcherRunning:    watcherRunning,
 	}
 }
@@ -672,6 +690,7 @@ type SiteResponse struct {
 	PHPVersion         string              `json:"php_version"`
 	UsesPHP            bool                `json:"uses_php"`
 	NodeVersion        string              `json:"node_version"`
+	JSRuntime          string              `json:"js_runtime,omitempty"`
 	TLS                bool                `json:"tls"`
 	Framework          string              `json:"framework"`
 	FPMRunning         bool                `json:"fpm_running"`
@@ -817,6 +836,7 @@ func buildSites() []SiteResponse {
 			PHPVersion:         e.PHPVersion,
 			UsesPHP:            e.UsesPHP,
 			NodeVersion:        e.NodeVersion,
+			JSRuntime:          projectJSRuntime(e.Path),
 			TLS:                e.Secured,
 			Framework:          e.FrameworkName,
 			IsLaravel:          e.FrameworkName == "laravel",
@@ -3029,6 +3049,18 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, SiteActionResponse{Error: "version parameter required"})
 			return
 		}
+		// "bun" is a JS-runtime toggle, not a Node version: pin js_runtime in
+		// .lerd.yaml (preserving node_version) and re-sync host workers so the
+		// dev/Vite worker switches to bun. Project-level, so branch is ignored.
+		if version == "bun" {
+			if err := config.SetProjectJSRuntime(site.Path, "bun"); err != nil {
+				writeJSON(w, SiteActionResponse{Error: "setting js_runtime: " + err.Error()})
+				return
+			}
+			cli.RegenerateHostWorkersForSite(*site)
+			writeJSON(w, SiteActionResponse{OK: true})
+			return
+		}
 		if branch := r.URL.Query().Get("branch"); branch != "" {
 			wtPath := resolveSitePath(site, branch)
 			if wtPath == "" {
@@ -3050,6 +3082,12 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		site.NodeVersion = version
+		// Picking a Node version while pinned to bun means switch back to Node,
+		// so the chosen version actually runs.
+		if projectJSRuntime(site.Path) == "bun" {
+			_ = config.SetProjectJSRuntime(site.Path, "node")
+			cli.RegenerateHostWorkersForSite(*site)
+		}
 	case "unlink":
 		if err := cli.UnlinkSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
@@ -3954,6 +3992,32 @@ func handleNodeVersionAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleNodeManage / handleNodeUnmanage opt the host into or out of
+// lerd-managed Node by shelling out to the lerd binary, reusing the CLI's shim
+// + worker-regeneration logic rather than duplicating it here. Synchronous:
+// these can take a few seconds (fnm install, worker restarts), so the UI shows
+// a loading state.
+func handleNodeManage(w http.ResponseWriter, r *http.Request) { runNodeMgmtCmd(w, r, "node:manage") }
+func handleNodeUnmanage(w http.ResponseWriter, r *http.Request) {
+	runNodeMgmtCmd(w, r, "node:unmanage")
+}
+
+func runNodeMgmtCmd(w http.ResponseWriter, r *http.Request, sub string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	self, err := os.Executable()
+	if err != nil || self == "" {
+		self = "lerd"
+	}
+	if out, err := exec.Command(self, sub).CombinedOutput(); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": strings.TrimSpace(string(out))})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 var validVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 
 func handleInstallNodeVersion(w http.ResponseWriter, r *http.Request) {
@@ -4469,6 +4533,18 @@ func ensureWorktreeEnvIfBranch(site *config.Site, branch string) {
 
 // siteHasEnv reports whether the site root contains a .env file. Cheap,
 // stat-only check used to decide whether to surface the Env tab in the UI.
+// projectJSRuntime returns the .lerd.yaml js_runtime pin ("bun"/"node") for a
+// site path, or "" when unset. LoadProjectConfig is cached so this is cheap.
+func projectJSRuntime(sitePath string) string {
+	if sitePath == "" {
+		return ""
+	}
+	if proj, err := config.LoadProjectConfig(sitePath); err == nil && proj != nil {
+		return proj.JSRuntime
+	}
+	return ""
+}
+
 func siteHasEnv(sitePath string) bool {
 	if sitePath == "" {
 		return false

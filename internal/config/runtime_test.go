@@ -38,6 +38,45 @@ func TestSetProjectRuntimeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSetProjectJSRuntime_preservesNodeVersion(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "domains:\n  - myapp\nnode_version: \"22\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProjectJSRuntime(dir, "bun"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JSRuntime != "bun" {
+		t.Fatalf("JSRuntime: want bun, got %s", cfg.JSRuntime)
+	}
+	// Toggling bun must not drop the existing node_version pin.
+	if cfg.NodeVersion != "22" {
+		t.Fatalf("NodeVersion: want 22 (preserved), got %s", cfg.NodeVersion)
+	}
+}
+
+func TestSetProjectJSRuntime_createsWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	if err := SetProjectJSRuntime(dir, "bun"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lerd.yaml")); err != nil {
+		t.Fatalf(".lerd.yaml should have been created: %v", err)
+	}
+	cfg, err := LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JSRuntime != "bun" {
+		t.Fatalf("JSRuntime: want bun, got %s", cfg.JSRuntime)
+	}
+}
+
 func TestSiteIsFrankenPHP(t *testing.T) {
 	s := Site{Runtime: "frankenphp"}
 	if !s.IsFrankenPHP() {
@@ -49,5 +88,21 @@ func TestSiteIsFrankenPHP(t *testing.T) {
 	plain := Site{}
 	if plain.IsFrankenPHP() {
 		t.Fatal("IsFrankenPHP: want false for empty site")
+	}
+}
+
+func TestSiteIsCustomFPM(t *testing.T) {
+	s := Site{Runtime: "fpm-custom"}
+	if !s.IsCustomFPM() {
+		t.Fatal("IsCustomFPM: want true for runtime=fpm-custom")
+	}
+	// A custom-FPM site is a fastcgi PHP site, not a port-based custom container
+	// nor a FrankenPHP site.
+	if s.IsCustomContainer() || s.IsFrankenPHP() {
+		t.Fatal("IsCustomFPM site must not also report IsCustomContainer/IsFrankenPHP")
+	}
+	plain := Site{}
+	if plain.IsCustomFPM() {
+		t.Fatal("IsCustomFPM: want false for empty site")
 	}
 }
