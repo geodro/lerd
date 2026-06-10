@@ -44,9 +44,12 @@
   // When host bun is available, the Node dropdown offers a "bun" entry that
   // pins .lerd.yaml js_runtime (project-level), leaving node_version intact.
   const usingBun = $derived(site.js_runtime === 'bun');
-  const nodeOptions = $derived(
-    $status.bun_available ? [...$nodeVersions, { value: 'bun', label: 'bun' }] : $nodeVersions
-  );
+  // Bake "Node " into the version labels so the bun entry can stay bare "bun"
+  // instead of reading "Node bun" (the Dropdown prefixes its label onto rows).
+  const nodeOptions = $derived([
+    ...$nodeVersions.map((v) => ({ value: v, label: 'Node ' + v })),
+    ...($status.bun_available ? [{ value: 'bun', label: 'bun', description: 'JS runtime' }] : [])
+  ]);
   const nodeValue = $derived(usingBun ? 'bun' : effectiveNode);
   const dbCapable = $derived((site.services || []).some((s) => /^(mysql|mariadb|postgres)/.test(s)));
   const dbIsolated = $derived(Boolean(activeWorktree?.db_isolated));
@@ -253,7 +256,6 @@
 
     {#if $status.node_managed_by_lerd && $nodeVersions.length > 0}
       <Dropdown
-        label={usingBun ? 'JS' : 'Node'}
         value={nodeValue}
         options={nodeOptions}
         disabled={versionBusy}
