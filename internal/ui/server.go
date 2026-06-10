@@ -2862,6 +2862,9 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	if commandRoute(w, r, domain, parts[1:]) {
 		return
 	}
+	if doctorRoute(w, r, domain, parts[1:]) {
+		return
+	}
 	// /nginx subroutes (backups, restore) sit alongside the GET/POST on
 	// /nginx. The domain validation inside each handler closes the path
 	// traversal vector that the {domain} segment would otherwise open.

@@ -507,6 +507,8 @@ var laravelFramework = &Framework{
 		{Name: "optimize:clear", Label: "Clear all caches", Command: "php artisan optimize:clear", Description: "Clear config, route, view, event, and compiled caches", Output: "silent", Icon: "broom"},
 		{Name: "migrate", Label: "Run migrations", Command: "php artisan migrate --force", Description: "Apply pending database migrations", Output: "silent", Icon: "database"},
 		{Name: "migrate:fresh", Label: "Drop and re-migrate", Command: "php artisan migrate:fresh --seed --force", Description: "Wipe the database, re-run all migrations, then seed", Output: "silent", Confirm: true, Icon: "refresh"},
+		{Name: "key:generate", Label: "Generate APP_KEY", Command: "php artisan key:generate", Description: "Set the application encryption key in .env", Output: "silent", Icon: "key"},
+		{Name: "storage:link", Label: "Link storage", Command: "php artisan storage:link", Description: "Create the public/storage symlink to storage/app/public", Output: "silent", Icon: "link"},
 	},
 }
 
