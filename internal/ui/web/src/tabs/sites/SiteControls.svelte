@@ -226,6 +226,10 @@
       <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
         {m.sites_controls_proxyBadge()}{site.host_port ? ' :' + site.host_port : ''}
       </span>
+    {:else if site.runtime === 'fpm-custom'}
+      <span class="text-xs text-violet-500 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 rounded-sm px-2 py-1">
+        PHP {effectivePhp} · custom image
+      </span>
     {:else if site.uses_php}
       {#if $phpVersions.length > 0}
         <Dropdown

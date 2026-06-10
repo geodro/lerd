@@ -52,6 +52,15 @@ func RestartSite(name string) error {
 		return nil
 	}
 
+	if site.IsCustomFPM() {
+		unit := podman.CustomFPMContainerName(site.Name)
+		if err := podman.RestartUnit(unit); err != nil {
+			return fmt.Errorf("restarting custom FPM container: %w", err)
+		}
+		fmt.Printf("Restarted: %s (%s)\n", name, unit)
+		return nil
+	}
+
 	if site.IsHostProxy() {
 		if site.HostCommand == "" {
 			return fmt.Errorf("site %q is proxy-only (no command); lerd does not manage its process", name)

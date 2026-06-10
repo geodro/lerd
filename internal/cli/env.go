@@ -997,8 +997,7 @@ func consoleExecArgs(dir, version, console string, args ...string) []string {
 		console = "artisan"
 	}
 
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(dir, version)
 
 	cmdArgs := []string{"exec", "-i", "-w", dir, container, "php", console}
 	return append(cmdArgs, args...)

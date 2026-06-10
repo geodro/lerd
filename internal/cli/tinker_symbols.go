@@ -161,8 +161,7 @@ func collectPHPInternalFunctions(sitePath string) []string {
 		return v.([]string)
 	}
 
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(sitePath, version)
 	if running, _ := podman.ContainerRunning(container); !running {
 		return nil
 	}

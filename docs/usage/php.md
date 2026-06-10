@@ -254,6 +254,44 @@ If a library you depend on calls `setlocale()` and branches on whether it succee
 
 ---
 
+## Custom image (Containerfile)
+
+When `php:ext` and per-version ini tweaks are not enough and a single site needs its own bespoke image (an extra system toolchain, a patched binary, arbitrary build steps), you can give that PHP site its own `Containerfile.lerd`. lerd builds a per-site image and serves the site by fastcgi from a dedicated FPM container, instead of the shared `lerd-php<ver>-fpm` one. It is the same `container:` key used for [custom containers](../getting-started/containers.md), with one difference: **no port**. A `container:` block with a port is a reverse-proxied app; a `container:` block with no port on a PHP project is served by fastcgi from your image.
+
+Your `Containerfile.lerd` must build `FROM` the lerd base image for the site's PHP version, so it keeps php-fpm, the bundled extensions, and the pool config. That `:local` tag is lerd-managed and rebuilt on updates, so the `FROM` stays valid:
+
+```dockerfile
+FROM lerd-php84-fpm:local
+RUN apk add --no-cache htop vim
+```
+
+```yaml
+# .lerd.yaml
+domains:
+  - myapp
+container:
+  containerfile: Containerfile.lerd
+```
+
+Then `lerd link`. lerd builds `lerd-custom-myapp:local`, runs a dedicated FPM container `lerd-cfpm-myapp`, and points nginx fastcgi at it. The per-site container reuses every lerd mount, so xdebug, dumps, the debug bridge, the profiler, and `lerd shell` all work exactly as on a normal PHP site, and `lerd php`, `artisan`, `composer`, `tinker`, and queue/horizon workers all run inside it. Toggling xdebug for that PHP version restarts the per-site container too.
+
+The PHP version is fixed by the `FROM` line, not by `.php-version` or the dashboard, so the version selector is shown read-only for these sites. To change the version, edit the `FROM` and relink.
+
+```bash
+lerd rebuild        # rebuild the per-site image after editing Containerfile.lerd
+lerd restart        # restart the container without rebuilding
+```
+
+::: info PHP projects only
+A no-port `container:` is for PHP projects served by fastcgi. For a non-PHP app (Node, Python, Go) give the `container:` block a `port` so nginx reverse-proxies to it; see the [containers walkthrough](../getting-started/containers.md).
+:::
+
+::: warning One container per site
+Each custom-image PHP site runs its own FPM container rather than sharing the per-version one, so it uses more memory in the Podman VM. Reach for it only when a site genuinely needs its own image; for adding an extension or a package to every site on a version, `php:ext` stays lighter.
+:::
+
+---
+
 ## PHP shell
 
 `lerd shell` opens an interactive shell inside the PHP-FPM container for the current project:

@@ -213,8 +213,12 @@ func HorizonStartForSite(siteName, sitePath, phpVersion string) error {
 // uses Redis so lerd-redis is in After=/Wants= alongside the FPM container.
 func buildHorizonUnit(siteName, sitePath, phpVersion string) string {
 	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	fpmUnit := "lerd-php" + versionShort + "-fpm"
-	container := "lerd-php" + versionShort + "-fpm"
+	// Per-site container for custom-FPM sites, else the shared lerd-php<ver>-fpm.
+	fpmUnit := resolveWorkerFPMUnit(siteName, phpVersion)
+	if fpmUnit == "" {
+		fpmUnit = "lerd-php" + versionShort + "-fpm"
+	}
+	container := fpmUnit
 
 	return fmt.Sprintf(`[Unit]
 Description=Lerd Horizon (%s)

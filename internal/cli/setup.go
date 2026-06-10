@@ -446,8 +446,7 @@ func composerInContainer(dir string, args ...string) error {
 		cfg, _ := config.LoadGlobal()
 		version = cfg.PHP.DefaultVersion
 	}
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(dir, version)
 
 	podman.EnsurePathMounted(dir, version)
 
@@ -474,8 +473,7 @@ func execInContainer(dir, command string) error {
 		cfg, _ := config.LoadGlobal()
 		version = cfg.PHP.DefaultVersion
 	}
-	short := strings.ReplaceAll(version, ".", "")
-	container := "lerd-php" + short + "-fpm"
+	container := fpmContainerForDir(dir, version)
 	podman.EnsurePathMounted(dir, version)
 	parts := strings.Fields(command)
 	if len(parts) == 0 {

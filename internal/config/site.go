@@ -95,6 +95,13 @@ func (s *Site) IsFrankenPHP() bool {
 	return s.Runtime == "frankenphp"
 }
 
+// IsCustomFPM returns true when the site is a PHP project served by fastcgi
+// from its own per-site image, built from a Containerfile (a container: config
+// with no port). It is a normal PHP-FPM site whose container is per-site.
+func (s *Site) IsCustomFPM() bool {
+	return s.Runtime == "fpm-custom"
+}
+
 // IsHostProxy returns true when the site is a host-proxy site: nginx
 // reverse-proxies the domain to a host process instead of a container.
 func (s *Site) IsHostProxy() bool {

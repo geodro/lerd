@@ -614,6 +614,7 @@ export async function setSiteVersion(
 export function fpmContainer(s: Site): string {
   if (s.custom_container) return 'lerd-custom-' + (s.name || s.domain);
   if (s.runtime === 'frankenphp') return 'lerd-fp-' + (s.name || s.domain);
+  if (s.runtime === 'fpm-custom') return 'lerd-cfpm-' + (s.name || s.domain);
   if (!s.php_version) return '';
   return 'lerd-php' + s.php_version.replace('.', '') + '-fpm';
 }
@@ -621,5 +622,6 @@ export function fpmContainer(s: Site): string {
 export function fpmTabLabel(s: Site): string {
   if (s.custom_container) return 'Container';
   if (s.runtime === 'frankenphp') return 'FrankenPHP';
+  if (s.runtime === 'fpm-custom') return 'Custom FPM';
   return 'PHP-FPM';
 }

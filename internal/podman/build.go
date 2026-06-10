@@ -696,22 +696,10 @@ func WriteFPMQuadlet(version string) error {
 		return err
 	}
 
-	tmplContent, err := GetQuadletTemplate("lerd-php-fpm.container.tmpl")
+	content, err := renderFPMQuadletContent(version)
 	if err != nil {
 		return err
 	}
-	content := strings.ReplaceAll(tmplContent, "{{.Version}}", version)
-	content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
-	content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(version))
-	content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(version))
-	content = strings.ReplaceAll(content, "{{.DumpsDir}}", config.DumpsAssetsDir())
-	content = strings.ReplaceAll(content, "{{.DumpsIniPath}}", config.DumpsIniFile())
-	content = strings.ReplaceAll(content, "{{.DevtoolsIniPath}}", config.DevtoolsIniFile())
-	content = strings.ReplaceAll(content, "{{.SpxIniPath}}", config.SpxIniFile())
-	content = strings.ReplaceAll(content, "{{.SpxDataDir}}", config.SpxDataDir())
-	content = strings.ReplaceAll(content, "{{.HostNameLine}}", hostNameLine())
-	content = applyShellMounts(content, short)
-	content = InjectExtraVolumes(content, ExtraVolumePaths())
 
 	// Skip the write and daemon-reload if the quadlet is already up to date.
 	// Unnecessary daemon-reloads cause Podman's quadlet generator to regenerate
@@ -729,6 +717,32 @@ func WriteFPMQuadlet(version string) error {
 		return err
 	}
 	return DaemonReloadFn()
+}
+
+// renderFPMQuadletContent renders the PHP-FPM container template for a version
+// with every substitution and mount applied. Shared by the per-version shared
+// image quadlet and the per-site custom-image quadlet (see customfpm.go), which
+// reuses it and overrides only Image/ContainerName so it inherits xdebug,
+// dumps, devtools, the bun volume, and the shell mounts.
+func renderFPMQuadletContent(version string) (string, error) {
+	short := strings.ReplaceAll(version, ".", "")
+	tmplContent, err := GetQuadletTemplate("lerd-php-fpm.container.tmpl")
+	if err != nil {
+		return "", err
+	}
+	content := strings.ReplaceAll(tmplContent, "{{.Version}}", version)
+	content = strings.ReplaceAll(content, "{{.VersionShort}}", short)
+	content = strings.ReplaceAll(content, "{{.XdebugIniPath}}", config.PHPConfFile(version))
+	content = strings.ReplaceAll(content, "{{.UserIniPath}}", config.PHPUserIniFile(version))
+	content = strings.ReplaceAll(content, "{{.DumpsDir}}", config.DumpsAssetsDir())
+	content = strings.ReplaceAll(content, "{{.DumpsIniPath}}", config.DumpsIniFile())
+	content = strings.ReplaceAll(content, "{{.DevtoolsIniPath}}", config.DevtoolsIniFile())
+	content = strings.ReplaceAll(content, "{{.SpxIniPath}}", config.SpxIniFile())
+	content = strings.ReplaceAll(content, "{{.SpxDataDir}}", config.SpxDataDir())
+	content = strings.ReplaceAll(content, "{{.HostNameLine}}", hostNameLine())
+	content = applyShellMounts(content, short)
+	content = InjectExtraVolumes(content, ExtraVolumePaths())
+	return content, nil
 }
 
 // RewriteFPMQuadlets regenerates the quadlet files for all installed PHP-FPM

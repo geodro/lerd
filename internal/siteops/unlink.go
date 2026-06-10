@@ -68,6 +68,13 @@ func UnlinkSiteCore(site *config.Site, parkedDirs []string) error {
 		_ = podman.RemoveFrankenPHPQuadlet(site.Name)
 	}
 
+	// Custom-FPM PHP sites: stop the per-site FPM container and drop its
+	// quadlet. The per-site image is kept so relinking is fast.
+	if site.IsCustomFPM() {
+		_ = podman.StopUnit(podman.CustomFPMContainerName(site.Name))
+		_ = podman.RemoveCustomFPMQuadlet(site.Name)
+	}
+
 	if IsParkedSite(site.Path, parkedDirs) {
 		_ = config.IgnoreSite(site.Name)
 	} else {

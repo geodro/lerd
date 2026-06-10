@@ -57,6 +57,9 @@ type VhostData struct {
 	Path            string
 	PHPVersion      string
 	PHPVersionShort string
+	// FPMContainer is the container nginx fastcgi's to: the shared
+	// lerd-php<ver>-fpm, or a per-site container for custom-FPM sites.
+	FPMContainer    string
 	CertDomain      string // domain whose cert files to use (defaults to Domain)
 	PublicDir       string // document root subdirectory, e.g. "public", "web", "."
 	Proxy           bool   // true when the site has a worker with WebSocket/HTTP proxy config
@@ -164,6 +167,7 @@ func GenerateVhost(site config.Site, phpVersion string) error {
 		Path:            site.Path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
+		FPMContainer:    podman.FPMContainerName(site, phpVersion),
 		PublicDir:       publicDir,
 		Proxy:           hasProxy,
 		ProxyPath:       proxyPath,
@@ -207,6 +211,7 @@ func GenerateSSLVhost(site config.Site, phpVersion string) error {
 		Path:            site.Path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
+		FPMContainer:    podman.FPMContainerName(site, phpVersion),
 		CertDomain:      site.PrimaryDomain(),
 		PublicDir:       publicDir,
 		Proxy:           hasProxy,
@@ -435,6 +440,16 @@ func GenerateWorktreeVhostFor(domain, path, phpVersion, parentDomain, siteName, 
 	return GenerateWorktreeVhost(domain, path, phpVersion, siteName, branch)
 }
 
+// worktreeFPMContainer resolves the FPM container a worktree vhost points at:
+// the parent site's per-site container for custom-FPM sites, otherwise the
+// shared lerd-php<ver>-fpm.
+func worktreeFPMContainer(siteName, phpVersion string) string {
+	if site, _ := config.FindSite(siteName); site != nil {
+		return podman.FPMContainerName(*site, phpVersion)
+	}
+	return "lerd-php" + phpShort(phpVersion) + "-fpm"
+}
+
 // GenerateWorktreeVhost renders the HTTP vhost template for a worktree checkout
 // and writes it to conf.d/<domain>.conf.
 func GenerateWorktreeVhost(domain, path, phpVersion, siteName, branch string) error {
@@ -454,6 +469,7 @@ func GenerateWorktreeVhost(domain, path, phpVersion, siteName, branch string) er
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
+		FPMContainer:    worktreeFPMContainer(siteName, phpVersion),
 		PublicDir:       "public",
 		LerdSite:        siteName,
 		LerdBranch:      branch,
@@ -492,6 +508,7 @@ func GenerateWorktreeSSLVhost(domain, path, phpVersion, parentDomain, siteName, 
 		Path:            path,
 		PHPVersion:      phpVersion,
 		PHPVersionShort: phpShort(phpVersion),
+		FPMContainer:    worktreeFPMContainer(siteName, phpVersion),
 		CertDomain:      parentDomain,
 		PublicDir:       "public",
 		LerdSite:        siteName,

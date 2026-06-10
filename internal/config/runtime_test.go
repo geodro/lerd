@@ -51,3 +51,19 @@ func TestSiteIsFrankenPHP(t *testing.T) {
 		t.Fatal("IsFrankenPHP: want false for empty site")
 	}
 }
+
+func TestSiteIsCustomFPM(t *testing.T) {
+	s := Site{Runtime: "fpm-custom"}
+	if !s.IsCustomFPM() {
+		t.Fatal("IsCustomFPM: want true for runtime=fpm-custom")
+	}
+	// A custom-FPM site is a fastcgi PHP site, not a port-based custom container
+	// nor a FrankenPHP site.
+	if s.IsCustomContainer() || s.IsFrankenPHP() {
+		t.Fatal("IsCustomFPM site must not also report IsCustomContainer/IsFrankenPHP")
+	}
+	plain := Site{}
+	if plain.IsCustomFPM() {
+		t.Fatal("IsCustomFPM: want false for empty site")
+	}
+}

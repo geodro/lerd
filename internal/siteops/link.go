@@ -210,6 +210,52 @@ func FinishFrankenPHPLink(site config.Site) error {
 	return nil
 }
 
+// FinishCustomFPMLink performs post-registration steps for a PHP site whose
+// runtime is "fpm-custom": build the per-site image from the project's
+// Containerfile (FROM the lerd base, so it keeps php-fpm and the extensions),
+// write a per-site FPM quadlet that reuses every lerd mount, start the
+// container, and generate a normal fastcgi vhost pointing at it.
+func FinishCustomFPMLink(site config.Site, containerCfg *config.ContainerConfig) error {
+	_ = podman.WriteContainerHosts()
+
+	fmt.Printf("Building custom FPM image for %s...\n", site.Name)
+	if err := podman.BuildCustomImage(site.Name, site.Path, containerCfg); err != nil {
+		return fmt.Errorf("building custom FPM image: %w", err)
+	}
+	podman.StoreContainerfileHash(site.Name, site.Path, containerCfg)
+
+	if err := podman.WriteCustomFPMQuadlet(site.Name, site.PHPVersion); err != nil {
+		return fmt.Errorf("writing custom FPM quadlet: %w", err)
+	}
+	// Start first so the freshly generated unit is loaded (RestartUnit on a
+	// not-yet-active unit races the quadlet generator), then restart so a
+	// rebuilt image is picked up instead of the container lingering on the old
+	// build. StartUnit is a no-op when already running.
+	unitName := podman.CustomFPMContainerName(site.Name)
+	if err := podman.StartUnit(unitName); err != nil {
+		fmt.Printf("[WARN] starting custom FPM container: %v\n", err)
+	} else {
+		_ = podman.RestartUnit(unitName)
+	}
+
+	if site.Secured {
+		if err := certs.SecureSite(site); err != nil {
+			return fmt.Errorf("securing site: %w", err)
+		}
+	} else if err := nginx.GenerateVhost(site, site.PHPVersion); err != nil {
+		return fmt.Errorf("generating vhost: %w", err)
+	}
+
+	_ = podman.WriteContainerHosts()
+	if err := nginx.Reload(); err != nil {
+		return fmt.Errorf("nginx reload: %w", err)
+	}
+	if podman.AfterUnitChange != nil {
+		podman.AfterUnitChange("site:" + site.Name)
+	}
+	return nil
+}
+
 // FinishHostProxyLink performs the post-registration steps for a host-proxy
 // site: no container is built or started. It refreshes the host.containers.internal
 // mapping (so nginx can reach the host), generates the proxy vhost, and reloads
