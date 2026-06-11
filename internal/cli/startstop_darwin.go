@@ -3,8 +3,6 @@
 package cli
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -70,16 +68,52 @@ func getMachineJSONPath(name string) string {
 	return ""
 }
 
-// requiredMachineMounts lists the macOS host paths that must be available
-// inside the Podman Machine VM. /Volumes is required for external drives.
-// /private and /var/folders are already Podman defaults.
-var requiredMachineMounts = []string{"/Volumes"}
+// requiredMachineMounts lists the macOS host paths mounted into the Podman
+// Machine VM at init. /Users carries the host home (and therefore
+// ~/.local/share/lerd, the source of every container bind mount); /private and
+// /var/folders are Podman's other defaults; /Volumes covers external drives.
+//
+// All four are passed explicitly to `machine init -v`. Podman's --volume is a
+// stringArray, so supplying any -v replaces the whole default set
+// (/Users, /private, /var/folders); passing only /Volumes (lerd <= 1.24.0)
+// dropped the host home mount, and every bind mount sourced from
+// ~/.local/share/lerd failed inside the VM with "statfs ...: no such file or
+// directory".
+var requiredMachineMounts = []string{"/Users", "/private", "/var/folders", "/Volumes"}
 
-// checkMissingMounts parses the Podman Machine JSON configuration file and returns
-// true if any of the required mounts are missing from the configuration.
-// This identifies existing machines that were initialized before the /Volumes
-// mount requirement was added.
-func checkMissingMounts(name string) bool {
+// homeMachineMount is the host path that carries the user home inside the VM.
+// A machine missing it can't see any lerd bind-mount source, so no container
+// can start.
+const homeMachineMount = "/Users"
+
+// machineInitArgs builds `podman machine init` arguments with every required
+// mount and the host-scaled memory. name re-creates a specific machine
+// (preserving a custom name); "" creates Podman's default.
+func machineInitArgs(name string, targetMemoryMiB int64) []string {
+	args := []string{"machine", "init", "--rootful"}
+	for _, m := range requiredMachineMounts {
+		args = append(args, "-v", m+":"+m)
+	}
+	if targetMemoryMiB > 0 {
+		args = append(args, "--memory", strconv.FormatInt(targetMemoryMiB, 10))
+	}
+	if name != "" {
+		args = append(args, name)
+	}
+	return args
+}
+
+// machineMissingHomeMount reports whether the named machine's config lacks the
+// host home mount, i.e. it was initialised by the lerd <= 1.24.0 bug. Returns
+// false on any read/parse error so we never recreate a machine we can't
+// positively diagnose as broken.
+//
+// This must be repaired by recreating the VM, not by editing the config:
+// Podman writes the guest's virtiofs .mount units once at init via Ignition and
+// `machine start` never regenerates them, so adding /Users to the config JSON
+// attaches the host-side device but leaves the guest with no mount unit; the
+// path still never appears inside the VM.
+func machineMissingHomeMount(name string) bool {
 	path := getMachineJSONPath(name)
 	if path == "" {
 		return false
@@ -96,98 +130,43 @@ func checkMissingMounts(name string) bool {
 	if !ok {
 		return false
 	}
-
-	existingPaths := make(map[string]bool)
 	for _, mAny := range mounts {
 		if m, ok := mAny.(map[string]any); ok {
-			if src, ok := m["Source"].(string); ok {
-				existingPaths[src] = true
+			if src, _ := m["Source"].(string); src == homeMachineMount {
+				return false // home mount present
 			}
 		}
 	}
-
-	for _, reqPath := range requiredMachineMounts {
-		if !existingPaths[reqPath] {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
-// ensurePodmanMachineMounts edits the Podman Machine JSON configuration file directly
-// to inject missing volume mounts. It generates deterministic virtiofs tags based on
-// the SHA-256 hash of the host path, allowing existing machines to be upgraded
-// seamlessly without requiring a rebuild. A backup of the original configuration is
-// saved with a .bak extension.
-func ensurePodmanMachineMounts(name string) error {
-	path := getMachineJSONPath(name)
-	if path == "" {
-		return fmt.Errorf("machine config not found")
+// recreateBrokenMachine destroys and re-initialises a machine that is missing
+// the host home mount. Safe because such a machine has no working containers
+// (every bind mount fails), so nothing of value is lost. The caller starts the
+// freshly-initialised machine.
+func recreateBrokenMachine(name string, running bool, targetMemoryMiB int64) {
+	fmt.Println("  --> Podman Machine is missing the host home mount and can't be repaired")
+	fmt.Println("      in place; recreating it. No running containers are affected (a")
+	fmt.Println("      machine in this state can't start any).")
+	if running {
+		stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
+		stopCmd.Run() //nolint:errcheck
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
+	rmCmd := exec.Command(podman.PodmanBin(), "machine", "rm", "-f", name)
+	rmCmd.Stdout = os.Stdout
+	rmCmd.Stderr = os.Stderr
+	if err := rmCmd.Run(); err != nil {
+		fmt.Printf("  WARN: podman machine rm: %v\n", err)
+		return
 	}
-
-	// Decode with number preservation to avoid float64 corruption of
-	// integer fields like VSockNumber.
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var config map[string]any
-	if err := dec.Decode(&config); err != nil {
-		return err
+	initCmd := exec.Command(podman.PodmanBin(), machineInitArgs(name, targetMemoryMiB)...)
+	initCmd.Stdout = os.Stdout
+	initCmd.Stderr = os.Stderr
+	if err := initCmd.Run(); err != nil {
+		fmt.Printf("  WARN: podman machine init: %v\n", err)
 	}
-
-	mounts, ok := config["Mounts"].([]any)
-	if !ok {
-		return fmt.Errorf("no Mounts array in config")
-	}
-
-	existingPaths := make(map[string]bool)
-	for _, mAny := range mounts {
-		if m, ok := mAny.(map[string]any); ok {
-			src, _ := m["Source"].(string)
-			existingPaths[src] = true
-		}
-	}
-
-	added := false
-
-	for _, reqPath := range requiredMachineMounts {
-		if !existingPaths[reqPath] {
-			hash := sha256.Sum256([]byte(reqPath))
-			tag := fmt.Sprintf("%x", hash)[:36]
-			newMount := map[string]any{
-				"OriginalInput": reqPath + ":" + reqPath,
-				"ReadOnly":      false,
-				"Source":        reqPath,
-				"Tag":           tag,
-				"Target":        reqPath,
-				"Type":          "virtiofs",
-				"VSockNumber":   nil,
-			}
-			mounts = append(mounts, newMount)
-			added = true
-		}
-	}
-
-	if !added {
-		return nil
-	}
-
-	config["Mounts"] = mounts
-
-	outData, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-	// Append trailing newline to match Podman's own formatting.
-	outData = append(outData, '\n')
-
-	// Backup original
-	os.WriteFile(path+".bak", data, 0644) //nolint:errcheck
-
-	return os.WriteFile(path, outData, 0644)
 }
 
 // ensurePodmanMachineRunning ensures a Podman Machine VM exists, is rootful,
@@ -254,11 +233,7 @@ func ensurePodmanMachineRunning() {
 		cfg, _ := config.LoadGlobal()
 		execMode := cfg != nil && cfg.WorkerExecMode() != config.WorkerExecModeContainer
 		targetMemoryMiB := recommendedVMMemoryMiB(hostMemoryGiB(), execMode)
-		initArgs := []string{"machine", "init", "--rootful", "-v", "/Volumes:/Volumes"}
-		if targetMemoryMiB > 0 {
-			initArgs = append(initArgs, "--memory", strconv.FormatInt(targetMemoryMiB, 10))
-		}
-		cmd := exec.Command(podman.PodmanBin(), initArgs...)
+		cmd := exec.Command(podman.PodmanBin(), machineInitArgs("", targetMemoryMiB)...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -268,80 +243,74 @@ func ensurePodmanMachineRunning() {
 	} else {
 		m := machines[0]
 
-		needsRootful := !m.rootful
-		needsMemory := false
-		needsMounts := checkMissingMounts(m.name)
-
 		// Target memory scales with host RAM so 8 GB MacBooks aren't squeezed.
 		// {{.Resources.Memory}} returns MiB directly (not bytes).
 		hostGiB := hostMemoryGiB()
 		cfg, _ := config.LoadGlobal()
 		execMode := cfg != nil && cfg.WorkerExecMode() != config.WorkerExecModeContainer
 		targetMemoryMiB := recommendedVMMemoryMiB(hostGiB, execMode)
-		if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
-			"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
-			if memMiB, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memMiB > 0 {
-				if memMiB < targetMemoryMiB {
-					needsMemory = true
+
+		// A machine missing the host home mount was created by the lerd <= 1.24.0
+		// init bug and can't be repaired in place (Ignition writes the guest
+		// mount units once at init; a config edit + restart won't add /Users).
+		// Recreate it, then fall through to start.
+		if machineMissingHomeMount(m.name) {
+			recreateBrokenMachine(m.name, m.running, targetMemoryMiB)
+		} else {
+			needsRootful := !m.rootful
+			needsMemory := false
+			if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
+				"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
+				if memMiB, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memMiB > 0 {
+					if memMiB < targetMemoryMiB {
+						needsMemory = true
+					}
 				}
 			}
-		}
 
-		if needsRootful || needsMemory || needsMounts {
-			if m.running {
-				var parts []string
+			if needsRootful || needsMemory {
+				if m.running {
+					var parts []string
+					if needsRootful {
+						parts = append(parts, "enable rootful mode")
+					}
+					if needsMemory {
+						parts = append(parts, fmt.Sprintf("increase memory to %d MB", targetMemoryMiB))
+					}
+					reason := strings.Join(parts, " and ")
+					fmt.Printf("  --> Stopping Podman Machine to %s ...\n", reason)
+					stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
+					stopCmd.Stdout = os.Stdout
+					stopCmd.Stderr = os.Stderr
+					stopCmd.Run() //nolint:errcheck
+				}
 				if needsRootful {
-					parts = append(parts, "enable rootful mode")
+					fmt.Println("  --> Enabling rootful mode for Podman Machine (required for ports 80/443) ...")
+					setCmd := exec.Command(podman.PodmanBin(), "machine", "set", "--rootful", m.name)
+					setCmd.Stdout = os.Stdout
+					setCmd.Stderr = os.Stderr
+					if err := setCmd.Run(); err != nil {
+						fmt.Printf("  WARN: podman machine set --rootful: %v\n", err)
+					}
 				}
 				if needsMemory {
-					parts = append(parts, fmt.Sprintf("increase memory to %d MB", targetMemoryMiB))
+					if hostGiB > 0 && hostGiB <= 8 {
+						fmt.Printf("  --> Host has %d GB RAM; setting Podman Machine to %d MB (tight but workable) ...\n", hostGiB, targetMemoryMiB)
+						fmt.Println("       If sites slow down under load, run: podman machine set --memory 4096")
+					} else {
+						fmt.Printf("  --> Setting Podman Machine memory to %d MB ...\n", targetMemoryMiB)
+					}
+					setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
+						"--memory", strconv.FormatInt(targetMemoryMiB, 10), m.name)
+					setCmd.Stdout = os.Stdout
+					setCmd.Stderr = os.Stderr
+					if err := setCmd.Run(); err != nil {
+						fmt.Printf("  WARN: podman machine set --memory: %v\n", err)
+					}
 				}
-				if needsMounts {
-					parts = append(parts, "update volume mounts for external drives")
-				}
-				reason := strings.Join(parts, ", ")
-				// Replace last ", " with " and " for English grammar
-				if i := strings.LastIndex(reason, ", "); i >= 0 {
-					reason = reason[:i] + " and " + reason[i+2:]
-				}
-				fmt.Printf("  --> Stopping Podman Machine to %s ...\n", reason)
-				stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
-				stopCmd.Stdout = os.Stdout
-				stopCmd.Stderr = os.Stderr
-				stopCmd.Run() //nolint:errcheck
+			} else if m.running {
+				return // already running and correctly configured
 			}
-			if needsRootful {
-				fmt.Println("  --> Enabling rootful mode for Podman Machine (required for ports 80/443) ...")
-				setCmd := exec.Command(podman.PodmanBin(), "machine", "set", "--rootful", m.name)
-				setCmd.Stdout = os.Stdout
-				setCmd.Stderr = os.Stderr
-				if err := setCmd.Run(); err != nil {
-					fmt.Printf("  WARN: podman machine set --rootful: %v\n", err)
-				}
-			}
-			if needsMemory {
-				if hostGiB > 0 && hostGiB <= 8 {
-					fmt.Printf("  --> Host has %d GB RAM; setting Podman Machine to %d MB (tight but workable) ...\n", hostGiB, targetMemoryMiB)
-					fmt.Println("       If sites slow down under load, run: podman machine set --memory 4096")
-				} else {
-					fmt.Printf("  --> Setting Podman Machine memory to %d MB ...\n", targetMemoryMiB)
-				}
-				setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
-					"--memory", strconv.FormatInt(targetMemoryMiB, 10), m.name)
-				setCmd.Stdout = os.Stdout
-				setCmd.Stderr = os.Stderr
-				if err := setCmd.Run(); err != nil {
-					fmt.Printf("  WARN: podman machine set --memory: %v\n", err)
-				}
-			}
-			if needsMounts {
-				fmt.Println("  --> Updating Podman Machine volume mounts for external drives ...")
-				if err := ensurePodmanMachineMounts(m.name); err != nil {
-					fmt.Printf("  WARN: failed to update machine mounts: %v\n", err)
-				}
-			}
-		} else if m.running {
-			return // already running and correctly configured
 		}
 	}
 
