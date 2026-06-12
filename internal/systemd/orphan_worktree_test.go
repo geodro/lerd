@@ -41,31 +41,31 @@ func TestUnitBelongsToOtherSiteWorktree_noHyphen(t *testing.T) {
 
 func TestUnitBelongsToOtherSiteWorktree_unknownParent(t *testing.T) {
 	sites := []config.Site{{Name: "other", Path: "/tmp/nope"}}
-	if UnitBelongsToOtherSiteWorktree("vite-whitewaters", "main", sites) {
-		t.Error("must not match when no registered site is named 'whitewaters'")
+	if UnitBelongsToOtherSiteWorktree("vite-rapids", "main", sites) {
+		t.Error("must not match when no registered site is named 'rapids'")
 	}
 }
 
 func TestUnitBelongsToOtherSiteWorktree_realWorktree(t *testing.T) {
-	parent := setupParentWithWorktree(t, "whitewaters", "main")
-	sites := []config.Site{{Name: "whitewaters", Path: parent}}
-	if !UnitBelongsToOtherSiteWorktree("vite-whitewaters", "main", sites) {
-		t.Error("expected match: lerd-vite-whitewaters-main belongs to whitewaters")
+	parent := setupParentWithWorktree(t, "rapids", "main")
+	sites := []config.Site{{Name: "rapids", Path: parent}}
+	if !UnitBelongsToOtherSiteWorktree("vite-rapids", "main", sites) {
+		t.Error("expected match: lerd-vite-rapids-main belongs to rapids")
 	}
 }
 
 func TestUnitBelongsToOtherSiteWorktree_hyphenatedParentName(t *testing.T) {
-	parent := setupParentWithWorktree(t, "admin-astrolov", "feature-foo")
-	sites := []config.Site{{Name: "admin-astrolov", Path: parent}}
-	if !UnitBelongsToOtherSiteWorktree("vite-admin-astrolov", "feature-foo", sites) {
+	parent := setupParentWithWorktree(t, "admin-starlane", "feature-foo")
+	sites := []config.Site{{Name: "admin-starlane", Path: parent}}
+	if !UnitBelongsToOtherSiteWorktree("vite-admin-starlane", "feature-foo", sites) {
 		t.Error("expected match across multiple hyphens in parent name")
 	}
 }
 
 func TestUnitBelongsToOtherSiteWorktree_parentExistsButNoMatchingWorktree(t *testing.T) {
-	parent := setupParentWithWorktree(t, "whitewaters", "branch-other")
-	sites := []config.Site{{Name: "whitewaters", Path: parent}}
-	if UnitBelongsToOtherSiteWorktree("vite-whitewaters", "main", sites) {
+	parent := setupParentWithWorktree(t, "rapids", "branch-other")
+	sites := []config.Site{{Name: "rapids", Path: parent}}
+	if UnitBelongsToOtherSiteWorktree("vite-rapids", "main", sites) {
 		t.Error("must not match when the parent has no worktree named 'main'")
 	}
 }

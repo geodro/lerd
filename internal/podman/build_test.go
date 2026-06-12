@@ -32,6 +32,19 @@ func TestBuildCustomPackagesBlock(t *testing.T) {
 	if !strings.Contains(block, "rm -rf /var/cache/apk/*") {
 		t.Errorf("block must clean the apk cache:\n%s", block)
 	}
+	// Without chromium, no Playwright env is baked.
+	if strings.Contains(block, "PLAYWRIGHT_BROWSERS_PATH") {
+		t.Errorf("non-chromium block must not bake PLAYWRIGHT_BROWSERS_PATH:\n%s", block)
+	}
+}
+
+// Opting chromium in (lerd pest:browser install) must pin Playwright's browser
+// path to the cache volume, since `lerd test` execs with the host HOME.
+func TestBuildCustomPackagesBlock_ChromiumBakesPlaywrightEnv(t *testing.T) {
+	block := buildCustomPackagesBlock([]string{"chromium"})
+	if !strings.Contains(block, "ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright") {
+		t.Errorf("chromium block must bake PLAYWRIGHT_BROWSERS_PATH:\n%s", block)
+	}
 }
 
 func TestBaseContainerfileHash_StripsCustomPackages(t *testing.T) {

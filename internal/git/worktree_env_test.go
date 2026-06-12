@@ -279,24 +279,24 @@ func TestEnsureWorktreeEnv_fallsBackWithoutOverrides(t *testing.T) {
 // env_overrides template, or the isolated DB silently goes back to the
 // templated value on the next watcher refresh.
 //
-// Modelled on the real theregistry.test fixture (Laravel parent at
-// /home/george/Projects/whitewaters with a branch worktree), but uses
+// Modelled on the real harborlist.test fixture (Laravel parent at
+// /home/george/Projects/rapids with a branch worktree), but uses
 // tempdirs so the suite stays hermetic.
 func TestEnsureWorktreeEnv_isolatedDBOverrideSkipped(t *testing.T) {
 	main := t.TempDir()
 	wt := t.TempDir()
 
-	mainEnv := "APP_URL=http://theregistry.test\nDB_DATABASE=whitewaters\n"
+	mainEnv := "APP_URL=http://harborlist.test\nDB_DATABASE=rapids\n"
 	if err := os.WriteFile(filepath.Join(main, ".env"), []byte(mainEnv), 0644); err != nil {
 		t.Fatal(err)
 	}
-	lerdYAML := "domains:\n  - theregistry\nenv_overrides:\n  DB_DATABASE: \"{{parent}}_{{branch}}\"\n"
+	lerdYAML := "domains:\n  - harborlist\nenv_overrides:\n  DB_DATABASE: \"{{parent}}_{{branch}}\"\n"
 	if err := os.WriteFile(filepath.Join(main, ".lerd.yaml"), []byte(lerdYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// Seed the worktree as if `lerd db:isolate` already ran: explicit
 	// DB_DATABASE plus db_isolated:true in its .lerd.yaml.
-	wtEnv := "APP_URL=http://theregistry.test\nDB_DATABASE=whitewaters_feat_x\n"
+	wtEnv := "APP_URL=http://harborlist.test\nDB_DATABASE=rapids_feat_x\n"
 	if err := os.WriteFile(filepath.Join(wt, ".env"), []byte(wtEnv), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -304,21 +304,21 @@ func TestEnsureWorktreeEnv_isolatedDBOverrideSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	EnsureWorktreeEnv(main, wt, "feat-x.theregistry.test", false)
+	EnsureWorktreeEnv(main, wt, "feat-x.harborlist.test", false)
 
 	got, err := os.ReadFile(filepath.Join(wt, ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(got)
-	if !strings.Contains(s, "DB_DATABASE=whitewaters_feat_x") {
+	if !strings.Contains(s, "DB_DATABASE=rapids_feat_x") {
 		t.Errorf("isolated DB_DATABASE was clobbered by env_overrides:\n%s", s)
 	}
-	if strings.Contains(s, "DB_DATABASE=whitewaters_feat-x") || strings.Contains(s, "DB_DATABASE=_feat-x") {
+	if strings.Contains(s, "DB_DATABASE=rapids_feat-x") || strings.Contains(s, "DB_DATABASE=_feat-x") {
 		t.Errorf("env_overrides template replaced isolated DB:\n%s", s)
 	}
 	// APP_URL must still be rewritten — only DB_DATABASE is sticky.
-	if !strings.Contains(s, "APP_URL=http://feat-x.theregistry.test") {
+	if !strings.Contains(s, "APP_URL=http://feat-x.harborlist.test") {
 		t.Errorf("APP_URL rewrite skipped alongside DB_DATABASE:\n%s", s)
 	}
 }
@@ -331,16 +331,16 @@ func TestEnsureWorktreeEnv_envOverridesWinWhenNotIsolated(t *testing.T) {
 	main := t.TempDir()
 	wt := t.TempDir()
 
-	mainEnv := "APP_URL=http://theregistry.test\nDB_DATABASE=whitewaters\n"
+	mainEnv := "APP_URL=http://harborlist.test\nDB_DATABASE=rapids\n"
 	if err := os.WriteFile(filepath.Join(main, ".env"), []byte(mainEnv), 0644); err != nil {
 		t.Fatal(err)
 	}
-	lerdYAML := "domains:\n  - theregistry\nenv_overrides:\n  DB_DATABASE: \"{{parent}}_{{branch}}\"\n"
+	lerdYAML := "domains:\n  - harborlist\nenv_overrides:\n  DB_DATABASE: \"{{parent}}_{{branch}}\"\n"
 	if err := os.WriteFile(filepath.Join(main, ".lerd.yaml"), []byte(lerdYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	EnsureWorktreeEnv(main, wt, "feat-x.theregistry.test", false)
+	EnsureWorktreeEnv(main, wt, "feat-x.harborlist.test", false)
 
 	got, err := os.ReadFile(filepath.Join(wt, ".env"))
 	if err != nil {
@@ -350,8 +350,8 @@ func TestEnsureWorktreeEnv_envOverridesWinWhenNotIsolated(t *testing.T) {
 		// The exact value depends on whether parent resolves; with no
 		// site registered, {{parent}} resolves to "". The point is that
 		// env_overrides DID apply (DB_DATABASE changed away from the
-		// inherited "whitewaters").
-		if strings.Contains(string(got), "DB_DATABASE=whitewaters\n") {
+		// inherited "rapids").
+		if strings.Contains(string(got), "DB_DATABASE=rapids\n") {
 			t.Errorf("env_overrides was skipped even though db_isolated is false:\n%s", got)
 		}
 	}

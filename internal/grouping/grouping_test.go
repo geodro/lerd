@@ -63,8 +63,8 @@ func fakeMainRepo(t *testing.T, branch, checkout string) string {
 // ── ComputeSecondaryDomain ───────────────────────────────────────────────────
 
 func TestComputeSecondaryDomain(t *testing.T) {
-	if got := ComputeSecondaryDomain("astrolov.test", "admin"); got != "admin.astrolov.test" {
-		t.Errorf("got %q, want admin.astrolov.test", got)
+	if got := ComputeSecondaryDomain("starlane.test", "admin"); got != "admin.starlane.test" {
+		t.Errorf("got %q, want admin.starlane.test", got)
 	}
 }
 
@@ -98,25 +98,25 @@ func TestValidateLabel(t *testing.T) {
 
 func TestAssignSecondary_groupsExistingSite(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
-	mustAdd(t, config.Site{Name: "admin-astrolov", Domains: []string{"admin-astrolov.test"}, Path: "/srv/admin"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
+	mustAdd(t, config.Site{Name: "admin-starlane", Domains: []string{"admin-starlane.test"}, Path: "/srv/admin"})
 
-	main := reload(t, "astrolov")
-	sec := reload(t, "admin-astrolov")
+	main := reload(t, "starlane")
+	sec := reload(t, "admin-starlane")
 	if err := AssignSecondary(main, sec, "admin", false); err != nil {
 		t.Fatalf("AssignSecondary: %v", err)
 	}
 
-	gotMain := reload(t, "astrolov")
-	if !gotMain.IsGroupMain() || gotMain.Group != "astrolov" {
+	gotMain := reload(t, "starlane")
+	if !gotMain.IsGroupMain() || gotMain.Group != "starlane" {
 		t.Errorf("main not promoted: group=%q subdomain=%q", gotMain.Group, gotMain.GroupSubdomain)
 	}
-	gotSec := reload(t, "admin-astrolov")
+	gotSec := reload(t, "admin-starlane")
 	if !gotSec.IsGroupSecondary() {
 		t.Errorf("secondary not grouped: group=%q subdomain=%q", gotSec.Group, gotSec.GroupSubdomain)
 	}
-	if gotSec.PrimaryDomain() != "admin.astrolov.test" {
-		t.Errorf("secondary domain = %q, want admin.astrolov.test", gotSec.PrimaryDomain())
+	if gotSec.PrimaryDomain() != "admin.starlane.test" {
+		t.Errorf("secondary domain = %q, want admin.starlane.test", gotSec.PrimaryDomain())
 	}
 	if len(gotSec.Domains) != 1 {
 		t.Errorf("old standalone domain not replaced: %v", gotSec.Domains)
@@ -126,10 +126,10 @@ func TestAssignSecondary_groupsExistingSite(t *testing.T) {
 func TestAssignSecondary_rollsBackOnRegenFailure(t *testing.T) {
 	setup(t)
 	regenerateSecondary = func(_ *config.Site, _ string) error { return fmt.Errorf("boom") }
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
 
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err == nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err == nil {
 		t.Fatal("expected regeneration failure to surface")
 	}
 	sec := reload(t, "admin")
@@ -139,7 +139,7 @@ func TestAssignSecondary_rollsBackOnRegenFailure(t *testing.T) {
 	if sec.PrimaryDomain() != "admin.test" {
 		t.Errorf("secondary domain not restored: %q", sec.PrimaryDomain())
 	}
-	if reload(t, "astrolov").Group != "" {
+	if reload(t, "starlane").Group != "" {
 		t.Error("main not demoted after rollback")
 	}
 }
@@ -148,8 +148,8 @@ func TestAssignSecondary_rollsBackOnRegenFailure(t *testing.T) {
 
 func TestAssignSecondary_rejectsSelf(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
-	s := reload(t, "astrolov")
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
+	s := reload(t, "starlane")
 	if err := AssignSecondary(s, s, "admin", false); err == nil {
 		t.Error("expected error grouping a site under itself")
 	}
@@ -157,30 +157,30 @@ func TestAssignSecondary_rejectsSelf(t *testing.T) {
 
 func TestAssignSecondary_rejectsInvalidLabel(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "Bad_Label", false); err == nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "Bad_Label", false); err == nil {
 		t.Error("expected error for invalid label")
 	}
 }
 
 func TestAssignSecondary_rejectsDomainInUse(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
 	// A third site already squats the computed subdomain.
-	mustAdd(t, config.Site{Name: "squatter", Domains: []string{"admin.astrolov.test"}, Path: "/srv/squatter"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err == nil {
+	mustAdd(t, config.Site{Name: "squatter", Domains: []string{"admin.starlane.test"}, Path: "/srv/squatter"})
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err == nil {
 		t.Error("expected error when computed subdomain is already used")
 	}
 }
 
 func TestAssignSecondary_rejectsSiblingLabelDup(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov", Group: "astrolov"})
-	mustAdd(t, config.Site{Name: "admin1", Domains: []string{"admin.astrolov.test"}, Path: "/srv/admin1", Group: "astrolov", GroupSubdomain: "admin"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane", Group: "starlane"})
+	mustAdd(t, config.Site{Name: "admin1", Domains: []string{"admin.starlane.test"}, Path: "/srv/admin1", Group: "starlane", GroupSubdomain: "admin"})
 	mustAdd(t, config.Site{Name: "admin2", Domains: []string{"admin2.test"}, Path: "/srv/admin2"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin2"), "admin", false); err == nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin2"), "admin", false); err == nil {
 		t.Error("expected error for duplicate sibling label")
 	}
 }
@@ -188,16 +188,16 @@ func TestAssignSecondary_rejectsSiblingLabelDup(t *testing.T) {
 func TestAssignSecondary_rejectsWorktreeLabelCollision(t *testing.T) {
 	setup(t)
 	mainPath := fakeMainRepo(t, "admin", "")
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainPath})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainPath})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err == nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err == nil {
 		t.Error("expected error when a main-site worktree already uses the label")
 	}
 }
 
 func TestAssignSecondary_rejectsMainThatIsSecondary(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "sub", Domains: []string{"sub.astrolov.test"}, Path: "/srv/sub", Group: "astrolov", GroupSubdomain: "sub"})
+	mustAdd(t, config.Site{Name: "sub", Domains: []string{"sub.starlane.test"}, Path: "/srv/sub", Group: "starlane", GroupSubdomain: "sub"})
 	mustAdd(t, config.Site{Name: "other", Domains: []string{"other.test"}, Path: "/srv/other"})
 	if err := AssignSecondary(reload(t, "sub"), reload(t, "other"), "x", false); err == nil {
 		t.Error("expected error using a secondary as a group main")
@@ -206,10 +206,10 @@ func TestAssignSecondary_rejectsMainThatIsSecondary(t *testing.T) {
 
 func TestAssignSecondary_rejectsSecondaryWithOwnSecondaries(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "other", Domains: []string{"other.test"}, Path: "/srv/other", Group: "other"})
 	mustAdd(t, config.Site{Name: "othersub", Domains: []string{"sub.other.test"}, Path: "/srv/othersub", Group: "other", GroupSubdomain: "sub"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "other"), "x", false); err == nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "other"), "x", false); err == nil {
 		t.Error("expected error: groups are only one level deep")
 	}
 }
@@ -218,32 +218,32 @@ func TestAssignSecondary_rejectsSecondaryWithOwnSecondaries(t *testing.T) {
 
 func TestUnassignSecondary_restoresStandalone(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
-	mustAdd(t, config.Site{Name: "admin-astrolov", Domains: []string{"admin-astrolov.test"}, Path: "/srv/admin-astrolov"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin-astrolov"), "admin", false); err != nil {
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
+	mustAdd(t, config.Site{Name: "admin-starlane", Domains: []string{"admin-starlane.test"}, Path: "/srv/admin-starlane"})
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin-starlane"), "admin", false); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := UnassignSecondary(reload(t, "admin-astrolov")); err != nil {
+	if err := UnassignSecondary(reload(t, "admin-starlane")); err != nil {
 		t.Fatalf("UnassignSecondary: %v", err)
 	}
-	sec := reload(t, "admin-astrolov")
+	sec := reload(t, "admin-starlane")
 	if sec.IsGroupSecondary() {
 		t.Errorf("still grouped: group=%q subdomain=%q", sec.Group, sec.GroupSubdomain)
 	}
-	if sec.PrimaryDomain() != "admin-astrolov.test" {
-		t.Errorf("standalone domain = %q, want admin-astrolov.test", sec.PrimaryDomain())
+	if sec.PrimaryDomain() != "admin-starlane.test" {
+		t.Errorf("standalone domain = %q, want admin-starlane.test", sec.PrimaryDomain())
 	}
 	// Last secondary gone -> main's group key cleared.
-	if reload(t, "astrolov").Group != "" {
+	if reload(t, "starlane").Group != "" {
 		t.Errorf("main group key not cleared after last secondary removed")
 	}
 }
 
 func TestUnassignSecondary_rejectsNonSecondary(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
-	if err := UnassignSecondary(reload(t, "astrolov")); err == nil {
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
+	if err := UnassignSecondary(reload(t, "starlane")); err == nil {
 		t.Error("expected error unassigning a non-secondary")
 	}
 }
@@ -252,16 +252,16 @@ func TestUnassignSecondary_rejectsNonSecondary(t *testing.T) {
 
 func TestSetSecondaryLabel_changesDomain(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err != nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetSecondaryLabel(reload(t, "admin"), "backoffice"); err != nil {
 		t.Fatalf("SetSecondaryLabel: %v", err)
 	}
 	sec := reload(t, "admin")
-	if sec.GroupSubdomain != "backoffice" || sec.PrimaryDomain() != "backoffice.astrolov.test" {
+	if sec.GroupSubdomain != "backoffice" || sec.PrimaryDomain() != "backoffice.starlane.test" {
 		t.Errorf("label not changed: subdomain=%q domain=%q", sec.GroupSubdomain, sec.PrimaryDomain())
 	}
 }
@@ -270,21 +270,21 @@ func TestSetSecondaryLabel_changesDomain(t *testing.T) {
 
 func TestCascadeMainDomainChange_reflowsSecondaries(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
 	mustAdd(t, config.Site{Name: "api", Domains: []string{"api.test"}, Path: "/srv/api"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err != nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "api"), "api", false); err != nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "api"), "api", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// Rename the main's base domain, then cascade.
-	main := reload(t, "astrolov")
+	main := reload(t, "starlane")
 	main.Domains = []string{"astro.test"}
 	mustAdd(t, *main)
-	if err := CascadeMainDomainChange(reload(t, "astrolov")); err != nil {
+	if err := CascadeMainDomainChange(reload(t, "starlane")); err != nil {
 		t.Fatalf("CascadeMainDomainChange: %v", err)
 	}
 
@@ -300,18 +300,18 @@ func TestCascadeMainDomainChange_reflowsSecondaries(t *testing.T) {
 
 func TestDissolveGroup_ungroupsAll(t *testing.T) {
 	setup(t)
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov"})
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane"})
 	mustAdd(t, config.Site{Name: "admin", Domains: []string{"admin.test"}, Path: "/srv/admin"})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin"), "admin", false); err != nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin"), "admin", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := DissolveGroup("astrolov"); err != nil {
+	if err := DissolveGroup("starlane"); err != nil {
 		t.Fatalf("DissolveGroup: %v", err)
 	}
 	if reload(t, "admin").IsGroupSecondary() {
 		t.Error("secondary still grouped after dissolve")
 	}
-	if reload(t, "astrolov").Group != "" {
+	if reload(t, "starlane").Group != "" {
 		t.Error("main still has group key after dissolve")
 	}
 }
@@ -336,62 +336,62 @@ func envDB(t *testing.T, dir string) string {
 
 func TestAssignSecondary_sharedDB_pointsAtMainDB(t *testing.T) {
 	setup(t)
-	mainDir := siteWithEnv(t, "astrolov")
-	secDir := siteWithEnv(t, "admin_astrolov")
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainDir})
-	mustAdd(t, config.Site{Name: "admin-astrolov", Domains: []string{"admin-astrolov.test"}, Path: secDir})
+	mainDir := siteWithEnv(t, "starlane")
+	secDir := siteWithEnv(t, "admin_starlane")
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainDir})
+	mustAdd(t, config.Site{Name: "admin-starlane", Domains: []string{"admin-starlane.test"}, Path: secDir})
 
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin-astrolov"), "admin", true); err != nil {
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin-starlane"), "admin", true); err != nil {
 		t.Fatalf("AssignSecondary: %v", err)
 	}
-	if !reload(t, "admin-astrolov").GroupSharedDB {
+	if !reload(t, "admin-starlane").GroupSharedDB {
 		t.Error("GroupSharedDB not persisted")
 	}
-	if got := envDB(t, secDir); got != "astrolov" {
-		t.Errorf("secondary DB_DATABASE = %q, want astrolov", got)
+	if got := envDB(t, secDir); got != "starlane" {
+		t.Errorf("secondary DB_DATABASE = %q, want starlane", got)
 	}
 }
 
 func TestSetSecondarySharedDB_toggle(t *testing.T) {
 	setup(t)
-	mainDir := siteWithEnv(t, "astrolov")
-	secDir := siteWithEnv(t, "admin_astrolov")
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainDir})
-	mustAdd(t, config.Site{Name: "admin-astrolov", Domains: []string{"admin-astrolov.test"}, Path: secDir})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin-astrolov"), "admin", false); err != nil {
+	mainDir := siteWithEnv(t, "starlane")
+	secDir := siteWithEnv(t, "admin_starlane")
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainDir})
+	mustAdd(t, config.Site{Name: "admin-starlane", Domains: []string{"admin-starlane.test"}, Path: secDir})
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin-starlane"), "admin", false); err != nil {
 		t.Fatal(err)
 	}
 	// Independent by default.
-	if got := envDB(t, secDir); got != "admin_astrolov" {
-		t.Errorf("default DB_DATABASE = %q, want admin_astrolov", got)
+	if got := envDB(t, secDir); got != "admin_starlane" {
+		t.Errorf("default DB_DATABASE = %q, want admin_starlane", got)
 	}
 	// Turn sharing on.
-	if err := SetSecondarySharedDB(reload(t, "admin-astrolov"), true); err != nil {
+	if err := SetSecondarySharedDB(reload(t, "admin-starlane"), true); err != nil {
 		t.Fatalf("SetSecondarySharedDB on: %v", err)
 	}
-	if got := envDB(t, secDir); got != "astrolov" {
-		t.Errorf("after share DB_DATABASE = %q, want astrolov", got)
+	if got := envDB(t, secDir); got != "starlane" {
+		t.Errorf("after share DB_DATABASE = %q, want starlane", got)
 	}
 	// Turn it back off — restores the secondary's own slug.
-	if err := SetSecondarySharedDB(reload(t, "admin-astrolov"), false); err != nil {
+	if err := SetSecondarySharedDB(reload(t, "admin-starlane"), false); err != nil {
 		t.Fatalf("SetSecondarySharedDB off: %v", err)
 	}
-	if got := envDB(t, secDir); got != "admin_astrolov" {
-		t.Errorf("after unshare DB_DATABASE = %q, want admin_astrolov", got)
+	if got := envDB(t, secDir); got != "admin_starlane" {
+		t.Errorf("after unshare DB_DATABASE = %q, want admin_starlane", got)
 	}
 }
 
 func TestSharedDBNameFor(t *testing.T) {
 	setup(t)
-	mainDir := siteWithEnv(t, "astrolov")
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainDir, Group: "astrolov"})
-	shared := config.Site{Name: "admin", Domains: []string{"admin.astrolov.test"}, Path: "/srv/admin", Group: "astrolov", GroupSubdomain: "admin", GroupSharedDB: true}
+	mainDir := siteWithEnv(t, "starlane")
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainDir, Group: "starlane"})
+	shared := config.Site{Name: "admin", Domains: []string{"admin.starlane.test"}, Path: "/srv/admin", Group: "starlane", GroupSubdomain: "admin", GroupSharedDB: true}
 	mustAdd(t, shared)
-	if name, ok := SharedDBNameFor(&shared); !ok || name != "astrolov" {
-		t.Errorf("SharedDBNameFor = %q,%v, want astrolov,true", name, ok)
+	if name, ok := SharedDBNameFor(&shared); !ok || name != "starlane" {
+		t.Errorf("SharedDBNameFor = %q,%v, want starlane,true", name, ok)
 	}
 	// A non-sharing secondary returns false.
-	indep := config.Site{Name: "i", Domains: []string{"i.astrolov.test"}, Path: "/srv/i", Group: "astrolov", GroupSubdomain: "i"}
+	indep := config.Site{Name: "i", Domains: []string{"i.starlane.test"}, Path: "/srv/i", Group: "starlane", GroupSubdomain: "i"}
 	if _, ok := SharedDBNameFor(&indep); ok {
 		t.Error("expected SharedDBNameFor=false for non-sharing secondary")
 	}
@@ -399,18 +399,18 @@ func TestSharedDBNameFor(t *testing.T) {
 
 func TestUnassignSecondary_sharedDB_restoresOwnDB(t *testing.T) {
 	setup(t)
-	mainDir := siteWithEnv(t, "astrolov")
-	secDir := siteWithEnv(t, "admin_astrolov")
-	mustAdd(t, config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainDir})
-	mustAdd(t, config.Site{Name: "admin-astrolov", Domains: []string{"admin-astrolov.test"}, Path: secDir})
-	if err := AssignSecondary(reload(t, "astrolov"), reload(t, "admin-astrolov"), "admin", true); err != nil {
+	mainDir := siteWithEnv(t, "starlane")
+	secDir := siteWithEnv(t, "admin_starlane")
+	mustAdd(t, config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainDir})
+	mustAdd(t, config.Site{Name: "admin-starlane", Domains: []string{"admin-starlane.test"}, Path: secDir})
+	if err := AssignSecondary(reload(t, "starlane"), reload(t, "admin-starlane"), "admin", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := UnassignSecondary(reload(t, "admin-astrolov")); err != nil {
+	if err := UnassignSecondary(reload(t, "admin-starlane")); err != nil {
 		t.Fatalf("UnassignSecondary: %v", err)
 	}
-	if got := envDB(t, secDir); got != "admin_astrolov" {
-		t.Errorf("after ungroup DB_DATABASE = %q, want admin_astrolov", got)
+	if got := envDB(t, secDir); got != "admin_starlane" {
+		t.Errorf("after ungroup DB_DATABASE = %q, want admin_starlane", got)
 	}
 }
 
@@ -420,19 +420,19 @@ func TestSyncSecondaryProjectDomains_replacesOldStandalone(t *testing.T) {
 	setup(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"),
-		[]byte("php_version: \"8.4\"\ndomains:\n  - admin-astrolov\n"), 0o644); err != nil {
+		[]byte("php_version: \"8.4\"\ndomains:\n  - admin-starlane\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sec := &config.Site{Name: "admin-astrolov", Domains: []string{"admin.astrolov.test"}, Path: dir}
+	sec := &config.Site{Name: "admin-starlane", Domains: []string{"admin.starlane.test"}, Path: dir}
 
-	syncSecondaryProjectDomains(sec, "admin-astrolov.test")
+	syncSecondaryProjectDomains(sec, "admin-starlane.test")
 
 	cfg, err := config.LoadProjectConfig(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Domains) != 1 || cfg.Domains[0] != "admin.astrolov" {
-		t.Errorf(".lerd.yaml domains = %v, want [admin.astrolov] (old standalone dropped)", cfg.Domains)
+	if len(cfg.Domains) != 1 || cfg.Domains[0] != "admin.starlane" {
+		t.Errorf(".lerd.yaml domains = %v, want [admin.starlane] (old standalone dropped)", cfg.Domains)
 	}
 }
 
@@ -441,7 +441,7 @@ func TestSyncSecondaryProjectDomains_replacesOldStandalone(t *testing.T) {
 func TestWorktreeLabelTaken(t *testing.T) {
 	setup(t)
 	mainPath := fakeMainRepo(t, "admin", "")
-	main := &config.Site{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: mainPath}
+	main := &config.Site{Name: "starlane", Domains: []string{"starlane.test"}, Path: mainPath}
 	if taken, err := WorktreeLabelTaken(main, "admin"); err != nil || !taken {
 		t.Errorf("expected admin label taken, got taken=%v err=%v", taken, err)
 	}

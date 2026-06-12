@@ -17,14 +17,14 @@ func withStubList(t *testing.T, out string, err error) {
 }
 
 func TestUnitStatusCachedParsesListUnits(t *testing.T) {
-	withStubList(t, `lerd-queue-astrolov.service     loaded active   running Lerd Queue Worker
+	withStubList(t, `lerd-queue-starlane.service     loaded active   running Lerd Queue Worker
 lerd-schedule-silvia.timer      loaded active   waiting Lerd Schedule Timer
 lerd-reverb-boom.service        loaded failed   failed  Lerd Reverb
 `, nil)
 
 	cases := map[string]string{
-		"lerd-queue-astrolov":         "active",
-		"lerd-queue-astrolov.service": "active",
+		"lerd-queue-starlane":         "active",
+		"lerd-queue-starlane.service": "active",
 		"lerd-schedule-silvia.timer":  "active",
 		"lerd-reverb-boom":            "failed",
 		"lerd-ghost":                  "unknown",

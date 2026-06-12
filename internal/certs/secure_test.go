@@ -95,9 +95,9 @@ printf 'KEY' > "$KEY"
 	}
 
 	site := config.Site{
-		Name:    "theregistry",
+		Name:    "harborlist",
 		Path:    sitePath,
-		Domains: []string{"theregistry.test", "aaaddd.test"},
+		Domains: []string{"harborlist.test", "aaaddd.test"},
 		Secured: true,
 	}
 
@@ -105,19 +105,19 @@ printf 'KEY' > "$KEY"
 		t.Fatalf("ReissueCertForWorktree: %v", err)
 	}
 
-	certPath := filepath.Join(tmp, "lerd", "certs", "sites", "theregistry.test.crt")
+	certPath := filepath.Join(tmp, "lerd", "certs", "sites", "harborlist.test.crt")
 	body, err := os.ReadFile(certPath)
 	if err != nil {
 		t.Fatalf("reading cert: %v", err)
 	}
 	got := string(body)
 	wantSANs := []string{
-		"theregistry.test",
-		"*.theregistry.test",
+		"harborlist.test",
+		"*.harborlist.test",
 		"aaaddd.test",
 		"*.aaaddd.test",
-		"main.theregistry.test",
-		"*.main.theregistry.test",
+		"main.harborlist.test",
+		"*.main.harborlist.test",
 	}
 	for _, san := range wantSANs {
 		if !strings.Contains(got, san) {

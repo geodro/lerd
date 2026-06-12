@@ -45,12 +45,12 @@ func TestRunDumpsNotifier_OnlyNotifiesDumpKind(t *testing.T) {
 }
 
 func TestNotificationForDump_Shape(t *testing.T) {
-	evt := dumps.Event{ID: "abc", Kind: "dump", Ctx: dumps.Context{Site: "astrolov.test", Type: "fpm"}}
+	evt := dumps.Event{ID: "abc", Kind: "dump", Ctx: dumps.Context{Site: "starlane.test", Type: "fpm"}}
 	n := notificationForDump(evt)
 	if n.Kind != "dump" {
 		t.Errorf("Kind = %q", n.Kind)
 	}
-	if n.Params["site"] != "astrolov.test" {
+	if n.Params["site"] != "starlane.test" {
 		t.Errorf("Params.site = %q", n.Params["site"])
 	}
 	if n.Params["kind"] != "fpm" {
@@ -59,7 +59,7 @@ func TestNotificationForDump_Shape(t *testing.T) {
 	// No site is registered with that name in this test, so siteDomainForRoute
 	// falls back to the input verbatim. The URL still lands on a sites sub-tab
 	// route shape the frontend can parse.
-	if n.URL != "#sites/astrolov.test/dumps" {
+	if n.URL != "#sites/starlane.test/dumps" {
 		t.Errorf("URL = %q", n.URL)
 	}
 }
@@ -68,7 +68,7 @@ func TestNotificationForDump_BodyContainsDumpText(t *testing.T) {
 	evt := dumps.Event{
 		ID:   "abc",
 		Kind: "dump",
-		Ctx:  dumps.Context{Site: "astrolov.test", Type: "fpm"},
+		Ctx:  dumps.Context{Site: "starlane.test", Type: "fpm"},
 		Text: "string(5) \"hello\"",
 	}
 	n := notificationForDump(evt)
@@ -165,16 +165,16 @@ func TestNotificationForDump_URLResolvesNameToDomain(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	if err := config.AddSite(config.Site{
-		Name:    "whitewaters",
-		Domains: []string{"theregistry.test"},
+		Name:    "rapids",
+		Domains: []string{"harborlist.test"},
 		Path:    t.TempDir(),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	evt := dumps.Event{ID: "z", Kind: "dump", Ctx: dumps.Context{Site: "whitewaters", Type: "fpm"}}
+	evt := dumps.Event{ID: "z", Kind: "dump", Ctx: dumps.Context{Site: "rapids", Type: "fpm"}}
 	n := notificationForDump(evt)
-	if n.URL != "#sites/theregistry.test/dumps" {
-		t.Errorf("URL = %q, want #sites/theregistry.test/dumps", n.URL)
+	if n.URL != "#sites/harborlist.test/dumps" {
+		t.Errorf("URL = %q, want #sites/harborlist.test/dumps", n.URL)
 	}
 }

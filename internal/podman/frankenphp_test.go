@@ -19,8 +19,9 @@ func TestFrankenPHPImage(t *testing.T) {
 		{"8.2", "docker.io/dunglas/frankenphp:php8.2-alpine"},
 		{"8.3", "docker.io/dunglas/frankenphp:php8.3-alpine"},
 		{"8.4", "docker.io/dunglas/frankenphp:php8.4-alpine"},
-		{"8.1", "docker.io/dunglas/frankenphp:php8.4-alpine"}, // unsupported → fallback
-		{"", "docker.io/dunglas/frankenphp:php8.4-alpine"},
+		{"8.5", "docker.io/dunglas/frankenphp:php8.5-alpine"},
+		{"8.1", "docker.io/dunglas/frankenphp:php8.5-alpine"}, // no frankenphp tag → latest
+		{"", "docker.io/dunglas/frankenphp:php8.5-alpine"},
 	}
 	for _, tt := range tests {
 		if got := FrankenPHPImage(tt.version); got != tt.want {

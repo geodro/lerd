@@ -10,7 +10,9 @@
 | `lerd isolate:node <version>` | Pin Node version for cwd: writes `.node-version`, runs `fnm install` |
 | `lerd node:manage` | Opt into lerd-managed Node: install the fnm shims and a default version |
 | `lerd node:unmanage` | Stop managing Node: remove lerd's shims and fnm-installed versions for a clean system |
+| `lerd js:runtime [bun\|node\|auto]` | Pin the current site's JS runtime (or show it with no argument) |
 | `lerd php:bun install [version]` | Install a musl bun inside the PHP-FPM container |
+| `lerd php:bun remove` | Remove the in-container bun and clear its shared persistent volume |
 | `lerd php:bun update [version]` | Update the container's bun in place (`bun upgrade`) |
 | `lerd php:bun version` | Show the bun version installed in the PHP-FPM container |
 
@@ -124,6 +126,8 @@ js_runtime: node   # or "npm": always use Node/npm, never bun (opts out of the n
 
 Use `js_runtime: node` for a site that must run on Node (then install Node on your machine or let lerd manage it), while other sites still use bun. Leave it unset to auto-detect.
 
+You don't have to edit the file by hand. From the site's directory, `lerd js:runtime bun` and `lerd js:runtime node` write the same `js_runtime` field for you, and `lerd js:runtime auto` clears it back to auto-detect. Each one re-syncs the site's host workers so a running Vite/dev worker switches runtime straight away, exactly like the dashboard's bun/Node toggle. Run `lerd js:runtime` with no argument to see the current setting and what it resolves to.
+
 ### Lifecycle
 
 Detection is live for display (the dashboard and Settings show a `🥟 bun <version>` chip and switch the runtime label to **JS Runtime** when bun is active) and for any worker generated after bun appears. Existing host worker units are static, so they keep their old command until regenerated. Regeneration happens on:
@@ -141,6 +145,7 @@ The host bun can't run inside the container (it's built for your host's libc, th
 ```bash
 lerd php:bun install        # installs a musl bun into the container, via the bundled npm
 lerd php:bun version        # shows what's installed
+lerd php:bun remove         # deletes it and clears the volume
 ```
 
-bun is installed into a persistent volume (`~/.local/share/lerd/bun` mounted at `/root/.bun`), shared across sites on that PHP version and **kept across image rebuilds and pulls** (it lives in the volume, not the image, so a new base image never reinstalls it). `lerd shell` puts it on `PATH`. Update it in place with `lerd php:bun update` (or `bun upgrade` from inside `lerd shell`). When bun is installed on the host, `lerd link` / `lerd setup` also installs it into the container automatically.
+bun is installed into a persistent volume (`~/.local/share/lerd/bun` mounted at `/root/.bun`), shared across every PHP version and **kept across image rebuilds and pulls** (it lives in the volume, not the image, so a new base image never reinstalls it). `lerd shell` puts it on `PATH`. Update it in place with `lerd php:bun update` (or `bun upgrade` from inside `lerd shell`). When bun is installed on the host, `lerd link` / `lerd setup` also installs it into the container automatically. `lerd php:bun remove` clears the volume so the next install starts clean; because the volume is shared it removes bun for every PHP version at once, and the container need not be running.

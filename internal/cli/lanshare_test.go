@@ -163,14 +163,14 @@ bar: url("http://192.168.1.42:9100/__lerd_vite__/5173/y.png");`
 func TestRewriteLoopbackViteURLs_rewritesJSONEscapedSlashes(t *testing.T) {
 	// Inertia.js page payloads embed JSON in the data-page attribute using
 	// json_encode, which escapes forward slashes by default. The avatar
-	// URLs end up looking like http:\/\/localhost:9000\/astrolov\/... —
+	// URLs end up looking like http:\/\/localhost:9000\/starlane\/... —
 	// the plain regex skips them because there's no literal `://`. The
 	// escaped pass must catch them and emit the same JSON-escape style.
-	in := []byte(`<div id="app" data-page='{"props":{"avatar_url":"http:\/\/localhost:9000\/astrolov\/avatars\/1\/foo.jpg","other":"http:\/\/127.0.0.1:9000\/bucket"}}'></div>`)
+	in := []byte(`<div id="app" data-page='{"props":{"avatar_url":"http:\/\/localhost:9000\/starlane\/avatars\/1\/foo.jpg","other":"http:\/\/127.0.0.1:9000\/bucket"}}'></div>`)
 
 	got := string(rewriteLoopbackViteURLs(in, "192.168.1.42:9100"))
 
-	want := `<div id="app" data-page='{"props":{"avatar_url":"http:\/\/192.168.1.42:9100\/__lerd_vite__\/9000\/astrolov\/avatars\/1\/foo.jpg","other":"http:\/\/192.168.1.42:9100\/__lerd_vite__\/9000\/bucket"}}'></div>`
+	want := `<div id="app" data-page='{"props":{"avatar_url":"http:\/\/192.168.1.42:9100\/__lerd_vite__\/9000\/starlane\/avatars\/1\/foo.jpg","other":"http:\/\/192.168.1.42:9100\/__lerd_vite__\/9000\/bucket"}}'></div>`
 
 	if got != want {
 		t.Errorf("rewriteLoopbackViteURLs JSON-escaped:\nGOT:\n%s\nWANT:\n%s", got, want)
@@ -302,7 +302,7 @@ func TestLANShareHandler_nonVitePrefixPathDoesNotPoisonActivePort(t *testing.T) 
 	//    Stripped path is /bucket/key.jpg — not Vite-internal. The
 	//    request must still proxy correctly to the named port, but it
 	//    must NOT change activeVitePort.
-	resp, err = http.Get(srv.URL + fmt.Sprintf("/__lerd_vite__/%d/astrolov/avatars/1/foo.jpg", rustfsPort))
+	resp, err = http.Get(srv.URL + fmt.Sprintf("/__lerd_vite__/%d/starlane/avatars/1/foo.jpg", rustfsPort))
 	if err != nil {
 		t.Fatal(err)
 	}

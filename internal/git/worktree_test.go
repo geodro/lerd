@@ -509,20 +509,20 @@ func TestEnsureWorktreeDeps_mainMissingVendor(t *testing.T) {
 func TestFilterReservedWorktrees_dropsSecondaryDomain(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	// A group secondary owns admin.astrolov.test.
+	// A group secondary owns admin.starlane.test.
 	if err := config.AddSite(config.Site{
-		Name: "admin", Domains: []string{"admin.astrolov.test"}, Path: "/srv/admin",
-		Group: "astrolov", GroupSubdomain: "admin",
+		Name: "admin", Domains: []string{"admin.starlane.test"}, Path: "/srv/admin",
+		Group: "starlane", GroupSubdomain: "admin",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	wts := []Worktree{
-		{Name: "admin", Branch: "admin", Domain: "admin.astrolov.test", Path: "/wt/admin"},
-		{Name: "feat", Branch: "feat", Domain: "feat.astrolov.test", Path: "/wt/feat"},
+		{Name: "admin", Branch: "admin", Domain: "admin.starlane.test", Path: "/wt/admin"},
+		{Name: "feat", Branch: "feat", Domain: "feat.starlane.test", Path: "/wt/feat"},
 	}
 	got := FilterReservedWorktrees(wts)
-	if len(got) != 1 || got[0].Domain != "feat.astrolov.test" {
+	if len(got) != 1 || got[0].Domain != "feat.starlane.test" {
 		t.Errorf("expected only feat worktree to survive, got %+v", got)
 	}
 }
@@ -530,7 +530,7 @@ func TestFilterReservedWorktrees_dropsSecondaryDomain(t *testing.T) {
 func TestFilterReservedWorktrees_noReservations(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	wts := []Worktree{{Name: "feat", Branch: "feat", Domain: "feat.astrolov.test", Path: "/wt/feat"}}
+	wts := []Worktree{{Name: "feat", Branch: "feat", Domain: "feat.starlane.test", Path: "/wt/feat"}}
 	got := FilterReservedWorktrees(wts)
 	if len(got) != 1 {
 		t.Errorf("expected worktree to survive when no secondaries exist, got %+v", got)

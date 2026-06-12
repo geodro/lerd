@@ -227,6 +227,52 @@ func unquoteSystemdValue(s string) string {
 	return s
 }
 
+// splitSystemdExec tokenises a quadlet Exec= value the way systemd's Quadlet
+// generator does on Linux, honouring the double-quoting that shellJoin emits:
+// an argument containing whitespace is wrapped in "..." with any inner quote
+// escaped as \". macOS has no systemd to parse the unit, so this reverses
+// shellJoin before the argv reaches `podman run`. A naive strings.Fields would
+// split a quoted `sh -c "<script>"` mid-script and hand the shell a broken,
+// unterminated command (the cause of FrankenPHP worker mode failing to boot).
+func splitSystemdExec(s string) []string {
+	var (
+		args     []string
+		cur      strings.Builder
+		inQuote  bool
+		hasToken bool
+	)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case inQuote:
+			if c == '\\' && i+1 < len(s) && s[i+1] == '"' {
+				cur.WriteByte('"')
+				i++
+			} else if c == '"' {
+				inQuote = false
+			} else {
+				cur.WriteByte(c)
+			}
+		case c == '"':
+			inQuote = true
+			hasToken = true
+		case c == ' ' || c == '\t':
+			if hasToken {
+				args = append(args, cur.String())
+				cur.Reset()
+				hasToken = false
+			}
+		default:
+			cur.WriteByte(c)
+			hasToken = true
+		}
+	}
+	if hasToken {
+		args = append(args, cur.String())
+	}
+	return args
+}
+
 // expandSpecifiers replaces Quadlet path specifiers (%h → home dir).
 func expandSpecifiers(s string) string {
 	home, _ := os.UserHomeDir()
@@ -364,7 +410,7 @@ func containerToPodmanArgs(c map[string][]string) ([]string, error) {
 	args = append(args, images[0])
 
 	for _, cmd := range c["Exec"] {
-		args = append(args, strings.Fields(cmd)...)
+		args = append(args, splitSystemdExec(cmd)...)
 	}
 
 	return args, nil

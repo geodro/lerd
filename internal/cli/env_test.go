@@ -84,8 +84,8 @@ func TestS3BucketName(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"admin_astrolov", "admin-astrolov"},
-		{"Admin_Astrolov", "admin-astrolov"},
+		{"admin_starlane", "admin-starlane"},
+		{"Admin_Starlane", "admin-starlane"},
 		{"my-app", "my-app"},
 		{"MyApp 2", "myapp-2"},
 		{"my.bucket.v2", "my.bucket.v2"},
@@ -106,13 +106,13 @@ func TestS3BucketName(t *testing.T) {
 }
 
 func TestApplySiteHandleBucket(t *testing.T) {
-	ctx := siteTemplateCtx{site: "admin_astrolov", bucket: "admin-astrolov"}
+	ctx := siteTemplateCtx{site: "admin_starlane", bucket: "admin-starlane"}
 	got := applySiteHandle("AWS_BUCKET={{bucket}}", ctx)
-	if got != "AWS_BUCKET=admin-astrolov" {
+	if got != "AWS_BUCKET=admin-starlane" {
 		t.Errorf("expected sanitised bucket, got %q", got)
 	}
 	gotSite := applySiteHandle("DB_DATABASE={{site}}", ctx)
-	if gotSite != "DB_DATABASE=admin_astrolov" {
+	if gotSite != "DB_DATABASE=admin_starlane" {
 		t.Errorf("{{site}} should preserve underscores, got %q", gotSite)
 	}
 }
@@ -291,10 +291,10 @@ func TestApplyHostProxyEnv_rewritesHostAndPort(t *testing.T) {
 	updates := map[string]string{
 		"DB_HOST":     "lerd-mariadb-11",
 		"DB_PORT":     "3306",
-		"DB_DATABASE": "gonitro",
+		"DB_DATABASE": "flowmeter",
 		"REDIS_HOST":  "lerd-redis",
 		"REDIS_PORT":  "6379",
-		"APP_URL":     "https://gonitro.test",
+		"APP_URL":     "https://flowmeter.test",
 		"APP_NAME":    "ecom",
 	}
 	applyHostProxyEnv(updates, map[string]string{"3306": "3411", "6379": "6379"})
@@ -312,10 +312,10 @@ func TestApplyHostProxyEnv_rewritesHostAndPort(t *testing.T) {
 		t.Errorf("REDIS_PORT = %q, want 6379 (unchanged when host==container)", updates["REDIS_PORT"])
 	}
 	// Non-service values must be left alone.
-	if updates["DB_DATABASE"] != "gonitro" {
+	if updates["DB_DATABASE"] != "flowmeter" {
 		t.Errorf("DB_DATABASE was mangled: %q", updates["DB_DATABASE"])
 	}
-	if updates["APP_URL"] != "https://gonitro.test" {
+	if updates["APP_URL"] != "https://flowmeter.test" {
 		t.Errorf("APP_URL was mangled: %q", updates["APP_URL"])
 	}
 	if updates["APP_NAME"] != "ecom" {

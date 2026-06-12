@@ -118,6 +118,9 @@ Supported PHP versions: **8.5**, **8.4**, **8.3**, **8.2**, **8.1**, and the fro
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions for a PHP version |
 | `lerd php:ini [version]` | Open the user php.ini for a PHP version in `$EDITOR` |
+| `lerd pest:browser install [version]` | Set up in-container Pest browser testing: bake musl chromium into the FPM image, download the Playwright registry into a persistent volume, and shim Playwright's glibc browser to it |
+| `lerd pest:browser remove [version]` | Remove chromium from the FPM image and disable Pest browser testing (the Playwright cache volume is left intact) |
+| `lerd pest:browser doctor [version]` | Diagnose the Pest browser testing setup (plugin, chromium, playwright, shim) for a PHP version |
 | `lerd dump on` | Enable the debug bridge so `dump()` / `dd()` calls ship to the lerd dashboard, TUI, and MCP tools |
 | `lerd dump off` | Disable the debug bridge and restore FPM containers to their default state |
 | `lerd dump status` | Show whether the bridge is enabled and how many events are buffered |

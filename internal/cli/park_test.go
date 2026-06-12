@@ -20,7 +20,7 @@ func TestSiteNameAndDomain(t *testing.T) {
 	}{
 		{"myapp", "test", "myapp", "myapp.test"},
 		{"MyApp", "test", "myapp", "myapp.test"},
-		{"admin.astrolov.com", "test", "admin-astrolov", "admin-astrolov.test"},
+		{"admin.starlane.com", "test", "admin-starlane", "admin-starlane.test"},
 		{"my.project.io", "test", "my-project", "my-project.test"},
 		{"shop.co", "test", "shop", "shop.test"},
 		{"api.dev", "test", "api", "api.test"},

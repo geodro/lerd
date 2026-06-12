@@ -19,7 +19,7 @@ func TestSiteNameAndDomain(t *testing.T) {
 		{"dots.in.name", "test", "dots-in-name", "dots-in-name.test"},
 
 		// ccTLDs handled by the 2-letter regex, no enumeration needed.
-		{"astrolov.ro", "test", "astrolov", "astrolov.test"},
+		{"starlane.ro", "test", "starlane", "starlane.test"},
 		{"mysite.nl", "test", "mysite", "mysite.test"},
 		{"mysite.be", "test", "mysite", "mysite.test"},
 		{"project.pl", "test", "project", "project.test"},

@@ -17,11 +17,15 @@
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions configured for a PHP version |
 | `lerd php:bun install [version]` | Install a musl bun inside the PHP-FPM container, into a persistent volume |
+| `lerd php:bun remove` | Remove the in-container bun and clear its shared persistent volume |
 | `lerd php:bun update [version]` | Update the container's bun in place (`bun upgrade`) |
 | `lerd php:bun version [version]` | Show the bun version installed in the container |
 | `lerd php:pkg add <package...> [--php version]` | Install extra Alpine packages into the FPM image and rebuild |
 | `lerd php:pkg remove <package...> [--php version]` | Remove extra Alpine packages and rebuild |
 | `lerd php:pkg list [--php version]` | List the extra packages configured for a PHP version |
+| `lerd pest:browser install [version]` | Set up in-container Pest browser testing (musl chromium + Playwright shim); see [browser testing](browser-testing#pest-browser-testing-playwright) |
+| `lerd pest:browser remove [version]` | Remove chromium from the FPM image and disable Pest browser testing |
+| `lerd pest:browser doctor [version]` | Diagnose the Pest browser testing setup for a PHP version |
 | `lerd php:ini [version]` | Open the user php.ini for a PHP version in `$EDITOR` |
 
 If no version is given, the version is resolved from the current directory (`.php-version` or `composer.json`, falling back to the global default).

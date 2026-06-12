@@ -17,7 +17,7 @@ import (
 func TestEnrichWorkers_keepsPerWorktreeOnParentWhenCheckPasses(t *testing.T) {
 	origUnit := unitStatusFn
 	unitStatusFn = func(name string) (string, error) {
-		if name == "lerd-vite-whitewaters" {
+		if name == "lerd-vite-rapids" {
 			return "active", nil
 		}
 		return "inactive", nil
@@ -41,7 +41,7 @@ func TestEnrichWorkers_keepsPerWorktreeOnParentWhenCheckPasses(t *testing.T) {
 		},
 	}
 
-	e := &EnrichedSite{Name: "whitewaters", Path: tmp}
+	e := &EnrichedSite{Name: "rapids", Path: tmp}
 	e.enrichWorkers(fw, true)
 
 	var got *WorkerInfo
@@ -81,7 +81,7 @@ func TestEnrichWorkers_dropsPerWorktreeWhenCheckFails(t *testing.T) {
 		},
 	}
 
-	e := &EnrichedSite{Name: "whitewaters", Path: t.TempDir()}
+	e := &EnrichedSite{Name: "rapids", Path: t.TempDir()}
 	e.enrichWorkers(fw, true)
 
 	for _, w := range e.FrameworkWorkers {
@@ -97,7 +97,7 @@ func TestEnrichWorkers_dropsPerWorktreeWhenCheckFails(t *testing.T) {
 func TestEnrichWorkers_keepsNonPerWorktreeOnParent(t *testing.T) {
 	origUnit := unitStatusFn
 	unitStatusFn = func(name string) (string, error) {
-		if name == "lerd-search-indexer-whitewaters" {
+		if name == "lerd-search-indexer-rapids" {
 			return "active", nil
 		}
 		return "inactive", nil
@@ -110,7 +110,7 @@ func TestEnrichWorkers_keepsNonPerWorktreeOnParent(t *testing.T) {
 		},
 	}
 
-	e := &EnrichedSite{Name: "whitewaters", Path: "/projects/whitewaters"}
+	e := &EnrichedSite{Name: "rapids", Path: "/projects/rapids"}
 	e.enrichWorkers(fw, true)
 
 	if len(e.FrameworkWorkers) != 1 || e.FrameworkWorkers[0].Name != "search-indexer" {

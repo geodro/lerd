@@ -174,6 +174,69 @@ WantedBy=default.target
 	}
 }
 
+func TestSplitSystemdExec(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"bare args", "frankenphp php-server -l :8000 -r public/",
+			[]string{"frankenphp", "php-server", "-l", ":8000", "-r", "public/"}},
+		{"quoted sh -c script kept whole",
+			`sh -c "install-php-extensions pcntl >/dev/null && exec php artisan octane:start --workers=auto --watch --poll"`,
+			[]string{"sh", "-c", "install-php-extensions pcntl >/dev/null && exec php artisan octane:start --workers=auto --watch --poll"}},
+		{"escaped inner quote", `echo "say \"hi\" now"`,
+			[]string{"echo", `say "hi" now`}},
+		{"empty quoted arg preserved", `cmd ""`, []string{"cmd", ""}},
+		{"collapses runs of whitespace", "a   b\tc", []string{"a", "b", "c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitSystemdExec(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d (%v), want %d (%v)", len(got), got, len(tc.want), tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("arg[%d] = %q, want %q (full: %v)", i, got[i], tc.want[i], got)
+				}
+			}
+		})
+	}
+}
+
+// TestContainerToPodmanArgsQuotedExec is the regression guard for FrankenPHP
+// worker mode on macOS: the worker Exec= is a single double-quoted `sh -c`
+// script, and it must survive translation as exactly three argv elements
+// (sh, -c, <whole script>) rather than being word-split with literal quotes.
+func TestContainerToPodmanArgsQuotedExec(t *testing.T) {
+	content := `[Container]
+Image=docker.io/dunglas/frankenphp:php8.5
+ContainerName=lerd-fp-demo
+Exec=sh -c "install-php-extensions pcntl >/dev/null && exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto --watch"
+`
+	args, err := containerToPodmanArgs(parseSection(content, "Container"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) < 3 {
+		t.Fatalf("too few args: %v", args)
+	}
+	gotTail := args[len(args)-3:]
+	wantTail := []string{"sh", "-c",
+		"install-php-extensions pcntl >/dev/null && exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto --watch"}
+	for i := range wantTail {
+		if gotTail[i] != wantTail[i] {
+			t.Fatalf("tail arg[%d] = %q, want %q (full: %v)", i, gotTail[i], wantTail[i], args)
+		}
+	}
+	for _, a := range args {
+		if strings.HasPrefix(a, `"`) || strings.HasSuffix(a, `"`) {
+			t.Fatalf("argv retains a literal quote: %q (full: %v)", a, args)
+		}
+	}
+}
+
 func TestParseSectionMultipleValues(t *testing.T) {
 	content := `[Container]
 Volume=/home:/home:z

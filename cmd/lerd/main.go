@@ -91,6 +91,7 @@ func main() {
 	root.AddCommand(cli.NewNodeUseCmd())
 	root.AddCommand(cli.NewNodeManageCmd())
 	root.AddCommand(cli.NewNodeUnmanageCmd())
+	root.AddCommand(cli.NewJSRuntimeCmd())
 	root.AddCommand(cli.NewPhpListCmd())
 	root.AddCommand(cli.NewPhpRebuildCmd())
 	root.AddCommand(cli.NewPhpCmd())
@@ -160,6 +161,7 @@ func main() {
 	root.AddCommand(cli.NewPhpExtCmd())
 	root.AddCommand(cli.NewPhpBunCmd())
 	root.AddCommand(cli.NewPhpPkgCmd())
+	root.AddCommand(cli.NewPestBrowserCmd())
 	root.AddCommand(cli.NewPhpIniCmd())
 	for _, cmd := range cli.NewStripeCmds() {
 		root.AddCommand(cmd)

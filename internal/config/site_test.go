@@ -652,9 +652,9 @@ func TestSaveLoad_GroupFields_RoundTrip(t *testing.T) {
 
 	reg := &SiteRegistry{
 		Sites: []Site{
-			{Name: "astrolov", Domains: []string{"astrolov.test"}, Path: "/srv/astrolov", Group: "astrolov"},
-			{Name: "admin-astrolov", Domains: []string{"admin.astrolov.test"}, Path: "/srv/admin",
-				Group: "astrolov", GroupSubdomain: "admin"},
+			{Name: "starlane", Domains: []string{"starlane.test"}, Path: "/srv/starlane", Group: "starlane"},
+			{Name: "admin-starlane", Domains: []string{"admin.starlane.test"}, Path: "/srv/admin",
+				Group: "starlane", GroupSubdomain: "admin"},
 		},
 	}
 	if err := SaveSites(reg); err != nil {
@@ -666,14 +666,14 @@ func TestSaveLoad_GroupFields_RoundTrip(t *testing.T) {
 		t.Fatalf("LoadSites: %v", err)
 	}
 	main, sec := got.Sites[0], got.Sites[1]
-	if main.Group != "astrolov" || main.GroupSubdomain != "" {
-		t.Errorf("main group fields = %q/%q, want astrolov/empty", main.Group, main.GroupSubdomain)
+	if main.Group != "starlane" || main.GroupSubdomain != "" {
+		t.Errorf("main group fields = %q/%q, want starlane/empty", main.Group, main.GroupSubdomain)
 	}
 	if !main.IsGroupMain() || main.IsGroupSecondary() {
 		t.Errorf("main classification wrong: IsGroupMain=%v IsGroupSecondary=%v", main.IsGroupMain(), main.IsGroupSecondary())
 	}
-	if sec.Group != "astrolov" || sec.GroupSubdomain != "admin" {
-		t.Errorf("secondary group fields = %q/%q, want astrolov/admin", sec.Group, sec.GroupSubdomain)
+	if sec.Group != "starlane" || sec.GroupSubdomain != "admin" {
+		t.Errorf("secondary group fields = %q/%q, want starlane/admin", sec.Group, sec.GroupSubdomain)
 	}
 	if !sec.IsGroupSecondary() || sec.IsGroupMain() {
 		t.Errorf("secondary classification wrong: IsGroupSecondary=%v IsGroupMain=%v", sec.IsGroupSecondary(), sec.IsGroupMain())

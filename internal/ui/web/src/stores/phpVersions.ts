@@ -5,6 +5,20 @@ import type { SiteNginxBackup, LoadNginxBackupsResult, ResetNginxResult, SaveNgi
 
 export const phpVersions = writable<string[]>([]);
 
+// phpOptionsForSite returns the versions to offer in a site's PHP dropdown.
+// FrankenPHP sites are limited to the versions dunglas/frankenphp publishes an
+// image for, intersected with what's installed, plus the site's current version
+// so the control never renders blank. Other runtimes offer every installed one.
+export function phpOptionsForSite(
+  runtime: string | undefined,
+  installed: string[],
+  frankenphpVersions: string[],
+  current: string
+): string[] {
+  if (runtime !== 'frankenphp') return installed;
+  return frankenphpVersions.filter((v) => installed.includes(v) || v === current);
+}
+
 export async function loadPhpVersions() {
   try {
     const list = await apiJson<string[]>('/api/php-versions');

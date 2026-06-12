@@ -16,7 +16,7 @@
     loadSites
   } from '$stores/sites';
   import { loadServices } from '$stores/services';
-  import { phpVersions } from '$stores/phpVersions';
+  import { phpVersions, phpOptionsForSite } from '$stores/phpVersions';
   import { nodeVersions } from '$stores/nodeVersions';
   import { status } from '$stores/status';
   import WorktreeDBIsolateModal from './WorktreeDBIsolateModal.svelte';
@@ -45,6 +45,9 @@
   const effectiveNode = $derived(activeWorktree?.node_version ?? site.node_version ?? '');
   const phpInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.php_version_override);
   const nodeInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.node_version_override);
+  const phpOptions = $derived(
+    phpOptionsForSite(site.runtime, $phpVersions, $status.frankenphp_php_versions, effectivePhp)
+  );
   // When host bun is available, the Node dropdown offers a "bun" entry that
   // pins .lerd.yaml js_runtime (project-level), leaving node_version intact.
   // js_runtime is project-level, so the bun toggle only belongs on the main
@@ -286,11 +289,11 @@
         PHP {effectivePhp} · custom image
       </span>
     {:else if site.uses_php}
-      {#if $phpVersions.length > 0}
+      {#if phpOptions.length > 0}
         <Dropdown
           label="PHP"
           value={effectivePhp}
-          options={$phpVersions}
+          options={phpOptions}
           disabled={versionBusy}
           inherited={phpInherited}
           inheritedSuffix={m.sites_controls_inheritedSuffix()}

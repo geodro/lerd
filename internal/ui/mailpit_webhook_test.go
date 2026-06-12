@@ -93,6 +93,8 @@ func decodeMailNotification(t *testing.T, raw []byte) (kind, titleKey, bodyKey, 
 }
 
 func TestMailpitWebhook_BroadcastsAsGenericNotification(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	got, cleanup := captureBroadcast(t)
 	defer cleanup()
 
@@ -100,7 +102,7 @@ func TestMailpitWebhook_BroadcastsAsGenericNotification(t *testing.T) {
 		"ID": "abc123",
 		"Subject": "Welcome!",
 		"From": {"Name": "Alice", "Address": "alice@example.com"},
-		"To": [{"Address": "user@astrolov.test"}],
+		"To": [{"Address": "user@starlane.test"}],
 		"Created": "2026-05-15T10:00:00Z"
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/mailpit", strings.NewReader(payload))
@@ -151,6 +153,8 @@ func TestMailpitWebhook_BroadcastsAsGenericNotification(t *testing.T) {
 }
 
 func TestMailpitWebhook_AddressOnlySender(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	got, cleanup := captureBroadcast(t)
 	defer cleanup()
 

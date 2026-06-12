@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -219,6 +220,33 @@ func runSetup(allSteps, skipOpen bool) error {
 			},
 		},
 	}...)
+
+	// Offer in-container Pest browser testing when the project depends on the
+	// Playwright-based browser plugin and isn't set up yet. Left unchecked by
+	// default: selecting it triggers a multi-minute image rebuild + browser
+	// download, too heavy to run on a blind Enter. Runs after the JS install step
+	// so playwright is in node_modules. Non-fatal: installPestBrowser fails fast
+	// (before any rebuild) when playwright is missing, surfaced here as a warning.
+	if hasComposerJSON && bunPHPVersion != "" &&
+		pestBrowserSupportedVersion(bunPHPVersion) == nil &&
+		config.ComposerHasPackage(cwd, "pestphp/pest-plugin-browser") {
+		alreadyBaked := false
+		if gcfg, err := config.LoadGlobal(); err == nil {
+			alreadyBaked = slices.Contains(gcfg.GetPackages(bunPHPVersion), pestBrowserPkg)
+		}
+		if !alreadyBaked {
+			steps = append(steps, setupStep{
+				label:   "pest:browser (container)",
+				enabled: false,
+				run: func() error {
+					if err := installPestBrowser(bunPHPVersion, os.Stdout); err != nil {
+						fmt.Printf("  [WARN] could not set up Pest browser testing: %v\n", err)
+					}
+					return nil
+				},
+			})
+		}
+	}
 
 	// Framework setup commands (one-off bootstrap steps like migrations, storage:link, etc.)
 	if site != nil {

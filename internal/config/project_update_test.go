@@ -208,14 +208,14 @@ func TestSyncProjectDomains_CaseInsensitiveDedup(t *testing.T) {
 }
 
 func TestReplaceProjectDomain_dropsRenamedDomain(t *testing.T) {
-	// admin-astrolov grouped into admin.astrolov: the old standalone domain
+	// admin-starlane grouped into admin.starlane: the old standalone domain
 	// must not survive in .lerd.yaml, while a genuine conflict-filtered extra is.
-	dir := setupProjectConfig(t, &ProjectConfig{Domains: []string{"admin-astrolov", "conflict-domain"}})
-	if err := ReplaceProjectDomain(dir, []string{"admin.astrolov.test"}, "admin-astrolov.test", "test"); err != nil {
+	dir := setupProjectConfig(t, &ProjectConfig{Domains: []string{"admin-starlane", "conflict-domain"}})
+	if err := ReplaceProjectDomain(dir, []string{"admin.starlane.test"}, "admin-starlane.test", "test"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := loadConfig(t, dir)
-	want := []string{"admin.astrolov", "conflict-domain"}
+	want := []string{"admin.starlane", "conflict-domain"}
 	if len(cfg.Domains) != len(want) {
 		t.Fatalf("Domains = %v, want %v", cfg.Domains, want)
 	}

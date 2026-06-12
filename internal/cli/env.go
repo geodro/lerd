@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -674,6 +675,17 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// 3c. Patch DuskTestCase.php for lerd's Selenium container if applicable.
 	if _, hasDriver := updates["DUSK_DRIVER_URL"]; hasDriver {
 		patchDuskTestCase(cwd)
+	}
+
+	// 3c-bis. Pest browser testing drives Playwright in-container, which the
+	// Selenium preset does not provide. Surface the one-time setup command when
+	// the plugin is present but chromium isn't baked into the FPM image yet.
+	if config.ComposerHasPackage(cwd, "pestphp/pest-plugin-browser") {
+		if v, derr := phpDet.DetectVersion(cwd); derr == nil && pestBrowserSupportedVersion(v) == nil {
+			if gcfg, cerr := config.LoadGlobal(); cerr == nil && !slices.Contains(gcfg.GetPackages(v), pestBrowserPkg) {
+				fmt.Println("  Detected pest-plugin-browser — run `lerd pest:browser install` to enable in-container browser testing")
+			}
+		}
 	}
 
 	// 3d. Generate REVERB_ env vars if a worker with proxy config is detected and

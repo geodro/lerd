@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ func NewPhpBunCmd() *cobra.Command {
 		Short: "Manage an optional bun runtime inside the PHP-FPM container",
 	}
 	cmd.AddCommand(newPhpBunInstallCmd())
+	cmd.AddCommand(newPhpBunRemoveCmd())
 	cmd.AddCommand(newPhpBunUpdateCmd())
 	cmd.AddCommand(newPhpBunVersionCmd())
 	return cmd
@@ -61,7 +63,7 @@ func newPhpBunInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install [php-version]",
 		Short: "Install (or update) bun inside the PHP-FPM container",
-		Long: "Installs a musl bun into the container's persistent /root/.bun volume using the bundled npm, so it survives image rebuilds and is shared across sites on that PHP version. " +
+		Long: "Installs a musl bun into the container's persistent /root/.bun volume using the bundled npm, so it survives image rebuilds and is shared across every PHP version. " +
 			"Run `bun upgrade` inside `lerd shell` to update it later; lerd does not pin a version.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -75,6 +77,41 @@ func newPhpBunInstallCmd() *cobra.Command {
 	}
 	cmd.Flags().String("pin", "", "pin a specific bun version (e.g. 1.1.45) instead of latest")
 	return cmd
+}
+
+func newPhpBunRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove",
+		Short: "Remove the in-container bun and clear its persistent volume",
+		Long: "Deletes the musl bun installed by `php:bun install` from the shared /root/.bun volume. " +
+			"bun lives in one host-backed volume shared across every PHP version, so this removes it everywhere at once; the container need not be running.",
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return removeContainerBun(os.Stdout)
+		},
+	}
+}
+
+// removeContainerBun clears the shared host-backed /root/.bun volume, deleting
+// the musl bun installed by `php:bun install`. The volume is shared across every
+// PHP version, so this removes bun everywhere at once and needs no container.
+func removeContainerBun(w io.Writer) error {
+	dir := podman.BunVolumeDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("reading bun volume: %w", err)
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(w, "bun is not installed in the PHP-FPM container; nothing to remove.")
+		return nil
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return fmt.Errorf("removing %s from the bun volume: %w", e.Name(), err)
+		}
+	}
+	fmt.Fprintln(w, "Removed the in-container bun and cleared its volume. Reinstall with `lerd php:bun install`.")
+	return nil
 }
 
 // fpmContainerName returns the FPM container/unit name for a PHP version.
@@ -93,7 +130,23 @@ func bunInstalledInContainer(version string) bool {
 // mounted in the running container, so we only restart it when the mount is
 // genuinely missing (e.g. a container created before this feature shipped).
 func bunVolumeMounted(container string) bool {
-	return podman.Cmd("exec", container, "sh", "-c", "grep -qF ' /root/.bun ' /proc/mounts").Run() == nil
+	return fpmVolumeMounted(container, "/root/.bun")
+}
+
+// fpmVolumeMounted reports whether mountPath is a live mount inside the running
+// container. Shared by the bun and Pest-browser volume probes so the /proc/mounts
+// matching logic lives in one place.
+func fpmVolumeMounted(container, mountPath string) bool {
+	return podman.Cmd("exec", container, "sh", "-c", "grep -qF ' "+mountPath+" ' /proc/mounts").Run() == nil
+}
+
+// restartFPMAndWait restarts a PHP-FPM unit and blocks until it reports running,
+// so an exec right after the restart doesn't race the container.
+func restartFPMAndWait(container string) error {
+	if err := podman.RestartUnit(container); err != nil {
+		return fmt.Errorf("restarting %s: %w", container, err)
+	}
+	return waitContainerRunning(container, 20*time.Second)
 }
 
 // installContainerBun installs (or reinstalls) a musl bun into the version's
@@ -111,10 +164,7 @@ func installContainerBun(version, pin string, w io.Writer) error {
 	}
 	if !bunVolumeMounted(container) {
 		fmt.Fprintf(w, "Preparing PHP %s container for bun...\n", version)
-		if err := podman.RestartUnit(container); err != nil {
-			return fmt.Errorf("restarting %s: %w", container, err)
-		}
-		if err := waitContainerRunning(container, 20*time.Second); err != nil {
+		if err := restartFPMAndWait(container); err != nil {
 			return err
 		}
 	}

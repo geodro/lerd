@@ -53,22 +53,22 @@ func writeSitesYAML(t *testing.T, sites []config.Site) {
 
 func TestFindOwningWorktree_match(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	parent, wtPath := makeWorktreeLayout(t, "whitewaters", "main")
-	writeSitesYAML(t, []config.Site{{Name: "whitewaters", Path: parent}})
+	parent, wtPath := makeWorktreeLayout(t, "rapids", "main")
+	writeSitesYAML(t, []config.Site{{Name: "rapids", Path: parent}})
 
 	owner, branch, ok := findOwningWorktree(wtPath)
 	if !ok {
 		t.Fatal("expected worktree to be matched to parent")
 	}
-	if owner.Name != "whitewaters" || branch != "main" {
-		t.Errorf("got %s/%s, want whitewaters/main", owner.Name, branch)
+	if owner.Name != "rapids" || branch != "main" {
+		t.Errorf("got %s/%s, want rapids/main", owner.Name, branch)
 	}
 }
 
 func TestFindOwningWorktree_noMatchForUnrelatedDir(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	parent, _ := makeWorktreeLayout(t, "whitewaters", "main")
-	writeSitesYAML(t, []config.Site{{Name: "whitewaters", Path: parent}})
+	parent, _ := makeWorktreeLayout(t, "rapids", "main")
+	writeSitesYAML(t, []config.Site{{Name: "rapids", Path: parent}})
 
 	if _, _, ok := findOwningWorktree(t.TempDir()); ok {
 		t.Error("unrelated dir must not match a worktree")
@@ -77,8 +77,8 @@ func TestFindOwningWorktree_noMatchForUnrelatedDir(t *testing.T) {
 
 func TestFindOwningWorktree_skipsParentItself(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	parent, _ := makeWorktreeLayout(t, "whitewaters", "main")
-	writeSitesYAML(t, []config.Site{{Name: "whitewaters", Path: parent}})
+	parent, _ := makeWorktreeLayout(t, "rapids", "main")
+	writeSitesYAML(t, []config.Site{{Name: "rapids", Path: parent}})
 
 	if _, _, ok := findOwningWorktree(parent); ok {
 		t.Error("the parent path itself must not register as one of its own worktrees")

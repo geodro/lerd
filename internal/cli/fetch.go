@@ -4,18 +4,29 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 )
 
-// SupportedPHPVersions lists the PHP versions lerd can build FPM images for.
-// 7.4 and 8.0 are a frozen legacy tier for old projects: still buildable from
-// Alpine 3.16, but pinned (older xdebug, no mongodb ext) and not security-updated.
-var SupportedPHPVersions = []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"}
+// SupportedPHPVersions re-exports the canonical list from internal/config, the
+// single source of truth shared with the FrankenPHP image picker.
+var SupportedPHPVersions = config.SupportedPHPVersions
+
+// LegacyPHPVersions is the frozen legacy tier built from Alpine 3.16 with an old
+// bundled Node. Kept here next to SupportedPHPVersions so the single definition
+// of "legacy" is reused (e.g. pest:browser, which needs a modern Node) instead
+// of being duplicated as literals elsewhere.
+var LegacyPHPVersions = []string{"7.4", "8.0"}
 
 // IsSupportedPHPVersion reports whether v is a version lerd can install.
 func IsSupportedPHPVersion(v string) bool {
-	for _, s := range SupportedPHPVersions {
+	return config.IsSupportedPHPVersion(v)
+}
+
+// IsLegacyPHPVersion reports whether v belongs to the frozen legacy tier.
+func IsLegacyPHPVersion(v string) bool {
+	for _, s := range LegacyPHPVersions {
 		if s == v {
 			return true
 		}

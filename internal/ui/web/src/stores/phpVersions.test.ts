@@ -1,4 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { phpOptionsForSite } from './phpVersions';
+
+describe('phpOptionsForSite', () => {
+  const installed = ['7.4', '8.1', '8.3', '8.4', '8.5'];
+  const franken = ['8.2', '8.3', '8.4', '8.5'];
+
+  it('returns every installed version for non-FrankenPHP runtimes', () => {
+    expect(phpOptionsForSite('fpm', installed, franken, '8.4')).toEqual(installed);
+    expect(phpOptionsForSite(undefined, installed, franken, '8.4')).toEqual(installed);
+  });
+
+  it('limits FrankenPHP to installed versions that are also publishable', () => {
+    expect(phpOptionsForSite('frankenphp', installed, franken, '8.4')).toEqual(['8.3', '8.4', '8.5']);
+  });
+
+  it('keeps the current version even when it is not FPM-installed', () => {
+    expect(phpOptionsForSite('frankenphp', ['8.3', '8.4'], franken, '8.5')).toEqual(['8.3', '8.4', '8.5']);
+  });
+
+  it('never offers a version FrankenPHP cannot run', () => {
+    expect(phpOptionsForSite('frankenphp', installed, franken, '8.4')).not.toContain('7.4');
+    expect(phpOptionsForSite('frankenphp', installed, franken, '8.4')).not.toContain('8.1');
+  });
+});
 
 describe('phpVersions store', () => {
   const realFetch = globalThis.fetch;

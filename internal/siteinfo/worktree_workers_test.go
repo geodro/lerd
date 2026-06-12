@@ -27,7 +27,7 @@ func TestEnrichWorktreeWorkers_skipsParentOnlyWorkers(t *testing.T) {
 			"vite":     vitePerWT(),
 		},
 	}
-	got := enrichWorktreeWorkers("whitewaters", "/projects/whitewaters/main", fw)
+	got := enrichWorktreeWorkers("rapids", "/projects/rapids/main", fw)
 	if len(got) != 1 || got[0].Name != "vite" {
 		t.Fatalf("expected only vite worker, got %+v", got)
 	}
@@ -36,7 +36,7 @@ func TestEnrichWorktreeWorkers_skipsParentOnlyWorkers(t *testing.T) {
 func TestEnrichWorktreeWorkers_unitNamePerWorktree(t *testing.T) {
 	origUnit := unitStatusFn
 	unitStatusFn = func(name string) (string, error) {
-		if name == "lerd-vite-whitewaters-main" {
+		if name == "lerd-vite-rapids-main" {
 			return "active", nil
 		}
 		return "inactive", nil
@@ -48,7 +48,7 @@ func TestEnrichWorktreeWorkers_unitNamePerWorktree(t *testing.T) {
 			"vite": vitePerWT(),
 		},
 	}
-	got := enrichWorktreeWorkers("whitewaters", "/projects/whitewaters/main", fw)
+	got := enrichWorktreeWorkers("rapids", "/projects/rapids/main", fw)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 worker, got %d", len(got))
 	}

@@ -15,12 +15,11 @@ func FrankenPHPContainerName(siteName string) string {
 }
 
 // FrankenPHPImage returns the official dunglas/frankenphp image tag for the
-// requested PHP version. Versions outside the published build set fall back
-// to the latest stable (php8.4).
+// requested PHP version. Versions without a published frankenphp image fall
+// back to the latest one lerd knows about.
 func FrankenPHPImage(phpVersion string) string {
-	supported := map[string]bool{"8.2": true, "8.3": true, "8.4": true}
-	if !supported[phpVersion] {
-		phpVersion = "8.4"
+	if !config.IsFrankenPHPVersion(phpVersion) {
+		phpVersion = config.LatestFrankenPHPVersion()
 	}
 	return "docker.io/dunglas/frankenphp:php" + phpVersion + "-alpine"
 }

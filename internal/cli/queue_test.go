@@ -89,9 +89,9 @@ func TestQueueDependencyUnits_NoEnv(t *testing.T) {
 // rejected the write before lerd-redis was up.
 func TestBuildQueueUnit_RedisBackendRendersDependencies(t *testing.T) {
 	sitePath := writeTempEnv(t, map[string]string{"QUEUE_CONNECTION": "redis"})
-	unit := buildQueueUnit("whitewaters", sitePath, "8.4", "default", 3, 60)
+	unit := buildQueueUnit("example-redis", sitePath, "lerd-php84-fpm", "default", 3, 60)
 
-	mustContain(t, unit, "Description=Lerd Queue Worker (whitewaters)")
+	mustContain(t, unit, "Description=Lerd Queue Worker (example-redis)")
 	mustContain(t, unit, "After=network.target lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "Wants=lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "BindsTo=lerd-php84-fpm.service")
@@ -102,7 +102,7 @@ func TestBuildQueueUnit_RedisBackendRendersDependencies(t *testing.T) {
 
 func TestBuildQueueUnit_SyncBackendOmitsServiceDep(t *testing.T) {
 	sitePath := writeTempEnv(t, map[string]string{"QUEUE_CONNECTION": "sync"})
-	unit := buildQueueUnit("astrolov", sitePath, "8.4", "default", 3, 60)
+	unit := buildQueueUnit("example-sync", sitePath, "lerd-php84-fpm", "default", 3, 60)
 
 	mustContain(t, unit, "After=network.target lerd-php84-fpm.service")
 	mustContain(t, unit, "Wants=lerd-php84-fpm.service")
@@ -116,20 +116,20 @@ func TestBuildQueueUnit_DatabaseBackendUsesDBConnection(t *testing.T) {
 		"QUEUE_CONNECTION": "database",
 		"DB_CONNECTION":    "pgsql",
 	})
-	unit := buildQueueUnit("admin-astrolov", sitePath, "8.3", "default", 3, 60)
+	unit := buildQueueUnit("example-db", sitePath, "lerd-php83-fpm", "default", 3, 60)
 
 	mustContain(t, unit, "After=network.target lerd-php83-fpm.service lerd-postgres.service")
 	mustContain(t, unit, "Wants=lerd-php83-fpm.service lerd-postgres.service")
 }
 
 func TestBuildHorizonUnit_AlwaysDependsOnRedis(t *testing.T) {
-	unit := buildHorizonUnit("score-diviner", "/home/u/score-diviner", "8.4")
+	unit := buildHorizonUnit("example-horizon", "/home/u/example-horizon", "lerd-php84-fpm")
 
-	mustContain(t, unit, "Description=Lerd Horizon (score-diviner)")
+	mustContain(t, unit, "Description=Lerd Horizon (example-horizon)")
 	mustContain(t, unit, "After=network.target lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "Wants=lerd-php84-fpm.service lerd-redis.service")
 	mustContain(t, unit, "BindsTo=lerd-php84-fpm.service")
-	mustContain(t, unit, "ExecStart="+podman.PodmanBin()+" exec -w /home/u/score-diviner lerd-php84-fpm php artisan horizon")
+	mustContain(t, unit, "ExecStart="+podman.PodmanBin()+" exec -w /home/u/example-horizon lerd-php84-fpm php artisan horizon")
 }
 
 func mustContain(t *testing.T, body, needle string) {

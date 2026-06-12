@@ -168,14 +168,9 @@ func QueueStartForSite(siteName, sitePath, phpVersion string) error {
 }
 
 // buildQueueUnit renders the systemd unit body for a queue worker. Pure
-// function so the dep wiring can be exercised in tests.
-func buildQueueUnit(siteName, sitePath, phpVersion, queue string, tries, timeout int) string {
-	versionShort := strings.ReplaceAll(phpVersion, ".", "")
-	// Per-site container for custom-FPM sites, else the shared lerd-php<ver>-fpm.
-	fpmUnit := resolveWorkerFPMUnit(siteName, phpVersion)
-	if fpmUnit == "" {
-		fpmUnit = "lerd-php" + versionShort + "-fpm"
-	}
+// function: fpmUnit (the container to exec into) is resolved by the caller,
+// so the dep wiring can be exercised in tests without the live site registry.
+func buildQueueUnit(siteName, sitePath, fpmUnit, queue string, tries, timeout int) string {
 	container := fpmUnit
 	artisanArgs := fmt.Sprintf("queue:work --queue=%s --tries=%d --timeout=%d", queue, tries, timeout)
 

@@ -139,7 +139,7 @@ func readSiteCert(t *testing.T, primary string) string {
 // Catching either regression requires asserting all three SAN classes
 // here: new alias, existing primary, and worktree subdomain.
 func TestHandleSiteAction_domainAdd_keepsWorktreeSANs(t *testing.T) {
-	sitePath := setupSecuredSite(t, "theregistry")
+	sitePath := setupSecuredSite(t, "harborlist")
 	makeWorktree(t, sitePath, "main", "main", filepath.Join(t.TempDir(), "wt-main"))
 
 	// Pre-issue the cert so it already exists on disk when domain:add
@@ -147,13 +147,13 @@ func TestHandleSiteAction_domainAdd_keepsWorktreeSANs(t *testing.T) {
 	// would still write a fresh cert with the new SAN (because no prior
 	// file exists to short-circuit on) and the test would miss the bug.
 	if err := certs.ReissueCertForWorktree(config.Site{
-		Name: "theregistry", Path: sitePath,
-		Domains: []string{"theregistry.test"}, Secured: true,
+		Name: "harborlist", Path: sitePath,
+		Domains: []string{"harborlist.test"}, Secured: true,
 	}); err != nil {
 		t.Fatalf("pre-issue cert: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/theregistry.test/domain:add?name=aaaddd", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/harborlist.test/domain:add?name=aaaddd", nil)
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
 	if rec.Code != http.StatusOK {
@@ -163,11 +163,11 @@ func TestHandleSiteAction_domainAdd_keepsWorktreeSANs(t *testing.T) {
 		t.Fatalf("expected ok response, got %s", rec.Body.String())
 	}
 
-	cert := readSiteCert(t, "theregistry.test")
+	cert := readSiteCert(t, "harborlist.test")
 	for _, san := range []string{
-		"theregistry.test", "*.theregistry.test",
+		"harborlist.test", "*.harborlist.test",
 		"aaaddd.test", "*.aaaddd.test",
-		"main.theregistry.test", "*.main.theregistry.test",
+		"main.harborlist.test", "*.main.harborlist.test",
 	} {
 		if !strings.Contains(cert, san) {
 			t.Errorf("SAN %q missing after domain:add; cert body: %q", san, cert)
@@ -180,17 +180,17 @@ func TestHandleSiteAction_domainAdd_keepsWorktreeSANs(t *testing.T) {
 // as domain:add — the original handler used the cert-skipping IssueCert,
 // and the first attempted fix dropped worktree SANs. Pin both.
 func TestHandleSiteAction_domainRemove_keepsWorktreeSANs(t *testing.T) {
-	sitePath := setupSecuredSite(t, "theregistry", "aaaddd.test")
+	sitePath := setupSecuredSite(t, "harborlist", "aaaddd.test")
 	makeWorktree(t, sitePath, "main", "main", filepath.Join(t.TempDir(), "wt-main"))
 
 	if err := certs.ReissueCertForWorktree(config.Site{
-		Name: "theregistry", Path: sitePath,
-		Domains: []string{"theregistry.test", "aaaddd.test"}, Secured: true,
+		Name: "harborlist", Path: sitePath,
+		Domains: []string{"harborlist.test", "aaaddd.test"}, Secured: true,
 	}); err != nil {
 		t.Fatalf("pre-issue cert: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/theregistry.test/domain:remove?name=aaaddd", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/harborlist.test/domain:remove?name=aaaddd", nil)
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
 	if rec.Code != http.StatusOK {
@@ -200,10 +200,10 @@ func TestHandleSiteAction_domainRemove_keepsWorktreeSANs(t *testing.T) {
 		t.Fatalf("expected ok response, got %s", rec.Body.String())
 	}
 
-	cert := readSiteCert(t, "theregistry.test")
+	cert := readSiteCert(t, "harborlist.test")
 	for _, san := range []string{
-		"theregistry.test", "*.theregistry.test",
-		"main.theregistry.test", "*.main.theregistry.test",
+		"harborlist.test", "*.harborlist.test",
+		"main.harborlist.test", "*.main.harborlist.test",
 	} {
 		if !strings.Contains(cert, san) {
 			t.Errorf("SAN %q missing after domain:remove; cert body: %q", san, cert)
