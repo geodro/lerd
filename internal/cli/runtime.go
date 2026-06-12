@@ -95,6 +95,14 @@ func runtimeLabel(site *config.Site) string {
 }
 
 func switchToFPM(site *config.Site) error {
+	// Capture the running workers before teardown: they exec into (and BindsTo)
+	// the FrankenPHP container, so removing it would both stop them and lose
+	// the list we need to re-establish on the shared FPM unit.
+	running := collectRunningWorkers(site)
+	for _, w := range running {
+		WorkerStopForSite(site.Name, site.Path, w) //nolint:errcheck
+	}
+
 	_ = podman.StopUnit(podman.FrankenPHPContainerName(site.Name))
 	_ = podman.RemoveFrankenPHPQuadlet(site.Name)
 	_ = podman.DaemonReloadFn()
@@ -116,11 +124,23 @@ func switchToFPM(site *config.Site) error {
 		}
 	}
 	_ = nginx.Reload()
+
+	// Recreate the workers so their units exec into the shared FPM container
+	// instead of the per-site FrankenPHP one that no longer exists.
+	startWorkersForSite(site, running, site.PHPVersion)
+
 	fmt.Printf("Runtime: fpm (switched from FrankenPHP)\n")
 	return nil
 }
 
 func switchToFrankenPHP(site *config.Site, worker bool) error {
+	// Workers currently exec into the shared FPM container; stop them so they
+	// can be recreated against the per-site FrankenPHP container below.
+	running := collectRunningWorkers(site)
+	for _, w := range running {
+		WorkerStopForSite(site.Name, site.Path, w) //nolint:errcheck
+	}
+
 	site.Runtime = "frankenphp"
 	site.RuntimeWorker = worker
 	if err := config.AddSite(*site); err != nil {
@@ -131,6 +151,10 @@ func switchToFrankenPHP(site *config.Site, worker bool) error {
 	if err := siteops.FinishFrankenPHPLink(*site); err != nil {
 		return err
 	}
+
+	// Re-point the site's workers at the new per-site FrankenPHP container.
+	startWorkersForSite(site, running, site.PHPVersion)
+
 	label := "frankenphp"
 	if worker {
 		label = "frankenphp (worker mode)"

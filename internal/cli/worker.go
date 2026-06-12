@@ -365,6 +365,12 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 	}
 
 	if changed {
+		// A rewritten unit (e.g. a runtime switch re-pointed the worker at a
+		// different container) only takes effect once systemd re-reads it;
+		// without this, Enable/Start act on the stale cached unit.
+		if err := podman.DaemonReloadFn(); err != nil {
+			fmt.Printf("[WARN] daemon-reload: %v\n", err)
+		}
 		if err := services.Mgr.Enable(lifecycleTarget); err != nil {
 			fmt.Printf("[WARN] enable: %v\n", err)
 		}
