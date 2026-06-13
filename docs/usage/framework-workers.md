@@ -73,6 +73,8 @@ Host workers run with lerd's bin dir prepended to `PATH`, so subprocesses spawne
 
 On macOS the unit is a launchd plist (`~/Library/LaunchAgents/lerd-<worker>-<site>[-<branch>].plist`) backed by a guard script under `~/.local/share/lerd/run/workers/` that `cd`s into the site/worktree and `fnm exec`s the command. The watcher self-heals the unit independently of the worker exec mode — host workers always need launchd-level supervision because they aren't behind podman's `--restart=always`. Scheduled workers (`schedule != ""`) still aren't supported on macOS; launchd's `StartCalendarInterval` isn't wired through the unit translator yet.
 
+When [idle-suspend](/usage/idle-suspend) is enabled it stops every one of a site's workers once the site has been idle, so workers carry no special configuration for it. A worker marked `per_worktree: true` (Vite is the only one by default) is suspended per worktree, on each worktree's own idle timer.
+
 ## Project-specific custom workers
 
 Add workers to `.lerd.yaml` for project-specific needs that don't belong in the framework definition:

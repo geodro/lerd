@@ -36,14 +36,18 @@ type Framework struct {
 	// Version is the framework major version this definition targets (e.g. "11", "7").
 	Version string `yaml:"version,omitempty"`
 	// PHP defines the supported PHP version range for this framework version.
-	PHP       FrameworkPHP               `yaml:"php,omitempty"`
-	Detect    []FrameworkRule            `yaml:"detect,omitempty"`
-	PublicDir string                     `yaml:"public_dir"`
-	Env       FrameworkEnvConf           `yaml:"env,omitempty"`
-	Composer  string                     `yaml:"composer,omitempty"` // auto | true | false
-	NPM       string                     `yaml:"npm,omitempty"`      // auto | true | false
-	Workers   map[string]FrameworkWorker `yaml:"workers,omitempty"`
-	Setup     []FrameworkSetupCmd        `yaml:"setup,omitempty"`
+	PHP       FrameworkPHP    `yaml:"php,omitempty"`
+	Detect    []FrameworkRule `yaml:"detect,omitempty"`
+	PublicDir string          `yaml:"public_dir"`
+	// SourceDirs overrides which project directories the activity watcher treats
+	// as source for idle-suspend (a save there keeps the site awake). When empty,
+	// config.DefaultSourceDirs applies. Paths are relative to the project root.
+	SourceDirs []string                   `yaml:"source_dirs,omitempty"`
+	Env        FrameworkEnvConf           `yaml:"env,omitempty"`
+	Composer   string                     `yaml:"composer,omitempty"` // auto | true | false
+	NPM        string                     `yaml:"npm,omitempty"`      // auto | true | false
+	Workers    map[string]FrameworkWorker `yaml:"workers,omitempty"`
+	Setup      []FrameworkSetupCmd        `yaml:"setup,omitempty"`
 	// Commands are on-demand actions surfaced in the dashboard "Run command"
 	// dropdown. See FrameworkCommand for the schema. Projects extend or
 	// override this list in .lerd.yaml; use ResolveCommands to merge.

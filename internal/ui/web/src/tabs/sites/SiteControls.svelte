@@ -41,6 +41,10 @@
     if (!activeWorktreeBranch) return undefined;
     return (site.worktrees || []).find((w) => w.branch === activeWorktreeBranch);
   });
+  // Workers idle-suspend has stopped: shown as "asleep" on their toggles rather
+  // than a plain "off", so they don't look broken.
+  const asleepWorkers = $derived(new Set(site.idle_suspended_workers || []));
+
   const effectivePhp = $derived(activeWorktree?.php_version ?? site.php_version ?? '');
   const effectiveNode = $derived(activeWorktree?.node_version ?? site.node_version ?? '');
   const phpInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.php_version_override);
@@ -364,6 +368,7 @@
         <ToggleButton
           label={m.sites_controls_queue()}
           on={Boolean(site.queue_running)}
+          asleep={asleepWorkers.has('queue')}
           failing={Boolean(site.queue_failing)}
           loading={isPending('queue')}
           disabled={isPending('queue')}
@@ -375,6 +380,7 @@
       {#if site.has_horizon}
         <HorizonControl
           running={Boolean(site.horizon_running)}
+          asleep={asleepWorkers.has('horizon')}
           failing={Boolean(site.horizon_failing)}
           reload={Boolean(site.horizon_reload)}
           horizonLoading={isPending('horizon') || reloadRestarting}
@@ -388,6 +394,7 @@
         <ToggleButton
           label={m.sites_controls_schedule()}
           on={Boolean(site.schedule_running)}
+          asleep={asleepWorkers.has('schedule')}
           failing={Boolean(site.schedule_failing)}
           loading={isPending('schedule')}
           disabled={isPending('schedule')}
@@ -400,6 +407,7 @@
         <ToggleButton
           label={m.sites_controls_reverb()}
           on={Boolean(site.reverb_running)}
+          asleep={asleepWorkers.has('reverb')}
           failing={Boolean(site.reverb_failing)}
           loading={isPending('reverb')}
           disabled={isPending('reverb')}
@@ -411,6 +419,7 @@
       {#if site.stripe_secret_set}
         <StripeControl
           running={Boolean(site.stripe_running)}
+          asleep={asleepWorkers.has('stripe')}
           loading={isPending('stripe')}
           webhookPath={site.stripe_webhook_path}
           onToggle={() => transition('stripe', !site.stripe_running, () => toggleStripe(site))}
@@ -424,6 +433,7 @@
         <ToggleButton
           label={shortLabel}
           on={Boolean(w.running)}
+          asleep={asleepWorkers.has(w.name)}
           failing={Boolean(w.failing)}
           loading={isPending('worker:' + w.name)}
           disabled={isPending('worker:' + w.name)}

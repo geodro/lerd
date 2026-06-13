@@ -30,6 +30,10 @@ export interface Site {
   has_favicon?: boolean;
   has_env?: boolean;
   paused?: boolean;
+  pinned?: boolean;
+  idle_suspended?: boolean;
+  idle?: boolean;
+  idle_suspended_workers?: string[];
   services?: string[];
   custom_container?: boolean;
   container_image?: string;
@@ -57,6 +61,7 @@ export interface Site {
     lan_port?: number;
     lan_share_url?: string;
     framework_workers?: FrameworkWorker[];
+    idle_suspended_workers?: string[];
   }>;
   has_queue_worker?: boolean;
   has_schedule_worker?: boolean;
@@ -165,10 +170,49 @@ export function runningWorkerColors(s: Site): WorkerDotColor[] {
   return dots;
 }
 
+function workerColorByName(name: string): WorkerDotColor {
+  if (name === 'queue' || name === 'horizon') return 'amber';
+  if (name === 'stripe') return 'violet';
+  if (name === 'schedule') return 'emerald';
+  if (name === 'reverb') return 'sky';
+  return 'indigo';
+}
+
+// idleWorkerColors returns the dot colors to show while a site sleeps: the
+// workers the engine suspended (so they keep their dots, dimmed, instead of
+// disappearing), falling back to whatever is still running during the brief
+// suspend transition.
+export function idleWorkerColors(s: Site): WorkerDotColor[] {
+  const dots = (s.idle_suspended_workers || []).map(workerColorByName);
+  return dots.length > 0 ? dots : runningWorkerColors(s);
+}
+
+// siteHasWorkers reports whether a site has any background worker at all (queue,
+// schedule, horizon, reverb, a stripe listener, or a framework worker). Sites
+// with none never sleep, so the dashboard must not show them the idle moon.
+export function siteHasWorkers(s: Site): boolean {
+  return Boolean(
+    s.has_queue_worker ||
+      s.has_schedule_worker ||
+      s.has_horizon ||
+      s.has_reverb ||
+      s.stripe_running ||
+      s.stripe_secret_set ||
+      (s.framework_workers && s.framework_workers.length > 0) ||
+      (s.idle_suspended_workers && s.idle_suspended_workers.length > 0)
+  );
+}
+
 export function openSiteInBrowser(s: Site, branch: string = '') {
   const target = activeWorktreeDomain(s, branch);
   const useTLS = Boolean(s.tls);
   const url = (useTLS ? 'https://' : 'http://') + target;
+  // Opening the site loads it, which wakes it via the activity feed. Clear the
+  // idle marker optimistically so the sleep indicator drops immediately rather
+  // than lingering until the next poll confirms the activity.
+  sites.update((list) =>
+    list.map((x) => (x.name === s.name ? { ...x, idle: false, idle_suspended: false } : x))
+  );
   window.open(url, '_blank', 'noopener');
 }
 
@@ -444,6 +488,8 @@ export async function reorderSites(order: string[]): Promise<{ ok: boolean; erro
 export const restartSite = (d: string) => postAction(site(d, 'restart'));
 export const pauseSite = (d: string) => postAction(site(d, 'pause'));
 export const resumeSite = (d: string) => postAction(site(d, 'unpause'));
+export const pinSite = (d: string) => postAction(site(d, 'pin'));
+export const unpinSite = (d: string) => postAction(site(d, 'unpin'));
 export const unlinkSite = (d: string) => postAction(site(d, 'unlink'));
 export const openTerminal = (d: string, branch: string = '') =>
   postAction(site(d, 'terminal') + (branch ? `?branch=${encodeURIComponent(branch)}` : ''));

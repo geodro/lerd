@@ -188,8 +188,35 @@ type GlobalConfig struct {
 		// command from a cloned repo never runs unconfirmed.
 		SkipConfirmation bool `yaml:"skip_confirmation,omitempty" mapstructure:"skip_confirmation"`
 	} `yaml:"host_proxy,omitempty" mapstructure:"host_proxy"`
+	IdleSuspend struct {
+		// Enabled turns on activity-driven worker suspension: when a site sees
+		// no activity for Timeout, its suspendable workers (queue, horizon, ...)
+		// are gracefully stopped and resumed on the next request. Off by default
+		// so a quiet dev box reclaims worker memory only once the user opts in.
+		// Idle-suspend is a single global policy, not configured per site.
+		Enabled bool `yaml:"enabled,omitempty" mapstructure:"enabled"`
+		// Timeout is how long a site must be idle before its workers suspend, as
+		// a Go duration string ("30m"). Empty or unparseable falls back to
+		// DefaultIdleSuspendTimeout; read it via IdleSuspendTimeout.
+		Timeout string `yaml:"timeout,omitempty" mapstructure:"timeout"`
+	} `yaml:"idle_suspend,omitempty" mapstructure:"idle_suspend"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
+}
+
+// DefaultIdleSuspendTimeout is how long a site stays idle before its
+// suspendable workers are stopped, when no explicit timeout is configured.
+const DefaultIdleSuspendTimeout = 30 * time.Minute
+
+// IdleSuspendTimeout returns the effective global idle timeout, falling back to
+// DefaultIdleSuspendTimeout when unset, unparseable, or non-positive.
+func (c *GlobalConfig) IdleSuspendTimeout() time.Duration {
+	if c.IdleSuspend.Timeout != "" {
+		if d, err := time.ParseDuration(c.IdleSuspend.Timeout); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultIdleSuspendTimeout
 }
 
 // DefaultRequestTimeout is nginx's built-in fastcgi/proxy read-timeout default

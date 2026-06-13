@@ -215,6 +215,11 @@ func UnpauseSite(name string) error {
 		unpauseWorktrees(site, phpVersion)
 	}
 
+	// Restart the per-worktree workers PauseSite stopped (Vite). Universal across
+	// runtimes; a no-op for host-proxy, whose worktree dev servers are restored by
+	// unpauseHostProxyWorktrees above.
+	restartWorktreeWorkers(site, phpVersion)
+
 	nginx.ReloadOrWarn("")
 
 	startServicesForSite(site.Path)
@@ -351,6 +356,34 @@ func collectRunningWorkers(site *config.Site) []string {
 	}
 	active = append(active, lerdSystemd.FindOrphanedWorkers(site.Name, known)...)
 
+	return active
+}
+
+// collectRunningWorktreeWorkers returns the active per-worktree workers for the
+// worktree checkout at wtPath, checked by their worktree unit names
+// (lerd-<w>-<site>-<wtBase>). Only workers a framework marks per_worktree:true
+// run per worktree (for Laravel, just vite), so only those are enumerated.
+func collectRunningWorktreeWorkers(site *config.Site, wtPath string) []string {
+	fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
+	if !ok || fw.Workers == nil {
+		return nil
+	}
+	wtBase := config.WorktreeUnitSlug(filepath.Base(wtPath))
+	names := make([]string, 0, len(fw.Workers))
+	for wName, w := range fw.Workers {
+		if w.IsPerWorktree() {
+			names = append(names, wName)
+		}
+	}
+	sort.Strings(names)
+
+	var active []string
+	for _, wName := range names {
+		unit := "lerd-" + wName + "-" + site.Name + "-" + wtBase
+		if unitIsActiveOrActivating(unit) || lerdSystemd.IsTimerActive(unit) {
+			active = append(active, wName)
+		}
+	}
 	return active
 }
 
@@ -532,12 +565,12 @@ func pauseWorktrees(site *config.Site) {
 		return
 	}
 	for _, wt := range worktrees {
-		// Host-proxy worktrees run their own supervised dev server; stop it so
-		// it doesn't keep holding its host port while the site is paused.
-		if site.IsHostProxy() {
-			if err := StopAllWorkersForWorktree(site.Name, wt.Branch); err != nil {
-				fmt.Printf("  [WARN] stopping worktree dev server %s: %v\n", wt.Domain, err)
-			}
+		// Stop the worktree's own workers so a paused site does no background work,
+		// matching the main checkout. Covers per-worktree workers (Vite) and a
+		// host-proxy worktree's dev server (which also frees its host port). The
+		// unit suffix is the slugged checkout basename, so pass that.
+		if err := StopAllWorkersForWorktree(site.Name, filepath.Base(wt.Path)); err != nil {
+			fmt.Printf("  [WARN] stopping worktree workers %s: %v\n", wt.Domain, err)
 		}
 		if err := writePausedWorktreeHTML(wt, site); err != nil {
 			fmt.Printf("  [WARN] paused page for worktree %s: %v\n", wt.Domain, err)
@@ -583,6 +616,19 @@ func unpauseWorktrees(site *config.Site, phpVersion string) {
 		if vhostErr != nil {
 			fmt.Printf("  [WARN] restoring worktree vhost %s: %v\n", wt.Domain, vhostErr)
 		}
+	}
+}
+
+// restartWorktreeWorkers restarts every worktree's per-worktree workers (e.g.
+// Vite) that PauseSite stopped, using the same opt-in path that started them on
+// worktree add. No-op for worktrees with no framework per-worktree workers.
+func restartWorktreeWorkers(site *config.Site, phpVersion string) {
+	worktrees, err := gitpkg.DetectWorktrees(site.Path, site.PrimaryDomain())
+	if err != nil || len(worktrees) == 0 {
+		return
+	}
+	for _, wt := range worktrees {
+		AutoStartOptedInWorktreeWorkers(site, wt.Path, config.WorktreePHPVersion(wt.Path, phpVersion))
 	}
 }
 

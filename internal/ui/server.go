@@ -198,6 +198,22 @@ func Start(currentVersion string) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Activity feed for idle-suspend from the CLI/shims: a php/composer/npm/
+	// artisan/tinker run in a project dir pings here so working on a site via
+	// the terminal (no page loads) keeps it awake and wakes it if it was asleep.
+	mux.HandleFunc("/api/internal/activity", func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackRequest(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if site := r.URL.Query().Get("site"); site != "" && activityTracker != nil {
+			activityTracker.TouchSite(site, time.Now())
+			idleEng.OnActivity(site)
+			publishSitesChanged() // push the wake/active state to dashboards live
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("/api/services/presets", withCORS(handleServicePresets))
 	mux.HandleFunc("/api/services/presets/", withCORS(publishAfter(handleServicePresetInstall, eventbus.KindServices, eventbus.KindStatus)))
 	mux.HandleFunc("/api/services/", withCORS(publishAfter(handleServiceAction, eventbus.KindServices, eventbus.KindStatus, eventbus.KindSites)))
@@ -249,6 +265,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/settings", withCORS(handleSettings))
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
 	mux.HandleFunc("/api/settings/worker-mode", withCORS(handleSettingsWorkerMode))
+	mux.HandleFunc("/api/settings/idle-suspend", withCORS(publishAfter(handleSettingsIdleSuspend, eventbus.KindSites)))
 	mux.HandleFunc("/api/workers/health", withCORS(handleWorkersHealth))
 	mux.HandleFunc("/api/workers/heal", withCORS(handleWorkersHeal))
 	mux.HandleFunc("/api/stats", withCORS(handleStats))
@@ -308,6 +325,10 @@ func Start(currentVersion string) error {
 	mux.Handle("/", serveSvelte())
 
 	handler := withRemoteControlGate(mux)
+
+	// Start the idle-suspend activity feed: bind the nginx access socket and
+	// seed per-site last-active times. Best-effort; never blocks serving.
+	startAccessFeed()
 
 	// Unix socket listener for the lerd.localhost nginx vhost. Linux only:
 	// on macOS, lerd-nginx runs inside the podman-machine VM and unix
@@ -668,6 +689,10 @@ type WorktreeResponse struct {
 	LANPort             int            `json:"lan_port,omitempty"`
 	LANShareURL         string         `json:"lan_share_url,omitempty"`
 	FrameworkWorkers    []WorkerStatus `json:"framework_workers,omitempty"`
+	// Idle-suspend state for the worktree, which idles on its own timer.
+	LastActive           int64    `json:"last_active,omitempty"`
+	Idle                 bool     `json:"idle,omitempty"`
+	IdleSuspendedWorkers []string `json:"idle_suspended_workers,omitempty"`
 }
 
 // WorkerStatus represents a single framework worker and its running state.
@@ -729,8 +754,25 @@ type SiteResponse struct {
 	HasFavicon         bool                `json:"has_favicon"`
 	HasEnv             bool                `json:"has_env"`
 	Paused             bool                `json:"paused"`
-	Branch             string              `json:"branch"`
-	Worktrees          []WorktreeResponse  `json:"worktrees"`
+	// Pinned excludes the site from idle-suspend (kept always-warm).
+	Pinned bool `json:"pinned,omitempty"`
+	// LastActive is the unix-seconds time the site last saw a request, from the
+	// idle-suspend activity feed. Zero (omitted) means no activity recorded yet
+	// this lerd-ui session.
+	LastActive int64 `json:"last_active,omitempty"`
+	// IdleSuspended is true when the idle engine has gracefully stopped this
+	// site's workers (a subset of Idle: only sites that had workers to stop).
+	IdleSuspended bool `json:"idle_suspended,omitempty"`
+	// Idle is true when the site has gone past the idle timeout (and isn't
+	// paused), whether or not it had any workers to suspend. Drives the
+	// dashboard sleep (Zz) indicator, which marks every idle site.
+	Idle bool `json:"idle,omitempty"`
+	// IdleSuspendedWorkers names the workers the engine stopped while idle, so
+	// the dashboard can still show their (dimmed) dots — a sleeping site keeps
+	// its worker dots rather than losing them when the units stop.
+	IdleSuspendedWorkers []string           `json:"idle_suspended_workers,omitempty"`
+	Branch               string             `json:"branch"`
+	Worktrees            []WorktreeResponse `json:"worktrees"`
 	// Services lists the service names this site uses, sourced from the
 	// project's .lerd.yaml. Used by the dashboard to render service badges
 	// on the site detail panel.
@@ -769,6 +811,37 @@ func buildSites() []SiteResponse {
 		return []SiteResponse{}
 	}
 	_ = siteinfo.PersistVersionChanges(enriched)
+
+	// Resolve the global idle policy once so each site can report whether it is
+	// currently idle (drives the dashboard sleep indicator).
+	idleCfg, _ := config.LoadGlobal()
+	idleOn := idleCfg != nil && idleCfg.IdleSuspend.Enabled
+	idleTimeout := config.DefaultIdleSuspendTimeout
+	if idleCfg != nil {
+		idleTimeout = idleCfg.IdleSuspendTimeout()
+	}
+	idleNow := time.Now()
+
+	// Per-site list of workers the engine suspended, so the dashboard can keep
+	// showing their dots dimmed instead of dropping them.
+	suspendedWorkers := map[string][]string{}
+	wtSuspendedWorkers := map[string][]string{}
+	pinnedSites := map[string]bool{}
+	if reg, err := config.LoadSites(); err == nil {
+		for _, s := range reg.Sites {
+			if len(s.IdleSuspendedWorkers) > 0 {
+				suspendedWorkers[s.Name] = s.IdleSuspendedWorkers
+			}
+			for wtBase, workers := range s.WorktreeIdleSuspended {
+				if len(workers) > 0 {
+					wtSuspendedWorkers[wtKey(s.Name, wtBase)] = workers
+				}
+			}
+			if s.Pinned {
+				pinnedSites[s.Name] = true
+			}
+		}
+	}
 
 	// Map each group key to its main site's base domain so secondaries can
 	// report group_main_domain without a second lookup.
@@ -816,21 +889,25 @@ func buildSites() []SiteResponse {
 					Failing: fw.Failing,
 				})
 			}
+			wtKeyStr := wtKey(e.Name, config.WorktreeUnitSlug(filepath.Base(wt.Path)))
 			worktreeResponses = append(worktreeResponses, WorktreeResponse{
-				Branch:              wt.Branch,
-				Domain:              wt.Domain,
-				Path:                wt.Path,
-				PHPVersion:          wt.PHPVersion,
-				NodeVersion:         wt.NodeVersion,
-				PHPVersionOverride:  wt.PHPVersionOverride,
-				NodeVersionOverride: wt.NodeVersionOverride,
-				FrameworkVersion:    wt.FrameworkVersion,
-				FrameworkLabel:      wt.FrameworkLabel,
-				DBIsolated:          wt.DBIsolated,
-				DBDatabase:          wt.DBDatabase,
-				LANPort:             lanPort,
-				LANShareURL:         lanURL,
-				FrameworkWorkers:    wtWorkers,
+				Branch:               wt.Branch,
+				Domain:               wt.Domain,
+				Path:                 wt.Path,
+				PHPVersion:           wt.PHPVersion,
+				NodeVersion:          wt.NodeVersion,
+				PHPVersionOverride:   wt.PHPVersionOverride,
+				NodeVersionOverride:  wt.NodeVersionOverride,
+				FrameworkVersion:     wt.FrameworkVersion,
+				FrameworkLabel:       wt.FrameworkLabel,
+				DBIsolated:           wt.DBIsolated,
+				DBDatabase:           wt.DBDatabase,
+				LANPort:              lanPort,
+				LANShareURL:          lanURL,
+				FrameworkWorkers:     wtWorkers,
+				LastActive:           siteLastActiveUnix(wtKeyStr),
+				Idle:                 siteIsIdle(wtKeyStr, e.Paused, pinnedSites[e.Name], idleOn, idleTimeout, idleNow),
+				IdleSuspendedWorkers: wtSuspendedWorkers[wtKeyStr],
 			})
 		}
 		if worktreeResponses == nil {
@@ -838,64 +915,69 @@ func buildSites() []SiteResponse {
 		}
 
 		sites = append(sites, SiteResponse{
-			Name:               e.Name,
-			AppName:            laravelAppName(e.FrameworkName, e.Path),
-			Domain:             e.PrimaryDomain(),
-			Domains:            e.Domains,
-			ConflictingDomains: conflicting,
-			Path:               e.Path,
-			PHPVersion:         e.PHPVersion,
-			UsesPHP:            e.UsesPHP,
-			NodeVersion:        e.NodeVersion,
-			JSRuntime:          projectJSRuntime(e.Path),
-			TLS:                e.Secured,
-			Framework:          e.FrameworkName,
-			IsLaravel:          e.FrameworkName == "laravel",
-			FrameworkLabel:     e.FrameworkLabel,
-			FPMRunning:         e.FPMRunning,
-			QueueRunning:       e.QueueRunning,
-			QueueFailing:       e.QueueFailing,
-			StripeRunning:      e.StripeRunning,
-			StripeSecretSet:    e.StripeSecretSet,
-			StripeWebhookPath:  e.StripeWebhookPath,
-			ScheduleRunning:    e.ScheduleRunning,
-			ScheduleFailing:    e.ScheduleFailing,
-			ReverbRunning:      e.ReverbRunning,
-			ReverbFailing:      e.ReverbFailing,
-			HasReverb:          e.HasReverb,
-			HasHorizon:         e.HasHorizon,
-			HorizonRunning:     e.HorizonRunning,
-			HorizonFailing:     e.HorizonFailing,
-			HorizonReload:      e.HasHorizon && config.ProjectReloadsWorker(e.Path, "horizon"),
-			HorizonReloadReady: e.HasHorizon && cli.ProjectHasChokidar(e.Path),
-			OctaneReload:       e.Runtime == "frankenphp" && e.RuntimeWorker && config.ProjectReloadsWorker(e.Path, "octane"),
-			OctaneReloadReady:  e.Runtime == "frankenphp" && e.RuntimeWorker && cli.SiteHasOctane(e.Path) && cli.ProjectHasChokidar(e.Path),
-			HasQueueWorker:     e.HasQueueWorker,
-			HasScheduleWorker:  e.HasScheduleWorker,
-			FrameworkWorkers:   fwWorkers,
-			HasAppLogs:         e.HasAppLogs,
-			LatestLogTime:      e.LatestLogTime,
-			HasFavicon:         e.HasFavicon,
-			HasEnv:             siteHasEnv(e.Path),
-			Paused:             e.Paused,
-			Branch:             e.Branch,
-			Worktrees:          worktreeResponses,
-			Services:           e.Services,
-			LANPort:            e.LANPort,
-			LANShareURL:        cli.LANShareURL(e.LANPort),
-			CustomContainer:    e.ContainerPort > 0,
-			ContainerPort:      e.ContainerPort,
-			ContainerImage:     e.ContainerImage,
-			Runtime:            e.Runtime,
-			RuntimeWorker:      e.RuntimeWorker,
-			HostProxy:          e.HostPort > 0,
-			HostPort:           e.HostPort,
-			HostHasDevServer:   e.HostPort > 0 && e.HostCommand != "",
-			Group:              e.Group,
-			GroupSubdomain:     e.GroupSubdomain,
-			GroupMainDomain:    groupMainDomain[e.Group],
-			GroupSharedDB:      e.GroupSharedDB,
-			MultiTenant:        e.Group != "" && e.GroupSubdomain == "" && siteHasEnvOverrides(e.Path),
+			Name:                 e.Name,
+			AppName:              laravelAppName(e.FrameworkName, e.Path),
+			Domain:               e.PrimaryDomain(),
+			Domains:              e.Domains,
+			ConflictingDomains:   conflicting,
+			Path:                 e.Path,
+			PHPVersion:           e.PHPVersion,
+			UsesPHP:              e.UsesPHP,
+			NodeVersion:          e.NodeVersion,
+			JSRuntime:            projectJSRuntime(e.Path),
+			TLS:                  e.Secured,
+			Framework:            e.FrameworkName,
+			IsLaravel:            e.FrameworkName == "laravel",
+			FrameworkLabel:       e.FrameworkLabel,
+			FPMRunning:           e.FPMRunning,
+			QueueRunning:         e.QueueRunning,
+			QueueFailing:         e.QueueFailing,
+			StripeRunning:        e.StripeRunning,
+			StripeSecretSet:      e.StripeSecretSet,
+			StripeWebhookPath:    e.StripeWebhookPath,
+			ScheduleRunning:      e.ScheduleRunning,
+			ScheduleFailing:      e.ScheduleFailing,
+			ReverbRunning:        e.ReverbRunning,
+			ReverbFailing:        e.ReverbFailing,
+			HasReverb:            e.HasReverb,
+			HasHorizon:           e.HasHorizon,
+			HorizonRunning:       e.HorizonRunning,
+			HorizonFailing:       e.HorizonFailing,
+			HorizonReload:        e.HasHorizon && config.ProjectReloadsWorker(e.Path, "horizon"),
+			HorizonReloadReady:   e.HasHorizon && cli.ProjectHasChokidar(e.Path),
+			OctaneReload:         e.Runtime == "frankenphp" && e.RuntimeWorker && config.ProjectReloadsWorker(e.Path, "octane"),
+			OctaneReloadReady:    e.Runtime == "frankenphp" && e.RuntimeWorker && cli.SiteHasOctane(e.Path) && cli.ProjectHasChokidar(e.Path),
+			HasQueueWorker:       e.HasQueueWorker,
+			HasScheduleWorker:    e.HasScheduleWorker,
+			FrameworkWorkers:     fwWorkers,
+			HasAppLogs:           e.HasAppLogs,
+			LatestLogTime:        e.LatestLogTime,
+			HasFavicon:           e.HasFavicon,
+			HasEnv:               siteHasEnv(e.Path),
+			Paused:               e.Paused,
+			LastActive:           siteLastActiveUnix(e.Name),
+			IdleSuspended:        siteIsIdleSuspended(e.Name),
+			Idle:                 siteIsIdle(e.Name, e.Paused, pinnedSites[e.Name], idleOn, idleTimeout, idleNow),
+			IdleSuspendedWorkers: suspendedWorkers[e.Name],
+			Pinned:               pinnedSites[e.Name],
+			Branch:               e.Branch,
+			Worktrees:            worktreeResponses,
+			Services:             e.Services,
+			LANPort:              e.LANPort,
+			LANShareURL:          cli.LANShareURL(e.LANPort),
+			CustomContainer:      e.ContainerPort > 0,
+			ContainerPort:        e.ContainerPort,
+			ContainerImage:       e.ContainerImage,
+			Runtime:              e.Runtime,
+			RuntimeWorker:        e.RuntimeWorker,
+			HostProxy:            e.HostPort > 0,
+			HostPort:             e.HostPort,
+			HostHasDevServer:     e.HostPort > 0 && e.HostCommand != "",
+			Group:                e.Group,
+			GroupSubdomain:       e.GroupSubdomain,
+			GroupMainDomain:      groupMainDomain[e.Group],
+			GroupSharedDB:        e.GroupSharedDB,
+			MultiTenant:          e.Group != "" && e.GroupSubdomain == "" && siteHasEnvOverrides(e.Path),
 		})
 	}
 	return sites
@@ -3132,6 +3214,20 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
 		return
+	case "pin":
+		if err := cli.SetSitePinned(site.Name, true); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
+	case "unpin":
+		if err := cli.SetSitePinned(site.Name, false); err != nil {
+			writeJSON(w, SiteActionResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, SiteActionResponse{OK: true})
+		return
 	case "restart":
 		if err := cli.RestartSite(site.Name); err != nil {
 			writeJSON(w, SiteActionResponse{Error: err.Error()})
@@ -4204,22 +4300,69 @@ func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
 
 // SettingsResponse is the response for GET /api/settings.
 type SettingsResponse struct {
-	AutostartOnLogin  bool   `json:"autostart_on_login"`
-	WorkerExecMode    string `json:"worker_exec_mode"`
-	WorkerModeApplies bool   `json:"worker_mode_applies"` // true on macOS only
+	AutostartOnLogin          bool   `json:"autostart_on_login"`
+	WorkerExecMode            string `json:"worker_exec_mode"`
+	WorkerModeApplies         bool   `json:"worker_mode_applies"` // true on macOS only
+	IdleSuspendEnabled        bool   `json:"idle_suspend_enabled"`
+	IdleSuspendTimeoutMinutes int    `json:"idle_suspend_timeout_minutes"`
 }
 
 func handleSettings(w http.ResponseWriter, _ *http.Request) {
 	cfg, _ := config.LoadGlobal()
 	mode := config.WorkerExecModeExec
+	idleEnabled := false
+	idleMinutes := int(config.DefaultIdleSuspendTimeout / time.Minute)
 	if cfg != nil {
 		mode = cfg.WorkerExecMode()
+		idleEnabled = cfg.IdleSuspend.Enabled
+		idleMinutes = int(cfg.IdleSuspendTimeout() / time.Minute)
 	}
 	writeJSON(w, SettingsResponse{
-		AutostartOnLogin:  lerdSystemd.IsAutostartEnabled(),
-		WorkerExecMode:    mode,
-		WorkerModeApplies: runtime.GOOS == "darwin",
+		AutostartOnLogin:          lerdSystemd.IsAutostartEnabled(),
+		WorkerExecMode:            mode,
+		WorkerModeApplies:         runtime.GOOS == "darwin",
+		IdleSuspendEnabled:        idleEnabled,
+		IdleSuspendTimeoutMinutes: idleMinutes,
 	})
+}
+
+// handleSettingsIdleSuspend sets the global idle-suspend policy (a single on/off
+// + timeout, not per site). The timeout arrives as whole minutes from the UI and
+// is stored as a Go duration string.
+func handleSettingsIdleSuspend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Enabled        bool `json:"enabled"`
+		TimeoutMinutes int  `json:"timeout_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.TimeoutMinutes < 1 {
+		writeJSON(w, map[string]any{"ok": false, "error": "timeout must be at least 1 minute"})
+		return
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	cfg.IdleSuspend.Enabled = body.Enabled
+	cfg.IdleSuspend.Timeout = (time.Duration(body.TimeoutMinutes) * time.Minute).String()
+	if err := config.SaveGlobal(cfg); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if !body.Enabled {
+		// Turning the feature off brings every suspended site's workers back
+		// immediately rather than on the next tick.
+		idleEng.ResumeAllSuspended()
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func handleSettingsWorkerMode(w http.ResponseWriter, r *http.Request) {

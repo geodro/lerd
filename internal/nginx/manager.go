@@ -47,7 +47,8 @@ func detectSiteProxy(site config.Site) (path string, port int, ok bool) {
 }
 
 type nginxConfData struct {
-	Resolver string
+	Resolver     string
+	AccessSocket string
 }
 
 // VhostData is the data passed to vhost templates.
@@ -1288,7 +1289,8 @@ func EnsureNginxConfig() error {
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, nginxConfData{
-		Resolver: podman.NetworkGateway("lerd"),
+		Resolver:     podman.NetworkGateway("lerd"),
+		AccessSocket: config.AccessSocketPath(),
 	}); err != nil {
 		return fmt.Errorf("rendering nginx.conf: %w", err)
 	}

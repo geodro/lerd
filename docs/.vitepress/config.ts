@@ -124,6 +124,7 @@ export default defineConfig({
             { text: 'Framework Commands', link: '/features/commands' },
             { text: 'Framework Definitions', link: '/usage/framework-definitions' },
             { text: 'Queue Workers', link: '/usage/queue-workers' },
+            { text: 'Idle-Suspend', link: '/usage/idle-suspend' },
             { text: 'Worker Runtime (macOS)', link: '/usage/worker-runtime' },
             { text: 'Healing Failed Workers', link: '/usage/worker-heal' },
             { text: 'Browser Testing', link: '/usage/browser-testing' },

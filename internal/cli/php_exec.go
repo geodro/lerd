@@ -77,6 +77,7 @@ func fpmContainerForDir(dir, version string) string {
 // injected into the container exec — used by `lerd profile run` to set
 // SPX_ENABLED so a CLI command is profiled.
 func RunPHPCaptureEnv(cwd string, args []string, extraEnv []string) (int, error) {
+	recordCwdActivity(cwd) // keep the site awake under idle-suspend while you work in the terminal
 	version, err := phpDet.DetectVersion(cwd)
 	if err != nil {
 		cfg, cfgErr := config.LoadGlobal()

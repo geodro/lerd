@@ -16,11 +16,63 @@
   import { goToTab } from '$stores/route';
   import { m } from '../../paraglide/messages.js';
 
-  const groups = $derived($workerGroups);
-  const totalUnits = $derived(groups.reduce((n, g) => n + g.items.length, 0));
+  // A suspended worker's unit is stopped, so it drops out of /api/services
+  // entirely. To keep it visible (asleep) instead of silently vanishing, we
+  // re-synthesize one entry per site/worktree suspended worker from the sites
+  // store and merge it into its group alongside the running ones.
+  interface AsleepItem {
+    id: string;
+    label: string;
+    site: string;
+  }
+  interface MergedGroup {
+    key: string;
+    label: string;
+    running: Service[];
+    asleep: AsleepItem[];
+  }
+
+  const WORKER_LABELS: Record<string, string> = {
+    queue: 'Queues',
+    horizon: 'Horizon',
+    schedule: 'Schedules',
+    reverb: 'Reverb',
+    stripe: 'Stripe',
+    vite: 'Vite'
+  };
+  const groupLabelFor = (key: string) =>
+    WORKER_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1);
+
+  const groups = $derived.by((): MergedGroup[] => {
+    const map = new Map<string, MergedGroup>();
+    for (const g of $workerGroups) {
+      map.set(g.key, { key: g.key, label: g.label, running: g.items, asleep: [] });
+    }
+    const addAsleep = (worker: string, label: string, site: string) => {
+      let g = map.get(worker);
+      if (!g) {
+        g = { key: worker, label: groupLabelFor(worker), running: [], asleep: [] };
+        map.set(worker, g);
+      }
+      g.asleep.push({ id: worker + ':' + label, label, site });
+    };
+    for (const s of $sites) {
+      const name = s.name;
+      if (!name) continue;
+      for (const w of s.idle_suspended_workers || []) addAsleep(w, name, name);
+      for (const wt of s.worktrees || []) {
+        for (const w of wt.idle_suspended_workers || [])
+          addAsleep(w, name + '/' + (wt.branch || ''), name);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label));
+  });
+
+  const totalUnits = $derived(groups.reduce((n, g) => n + g.running.length + g.asleep.length, 0));
   const totalActive = $derived(
-    groups.reduce((n, g) => n + g.items.filter((i) => i.status === 'active').length, 0)
+    groups.reduce((n, g) => n + g.running.filter((i) => i.status === 'active').length, 0)
   );
+  const asleepCount = $derived(groups.reduce((n, g) => n + g.asleep.length, 0));
   const failingCount = $derived($unhealthyWorkers.length);
 
   function isItemFailing(item: Service): boolean {
@@ -43,6 +95,11 @@
     }
   }
 
+  function jumpToSiteName(name: string) {
+    const site = get(sites).find((x) => x.name === name);
+    if (site && site.domain) goToTab('sites', site.domain);
+  }
+
   async function onHeal() {
     const r = await healAll();
     await loadWorkerHealth();
@@ -52,13 +109,18 @@
 
 <DashboardCard title={m.dashboard_workers_title()} tone={failingCount > 0 ? 'critical' : 'default'}>
   {#snippet badge()}
-    {#if failingCount > 0}
-      <StatusPill tone="error" label={m.dashboard_workers_failing({ count: failingCount })} />
-    {:else if totalUnits > 0}
-      <StatusPill tone="ok" label={m.dashboard_workers_summary({ active: totalActive, total: totalUnits })} />
-    {:else}
-      <StatusPill tone="muted" label={m.dashboard_workers_none()} />
-    {/if}
+    <div class="flex items-center gap-1.5">
+      {#if failingCount > 0}
+        <StatusPill tone="error" label={m.dashboard_workers_failing({ count: failingCount })} />
+      {:else if totalUnits > 0}
+        <StatusPill tone="ok" label={m.dashboard_workers_summary({ active: totalActive, total: totalUnits })} />
+        {#if asleepCount > 0}
+          <StatusPill tone="muted" label={m.dashboard_workers_asleep({ count: asleepCount, total: totalUnits })} />
+        {/if}
+      {:else}
+        <StatusPill tone="muted" label={m.dashboard_workers_none()} />
+      {/if}
+    </div>
   {/snippet}
 
   {#if totalUnits === 0}
@@ -82,14 +144,16 @@
     {/if}
     <div class="space-y-2">
       {#each groups as g (g.key)}
-        {@const active = g.items.filter((i) => i.status === 'active').length}
+        {@const activeN = g.running.filter((i) => i.status === 'active').length}
+        {@const up = activeN + g.asleep.length}
+        {@const total = g.running.length + g.asleep.length}
         <div>
           <div class="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             <span>{g.label}</span>
-            <span class="font-mono tabular-nums {active === g.items.length ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-500 dark:text-gray-400'}">{active}/{g.items.length}</span>
+            <span class="font-mono tabular-nums {up === total ? 'text-emerald-600 dark:text-emerald-500' : 'text-gray-500 dark:text-gray-400'}">{up}/{total}</span>
           </div>
           <div class="mt-1 space-y-0.5">
-            {#each g.items as item (item.name)}
+            {#each g.running as item (item.name)}
               {@const failing = isItemFailing(item)}
               <button
                 type="button"
@@ -102,6 +166,18 @@
                   pulse={failing}
                 />
                 <span class="flex-1 truncate text-gray-600 dark:text-gray-300 group-hover:text-lerd-red transition-colors">{workerSiteName(item)}</span>
+              </button>
+            {/each}
+            {#each g.asleep as item (item.id)}
+              <button
+                type="button"
+                onclick={() => jumpToSiteName(item.site)}
+                class="group w-full flex items-center gap-2 px-1 py-0.5 -mx-1 rounded-sm text-left text-xs hover:bg-gray-50 dark:hover:bg-white/3 transition-colors"
+              >
+                <svg class="w-3 h-3 shrink-0 text-sky-500 dark:text-sky-400" viewBox="0 0 24 24" fill="currentColor" aria-label={m.sites_idle()}>
+                  <path d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z" />
+                </svg>
+                <span class="flex-1 truncate text-sky-600 dark:text-sky-400 group-hover:text-lerd-red transition-colors">{item.label}</span>
               </button>
             {/each}
           </div>

@@ -171,6 +171,7 @@ func runWithFnm(bin string, args []string) error {
 	if err != nil {
 		return err
 	}
+	recordCwdActivity(cwd) // keep the site awake under idle-suspend while you work in the terminal
 
 	version, _ := nodeDet.DetectVersion(cwd)
 	// Empty means the user has no .nvmrc / .node-version / global default; fall

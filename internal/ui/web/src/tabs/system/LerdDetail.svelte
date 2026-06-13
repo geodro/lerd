@@ -11,7 +11,9 @@
   } from '$stores/remoteControl';
   import { openRemoteControlModal, openLANProgressModal, type LANAction } from '$stores/modals';
   import { autostartEnabled, loadAutostart, toggleAutostart } from '$stores/autostart';
+  import { idleEnabled, idleTimeoutMinutes, loadIdle, saveIdle } from '$stores/idle';
   import Toggle from '$components/Toggle.svelte';
+  import SettingsCard from '$components/SettingsCard.svelte';
   import LanguageSwitcher from '$components/LanguageSwitcher.svelte';
   import { apiFetch } from '$lib/api';
   import { m } from '../../paraglide/messages.js';
@@ -20,7 +22,34 @@
     loadLANStatus();
     loadRemoteControl();
     loadAutostart();
+    loadIdle();
   });
+
+  let idleBusy = $state(false);
+  let idleMinutesInput = $state(30);
+  // Mirror the store into the editable field: fires on load and after a save
+  // (the only times the store changes), never while the user is typing.
+  $effect(() => {
+    idleMinutesInput = $idleTimeoutMinutes;
+  });
+  async function onToggleIdle() {
+    idleBusy = true;
+    try {
+      await saveIdle(!$idleEnabled, $idleTimeoutMinutes);
+    } finally {
+      idleBusy = false;
+    }
+  }
+  async function onSaveIdleTimeout() {
+    const v = Math.max(1, Math.floor(Number(idleMinutesInput) || 0));
+    if (v === $idleTimeoutMinutes) return;
+    idleBusy = true;
+    try {
+      await saveIdle($idleEnabled, v);
+    } finally {
+      idleBusy = false;
+    }
+  }
 
   function startLAN(action: LANAction) {
     openLANProgressModal(action);
@@ -73,30 +102,52 @@
   </div>
 
   <div class="p-3 space-y-3">
-    {#if $version.checked && !$version.hasUpdate}
-      <div class="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-500">
-        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-        </svg>
-        {m.system_lerd_latest()}
-      </div>
-    {/if}
-
-    {#if $version.hasUpdate}
-      <div class="space-y-3">
-        <div class="flex flex-wrap items-center gap-3">
-          <span class="inline-flex items-center gap-1.5 text-sm font-medium text-yellow-700 dark:text-yellow-400">
-            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
-            </svg>
-            {m.system_lerd_available({ version: $version.latest })}
-          </span>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <SettingsCard>
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0 text-sm">
+          {#if $version.checked && !$version.hasUpdate}
+            <span class="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-500">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+              </svg>
+              {m.system_lerd_latest()}
+            </span>
+          {:else if $version.hasUpdate}
+            <span class="inline-flex items-center gap-1.5 font-medium text-yellow-700 dark:text-yellow-400">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+              </svg>
+              {m.system_lerd_available({ version: $version.latest })}
+            </span>
+          {/if}
         </div>
-        <p class="text-xs text-gray-500 dark:text-gray-400">
-          {@html m.system_lerd_updateHint({ cmd: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">lerd update</code>' })}
-        </p>
-        {#if $accessMode.loopback}
-          <div class="flex items-center gap-2">
+        <button
+          onclick={loadVersion}
+          disabled={$version.checking}
+          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 text-gray-700 dark:text-gray-300 transition-colors"
+        >
+          {#if $version.checking}
+            <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            {m.system_lerd_checking()}
+          {:else}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            {m.system_lerd_checkForUpdates()}
+          {/if}
+        </button>
+      </div>
+
+      {#if $version.hasUpdate}
+        <div class="space-y-3 mt-3">
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            {@html m.system_lerd_updateHint({ cmd: '<code class="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded-sm font-mono">lerd update</code>' })}
+          </p>
+          {#if $accessMode.loopback}
             <button
               onclick={openUpdateTerminal}
               disabled={updateTerminalLoading}
@@ -115,49 +166,30 @@
                 {m.system_lerd_openTerminal()}
               {/if}
             </button>
-          </div>
-        {/if}
-        {#if updateTerminalError}
-          <p class="text-xs text-red-500">{updateTerminalError}</p>
-        {/if}
-        {#if $version.changelog}
-          <div>
-            <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{m.system_lerd_whatsNew()}</p>
-            <pre class="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/3 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed border border-gray-100 dark:border-lerd-border">{$version.changelog}</pre>
-          </div>
-        {/if}
-      </div>
-    {/if}
-
-    <button
-      onclick={loadVersion}
-      disabled={$version.checking}
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 text-gray-700 dark:text-gray-300 transition-colors"
-    >
-      {#if $version.checking}
-        <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-        </svg>
-        {m.system_lerd_checking()}
-      {:else}
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-        </svg>
-        {m.system_lerd_checkForUpdates()}
+          {/if}
+          {#if updateTerminalError}
+            <p class="text-xs text-red-500">{updateTerminalError}</p>
+          {/if}
+          {#if $version.changelog}
+            <div>
+              <p class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{m.system_lerd_whatsNew()}</p>
+              <pre class="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/3 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed border border-gray-100 dark:border-lerd-border">{$version.changelog}</pre>
+            </div>
+          {/if}
+        </div>
       {/if}
-    </button>
 
-    <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-      <svg class="w-3.5 h-3.5 shrink-0 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.922-.755 1.688-1.54 1.118l-3.366-2.446a1 1 0 00-1.176 0l-3.366 2.446c-.784.57-1.838-.196-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.098 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z"/>
-      </svg>
-      <span>{m.system_lerd_starBlurb()}</span>
-      <a href="https://github.com/geodro/lerd" target="_blank" rel="noopener" class="font-medium text-lerd-red hover:text-lerd-redhov underline-offset-2 hover:underline">{m.system_lerd_starCta()}</a>
-      <span>{m.system_lerd_starAfter()}</span>
-    </div>
+      <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-3">
+        <svg class="w-3.5 h-3.5 shrink-0 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.922-.755 1.688-1.54 1.118l-3.366-2.446a1 1 0 00-1.176 0l-3.366 2.446c-.784.57-1.838-.196-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.098 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z"/>
+        </svg>
+        <span>{m.system_lerd_starBlurb()}</span>
+        <a href="https://github.com/geodro/lerd" target="_blank" rel="noopener" class="font-medium text-lerd-red hover:text-lerd-redhov underline-offset-2 hover:underline">{m.system_lerd_starCta()}</a>
+        <span>{m.system_lerd_starAfter()}</span>
+      </div>
+    </SettingsCard>
 
-    <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
+    <SettingsCard>
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_language_title()}</span>
       </div>
@@ -165,18 +197,13 @@
         <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_language_description()}</p>
         <LanguageSwitcher />
       </div>
+    </SettingsCard>
     </div>
 
-    <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
-      <div class="flex items-center justify-between mb-2">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <SettingsCard>
+      <div class="flex items-center justify-between gap-3 mb-2">
         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_autostart_title()}</span>
-        <span class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full {$autostartEnabled ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400'}">
-          <span class="w-1.5 h-1.5 rounded-full {$autostartEnabled ? 'bg-emerald-500' : 'bg-gray-400'}"></span>
-          {$autostartEnabled ? m.system_autostart_enabled() : m.system_autostart_disabled()}
-        </span>
-      </div>
-      <div class="flex items-center justify-between gap-4">
-        <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_autostart_description()}</p>
         <Toggle
           on={$autostartEnabled}
           loading={autostartBusy}
@@ -184,10 +211,40 @@
           title={$autostartEnabled ? m.system_autostart_toggleOff() : m.system_autostart_toggleOn()}
         />
       </div>
+      <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_autostart_description()}</p>
+    </SettingsCard>
+
+    <SettingsCard>
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_idle_title()}</span>
+        <Toggle
+          on={$idleEnabled}
+          loading={idleBusy}
+          onclick={onToggleIdle}
+          title={$idleEnabled ? m.system_idle_toggleOff() : m.system_idle_toggleOn()}
+        />
+      </div>
+      <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_idle_description()}</p>
+      <div class="flex items-center justify-between gap-4 mt-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">{m.system_idle_timeoutLabel()}</p>
+        <div class="flex items-center gap-2">
+          <input
+            type="number"
+            min="1"
+            bind:value={idleMinutesInput}
+            onblur={onSaveIdleTimeout}
+            onkeydown={(e) => e.key === 'Enter' && onSaveIdleTimeout()}
+            disabled={idleBusy}
+            class="text-sm bg-white dark:bg-lerd-card border border-gray-200 dark:border-lerd-border rounded-lg px-3 py-1.5 w-20 text-gray-700 dark:text-gray-200 focus:outline-hidden focus:border-lerd-red/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <span class="text-xs text-gray-500 dark:text-gray-400">{m.system_idle_minutes()}</span>
+        </div>
+      </div>
+    </SettingsCard>
     </div>
 
     {#if $status.dns?.enabled !== false}
-    <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
+    <SettingsCard>
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_lan_title()}</span>
         <span class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full {$lan.exposed ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400'}">
@@ -305,10 +362,10 @@
           </div>
         </div>
       {/if}
-    </div>
+    </SettingsCard>
     {/if}
 
-    <div class="border-t border-gray-100 dark:border-lerd-border pt-4">
+    <SettingsCard>
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">{m.system_remote_title()}</span>
         <span
@@ -379,6 +436,6 @@
         </div>
       {/if}
       {#if $remoteControl.error}<p class="text-xs text-red-500 mt-2">{$remoteControl.error}</p>{/if}
-    </div>
+    </SettingsCard>
   </div>
 </div>

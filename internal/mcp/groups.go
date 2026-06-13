@@ -5,7 +5,31 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/geodro/lerd/internal/activityping"
+	"github.com/geodro/lerd/internal/config"
 )
+
+// recordToolActivity marks the site a tool call targets as active under
+// idle-suspend. Global tool calls that name no site are a no-op.
+func recordToolActivity(args map[string]any) {
+	activityping.Site(siteForToolArgs(args))
+}
+
+// siteForToolArgs resolves the site a tool call targets, from the explicit
+// `site` (by name) or `path` (by directory) argument. Returns "" when the call
+// names no site.
+func siteForToolArgs(args map[string]any) string {
+	if name := strArg(args, "site"); name != "" {
+		return name
+	}
+	if path := strArg(args, "path"); path != "" {
+		if s, err := config.FindSiteByPath(path); err == nil && s != nil {
+			return s.Name
+		}
+	}
+	return ""
+}
 
 // This file consolidates what used to be ~80 flat MCP tools into eleven
 // resource-grouped tools (site, service, db, env, runtime, worker, exec,
@@ -196,6 +220,10 @@ func handleToolCall(params json.RawMessage) (any, *rpcError) {
 	if args == nil {
 		args = map[string]any{}
 	}
+
+	// Working on a site through MCP counts as activity, so idle-suspend keeps it
+	// awake (and wakes it) the same as an HTTP request or a CLI command would.
+	recordToolActivity(args)
 
 	// worktree keeps its own internal action dispatcher.
 	if p.Name == "worktree" {

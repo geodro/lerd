@@ -21,8 +21,12 @@ type Site struct {
 	Ignored       bool     `yaml:"ignored,omitempty"`
 	Paused        bool     `yaml:"paused,omitempty"`
 	PausedWorkers []string `yaml:"paused_workers,omitempty"`
-	Framework     string   `yaml:"framework,omitempty"`
-	PublicDir     string   `yaml:"public_dir,omitempty"`
+	// Pinned excludes the site from idle-suspend: its workers stay running even
+	// when the global idle policy is on, so a site you want always-warm never
+	// sleeps.
+	Pinned    bool   `yaml:"pinned,omitempty"`
+	Framework string `yaml:"framework,omitempty"`
+	PublicDir string `yaml:"public_dir,omitempty"`
 	// AppURL, when set, is the per-machine override for APP_URL in the
 	// project's env file. Lower priority than ProjectConfig.AppURL (which is
 	// committed to the repo) and higher priority than the default generator
@@ -69,6 +73,18 @@ type Site struct {
 	// main's database instead of its own: DB_DATABASE in its .env is kept in
 	// sync with the main's database name.
 	GroupSharedDB bool `yaml:"group_shared_db,omitempty"`
+	// IdleSuspendedWorkers records the workers the idle engine gracefully
+	// stopped while the site was quiet, so activity can resume them. Kept
+	// distinct from PausedWorkers (manual `lerd pause`) so an automatic suspend
+	// and a manual pause never clobber each other's restore list. Idle-suspend
+	// itself is configured globally (config.yaml idle_suspend), not per site.
+	IdleSuspendedWorkers []string `yaml:"idle_suspended_workers,omitempty"`
+
+	// WorktreeIdleSuspended records, per git worktree (keyed by the worktree's
+	// unit-slug base), the workers the idle engine stopped while that worktree was
+	// quiet. Each worktree idles on its own timer, independent of the main site
+	// and of the other worktrees, so its suspended set is tracked separately.
+	WorktreeIdleSuspended map[string][]string `yaml:"worktree_idle_suspended,omitempty"`
 }
 
 // IsGroupMain returns true when the site owns a group's base domain: it has a
@@ -140,57 +156,63 @@ func (s *Site) HasDomain(domain string) bool {
 // siteYAML is the on-disk YAML representation of a Site, supporting both the
 // legacy single "domain" field and the new "domains" array.
 type siteYAML struct {
-	Name           string   `yaml:"name"`
-	Domain         string   `yaml:"domain,omitempty"`  // legacy single domain
-	Domains        []string `yaml:"domains,omitempty"` // new multi-domain
-	Path           string   `yaml:"path"`
-	PHPVersion     string   `yaml:"php_version"`
-	NodeVersion    string   `yaml:"node_version"`
-	Secured        bool     `yaml:"secured"`
-	Ignored        bool     `yaml:"ignored,omitempty"`
-	Paused         bool     `yaml:"paused,omitempty"`
-	PausedWorkers  []string `yaml:"paused_workers,omitempty"`
-	Framework      string   `yaml:"framework,omitempty"`
-	PublicDir      string   `yaml:"public_dir,omitempty"`
-	AppURL         string   `yaml:"app_url,omitempty"`
-	LANPort        int      `yaml:"lan_port,omitempty"`
-	ContainerPort  int      `yaml:"container_port,omitempty"`
-	ContainerSSL   bool     `yaml:"container_ssl,omitempty"`
-	Runtime        string   `yaml:"runtime,omitempty"`
-	RuntimeWorker  bool     `yaml:"runtime_worker,omitempty"`
-	HostPort       int      `yaml:"host_port,omitempty"`
-	HostSSL        bool     `yaml:"host_ssl,omitempty"`
-	HostCommand    string   `yaml:"host_command,omitempty"`
-	Group          string   `yaml:"group,omitempty"`
-	GroupSubdomain string   `yaml:"group_subdomain,omitempty"`
-	GroupSharedDB  bool     `yaml:"group_shared_db,omitempty"`
+	Name                  string              `yaml:"name"`
+	Domain                string              `yaml:"domain,omitempty"`  // legacy single domain
+	Domains               []string            `yaml:"domains,omitempty"` // new multi-domain
+	Path                  string              `yaml:"path"`
+	PHPVersion            string              `yaml:"php_version"`
+	NodeVersion           string              `yaml:"node_version"`
+	Secured               bool                `yaml:"secured"`
+	Ignored               bool                `yaml:"ignored,omitempty"`
+	Paused                bool                `yaml:"paused,omitempty"`
+	PausedWorkers         []string            `yaml:"paused_workers,omitempty"`
+	Pinned                bool                `yaml:"pinned,omitempty"`
+	Framework             string              `yaml:"framework,omitempty"`
+	PublicDir             string              `yaml:"public_dir,omitempty"`
+	AppURL                string              `yaml:"app_url,omitempty"`
+	LANPort               int                 `yaml:"lan_port,omitempty"`
+	ContainerPort         int                 `yaml:"container_port,omitempty"`
+	ContainerSSL          bool                `yaml:"container_ssl,omitempty"`
+	Runtime               string              `yaml:"runtime,omitempty"`
+	RuntimeWorker         bool                `yaml:"runtime_worker,omitempty"`
+	HostPort              int                 `yaml:"host_port,omitempty"`
+	HostSSL               bool                `yaml:"host_ssl,omitempty"`
+	HostCommand           string              `yaml:"host_command,omitempty"`
+	Group                 string              `yaml:"group,omitempty"`
+	GroupSubdomain        string              `yaml:"group_subdomain,omitempty"`
+	GroupSharedDB         bool                `yaml:"group_shared_db,omitempty"`
+	IdleSuspendedWorkers  []string            `yaml:"idle_suspended_workers,omitempty"`
+	WorktreeIdleSuspended map[string][]string `yaml:"worktree_idle_suspended,omitempty"`
 }
 
 func (s Site) toYAML() siteYAML {
 	return siteYAML{
-		Name:           s.Name,
-		Domains:        s.Domains,
-		Path:           s.Path,
-		PHPVersion:     s.PHPVersion,
-		NodeVersion:    s.NodeVersion,
-		Secured:        s.Secured,
-		Ignored:        s.Ignored,
-		Paused:         s.Paused,
-		PausedWorkers:  s.PausedWorkers,
-		Framework:      s.Framework,
-		PublicDir:      s.PublicDir,
-		AppURL:         s.AppURL,
-		LANPort:        s.LANPort,
-		ContainerPort:  s.ContainerPort,
-		ContainerSSL:   s.ContainerSSL,
-		Runtime:        s.Runtime,
-		RuntimeWorker:  s.RuntimeWorker,
-		HostPort:       s.HostPort,
-		HostSSL:        s.HostSSL,
-		HostCommand:    s.HostCommand,
-		Group:          s.Group,
-		GroupSubdomain: s.GroupSubdomain,
-		GroupSharedDB:  s.GroupSharedDB,
+		Name:                  s.Name,
+		Domains:               s.Domains,
+		Path:                  s.Path,
+		PHPVersion:            s.PHPVersion,
+		NodeVersion:           s.NodeVersion,
+		Secured:               s.Secured,
+		Ignored:               s.Ignored,
+		Paused:                s.Paused,
+		PausedWorkers:         s.PausedWorkers,
+		Pinned:                s.Pinned,
+		Framework:             s.Framework,
+		PublicDir:             s.PublicDir,
+		AppURL:                s.AppURL,
+		LANPort:               s.LANPort,
+		ContainerPort:         s.ContainerPort,
+		ContainerSSL:          s.ContainerSSL,
+		Runtime:               s.Runtime,
+		RuntimeWorker:         s.RuntimeWorker,
+		HostPort:              s.HostPort,
+		HostSSL:               s.HostSSL,
+		HostCommand:           s.HostCommand,
+		Group:                 s.Group,
+		GroupSubdomain:        s.GroupSubdomain,
+		GroupSharedDB:         s.GroupSharedDB,
+		IdleSuspendedWorkers:  s.IdleSuspendedWorkers,
+		WorktreeIdleSuspended: s.WorktreeIdleSuspended,
 	}
 }
 
@@ -200,29 +222,32 @@ func (sy siteYAML) toSite() Site {
 		domains = []string{sy.Domain}
 	}
 	return Site{
-		Name:           sy.Name,
-		Domains:        domains,
-		Path:           sy.Path,
-		PHPVersion:     sy.PHPVersion,
-		NodeVersion:    sy.NodeVersion,
-		Secured:        sy.Secured,
-		Ignored:        sy.Ignored,
-		Paused:         sy.Paused,
-		PausedWorkers:  sy.PausedWorkers,
-		Framework:      sy.Framework,
-		PublicDir:      sy.PublicDir,
-		AppURL:         sy.AppURL,
-		LANPort:        sy.LANPort,
-		ContainerPort:  sy.ContainerPort,
-		ContainerSSL:   sy.ContainerSSL,
-		Runtime:        sy.Runtime,
-		RuntimeWorker:  sy.RuntimeWorker,
-		HostPort:       sy.HostPort,
-		HostSSL:        sy.HostSSL,
-		HostCommand:    sy.HostCommand,
-		Group:          sy.Group,
-		GroupSubdomain: sy.GroupSubdomain,
-		GroupSharedDB:  sy.GroupSharedDB,
+		Name:                  sy.Name,
+		Domains:               domains,
+		Path:                  sy.Path,
+		PHPVersion:            sy.PHPVersion,
+		NodeVersion:           sy.NodeVersion,
+		Secured:               sy.Secured,
+		Ignored:               sy.Ignored,
+		Paused:                sy.Paused,
+		PausedWorkers:         sy.PausedWorkers,
+		Pinned:                sy.Pinned,
+		Framework:             sy.Framework,
+		PublicDir:             sy.PublicDir,
+		AppURL:                sy.AppURL,
+		LANPort:               sy.LANPort,
+		ContainerPort:         sy.ContainerPort,
+		ContainerSSL:          sy.ContainerSSL,
+		Runtime:               sy.Runtime,
+		RuntimeWorker:         sy.RuntimeWorker,
+		HostPort:              sy.HostPort,
+		HostSSL:               sy.HostSSL,
+		HostCommand:           sy.HostCommand,
+		Group:                 sy.Group,
+		GroupSubdomain:        sy.GroupSubdomain,
+		GroupSharedDB:         sy.GroupSharedDB,
+		IdleSuspendedWorkers:  sy.IdleSuspendedWorkers,
+		WorktreeIdleSuspended: sy.WorktreeIdleSuspended,
 	}
 }
 
@@ -246,6 +271,13 @@ var (
 	sitesCacheAt time.Time
 	sitesCacheSz int64
 )
+
+// siteWriteMu serializes every read-modify-write of the registry (AddSite,
+// RemoveSite, ReorderSites, IgnoreSite). Each does LoadSites -> mutate ->
+// SaveSites; without one lock spanning the whole sequence, concurrent writers
+// (the idle engine's goroutines, a CLI pin/pause, a worker toggle) interleave
+// and clobber each other, which let one site's worker list bleed onto another.
+var siteWriteMu sync.Mutex
 
 func invalidateSitesCache() {
 	sitesCacheMu.Lock()
@@ -309,6 +341,15 @@ func cloneSiteRegistry(in *SiteRegistry) *SiteRegistry {
 		if s.PausedWorkers != nil {
 			cp.PausedWorkers = append([]string(nil), s.PausedWorkers...)
 		}
+		if s.IdleSuspendedWorkers != nil {
+			cp.IdleSuspendedWorkers = append([]string(nil), s.IdleSuspendedWorkers...)
+		}
+		if s.WorktreeIdleSuspended != nil {
+			cp.WorktreeIdleSuspended = make(map[string][]string, len(s.WorktreeIdleSuspended))
+			for k, v := range s.WorktreeIdleSuspended {
+				cp.WorktreeIdleSuspended[k] = append([]string(nil), v...)
+			}
+		}
 		out.Sites[i] = cp
 	}
 	return out
@@ -345,6 +386,8 @@ func AddSite(site Site) error {
 	if ContainsUnitInjectionChars(site.Name) || strings.ContainsRune(site.Name, '/') {
 		return fmt.Errorf("invalid site name %q: must not contain newline, NUL, or slash", site.Name)
 	}
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
 	reg, err := LoadSites()
 	if err != nil {
 		return err
@@ -363,6 +406,8 @@ func AddSite(site Site) error {
 
 // RemoveSite removes a site by name from the registry.
 func RemoveSite(name string) error {
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
 	reg, err := LoadSites()
 	if err != nil {
 		return err
@@ -383,6 +428,8 @@ func RemoveSite(name string) error {
 // absent from order is kept and appended after the ordered ones in its original
 // relative position, so paused sites and grouped secondaries are never dropped.
 func ReorderSites(order []string) error {
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
 	reg, err := LoadSites()
 	if err != nil {
 		return err
@@ -413,6 +460,8 @@ func ReorderSites(order []string) error {
 
 // IgnoreSite marks a site as ignored (used for parked sites that have been unlinked).
 func IgnoreSite(name string) error {
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
 	reg, err := LoadSites()
 	if err != nil {
 		return err
@@ -423,6 +472,60 @@ func IgnoreSite(name string) error {
 			reg.Sites[i].Ignored = true
 			return SaveSites(reg)
 		}
+	}
+	return fmt.Errorf("site %q not found", name)
+}
+
+// SetSiteIdleSuspendedWorkers atomically updates just a site's idle-suspended
+// worker list. It reloads the record under the write lock and rewrites only that
+// field, so a stale full-record write (FindSite -> mutate -> AddSite) can't clobber
+// a concurrent change to another field like Paused or Pinned.
+func SetSiteIdleSuspendedWorkers(name string, workers []string) error {
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
+	reg, err := LoadSites()
+	if err != nil {
+		return err
+	}
+	for i := range reg.Sites {
+		if reg.Sites[i].Name == name {
+			reg.Sites[i].IdleSuspendedWorkers = workers
+			return SaveSites(reg)
+		}
+	}
+	return fmt.Errorf("site %q not found", name)
+}
+
+// SetWorktreeIdleSuspendedWorkers atomically updates a single worktree's
+// idle-suspended worker list (keyed by the worktree's unit-slug base). Passing an
+// empty list clears that worktree's entry, and clearing the last entry drops the
+// map, so a resumed worktree leaves no residue in sites.yaml. Uses the same write
+// lock as the other registry mutators.
+func SetWorktreeIdleSuspendedWorkers(name, wtBase string, workers []string) error {
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
+	reg, err := LoadSites()
+	if err != nil {
+		return err
+	}
+	for i := range reg.Sites {
+		if reg.Sites[i].Name != name {
+			continue
+		}
+		m := reg.Sites[i].WorktreeIdleSuspended
+		if len(workers) == 0 {
+			delete(m, wtBase)
+			if len(m) == 0 {
+				reg.Sites[i].WorktreeIdleSuspended = nil
+			}
+		} else {
+			if m == nil {
+				m = map[string][]string{}
+				reg.Sites[i].WorktreeIdleSuspended = m
+			}
+			m[wtBase] = workers
+		}
+		return SaveSites(reg)
 	}
 	return fmt.Errorf("site %q not found", name)
 }

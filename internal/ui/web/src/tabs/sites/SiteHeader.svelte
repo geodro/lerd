@@ -5,6 +5,8 @@
     type Site,
     pauseSite,
     resumeSite,
+    pinSite,
+    unpinSite,
     unlinkSite,
     restartSite,
     openSiteInBrowser,
@@ -22,6 +24,7 @@
   } from '$stores/modals';
   import Icon from '$components/Icon.svelte';
   import { accessMode } from '$stores/accessMode';
+  import { idleEnabled } from '$stores/idle';
   import { status, loadStatus } from '$stores/status';
   import { xdebugOn, xdebugOff, type XdebugMode } from '$stores/xdebug';
   import { apiBase } from '$lib/api';
@@ -52,7 +55,17 @@
   let restartBusy = $state(false);
   let tlsBusy = $state(false);
   let lanBusy = $state(false);
+  let pinBusy = $state(false);
   let xdebugBusy = $state(false);
+
+  async function togglePin() {
+    pinBusy = true;
+    try {
+      await (site.pinned ? unpinSite(site.domain) : pinSite(site.domain));
+    } finally {
+      pinBusy = false;
+    }
+  }
   let overflowOpen = $state(false);
   let overflowEl: HTMLDivElement | null = $state(null);
 
@@ -573,6 +586,25 @@
                   />
                 </svg>
                 {restartBusy ? '...' : m.sites_restartContainer()}
+              </button>
+            {/if}
+            {#if $idleEnabled && !site.paused && !activeWorktreeBranch}
+              <button
+                type="button"
+                role="menuitem"
+                onclick={() => {
+                  overflowOpen = false;
+                  togglePin();
+                }}
+                disabled={pinBusy}
+                class="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50 {site.pinned
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-gray-700 dark:text-gray-200'}"
+              >
+                <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill={site.pinned ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                  <path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5l-2 3v2h5v5l1 1 1-1v-5h5v-2l-2-3z" />
+                </svg>
+                {pinBusy ? '...' : site.pinned ? m.sites_unpin() : m.sites_pin()}
               </button>
             {/if}
             {#if !activeWorktreeBranch}
