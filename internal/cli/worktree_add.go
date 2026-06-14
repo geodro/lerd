@@ -568,7 +568,13 @@ func AutoStartOptedInWorktreeWorkers(site *config.Site, worktreePath, phpVersion
 	if site == nil || worktreePath == "" {
 		return
 	}
-	for _, name := range OptedInHostWorkers(site, worktreePath) {
+	// Workers the idle engine has suspended for this worktree must stay down. The
+	// boot scan and the watcher's onAdded both land here, so without this filter a
+	// daemon restart resurrects a sleeping worktree's worker (e.g. Vite) while the
+	// engine still believes it is suspended, drifting the two apart forever. The
+	// next request resumes it through the engine instead.
+	wtBase := config.WorktreeUnitSlug(filepath.Base(worktreePath))
+	for _, name := range worktreeWorkersToStart(site, wtBase, OptedInHostWorkers(site, worktreePath)) {
 		fw, ok := config.GetFrameworkForDir(site.Framework, site.Path)
 		if !ok {
 			return
@@ -581,6 +587,28 @@ func AutoStartOptedInWorktreeWorkers(site *config.Site, worktreePath, phpVersion
 			fmt.Printf("[WARN] auto-start %s for worktree %s: %v\n", name, filepath.Base(worktreePath), err)
 		}
 	}
+}
+
+// worktreeWorkersToStart drops any worker the idle engine has suspended for the
+// worktree (keyed by its unit-slug base) from names, so an autostart pass never
+// resurrects a deliberately-sleeping worker. Returns names unchanged when the
+// worktree has no suspended workers.
+func worktreeWorkersToStart(site *config.Site, wtBase string, names []string) []string {
+	suspended := site.WorktreeIdleSuspended[wtBase]
+	if len(suspended) == 0 {
+		return names
+	}
+	skip := make(map[string]bool, len(suspended))
+	for _, w := range suspended {
+		skip[w] = true
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if !skip[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // OptedInHostWorkers returns the names of host-mode workers the user has

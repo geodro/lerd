@@ -45,6 +45,10 @@ const idleTickInterval = 30 * time.Second
 // idleEng is the running engine, created by startAccessFeed. nil until then.
 var idleEng *idleEngine
 
+// detectWorktrees is the worktree detector the engine uses, a var so tests can
+// stand in fake worktrees without a real git checkout.
+var detectWorktrees = gitpkg.DetectWorktrees
+
 // idleEngine suspends a site's suspendable workers once it has been idle past
 // its timeout and resumes them on activity. It holds an in-memory mirror of
 // which sites are currently suspended (also persisted in Site.IdleSuspendedWorkers)
@@ -133,10 +137,14 @@ func (e *idleEngine) tick() {
 		e.mu.Unlock()
 		if s.Pinned {
 			// Pinned sites never go idle. If one was pinned while already
-			// suspended, wake it so the pin takes effect immediately.
+			// suspended, wake it so the pin takes effect immediately. Still tick
+			// its worktrees: the pin covers them too (tickWorktrees resumes a
+			// suspended worktree and skips suspending), and the pass keeps their
+			// domains resolvable for the access feed.
 			if suspended {
 				e.resume(s.Name)
 			}
+			e.tickWorktrees(&s, enabled, timeout, now, newWtPath, newWtDomain)
 			continue
 		}
 		idleFor, hasRecord := e.tracker.IdleFor(s.Name, now)
@@ -163,7 +171,7 @@ func (e *idleEngine) tick() {
 // same startup grace as a site: never-before-seen keys are seeded to now so they
 // aren't suspended inside their first window.
 func (e *idleEngine) tickWorktrees(s *config.Site, enabled bool, timeout time.Duration, now time.Time, outPath, outDomain map[string]string) {
-	wts, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+	wts, err := detectWorktrees(s.Path, s.PrimaryDomain())
 	if err != nil || len(wts) == 0 {
 		return
 	}
@@ -215,6 +223,10 @@ func (e *idleEngine) OnActivity(key string) {
 	if !suspended {
 		return
 	}
+	// If a suspend is mid-flight (slow build), resume() below no-ops on the
+	// inFlight guard and this wake is dropped. That is fine: the activity already
+	// updated last-active, so once the suspend settles the next tick sees the site
+	// active again and resumes it (idle < timeout && suspended -> ActionResume).
 	if site, wtBase, isWt := splitWtKey(key); isWt {
 		if wtPath != "" {
 			e.resumeWorktree(site, wtBase, wtPath) // resumeWorktree runs its own goroutine
@@ -305,7 +317,7 @@ func (e *idleEngine) ResumeAllSuspended() {
 // worktreePathForBase resolves a worktree's checkout dir from its unit-slug base
 // by detecting the site's current worktrees. Returns "" if the worktree is gone.
 func (e *idleEngine) worktreePathForBase(s *config.Site, wtBase string) string {
-	wts, err := gitpkg.DetectWorktrees(s.Path, s.PrimaryDomain())
+	wts, err := detectWorktrees(s.Path, s.PrimaryDomain())
 	if err != nil {
 		return ""
 	}

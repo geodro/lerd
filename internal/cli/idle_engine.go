@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
@@ -120,7 +121,13 @@ func ensureViteSleepable(site *config.Site) bool {
 func ensureViteSleepableAt(site *config.Site, dir string) bool {
 	pub := sitePublicDir(site)
 	if !viteManifestExists(dir, pub) {
-		runViteBuildAt(site, dir)
+		// Build at most once per checkout per session. A worktree often has no
+		// built manifest and its `npm run build` may fail (deps not installed);
+		// without this guard the engine would re-run the build on every 30s tick
+		// for such a checkout, since a failed build leaves it unsuspended.
+		if _, tried := viteBuildAttempted.LoadOrStore(dir, struct{}{}); !tried {
+			runViteBuildAt(site, dir)
+		}
 	}
 	if !viteManifestExists(dir, pub) {
 		return false
@@ -129,13 +136,15 @@ func ensureViteSleepableAt(site *config.Site, dir string) bool {
 	return true
 }
 
-// runViteBuild runs `npm run build` for the site on the host via its pinned Node
-// version, the same way the vite host worker runs `npm run dev`. Blocking; the
-// caller runs it off the engine's hot path.
-func runViteBuild(site *config.Site) { runViteBuildAt(site, site.Path) }
+// viteBuildAttempted remembers the checkouts the idle engine has already tried a
+// one-time `npm run build` for this session, so a failing build is not retried
+// every tick. A later successful dev run drops a manifest that ensureViteSleepableAt
+// picks up regardless of this set.
+var viteBuildAttempted sync.Map
 
-// runViteBuildAt runs `npm run build` in dir (a site or worktree checkout).
-func runViteBuildAt(site *config.Site, dir string) {
+// runViteBuildAt runs `npm run build` in dir (a site or worktree checkout). A
+// var so tests can stand in for the host build without invoking fnm/npm.
+var runViteBuildAt = func(site *config.Site, dir string) {
 	nodeVersion := site.NodeVersion
 	if nodeVersion == "" {
 		nodeVersion = "default"
