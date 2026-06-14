@@ -2,12 +2,25 @@ package ui
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/geodro/lerd/internal/idle"
 )
+
+// listenAccessSock binds a unix datagram socket with a short relative name.
+// macOS caps sun_path at 104 bytes, well under t.TempDir()'s /var/folders path,
+// so chdir into the temp dir and bind "access.sock" to stay within the limit.
+func listenAccessSock(t *testing.T) (net.PacketConn, string) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	conn, err := net.ListenPacket("unixgram", "access.sock")
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn, "access.sock"
+}
 
 // TestReadAccessFeed_recordsTouch drives a real unix datagram socket with an
 // nginx-style syslog access line and asserts it lands as a site touch. This is
@@ -23,12 +36,7 @@ func TestReadAccessFeed_recordsTouch(t *testing.T) {
 		return "", false
 	})
 
-	sock := filepath.Join(t.TempDir(), "access.sock")
-	conn, err := net.ListenPacket("unixgram", sock)
-	if err != nil {
-		t.Fatalf("bind: %v", err)
-	}
-	t.Cleanup(func() { conn.Close() })
+	conn, sock := listenAccessSock(t)
 	go readAccessFeed(conn)
 
 	sender, err := net.Dial("unixgram", sock)
@@ -57,12 +65,7 @@ func TestReadAccessFeed_ignoresUnmatched(t *testing.T) {
 	t.Cleanup(func() { activityTracker = prev })
 	activityTracker = idle.NewTracker(func(string) (string, bool) { return "", false })
 
-	sock := filepath.Join(t.TempDir(), "access.sock")
-	conn, err := net.ListenPacket("unixgram", sock)
-	if err != nil {
-		t.Fatalf("bind: %v", err)
-	}
-	t.Cleanup(func() { conn.Close() })
+	conn, sock := listenAccessSock(t)
 	go readAccessFeed(conn)
 
 	sender, err := net.Dial("unixgram", sock)
