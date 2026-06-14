@@ -2,6 +2,7 @@ package siteops
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/config"
@@ -160,11 +161,15 @@ func FinishFrankenPHPLink(site config.Site) error {
 
 	_ = podman.WriteContainerHosts()
 
-	image := podman.FrankenPHPImage(site.PHPVersion)
-	if err := podman.PullImageIfMissing(image); err != nil {
-		fmt.Printf("[WARN] pulling %s: %v\n", image, err)
+	// Build the derived image (dunglas base + lerd's standard extension set) so
+	// the site has redis/gd/pdo/... instead of the bare base. The build pulls the
+	// base itself; a failure leaves the site registered to retry on next start.
+	if err := podman.BuildFrankenPHPImage(site.PHPVersion, false, os.Stdout); err != nil {
+		fmt.Printf("[WARN] building FrankenPHP image: %v\n", err)
 	}
 
+	// WriteFrankenPHPQuadletDiff ensures the debug-tooling bind-mount sources
+	// (user ini, xdebug, dump, devtools) exist before referencing them.
 	unitName := podman.FrankenPHPContainerName(site.Name)
 	changed, err := podman.WriteFrankenPHPQuadletDiff(site.Name, site.Path, site.PHPVersion, entrypoint, env)
 	if err != nil {

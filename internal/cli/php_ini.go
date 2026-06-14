@@ -52,6 +52,9 @@ func runPhpIni(_ *cobra.Command, args []string) error {
 	if err := podman.RestartUnit(unit); err != nil {
 		return fmt.Errorf("restarting %s: %w", unit, err)
 	}
+	// Per-site containers (FrankenPHP, custom-FPM) on this version mount the same
+	// user ini; restart them so the edit applies there too.
+	podman.RestartSiteContainersForVersion(version)
 	fmt.Println("Done.")
 	return nil
 }

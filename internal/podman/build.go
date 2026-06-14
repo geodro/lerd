@@ -1064,3 +1064,29 @@ func EnsureUserIni(version string) error {
 		"; max_execution_time = 60\n"
 	return os.WriteFile(path, []byte(content), 0644)
 }
+
+// EnsureSitePHPUserIni creates a FrankenPHP site's own per-site user php.ini with
+// defaults if it doesn't exist, healing a stale podman-auto-created directory at
+// the bind-mount path the same way EnsureUserIni does for the per-version file.
+func EnsureSitePHPUserIni(siteName string) error {
+	path := config.SitePHPUserIniFile(siteName)
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return nil
+		}
+		if rmErr := os.Remove(path); rmErr != nil {
+			return fmt.Errorf("removing stale user ini directory: %w", rmErr)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	content := "; Lerd per-site PHP settings for " + siteName + " (FrankenPHP)\n" +
+		"; Applies only to this site's container. Edit, then restart the site.\n" +
+		";\n" +
+		"; memory_limit = 512M\n" +
+		"; upload_max_filesize = 64M\n" +
+		"; post_max_size = 64M\n" +
+		"; max_execution_time = 60\n"
+	return os.WriteFile(path, []byte(content), 0644)
+}

@@ -506,23 +506,19 @@ var laravelFramework = &Framework{
 		// Non-worker serves via plain frankenphp php-server so code edits take effect
 		// immediately (fresh request lifecycle), same UX as FPM.
 		Entrypoint: []string{"frankenphp", "php-server", "-l", ":8000", "-r", "public/"},
-		// Worker runs Octane; pcntl is installed at boot since dunglas/frankenphp
-		// doesn't ship it. By default code edits need `lerd restart`; opting the
-		// octane worker into reload (lerd octane:reload on) selects the watch
-		// variant below so the server restarts workers on file changes.
+		// Worker runs Octane. pcntl and nodejs are baked into lerd's derived
+		// FrankenPHP image now (see podman.BuildFrankenPHPImage), so the entrypoint
+		// no longer installs them at container start. By default code edits need
+		// `lerd restart`; opting the octane worker into reload (lerd octane:reload
+		// on) selects the watch variant below so the server restarts on changes.
 		WorkerEntrypoint: []string{"sh", "-c",
-			`install-php-extensions pcntl >/dev/null && ` +
-				`exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto`},
+			`exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto`},
 		// Watch variant: same command plus --watch. Octane's watcher runs
-		// vendor/laravel/octane/bin/file-watcher.cjs under node and resolves the
-		// chokidar npm package from the project, so the otherwise node-less
-		// dunglas/frankenphp Alpine image needs node installed — done here (only on
-		// the opt-in reload path, so the default image stays slim). Core appends
-		// --poll on hosts where the container can't see host filesystem events.
+		// vendor/laravel/octane/bin/file-watcher.cjs under node (baked into the
+		// image) and resolves the chokidar npm package from the project. Core
+		// appends --poll on hosts where the container can't see host fs events.
 		WorkerReloadEntrypoint: []string{"sh", "-c",
-			`install-php-extensions pcntl >/dev/null && ` +
-				`apk add --no-cache nodejs >/dev/null 2>&1 && ` +
-				`exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto --watch`},
+			`exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --workers=auto --watch`},
 		SupportsWorker: true,
 	},
 	Commands: []FrameworkCommand{

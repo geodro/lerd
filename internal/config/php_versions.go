@@ -52,6 +52,16 @@ func LatestFrankenPHPVersion() string {
 	return v[len(v)-1]
 }
 
+// NormalizeFrankenPHPVersion returns v when dunglas/frankenphp publishes an
+// image for it, otherwise the latest version it does, so the base image, the
+// derived image name, and the quadlet all agree on one version.
+func NormalizeFrankenPHPVersion(v string) string {
+	if IsFrankenPHPVersion(v) {
+		return v
+	}
+	return LatestFrankenPHPVersion()
+}
+
 // phpVersionAtLeast reports whether "major.minor" version a is >= b.
 func phpVersionAtLeast(a, b string) bool {
 	amaj, amin := splitMajorMinor(a)

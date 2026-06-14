@@ -27,6 +27,74 @@ func phpIniFile(version string) cfgedit.File {
 	}
 }
 
+// phpIniSiteName decodes a "site:<name>" editor scope, returning the site name
+// and true; a bare PHP version returns ("", false).
+func phpIniSiteName(scope string) (string, bool) {
+	return strings.CutPrefix(scope, "site:")
+}
+
+// phpIniValid reports whether a php.ini editor scope is valid: a bare installed
+// PHP version, or "site:<name>" for an existing FrankenPHP site (which has its
+// own per-site ini).
+func phpIniValid(scope string) bool {
+	if name, ok := phpIniSiteName(scope); ok {
+		s, err := config.FindSite(name)
+		return err == nil && s != nil && s.IsFrankenPHP()
+	}
+	installed, _ := phpPkg.ListInstalled()
+	return slices.Contains(installed, scope)
+}
+
+// phpIniScopeFile returns the cfgedit.File for a scope: the per-version file, or
+// a FrankenPHP site's own per-site file.
+func phpIniScopeFile(scope string) cfgedit.File {
+	if name, ok := phpIniSiteName(scope); ok {
+		return cfgedit.File{
+			Path:     config.SitePHPUserIniFile(name),
+			BkpDir:   config.SitePHPUserIniBkpDir(name),
+			BkpName:  "98-user.ini",
+			Template: phpUserIniTemplate,
+		}
+	}
+	return phpIniFile(scope)
+}
+
+// phpIniRestart applies a scope's ini change: for a version, the shared FPM plus
+// per-site containers on it; for a site, just that FrankenPHP container (after
+// refreshing its quadlet so the mount is current).
+func phpIniRestart(scope string) error {
+	name, ok := phpIniSiteName(scope)
+	if !ok {
+		return fpmRestartForVersion(scope)
+	}
+	site, err := config.FindSite(name)
+	if err != nil {
+		return err
+	}
+	entrypoint, env := site.FrankenPHPQuadletSpec()
+	if err := podman.WriteFrankenPHPQuadlet(site.Name, site.Path, site.PHPVersion, entrypoint, env); err != nil {
+		return fmt.Errorf("updating FrankenPHP quadlet: %w", err)
+	}
+	return podman.RestartUnit(podman.FrankenPHPContainerName(site.Name))
+}
+
+// phpIniRestartNoSeed restarts a scope's container(s) after a reset. For a
+// version it does not re-seed (the shared FPM tolerates a missing per-version
+// ini). For a FrankenPHP site, whose container mounts only this one file, it
+// re-seeds the defaults first so the bind-mount source stays a regular file and
+// podman can't auto-create a directory at the conf.d mount path.
+func phpIniRestartNoSeed(scope string) error {
+	if name, ok := phpIniSiteName(scope); ok {
+		site, err := config.FindSite(name)
+		if err != nil {
+			return err
+		}
+		_ = podman.EnsureSitePHPUserIni(name)
+		return podman.RestartUnit(podman.FrankenPHPContainerName(site.Name))
+	}
+	return restartFPMUnit(scope)
+}
+
 // PhpIniReadResponse mirrors SiteNginxReadResponse. Exists distinguishes a
 // real saved override from the seeded template the handler hands back when
 // the file is missing.
@@ -75,7 +143,13 @@ func fpmRestartForVersion(version string) error {
 	if err := podman.WriteFPMQuadlet(version); err != nil {
 		return fmt.Errorf("updating php quadlet: %w", err)
 	}
-	return restartFPMUnit(version)
+	if err := restartFPMUnit(version); err != nil {
+		return err
+	}
+	// Per-site containers (FrankenPHP, custom-FPM) on this version mount the same
+	// per-version inis; restart them so the php.ini edit reaches them too.
+	podman.RestartSiteContainersForVersion(version)
+	return nil
 }
 
 // restartFPMUnit restarts the FPM container without touching the on-disk user
@@ -104,12 +178,11 @@ const phpUserIniTemplate = `; Lerd per-version PHP settings.
 // FPM, and roll back to the snapshot if the restart fails — leaving the user
 // on a known-good config. Backups/snapshot/staging come from cfgedit.
 func handlePhpIniConfig(w http.ResponseWriter, r *http.Request, version string) {
-	installed, _ := phpPkg.ListInstalled()
-	if !slices.Contains(installed, version) {
+	if !phpIniValid(version) {
 		http.NotFound(w, r)
 		return
 	}
-	f := phpIniFile(version)
+	f := phpIniScopeFile(version)
 	if r.Method == http.MethodGet {
 		got, err := f.Read()
 		if err != nil {
@@ -153,12 +226,12 @@ func handlePhpIniConfig(w http.ResponseWriter, r *http.Request, version string) 
 		writeJSON(w, PhpIniWriteResponse{OK: false, Error: err.Error()})
 		return
 	}
-	if err := fpmRestartForVersion(version); err != nil {
+	if err := phpIniRestart(version); err != nil {
 		if rbErr := cfgedit.RestoreSnapshot(f.Path, snap); rbErr != nil {
 			writeJSON(w, PhpIniWriteResponse{OK: false, Error: "saved, but FPM restart failed and rollback failed: " + rbErr.Error() + " (restart error: " + err.Error() + ")", BackupName: backupName, Content: req.Content, Exists: true})
 			return
 		}
-		if rb2Err := fpmRestartForVersion(version); rb2Err != nil {
+		if rb2Err := phpIniRestart(version); rb2Err != nil {
 			writeJSON(w, PhpIniWriteResponse{OK: false, Error: "php.ini rejected and rollback restart also failed: " + rb2Err.Error() + " (original: " + err.Error() + ")"})
 			return
 		}
@@ -176,12 +249,11 @@ func handlePhpIniBackups(w http.ResponseWriter, r *http.Request, version string)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	installed, _ := phpPkg.ListInstalled()
-	if !slices.Contains(installed, version) {
+	if !phpIniValid(version) {
 		http.NotFound(w, r)
 		return
 	}
-	list, err := phpIniFile(version).ListBackups()
+	list, err := phpIniScopeFile(version).ListBackups()
 	if err != nil {
 		http.Error(w, "listing backups: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -197,12 +269,11 @@ func handlePhpIniBackupContent(w http.ResponseWriter, r *http.Request, version, 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	installed, _ := phpPkg.ListInstalled()
-	if !slices.Contains(installed, version) {
+	if !phpIniValid(version) {
 		http.NotFound(w, r)
 		return
 	}
-	data, err := phpIniFile(version).ReadBackup(name)
+	data, err := phpIniScopeFile(version).ReadBackup(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -221,15 +292,14 @@ func handlePhpIniReset(w http.ResponseWriter, r *http.Request, version string) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	installed, _ := phpPkg.ListInstalled()
-	if !slices.Contains(installed, version) {
+	if !phpIniValid(version) {
 		http.NotFound(w, r)
 		return
 	}
 	// Restart via restartFPMUnit, not fpmRestartForVersion: the latter routes
 	// through WriteFPMQuadlet → EnsureUserIni, which would re-seed the file we
 	// just deleted. cfgedit.Reset skips the restart when nothing was removed.
-	if err := phpIniFile(version).Reset(func() error { return restartFPMUnit(version) }); err != nil {
+	if err := phpIniScopeFile(version).Reset(func() error { return phpIniRestartNoSeed(version) }); err != nil {
 		writeJSON(w, PhpIniResetResponse{OK: false, Error: "removed, but FPM restart failed: " + err.Error()})
 		return
 	}
@@ -241,8 +311,7 @@ func handlePhpIniRestore(w http.ResponseWriter, r *http.Request, version string)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	installed, _ := phpPkg.ListInstalled()
-	if !slices.Contains(installed, version) {
+	if !phpIniValid(version) {
 		http.NotFound(w, r)
 		return
 	}
@@ -251,12 +320,12 @@ func handlePhpIniRestore(w http.ResponseWriter, r *http.Request, version string)
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "invalid body: " + err.Error()})
 		return
 	}
-	f := phpIniFile(version)
+	f := phpIniScopeFile(version)
 	if !f.ValidBackupName(req.Name) {
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: "invalid backup name"})
 		return
 	}
-	res, err := f.Restore(req.Name, func() error { return fpmRestartForVersion(version) })
+	res, err := f.Restore(req.Name, func() error { return phpIniRestart(version) })
 	if err != nil {
 		writeJSON(w, PhpIniRestoreResponse{OK: false, Error: err.Error()})
 		return

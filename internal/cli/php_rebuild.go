@@ -5,11 +5,50 @@ import (
 	"io"
 	"strings"
 
+	"github.com/geodro/lerd/internal/config"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	lerdSystemd "github.com/geodro/lerd/internal/systemd"
 	"github.com/spf13/cobra"
 )
+
+// frankenRestart pairs a FrankenPHP container unit with its (normalized) image
+// version so the restart can confirm that version's image actually built.
+type frankenRestart struct {
+	unit    string
+	version string
+}
+
+// frankenPHPRebuildTargets returns the distinct normalized PHP versions to
+// rebuild, and the container units (with their versions) to restart, for
+// non-paused FrankenPHP sites whose version is among the requested ones, so
+// php:rebuild rebuilds and restarts only what's affected.
+func frankenPHPRebuildTargets(requested []string) (versions []string, units []frankenRestart) {
+	want := map[string]bool{}
+	for _, v := range requested {
+		want[config.NormalizeFrankenPHPVersion(v)] = true
+	}
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil, nil
+	}
+	seenVer := map[string]bool{}
+	for _, s := range reg.Sites {
+		if s.Ignored || s.Paused || !s.IsFrankenPHP() {
+			continue
+		}
+		v := config.NormalizeFrankenPHPVersion(s.PHPVersion)
+		if !want[v] {
+			continue
+		}
+		if !seenVer[v] {
+			seenVer[v] = true
+			versions = append(versions, v)
+		}
+		units = append(units, frankenRestart{unit: podman.FrankenPHPContainerName(s.Name), version: v})
+	}
+	return versions, units
+}
 
 // NewPhpRebuildCmd returns the php:rebuild command.
 func NewPhpRebuildCmd() *cobra.Command {
@@ -43,15 +82,41 @@ func runPhpRebuild(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	jobs := make([]BuildJob, len(versions))
-	for i, v := range versions {
+	jobs := make([]BuildJob, 0, len(versions))
+	for _, v := range versions {
 		ver := v
-		jobs[i] = BuildJob{
+		jobs = append(jobs, BuildJob{
 			Label: "PHP " + ver,
 			Run:   func(w io.Writer) error { return podman.RebuildFPMImageTo(ver, local, w) },
-		}
+		})
+	}
+	// Rebuild the derived FrankenPHP image for any requested version a FrankenPHP
+	// site uses, so its baked extensions track the FPM set, then restart those
+	// containers onto the new image.
+	fpVersions, fpUnits := frankenPHPRebuildTargets(versions)
+	for _, v := range fpVersions {
+		ver := v
+		jobs = append(jobs, BuildJob{
+			Label: "FrankenPHP " + ver,
+			Run:   func(w io.Writer) error { return podman.BuildFrankenPHPImage(ver, true, w) },
+		})
 	}
 	RunParallel(jobs) //nolint:errcheck — individual failures printed by RunParallel
+
+	for _, u := range fpUnits {
+		// Skip restart if the (force) rebuild left no image, so we don't bounce a
+		// running container onto a missing image; a failed build was already
+		// reported by RunParallel.
+		if podman.RunSilent("image", "exists", podman.FrankenPHPImageName(u.version)) != nil {
+			fmt.Printf("  [WARN] %s: image not built, leaving container as-is\n", u.unit)
+			continue
+		}
+		if err := podman.RestartUnit(u.unit); err != nil {
+			fmt.Printf("  [WARN] restart %s: %v\n", u.unit, err)
+		} else {
+			fmt.Printf("  restarted %s\n", u.unit)
+		}
+	}
 
 	// Store the new Containerfile hash so future updates know images are current.
 	if err := podman.StoreFPMHash(); err != nil {

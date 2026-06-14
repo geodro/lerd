@@ -119,9 +119,24 @@ func TestLaravelOctaneFrankenPHPAdapter(t *testing.T) {
 	if e := fw.FrankenPHPEntrypoint(false); !strings.Contains(strings.Join(e, " "), "frankenphp php-server") {
 		t.Fatalf("laravel non-worker should use frankenphp php-server: %v", e)
 	}
-	// Worker mode runs Octane (wrapped in sh -c so pcntl is installed at boot).
+	// Worker mode runs Octane. Extensions are baked into lerd's derived image now,
+	// so the entrypoint must not install them at container start.
 	worker := strings.Join(fw.FrankenPHPEntrypoint(true), " ")
 	if !strings.Contains(worker, "octane:start") || !strings.Contains(worker, "frankenphp") {
 		t.Fatalf("laravel worker should use Octane: %s", worker)
+	}
+	if strings.Contains(worker, "install-php-extensions") || strings.Contains(worker, "apk add") {
+		t.Fatalf("worker entrypoint should not install anything at boot: %s", worker)
+	}
+}
+
+func TestNormalizeFrankenPHPVersion(t *testing.T) {
+	// A supported version passes through unchanged.
+	if got := NormalizeFrankenPHPVersion(LatestFrankenPHPVersion()); got != LatestFrankenPHPVersion() {
+		t.Errorf("supported version changed: %q", got)
+	}
+	// An unsupported/empty version falls back to the latest frankenphp version.
+	if got := NormalizeFrankenPHPVersion("5.6"); got != LatestFrankenPHPVersion() {
+		t.Errorf("NormalizeFrankenPHPVersion(5.6) = %q, want %q", got, LatestFrankenPHPVersion())
 	}
 }

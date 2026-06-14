@@ -14,14 +14,19 @@ func FrankenPHPContainerName(siteName string) string {
 	return "lerd-fp-" + siteName
 }
 
-// FrankenPHPImage returns the official dunglas/frankenphp image tag for the
-// requested PHP version. Versions without a published frankenphp image fall
-// back to the latest one lerd knows about.
+// FrankenPHPImage returns the lerd-derived FrankenPHP image tag for the
+// requested PHP version, e.g. "localhost/lerd-frankenphp84:local". This is the
+// image the per-site quadlet runs: the dunglas base with lerd's standard
+// extension set baked in (see BuildFrankenPHPImage). Versions without a
+// published frankenphp base fall back to the latest one lerd knows about.
 func FrankenPHPImage(phpVersion string) string {
-	if !config.IsFrankenPHPVersion(phpVersion) {
-		phpVersion = config.LatestFrankenPHPVersion()
-	}
-	return "docker.io/dunglas/frankenphp:php" + phpVersion + "-alpine"
+	return FrankenPHPImageName(config.NormalizeFrankenPHPVersion(phpVersion))
+}
+
+// FrankenPHPBaseImage returns the upstream dunglas/frankenphp image tag the
+// derived image is built FROM, for the requested PHP version.
+func FrankenPHPBaseImage(phpVersion string) string {
+	return "docker.io/dunglas/frankenphp:php" + config.NormalizeFrankenPHPVersion(phpVersion) + "-alpine"
 }
 
 // FrankenPHPPort is the port FrankenPHP listens on inside the container. Kept
@@ -47,6 +52,22 @@ func GenerateFrankenPHPQuadlet(siteName, projectPath, phpVersion string, entrypo
 	b.WriteString("Network=lerd\n")
 	fmt.Fprintf(&b, "Volume=%s:/etc/hosts:ro,z\n", config.ContainerHostsFile())
 	fmt.Fprintf(&b, "Volume=%s:%s:rw\n", projectPath, projectPath)
+	// Debug tooling: bind-mount the same conf.d inis, bridge assets, and runtime
+	// socket dir the FPM container gets, so dump()/dd(), the Debug window
+	// (lerd_devtools), and Xdebug work for requests Octane serves from this
+	// container too. The baked extensions stay inert until these inis/sentinels
+	// arm them. RunDir carries the unix socket the bridges ship to; it must appear
+	// at its host path, matching the dump_host ini value. SPX is omitted: it can't
+	// profile Octane's resident-worker requests (see the Containerfile).
+	fmt.Fprintf(&b, "Volume=%s:/usr/local/etc/lerd:ro\n", config.DumpsAssetsDir())
+	fmt.Fprintf(&b, "Volume=%s:/usr/local/etc/php/conf.d/97-lerd-dump.ini:ro\n", config.DumpsIniFile())
+	fmt.Fprintf(&b, "Volume=%s:/usr/local/etc/php/conf.d/96-lerd-devtools.ini:ro\n", config.DevtoolsIniFile())
+	fmt.Fprintf(&b, "Volume=%s:/usr/local/etc/php/conf.d/99-xdebug.ini:ro\n", config.PHPConfFile(phpVersion))
+	// Per-site user php.ini override, edited from the site's config modal. Scoped
+	// to this site (not the shared per-version file), since a FrankenPHP site runs
+	// its own container.
+	fmt.Fprintf(&b, "Volume=%s:/usr/local/etc/php/conf.d/98-lerd-user.ini:ro\n", config.SitePHPUserIniFile(siteName))
+	fmt.Fprintf(&b, "Volume=%s:%s:rw\n", config.RunDir(), config.RunDir())
 	fmt.Fprintf(&b, "PodmanArgs=--security-opt=label=disable --workdir=%s\n", projectPath)
 	for _, k := range sortedKeys(env) {
 		// systemd Environment= splits on whitespace unless the whole
@@ -67,6 +88,28 @@ func GenerateFrankenPHPQuadlet(siteName, projectPath, phpVersion string, entrypo
 	return b.String()
 }
 
+// RestartSiteContainersForVersion restarts every per-site PHP container on the
+// given PHP version — custom-FPM and FrankenPHP — so a per-version ini change
+// (php.ini, xdebug) reaches them too. Paused/ignored sites are skipped; the
+// shared FPM container is restarted separately by the caller.
+func RestartSiteContainersForVersion(version string) {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return
+	}
+	for _, s := range reg.Sites {
+		if s.Paused || s.Ignored || s.PHPVersion != version {
+			continue
+		}
+		switch {
+		case s.IsCustomFPM():
+			_ = RestartUnit(CustomFPMContainerName(s.Name))
+		case s.IsFrankenPHP():
+			_ = RestartUnit(FrankenPHPContainerName(s.Name))
+		}
+	}
+}
+
 // WriteFrankenPHPQuadlet writes the quadlet for a FrankenPHP site.
 func WriteFrankenPHPQuadlet(siteName, projectPath, phpVersion string, entrypoint []string, env map[string]string) error {
 	_, err := WriteFrankenPHPQuadletDiff(siteName, projectPath, phpVersion, entrypoint, env)
@@ -75,8 +118,16 @@ func WriteFrankenPHPQuadlet(siteName, projectPath, phpVersion string, entrypoint
 
 // WriteFrankenPHPQuadletDiff writes the quadlet and returns whether the content
 // changed on disk so callers can decide whether to restart the running
-// container.
+// container. It first ensures every bind-mount source exists as a regular file,
+// mirroring WriteFPMQuadlet: without this, a restart through any path other than
+// the full link (a php.ini save, an install-time refresh) could mount a missing
+// source, letting podman auto-create a directory at a conf.d/*.ini path and
+// break the container's PHP startup.
 func WriteFrankenPHPQuadletDiff(siteName, projectPath, phpVersion string, entrypoint []string, env map[string]string) (bool, error) {
+	_ = EnsureSitePHPUserIni(siteName)
+	_ = EnsureXdebugIni(phpVersion)
+	_ = EnsureDumpAssets()
+	_ = EnsureDevtoolsAssets()
 	content := GenerateFrankenPHPQuadlet(siteName, projectPath, phpVersion, entrypoint, env)
 	return WriteQuadletDiff(FrankenPHPContainerName(siteName), content)
 }
