@@ -3762,7 +3762,14 @@ func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version, action := parts[0], parts[1]
-	if !validVersion.MatchString(version) {
+	// The php.ini editor (config) also accepts a "site:<name>" scope for a
+	// FrankenPHP site's own per-site ini; every other action is version-only.
+	isSiteScope := strings.HasPrefix(version, "site:")
+	if isSiteScope && action != "config" {
+		http.NotFound(w, r)
+		return
+	}
+	if !isSiteScope && !validVersion.MatchString(version) {
 		http.NotFound(w, r)
 		return
 	}

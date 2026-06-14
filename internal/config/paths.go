@@ -160,6 +160,19 @@ func PHPUserIniFile(version string) string {
 	return filepath.Join(DataDir(), "php", version, "98-user.ini")
 }
 
+// SitePHPUserIniFile is the per-site user php.ini for a runtime site that runs
+// its own container (FrankenPHP). Unlike PHPUserIniFile (shared by every site on
+// a PHP version), this is scoped to one site so its php.ini is independent.
+func SitePHPUserIniFile(siteName string) string {
+	return filepath.Join(DataDir(), "php", "sites", siteName, "98-user.ini")
+}
+
+// SitePHPUserIniBkpDir holds timestamped backups of a site's per-site user ini,
+// next to (not inside) the file so the container's conf.d scan never loads them.
+func SitePHPUserIniBkpDir(siteName string) string {
+	return filepath.Join(DataDir(), "php", "sites", siteName, "ini.bkp")
+}
+
 // PHPUserIniBkpDir holds timestamped backups of the per-version user ini
 // produced by the web UI editor. It sits next to (not inside) the version
 // directory's ini scan path so the FPM container does not load backup files

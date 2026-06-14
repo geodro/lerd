@@ -758,6 +758,18 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// after a clean install from config backup).
 	migrateServiceUnits()
 
+	// Build any missing derived FrankenPHP image regardless of autostart: the
+	// quadlet refresh above already rewrote FrankenPHP quadlets to point at the
+	// localhost derived image, so the image must exist or the next container
+	// restart (reboot, manual, a php.ini save) would reference a missing image.
+	// BuildFrankenPHPImage no-ops when the image is already current; it never
+	// restarts a container, so it's safe to run with autostart disabled.
+	for _, v := range activeFrankenPHPVersions() {
+		if err := podman.BuildFrankenPHPImage(v, false, os.Stdout); err != nil {
+			fmt.Printf("  WARN: building FrankenPHP image for PHP %s: %v\n", v, err)
+		}
+	}
+
 	// Start service containers and workers only when autostart is on.
 	// When the user has explicitly disabled autostart we leave them
 	// stopped — `lerd update` running install via re-exec must not flip
@@ -769,8 +781,8 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		// new binary against stale images. Gated by autostartOn because
 		// php:rebuild restarts FPM and worker units unconditionally.
 		activeFPM, _ := phpDet.ListInstalled()
-		if podman.NeedsFPMRebuild(activeFPM) {
-			fmt.Println("\n==> PHP-FPM Containerfile changed — rebuilding images")
+		if podman.NeedsFPMRebuild(activeFPM) || podman.NeedsFrankenPHPRebuild(activeFrankenPHPVersions()) {
+			fmt.Println("\n==> PHP image definitions changed — rebuilding images")
 			self, err := os.Executable()
 			if err != nil {
 				fmt.Printf("  WARN: locating lerd binary for php:rebuild: %v\n", err)

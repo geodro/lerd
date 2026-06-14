@@ -56,10 +56,11 @@
   let overflowOpen = $state(false);
   let overflowEl: HTMLDivElement | null = $state(null);
 
-  // Xdebug toggles the shared FPM image for this site's PHP version. Only PHP
-  // sites on the shared FPM runtime have it (not FrankenPHP or containers).
+  // Xdebug toggles the per-version xdebug ini, which both the shared FPM image
+  // and a FrankenPHP site's own container mount, so the toggle applies to
+  // FrankenPHP sites too. Custom (non-PHP) containers have no xdebug.
   const showXdebug = $derived(
-    Boolean(site.uses_php) && !site.custom_container && site.runtime !== 'frankenphp'
+    Boolean(site.uses_php) && !site.custom_container
   );
   const xdebugFpm = $derived(
     site.php_version ? $status.php_fpms.find((f) => f.version === site.php_version) : undefined

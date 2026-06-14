@@ -312,7 +312,7 @@ func TestRefreshUnreferencedCustomQuadlets_rewritesFrankenPHPSite(t *testing.T) 
 	got := string(data)
 	wantFragments := []string{
 		"ContainerName=lerd-fp-my-app",
-		"Image=docker.io/dunglas/frankenphp:php8.4-alpine",
+		"Image=localhost/lerd-frankenphp84:local",
 		"Network=lerd",
 		"Volume=" + projectDir + ":" + projectDir + ":rw",
 	}

@@ -90,6 +90,19 @@ func ensureImages() {
 				Run:   func(w io.Writer) error { return podman.BuildFPMImageTo(v, false, w) },
 			})
 
+		case strings.HasPrefix(img, "localhost/lerd-frankenphp") && strings.HasSuffix(img, ":local"):
+			// Build the derived FrankenPHP image, e.g.
+			// localhost/lerd-frankenphp84:local → 8.4
+			short := strings.TrimSuffix(strings.TrimPrefix(img, "localhost/lerd-frankenphp"), ":local")
+			if len(short) < 2 {
+				continue // malformed tag with no version digits; skip rather than panic
+			}
+			v := short[:1] + "." + short[1:]
+			jobs = append(jobs, BuildJob{
+				Label: "FrankenPHP " + v,
+				Run:   func(w io.Writer) error { return podman.BuildFrankenPHPImage(v, false, w) },
+			})
+
 		case strings.HasPrefix(img, "lerd-custom-") && strings.HasSuffix(img, ":local"):
 			// Rebuild custom container from the site's Containerfile.
 			siteName := strings.TrimSuffix(strings.TrimPrefix(img, "lerd-custom-"), ":local")

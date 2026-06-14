@@ -1004,6 +1004,28 @@ func activePHPVersions() map[string]bool {
 	return active
 }
 
+// activeFrankenPHPVersions returns the distinct, normalized PHP versions used by
+// non-ignored, non-paused FrankenPHP sites, for derived-image rebuild detection.
+func activeFrankenPHPVersions() []string {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range reg.Sites {
+		if s.Ignored || s.Paused || !s.IsFrankenPHP() {
+			continue
+		}
+		v := config.NormalizeFrankenPHPVersion(s.PHPVersion)
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // autoStopUnusedFPMs stops any PHP-FPM container whose PHP version is no longer
 // referenced by any active (non-ignored, non-paused) site.
 func autoStopUnusedFPMs() {
