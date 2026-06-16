@@ -147,7 +147,7 @@ func runLink(args []string) error {
 	// Custom container path: the project defines its own Containerfile and
 	// nginx reverse-proxies to it. Skip PHP/framework detection entirely.
 	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
-		secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
+		secured := siteops.ResolveSecured(siteops.CleanupRelink(cwd, name), proj, cfg)
 		site := config.Site{
 			Name:          name,
 			Domains:       domains,
@@ -180,7 +180,7 @@ func runLink(args []string) error {
 		if err := approveHostProxyCommand(name, proj.Proxy.Command, approved); err != nil {
 			return err
 		}
-		secured := siteops.CleanupRelink(cwd, name) || proj.Secured
+		secured := siteops.ResolveSecured(siteops.CleanupRelink(cwd, name), proj, cfg)
 		site := config.Site{
 			Name:        name,
 			Domains:     domains,
@@ -238,7 +238,7 @@ func runLink(args []string) error {
 		}
 	}
 
-	secured := siteops.CleanupRelink(cwd, name) || (proj != nil && proj.Secured)
+	secured := siteops.ResolveSecured(siteops.CleanupRelink(cwd, name), proj, cfg)
 
 	site := config.Site{
 		Name:        name,
@@ -342,9 +342,12 @@ func runLink(args []string) error {
 		}
 	}
 
-	// Apply remaining .lerd.yaml settings: HTTPS and services.
+	// Apply remaining .lerd.yaml settings: HTTPS and services. secured already
+	// folds in the DNS-managed gate, so a secured: true project on a localhost
+	// install lands here with secured=false and is left on http rather than
+	// triggering a runSecure that the cert layer would only reject.
 	if proj != nil {
-		if proj.Secured && !secured {
+		if proj.Secured && !secured && cfg.DNSManaged() {
 			if err := runSecure(nil, []string{}); err != nil {
 				fmt.Printf("[WARN] securing site: %v\n", err)
 			}

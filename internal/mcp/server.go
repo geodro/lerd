@@ -2384,7 +2384,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 
 	// Custom container path: .lerd.yaml has a container section with a port.
 	if proj != nil && proj.Container != nil && proj.Container.Port > 0 {
-		secured := siteops.CleanupRelink(projectPath, name) || (proj != nil && proj.Secured)
+		secured := siteops.ResolveSecured(siteops.CleanupRelink(projectPath, name), proj, cfg)
 		site := config.Site{
 			Name:          name,
 			Domains:       domains,
@@ -2414,7 +2414,7 @@ func execSiteLink(args map[string]any) (any, *rpcError) {
 		phpVersion = proj.PHPVersion
 	}
 
-	secured := siteops.CleanupRelink(projectPath, name) || (proj != nil && proj.Secured)
+	secured := siteops.ResolveSecured(siteops.CleanupRelink(projectPath, name), proj, cfg)
 	site := config.Site{
 		Name:        name,
 		Domains:     domains,

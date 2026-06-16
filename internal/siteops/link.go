@@ -115,6 +115,16 @@ func CleanupRelink(path, newName string) bool {
 	return secured
 }
 
+// ResolveSecured decides whether a freshly linked site is secured. A re-link
+// preserves the prior secured state (relinkSecured, from CleanupRelink),
+// otherwise .lerd.yaml's secured flag is honoured only when lerd manages DNS,
+// so a project authored with secured: true degrades to http on a localhost
+// install rather than being registered as a non-functional HTTPS site that
+// the cert layer would refuse with ErrDNSDisabled.
+func ResolveSecured(relinkSecured bool, proj *config.ProjectConfig, cfg *config.GlobalConfig) bool {
+	return relinkSecured || (proj != nil && proj.Secured && cfg.DNSManaged())
+}
+
 // FinishLink performs the post-registration steps shared by link, park, and MCP:
 // vhost generation, FPM quadlet setup, container hosts update, and nginx reload.
 func FinishLink(site config.Site, phpVersion string) error {

@@ -3,7 +3,7 @@
 Lerd uses [mkcert](https://github.com/FiloSottile/mkcert), a locally-trusted CA that your browser will accept without warnings.
 
 > [!NOTE]
-> HTTPS is only available when lerd is managing DNS. If you installed in disabled-DNS mode (`dns.enabled: false`, sites under `*.localhost`), the mkcert root CA was never installed, the `lerd init` wizard skips the "Enable HTTPS?" question, the per-site HTTPS toggle in the dashboard becomes a muted lock icon, and `lerd secure` refuses with `HTTPS requires lerd-managed DNS, set dns.enabled: true and re-run lerd install`. See [DNS](dns.md) for the toggle and how to switch back.
+> HTTPS is only available when lerd is managing DNS. If you installed in disabled-DNS mode (`dns.enabled: false`, sites under `*.localhost`), the mkcert root CA was never installed, the `lerd init` wizard skips the "Enable HTTPS?" question, the per-site HTTPS toggle in the dashboard becomes a muted lock icon, and `lerd secure` refuses with `HTTPS requires lerd-managed DNS, set dns.enabled: true and re-run lerd install`. A project whose committed `.lerd.yaml` carries `secured: true` is linked over http on a disabled-DNS install rather than registered as a non-functional HTTPS site. See [DNS](dns.md) for the toggle and how to switch back.
 
 ```bash
 cd ~/Lerd/my-app
