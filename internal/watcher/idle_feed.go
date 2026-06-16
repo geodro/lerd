@@ -48,7 +48,7 @@ func StartIdle(notify func(), sourceWatcher func(stop <-chan struct{}) error) {
 	if cfg, err := config.LoadGlobal(); err == nil && cfg.IdleSuspend.Enabled {
 		enableIdle()
 	} else {
-		idleEng.ResumeAllSuspended()
+		go idleEng.resumeUntilClear()
 	}
 }
 
@@ -84,19 +84,18 @@ func enableIdle() {
 	}
 }
 
-// disableIdle tears the session down: resume every suspended worker, then stop
-// the tick, access feed, and source watcher. Holds idleMu for the whole body
-// (mirroring enableIdle) so a concurrent boot enable can't overlap sessions.
+// disableIdle stops the session (tick, access feed, source watcher), then resumes
+// every suspended worker in the background via resumeUntilClear, which retries so
+// a suspend mid-flight isn't skipped now that no later tick will catch it.
 func disableIdle() {
 	idleMu.Lock()
-	defer idleMu.Unlock()
-	if idleCancel == nil {
-		return // already stopped
+	if idleCancel != nil {
+		idleActive.Store(false)
+		idleCancel()
+		idleCancel = nil
 	}
-	idleActive.Store(false)
-	idleEng.ResumeAllSuspended()
-	idleCancel()
-	idleCancel = nil
+	idleMu.Unlock()
+	go idleEng.resumeUntilClear()
 }
 
 // handleAccessDatagram records one site touch per nginx access datagram, waking a

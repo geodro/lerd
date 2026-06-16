@@ -258,6 +258,39 @@ func TestTickWorktrees_reconcilesStaleSuspendedCache(t *testing.T) {
 	}
 }
 
+// TestResumeAllSuspended_skipsReconcileWhileInFlight guards the toggle-off
+// stranding bug: a suspend that has persisted its list but not yet set e.suspended
+// must not have that list cleared by the reconcile branch (which would strand it).
+func TestResumeAllSuspended_skipsReconcileWhileInFlight(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	podman.UnitLifecycle = stubUnitStatus{active: map[string]bool{}}
+	t.Cleanup(func() { podman.UnitLifecycle = nil })
+
+	if err := config.AddSite(config.Site{
+		Name: "myapp", Path: "/srv/myapp", PHPVersion: "8.4", Domains: []string{"myapp.test"},
+		IdleSuspendedWorkers: []string{"queue"},
+	}); err != nil {
+		t.Fatalf("seed site: %v", err)
+	}
+
+	e := newIdleEngine(idle.NewTracker(nil))
+	e.mu.Lock()
+	e.suspended["myapp"] = false // not yet set by the in-flight suspend
+	e.inFlight["myapp"] = true
+	e.mu.Unlock()
+
+	e.ResumeAllSuspended()
+
+	site, err := config.FindSite("myapp")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if len(site.IdleSuspendedWorkers) == 0 {
+		t.Error("reconcile cleared an in-flight suspend's list, stranding it")
+	}
+}
+
 func TestSplitWtKey_mainSite(t *testing.T) {
 	site, wtBase, isWt := splitWtKey("myapp")
 	if isWt || site != "myapp" || wtBase != "" {

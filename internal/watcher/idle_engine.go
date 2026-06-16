@@ -358,6 +358,56 @@ func (e *idleEngine) worktreeKeyForHost(host string) string {
 	return e.worktreeKeyByDomain[strings.ToLower(host)]
 }
 
+// resumeUntilClear is the disable path's safety net (replacing the tick that used
+// to re-resume disabled-but-suspended sites): it retries until nothing is left
+// suspended, catching a site whose slow mid-flight suspend resume() had skipped.
+func (e *idleEngine) resumeUntilClear() {
+	if e == nil {
+		return
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		if idleActive.Load() {
+			return // re-enabled: the live session owns suspend/resume again
+		}
+		e.ResumeAllSuspended()
+		// Keep going while a suspend is still in-flight: it may not have written
+		// its list yet, so an empty config alone doesn't mean nothing's suspended.
+		if !persistedIdleSuspendExists() && !e.anyInFlight() {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// anyInFlight reports whether any site's suspend or resume goroutine is running.
+func (e *idleEngine) anyInFlight() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.inFlight) > 0
+}
+
+// persistedIdleSuspendExists reports whether any site or worktree still records a
+// non-empty idle-suspended worker list on disk. A read error returns true so the
+// drain keeps retrying rather than giving up and stranding a worker.
+func persistedIdleSuspendExists() bool {
+	reg, err := config.LoadSites()
+	if err != nil {
+		return true
+	}
+	for i := range reg.Sites {
+		if len(reg.Sites[i].IdleSuspendedWorkers) > 0 {
+			return true
+		}
+		for _, w := range reg.Sites[i].WorktreeIdleSuspended {
+			if len(w) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ResumeAllSuspended resumes every currently-suspended site at once and clears
 // any stale persisted suspended-worker lists. Called when idle-suspend is turned
 // off so workers come straight back immediately, and so a site whose on-disk
@@ -388,12 +438,14 @@ func (e *idleEngine) ResumeAllSuspended() {
 	changed := false
 	for i := range reg.Sites {
 		s := reg.Sites[i]
-		// Reconcile a stale main-site list (workers already running) by clearing it
-		// so it can't keep the dashboard showing the site asleep.
+		// Reconcile a stale main-site list (workers already running) by clearing it.
+		// Skip while a suspend is in-flight: it has written the list but not yet set
+		// e.suspended, so clearing now would strand it stopped with nothing to resume.
 		e.mu.Lock()
 		inSet := e.suspended[s.Name]
+		inFlight := e.inFlight[s.Name]
 		e.mu.Unlock()
-		if len(s.IdleSuspendedWorkers) > 0 && !inSet {
+		if len(s.IdleSuspendedWorkers) > 0 && !inSet && !inFlight {
 			_ = config.SetSiteIdleSuspendedWorkers(s.Name, nil)
 			changed = true
 		}

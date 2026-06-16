@@ -87,6 +87,44 @@ func TestEnableDisableIdle_lifecycle(t *testing.T) {
 	disableIdle() // idempotent: a second disable is a no-op
 }
 
+// TestResumeUntilClear_exitsWhenClean proves the disable-path resume returns
+// promptly once nothing is left suspended, rather than spinning its full bound.
+func TestResumeUntilClear_exitsWhenClean(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	prev := activityTracker
+	t.Cleanup(func() { activityTracker = prev; idleEng = nil; idleActive.Store(false) })
+	activityTracker = idle.NewTracker(nil)
+	idleEng = newIdleEngine(activityTracker)
+	idleActive.Store(false)
+
+	done := make(chan struct{})
+	go func() { idleEng.resumeUntilClear(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("resumeUntilClear should return at once when nothing is suspended")
+	}
+}
+
+// TestResumeUntilClear_bailsWhenReenabled proves the drain bails the moment the
+// feature is re-enabled, so it never fights a fresh session's suspends.
+func TestResumeUntilClear_bailsWhenReenabled(t *testing.T) {
+	prev := activityTracker
+	t.Cleanup(func() { activityTracker = prev; idleEng = nil; idleActive.Store(false) })
+	activityTracker = idle.NewTracker(nil)
+	idleEng = newIdleEngine(activityTracker)
+	idleActive.Store(true)
+
+	done := make(chan struct{})
+	go func() { idleEng.resumeUntilClear(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("resumeUntilClear must bail when the feature is re-enabled")
+	}
+}
+
 func TestParseControlMsg(t *testing.T) {
 	cases := []struct {
 		in, kind, arg string
