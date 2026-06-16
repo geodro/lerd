@@ -138,20 +138,25 @@ func newIdleEngine(t *idle.Tracker) *idleEngine {
 	return e
 }
 
-// run drives the periodic suspend evaluation until the process exits.
+// run drives the suspend evaluation until the session is cancelled. It evaluates
+// once immediately so enabling idle-suspend sleeps already-idle sites at once
+// rather than waiting a full tick interval, then re-evaluates periodically.
 func (e *idleEngine) run(ctx context.Context) {
 	defer recoverEngine("ticker")
 	t := time.NewTicker(idleTickInterval)
 	defer t.Stop()
 	for {
+		if ctx.Err() != nil { // cancelled: don't evaluate after disable
+			return
+		}
+		e.tick()
+		// Persist last-active so a restart/deploy restores the countdowns
+		// instead of re-seeding to now.
+		_ = e.tracker.Save(config.IdleActivityFile())
 		select {
 		case <-ctx.Done(): // idle-suspend disabled: stop ticking
 			return
 		case <-t.C:
-			e.tick()
-			// Persist last-active so a restart/deploy restores the countdowns
-			// instead of re-seeding to now.
-			_ = e.tracker.Save(config.IdleActivityFile())
 		}
 	}
 }
@@ -416,21 +421,6 @@ func (e *idleEngine) ResumeAllSuspended() {
 	if e == nil {
 		return
 	}
-	// Resume the main sites the engine genuinely has suspended (workers stopped).
-	e.mu.Lock()
-	var mainNames []string
-	for name, on := range e.suspended {
-		if on {
-			if _, _, isWt := splitWtKey(name); !isWt {
-				mainNames = append(mainNames, name)
-			}
-		}
-	}
-	e.mu.Unlock()
-	for _, name := range mainNames {
-		e.resume(name)
-	}
-
 	reg, err := config.LoadSites()
 	if err != nil {
 		return
@@ -438,16 +428,14 @@ func (e *idleEngine) ResumeAllSuspended() {
 	changed := false
 	for i := range reg.Sites {
 		s := reg.Sites[i]
-		// Reconcile a stale main-site list (workers already running) by clearing it.
-		// Skip while a suspend is in-flight: it has written the list but not yet set
-		// e.suspended, so clearing now would strand it stopped with nothing to resume.
-		e.mu.Lock()
-		inSet := e.suspended[s.Name]
-		inFlight := e.inFlight[s.Name]
-		e.mu.Unlock()
-		if len(s.IdleSuspendedWorkers) > 0 && !inSet && !inFlight {
-			_ = config.SetSiteIdleSuspendedWorkers(s.Name, nil)
-			changed = true
+		// Resume the main site straight from its persisted list, forcing e.suspended
+		// so resume() proceeds even if our view drifted (idempotent: a stale running
+		// list is a no-op start, then resume clears it and publishes its own refresh).
+		if len(s.IdleSuspendedWorkers) > 0 {
+			e.mu.Lock()
+			e.suspended[s.Name] = true
+			e.mu.Unlock()
+			e.resume(s.Name)
 		}
 
 		// Resume every suspended worktree; if its checkout is gone, just clear the

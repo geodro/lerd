@@ -258,10 +258,10 @@ func TestTickWorktrees_reconcilesStaleSuspendedCache(t *testing.T) {
 	}
 }
 
-// TestResumeAllSuspended_skipsReconcileWhileInFlight guards the toggle-off
-// stranding bug: a suspend that has persisted its list but not yet set e.suspended
-// must not have that list cleared by the reconcile branch (which would strand it).
-func TestResumeAllSuspended_skipsReconcileWhileInFlight(t *testing.T) {
+// TestResumeAllSuspended_preservesInFlightList guards the toggle-off stranding
+// bug: while a suspend is in-flight, ResumeAllSuspended must not clear its
+// persisted list (resume no-ops on the inFlight guard and the drain retries).
+func TestResumeAllSuspended_preservesInFlightList(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	podman.UnitLifecycle = stubUnitStatus{active: map[string]bool{}}
@@ -287,7 +287,7 @@ func TestResumeAllSuspended_skipsReconcileWhileInFlight(t *testing.T) {
 		t.Fatalf("reload: %v", err)
 	}
 	if len(site.IdleSuspendedWorkers) == 0 {
-		t.Error("reconcile cleared an in-flight suspend's list, stranding it")
+		t.Error("cleared an in-flight suspend's list, stranding it")
 	}
 }
 
