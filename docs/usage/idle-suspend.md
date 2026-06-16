@@ -62,3 +62,4 @@ A site is idle once it has gone `timeout` without any of these. Last-active time
 
 - Off by default — a quiet dev box only reclaims worker memory once you opt in.
 - Workers stopped by idle-suspend are not reported as failed by the health watcher; they're asleep on purpose.
+- Starting a worker any other way re-arms idle-suspend for it. An install, a relink, or `lerd worker start` that brings a worker back clears it from the suspended set, and lerd-ui verifies the set against the workers actually running when it starts, so a site never stays awake because lerd still thought those workers were asleep.

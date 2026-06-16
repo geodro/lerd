@@ -128,6 +128,26 @@ func ResumeWorktreeWorkersForIdle(site *config.Site, wtPath string, workers []st
 	}
 }
 
+// IdleSuspendStateIsStale reports whether a site's persisted idle-suspended set
+// has drifted from reality: a worker it claims to have suspended is actually
+// running. That happens when the workers were (re)started outside the idle engine
+// by an install or relink with an older lerd that didn't reconcile the list. Left
+// uncorrected it wedges the engine into believing the site is asleep forever, so
+// its idle workers never get re-suspended. The engine calls this at startup to
+// discard a stale list rather than seed itself from it.
+func IdleSuspendStateIsStale(site *config.Site) bool {
+	if len(site.IdleSuspendedWorkers) == 0 {
+		return false
+	}
+	running := collectRunningWorkers(site)
+	for _, w := range site.IdleSuspendedWorkers {
+		if containsString(running, w) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureViteSleepable makes a site safe to stop vite on. Vite needs a built
 // asset manifest to fall back to once its dev server stops; if one is missing it
 // runs `npm run build` (blocking) and reports whether a manifest now exists.
@@ -216,6 +236,42 @@ func containsString(ss []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// removeWorker returns ss without the first occurrence of w plus whether it was
+// present, preserving the order of the rest. The full-slice expression forces a
+// fresh backing array so the caller's slice isn't mutated underneath it.
+func removeWorker(ss []string, w string) ([]string, bool) {
+	for i, s := range ss {
+		if s == w {
+			return append(ss[:i:i], ss[i+1:]...), true
+		}
+	}
+	return ss, false
+}
+
+// ClearIdleSuspendOnStart drops workerName from the site's (or, for a worktree
+// checkout, that worktree's) persisted idle-suspended set whenever the worker is
+// (re)started outside the idle engine: an install, a relink, or `lerd worker
+// start`. A running worker can't be idle-suspended, so a stale entry would make
+// the engine boot believing the site is asleep and never re-suspend it. Cheap
+// no-op (one read, no write) when the worker isn't in the set, which is the
+// common case for the vast majority of starts.
+func ClearIdleSuspendOnStart(siteName, sitePath, workerName string) {
+	site, err := config.FindSite(siteName)
+	if err != nil {
+		return
+	}
+	if sitePath != "" && sitePath != site.Path {
+		wtBase := config.WorktreeUnitSlug(filepath.Base(sitePath))
+		if next, changed := removeWorker(site.WorktreeIdleSuspended[wtBase], workerName); changed {
+			_ = config.SetWorktreeIdleSuspendedWorkers(siteName, wtBase, next)
+		}
+		return
+	}
+	if next, changed := removeWorker(site.IdleSuspendedWorkers, workerName); changed {
+		_ = config.SetSiteIdleSuspendedWorkers(siteName, next)
+	}
 }
 
 func lastBytes(b []byte, n int) []byte {

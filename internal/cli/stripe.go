@@ -236,6 +236,7 @@ func StripeStartForSite(siteName, sitePath, siteBaseURL string) error {
 		return err
 	}
 	_ = config.AddProjectWorker(sitePath, "stripe")
+	ClearIdleSuspendOnStart(siteName, sitePath, "stripe")
 	return nil
 }
 

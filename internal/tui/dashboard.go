@@ -167,7 +167,7 @@ func dashboardContentLinesWithCursor(m *Model, _ bool, innerW int) ([]string, in
 			memText += " / " + stats.FormatBytes(m.stats.HostMemBytes)
 		}
 		add(renderSystemInfoRow("Total memory", memText))
-		add(renderSystemInfoRow("Containers", fmt.Sprintf("%d running (top 5 by memory)", len(m.stats.Containers))))
+		add(renderSystemInfoRow("Processes", fmt.Sprintf("%d running (top 5 by load)", len(m.stats.Containers))))
 		max := 5
 		if len(m.stats.Containers) < max {
 			max = len(m.stats.Containers)

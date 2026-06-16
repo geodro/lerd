@@ -95,6 +95,92 @@ func TestWtKeyRoundTrip(t *testing.T) {
 	}
 }
 
+// TestTick_reconcilesStaleSuspendedCache is the regression guard for workers
+// staying up on an idle site after an install. The engine boots from the
+// persisted idle_suspended_workers list; if an install (re)started the workers it
+// cleared that list, but the engine's in-memory cache still said suspended and it
+// never re-suspended. The tick must trust the now-empty persisted list and drop
+// the stale cache entry.
+func TestTick_reconcilesStaleSuspendedCache(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	// Persisted list is empty (an install cleared it after starting the workers).
+	if err := config.AddSite(config.Site{
+		Name: "myapp", Path: "/srv/myapp", PHPVersion: "8.4", Domains: []string{"myapp.test"},
+	}); err != nil {
+		t.Fatalf("seed site: %v", err)
+	}
+	prev := detectWorktrees
+	detectWorktrees = func(string, string) ([]gitpkg.Worktree, error) { return nil, nil }
+	t.Cleanup(func() { detectWorktrees = prev })
+
+	e := newIdleEngine(idle.NewTracker(nil))
+	e.suspended["myapp"] = true // stale cache the install couldn't clear
+
+	e.tick()
+
+	if e.suspended["myapp"] {
+		t.Error("stale suspended cache should be reconciled to false against the empty persisted list")
+	}
+}
+
+// The reconcile must be skipped while a suspend/resume goroutine is mid-flight, so
+// a slow build isn't second-guessed before it has persisted its result.
+func TestTick_reconcileSkippedWhileInFlight(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if err := config.AddSite(config.Site{
+		Name: "myapp", Path: "/srv/myapp", PHPVersion: "8.4", Domains: []string{"myapp.test"},
+	}); err != nil {
+		t.Fatalf("seed site: %v", err)
+	}
+	prev := detectWorktrees
+	detectWorktrees = func(string, string) ([]gitpkg.Worktree, error) { return nil, nil }
+	t.Cleanup(func() { detectWorktrees = prev })
+
+	e := newIdleEngine(idle.NewTracker(nil))
+	e.suspended["myapp"] = true
+	e.inFlight["myapp"] = true // a suspend goroutine is still running
+
+	e.tick()
+
+	if !e.suspended["myapp"] {
+		t.Error("reconcile must not run while the site is in-flight")
+	}
+}
+
+// A worktree whose persisted slot was cleared (its worker restarted outside the
+// engine) must likewise have its stale suspended cache reconciled away.
+func TestTickWorktrees_reconcilesStaleSuspendedCache(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if err := config.AddSite(config.Site{
+		Name: "myapp", Path: "/srv/myapp", PHPVersion: "8.4", Domains: []string{"myapp.test"},
+	}); err != nil {
+		t.Fatalf("seed site: %v", err)
+	}
+	prev := detectWorktrees
+	detectWorktrees = func(string, string) ([]gitpkg.Worktree, error) {
+		return []gitpkg.Worktree{{
+			Branch: "feature-x", Path: "/srv/myapp/feature-x", Domain: "feature-x.myapp.test",
+		}}, nil
+	}
+	t.Cleanup(func() { detectWorktrees = prev })
+
+	e := newIdleEngine(idle.NewTracker(nil))
+	key := wtKey("myapp", config.WorktreeUnitSlug("feature-x"))
+	e.suspended[key] = true // stale: persisted WorktreeIdleSuspended has no entry
+
+	e.tick()
+
+	if e.suspended[key] {
+		t.Error("stale worktree suspended cache should be reconciled to false")
+	}
+}
+
 func TestSplitWtKey_mainSite(t *testing.T) {
 	site, wtBase, isWt := splitWtKey("myapp")
 	if isWt || site != "myapp" || wtBase != "" {

@@ -5,6 +5,7 @@
 package stats
 
 import (
+	"bufio"
 	"context"
 	"os/exec"
 	"sort"
@@ -38,10 +39,13 @@ type Snapshot struct {
 	Available       bool            `json:"available"`
 }
 
-// readerFn is swappable for tests so callers don't need a live podman.
+// readerFn (containers, via podman) and hostReaderFn (lerd's own host-side
+// processes, via systemd accounting) are swappable for tests so callers don't
+// need a live podman or systemd.
 var readerFn = readPodmanStats
+var hostReaderFn = readHostProcesses
 
-const readTimeout = 4 * time.Second
+const readTimeout = 6 * time.Second
 
 // Read returns a fresh snapshot. Callers that need caching wrap this with
 // their own TTL (lerd-ui caches for 3s in handleStats; the TUI dashboard
@@ -51,8 +55,30 @@ func Read() Snapshot {
 		Containers: []ContainerStat{},
 		UpdatedAt:  time.Now(),
 	}
-	rows, err := readerFn()
-	if err != nil || len(rows) == 0 {
+
+	// Containers (podman, ~3s stream) and host processes (systemd accounting,
+	// ~1s sample) are read concurrently so the host read hides under the longer
+	// podman one and adds no wall time.
+	var containers, hosts []ContainerStat
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); containers, _ = readerFn() }()
+	go func() { defer wg.Done(); hosts, _ = hostReaderFn() }()
+	wg.Wait()
+
+	rows := containers
+	// A container's quadlet unit (lerd-mysql.service, …) also surfaces in the
+	// host list; drop it so podman's measurement wins and it isn't counted twice.
+	isContainer := make(map[string]bool, len(containers))
+	for _, c := range containers {
+		isContainer[c.Name] = true
+	}
+	for _, h := range hosts {
+		if !isContainer[h.Name] {
+			rows = append(rows, h)
+		}
+	}
+	if len(rows) == 0 {
 		return out
 	}
 	out.Available = true
@@ -64,7 +90,26 @@ func Read() Snapshot {
 			out.HostMemBytes = r.MemLimit
 		}
 	}
+	// Rank by combined load — each container's share of the total CPU plus its
+	// share of the total memory — so the top-N the dashboard shows reflects both
+	// headline numbers. Sorting by memory alone hid the containers actually
+	// driving CPU (a busy php-fpm uses little RAM), making the CPU total look
+	// unexplained against the listed consumers. Memory breaks ties.
+	score := func(c ContainerStat) float64 {
+		var s float64
+		if out.TotalCPUPercent > 0 {
+			s += c.CPUPercent / out.TotalCPUPercent
+		}
+		if out.TotalMemBytes > 0 {
+			s += float64(c.MemBytes) / float64(out.TotalMemBytes)
+		}
+		return s
+	}
 	sort.Slice(out.Containers, func(i, j int) bool {
+		si, sj := score(out.Containers[i]), score(out.Containers[j])
+		if si != sj {
+			return si > sj
+		}
 		return out.Containers[i].MemBytes > out.Containers[j].MemBytes
 	})
 	return out
@@ -125,61 +170,150 @@ func Cached(ttl time.Duration) Snapshot {
 	}
 }
 
-// SetReader swaps the underlying reader for tests so callers can drive Read
-// from a fixture without shelling out to podman.
+// SetReader swaps the underlying container reader for tests so callers can drive
+// Read from a fixture without shelling out to podman.
 func SetReader(fn func() ([]ContainerStat, error)) (restore func()) {
 	prev := readerFn
 	readerFn = fn
 	return func() { readerFn = prev }
 }
 
-// readPodmanStats invokes `podman stats --no-stream` with a pipe-delimited
-// template. Filters to containers prefixed `lerd-` so we never accidentally
-// surface unrelated containers on the host.
+// SetHostReader swaps the host-process reader for tests so Read doesn't shell out
+// to systemctl (which would also add the ~1s CPU-sample sleep).
+func SetHostReader(fn func() ([]ContainerStat, error)) (restore func()) {
+	prev := hostReaderFn
+	hostReaderFn = fn
+	return func() { hostReaderFn = prev }
+}
+
+// readPodmanStats streams `podman stats` with a pipe-delimited template and
+// returns one row per `lerd-`-prefixed container using each container's SECOND
+// sample. podman's first CPU sample is the average over the container's whole
+// lifetime, not its current load, so a long-lived container that was busy at
+// startup (FPM/opcache warmup) would read as permanently busy. The second
+// sample is the real instantaneous rate (a delta over `--interval`). Streaming
+// costs ~2s versus the old instant `--no-stream`, which the caller's TTL cache
+// absorbs.
 func readPodmanStats() ([]ContainerStat, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(
 		ctx,
-		podman.PodmanBin(), "stats", "--no-stream",
+		podman.PodmanBin(), "stats", "--interval", "1",
 		"--format", "{{.Name}}|{{.CPU}}|{{.MemUsage}}|{{.MemPerc}}",
 	)
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
-	return ParseRows(string(out)), nil
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	// podman prints every container once per interval in a stable order, so the
+	// third sighting of any container means all of them now have at least two
+	// samples — enough to stop and take the instantaneous values.
+	counts := map[string]int{}
+	var lines []string
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		stat, ok := parseStatLine(line)
+		if !ok {
+			continue
+		}
+		lines = append(lines, line)
+		counts[stat.Name]++
+		if counts[stat.Name] >= 3 {
+			break
+		}
+	}
+	return secondCycleStats(lines), nil
 }
 
-// ParseRows turns the output of `podman stats --no-stream --format …` into a
-// slice of ContainerStat. Exported so tests for either caller can build
-// inputs without a real podman.
+// secondCycleStats collapses streamed `podman stats` lines into one row per
+// container, preferring each container's second sample (the instantaneous rate)
+// and falling back to the first only when the stream was cut short before a
+// second arrived, so a container is never dropped entirely. First-seen order is
+// preserved; Read re-sorts for display.
+func secondCycleStats(lines []string) []ContainerStat {
+	type samples struct{ first, second *ContainerStat }
+	seen := map[string]*samples{}
+	var order []string
+	for _, line := range lines {
+		stat, ok := parseStatLine(line)
+		if !ok {
+			continue
+		}
+		s := stat
+		a := seen[s.Name]
+		if a == nil {
+			a = &samples{}
+			seen[s.Name] = a
+			order = append(order, s.Name)
+		}
+		switch {
+		case a.first == nil:
+			a.first = &s
+		case a.second == nil:
+			a.second = &s
+		}
+	}
+	rows := make([]ContainerStat, 0, len(order))
+	for _, name := range order {
+		a := seen[name]
+		if a.second != nil {
+			rows = append(rows, *a.second)
+		} else if a.first != nil {
+			rows = append(rows, *a.first)
+		}
+	}
+	return rows
+}
+
+// ParseRows turns multi-line `podman stats --format …` output into a slice of
+// ContainerStat. Exported so tests for either caller can build inputs without a
+// real podman.
 func ParseRows(text string) []ContainerStat {
 	var rows []ContainerStat
 	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		if line == "" {
-			continue
+		if stat, ok := parseStatLine(line); ok {
+			rows = append(rows, stat)
 		}
-		parts := strings.Split(line, "|")
-		if len(parts) != 4 {
-			continue
-		}
-		name := strings.TrimSpace(parts[0])
-		if !strings.HasPrefix(name, "lerd-") {
-			continue
-		}
-		cpu, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-		used, limit := parseMemUsage(parts[2])
-		memPerc, _ := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(parts[3]), "%"), 64)
-		rows = append(rows, ContainerStat{
-			Name:       name,
-			CPUPercent: cpu,
-			MemBytes:   used,
-			MemLimit:   limit,
-			MemPercent: memPerc,
-		})
 	}
 	return rows
+}
+
+// parseStatLine parses one `{{.Name}}|{{.CPU}}|{{.MemUsage}}|{{.MemPerc}}` line,
+// returning ok=false for blanks, malformed rows, and non-`lerd-` containers (so
+// unrelated host containers never surface).
+func parseStatLine(line string) (ContainerStat, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ContainerStat{}, false
+	}
+	parts := strings.Split(line, "|")
+	if len(parts) != 4 {
+		return ContainerStat{}, false
+	}
+	name := strings.TrimSpace(parts[0])
+	if !strings.HasPrefix(name, "lerd-") {
+		return ContainerStat{}, false
+	}
+	cpu, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	used, limit := parseMemUsage(parts[2])
+	memPerc, _ := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(parts[3]), "%"), 64)
+	return ContainerStat{
+		Name:       name,
+		CPUPercent: cpu,
+		MemBytes:   used,
+		MemLimit:   limit,
+		MemPercent: memPerc,
+	}, true
 }
 
 func parseMemUsage(s string) (used, limit int64) {

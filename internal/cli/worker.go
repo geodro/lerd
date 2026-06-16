@@ -381,6 +381,10 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 	fmt.Printf("%s started for %s\n", label, siteName)
 	fmt.Printf("  Logs: %s\n", workerLogHint(unitName, w.Host))
 
+	// A running worker can't be idle-suspended: clear any stale entry so the idle
+	// engine doesn't boot believing this site (or worktree) is still asleep.
+	ClearIdleSuspendOnStart(siteName, sitePath, workerName)
+
 	// Regenerate nginx vhost if the worker has proxy config.
 	if w.Proxy != nil {
 		regenNginxVhost(siteName, sitePath)

@@ -82,9 +82,18 @@ func newIdleEngine(t *idle.Tracker) *idleEngine {
 	// worktrees are suspended and resumes them on the next request rather than
 	// leaving their workers stopped with no memory.
 	if reg, err := config.LoadSites(); err == nil {
-		for _, s := range reg.Sites {
+		for i := range reg.Sites {
+			s := reg.Sites[i]
 			if len(s.IdleSuspendedWorkers) > 0 {
-				e.suspended[s.Name] = true
+				// Verify the claim against reality. If a supposedly-suspended worker is
+				// actually running (an install/relink restarted it without clearing the
+				// list), the list is stale: drop it so the engine re-evaluates from
+				// scratch instead of believing the site is asleep and never re-suspending.
+				if cli.IdleSuspendStateIsStale(&s) {
+					_ = config.SetSiteIdleSuspendedWorkers(s.Name, nil)
+				} else {
+					e.suspended[s.Name] = true
+				}
 			}
 			for wtBase, workers := range s.WorktreeIdleSuspended {
 				if len(workers) > 0 {
@@ -133,6 +142,15 @@ func (e *idleEngine) tick() {
 			continue
 		}
 		e.mu.Lock()
+		if !e.inFlight[s.Name] {
+			// Reconcile our cached belief against the persisted source of truth. If
+			// the workers were (re)started outside the engine (install, relink,
+			// `lerd worker start`), that path cleared the persisted list but our
+			// cache still says suspended; trust the list so an idle site gets
+			// re-suspended instead of staying up forever. Skipped mid-flight so a
+			// slow suspend/resume goroutine isn't second-guessed before it persists.
+			e.suspended[s.Name] = len(s.IdleSuspendedWorkers) > 0
+		}
 		suspended := e.suspended[s.Name]
 		e.mu.Unlock()
 		if s.Pinned {
@@ -191,6 +209,11 @@ func (e *idleEngine) tickWorktrees(s *config.Site, enabled bool, timeout time.Du
 		}
 
 		e.mu.Lock()
+		if !e.inFlight[key] {
+			// Same reconcile as the main site: a worktree worker started outside the
+			// engine clears its persisted slot, so trust that over the stale cache.
+			e.suspended[key] = len(s.WorktreeIdleSuspended[wtBase]) > 0
+		}
 		suspended := e.suspended[key]
 		e.mu.Unlock()
 
