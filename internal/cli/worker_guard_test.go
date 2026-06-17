@@ -41,6 +41,21 @@ func TestBuildWorkerGuard_WrapsCommand(t *testing.T) {
 	}
 }
 
+// TestBuildWorkerGuard_WaitsForOrphanExit locks in the fix for a worker that
+// holds a listening socket (e.g. Reverb): the orphan cleanup must SIGTERM, then
+// WAIT for the process to exit, then SIGKILL stragglers — otherwise the
+// replacement binds the port before the old one frees it (EADDRINUSE).
+func TestBuildWorkerGuard_WaitsForOrphanExit(t *testing.T) {
+	a := defaultGuardArgs("/tmp/lerd-reverb-alpha.pid", "podman exec -w /site lerd-php84-fpm php artisan reverb:start")
+	got := a.build()
+
+	for _, want := range []string{"kill -TERM", "while [ -n", "kill -KILL", "sleep 0.1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("guard missing orphan-exit wait construct %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestBuildWorkerGuard_ExitsZeroWhenPIDAlive(t *testing.T) {
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "worker.pid")

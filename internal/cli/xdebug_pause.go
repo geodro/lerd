@@ -14,10 +14,11 @@ import (
 )
 
 // `lerd xdebug pause` drives Xdebug's control socket (Xdebug >= 3.3) to break
-// the IDE debugger into an already-running PHP process — a queue/Horizon worker,
-// a CLI script, a FrankenPHP/Octane worker — without a trigger cookie or
-// per-request connection attempts. It shells out to the upstream `xdebugctl`
-// tool, which is baked into the FPM image (see lerd-php-fpm.Containerfile).
+// the IDE debugger into an already-running PHP process — a queue/Horizon worker
+// or a CLI script — without a trigger cookie or per-request connection attempts.
+// It shells out to the upstream `xdebugctl` tool, which is baked into the FPM
+// image (see lerd-php-fpm.Containerfile); FrankenPHP and custom-container sites
+// run their own image without it, so the command is PHP-FPM only.
 const xdebugctlInContainer = "/usr/local/bin/xdebugctl"
 
 func newXdebugPauseCmd() *cobra.Command {
@@ -26,9 +27,10 @@ func newXdebugPauseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pause [site]",
 		Short: "(experimental) Break the IDE debugger into a running PHP process via Xdebug's control socket",
-		Long: "Use Xdebug's control socket to make a running PHP process (a queue/Horizon worker, a CLI\n" +
-			"script, a FrankenPHP worker) connect to your IDE and break in — no trigger cookie, no\n" +
-			"per-request overhead. Requires Xdebug debug mode enabled for the site's PHP version\n" +
+		Long: "Use Xdebug's control socket to make a running PHP process (a queue/Horizon worker or a\n" +
+			"CLI script) connect to your IDE and break in — no trigger cookie, no per-request\n" +
+			"overhead. PHP-FPM sites only: FrankenPHP and custom-container sites run their own image\n" +
+			"without xdebugctl. Requires Xdebug debug mode enabled for the site's PHP version\n" +
 			"(`lerd xdebug on`) and your IDE listening on port 9003.\n\n" +
 			"Run with --list to see the candidate processes, then --pid to target one.",
 		Args: cobra.MaximumNArgs(1),

@@ -35,7 +35,9 @@ import (
 //  1. If the pid file exists AND its PID is alive, the previous outer
 //     process is still driving the worker — exit 0.
 //  2. Otherwise SIGTERM any in-container process matching workerCmd
-//     whose cwd is sitePath. Failures are swallowed.
+//     whose cwd is sitePath, wait for it to exit (SIGKILL after a grace
+//     period), then proceed. The wait frees a held listening socket
+//     before the replacement binds it. Failures are swallowed.
 //  3. Record our own PID, install an EXIT trap to clean up, and replace
 //     ourselves with runCmd.
 //
@@ -46,10 +48,18 @@ func buildWorkerGuard(pidFile, podmanBin, container, sitePath, workerCmd, runCmd
 	// quotes around literal arg interpolations because ShellQuote already
 	// produces single-quoted strings; they nest correctly when the whole
 	// inner is itself shell-quoted as a sh -c argument.
+	// m() lists in-container PIDs whose command matches workerCmd AND whose cwd
+	// is this site. SIGTERM them, then wait (up to ~5s) for them to actually
+	// exit before SIGKILLing any straggler. The wait is what lets a worker that
+	// holds a listening socket — e.g. Reverb bound to a fixed port — release it
+	// before the replacement starts; without it the new instance races the old
+	// one and dies with EADDRINUSE.
 	inner := fmt.Sprintf(
-		`for p in $(pgrep -f -- %s 2>/dev/null); do `+
-			`[ "$(readlink /proc/$p/cwd 2>/dev/null)" = %s ] && kill -TERM $p 2>/dev/null; `+
-			`done`,
+		`m() { for p in $(pgrep -f -- %[1]s 2>/dev/null); do `+
+			`[ "$(readlink /proc/$p/cwd 2>/dev/null)" = %[2]s ] && echo "$p"; done; }; `+
+			`for p in $(m); do kill -TERM "$p" 2>/dev/null; done; `+
+			`i=0; while [ -n "$(m)" ] && [ "$i" -lt 50 ]; do i=$((i+1)); sleep 0.1; done; `+
+			`for p in $(m); do kill -KILL "$p" 2>/dev/null; done`,
 		podman.ShellQuote(workerCmd), podman.ShellQuote(sitePath))
 
 	return fmt.Sprintf(`if [ -f %[1]s ] && kill -0 "$(cat %[1]s 2>/dev/null)" 2>/dev/null; then

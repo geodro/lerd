@@ -61,6 +61,14 @@ func runIsolate(_ *cobra.Command, args []string) error {
 	if _, err := config.FindSiteByPath(cwd); err == nil {
 		if err := runLink([]string{}); err != nil {
 			fmt.Printf("[WARN] re-linking site: %v\n", err)
+		} else if site, err := config.FindSiteByPath(cwd); err == nil && site.PHPVersion != "" && site.PHPVersion != version {
+			// The framework caps the usable PHP (e.g. Laravel 11 → 8.4), so the
+			// re-link clamped the pin. Sync the committed files to the version
+			// that actually runs; otherwise .lerd.yaml and .php-version would
+			// advertise a version lerd silently overrides on every link.
+			_ = config.SetProjectPHPVersion(cwd, site.PHPVersion)
+			_ = os.WriteFile(filepath.Join(cwd, ".php-version"), []byte(site.PHPVersion+"\n"), 0644)
+			fmt.Printf("Note: %s isn't usable here; clamped to %s and updated .lerd.yaml / .php-version to match.\n", version, site.PHPVersion)
 		}
 	}
 

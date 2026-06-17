@@ -487,6 +487,24 @@ func sailLinkDetectDBName(cwd string) string {
 // Workers with a Check rule that doesn't pass are skipped. Workers that conflict
 // with another requested worker are resolved via ConflictsWith (e.g. horizon replaces queue).
 func startWorkersForSite(site *config.Site, workers []string, phpVersion string) {
+	// Stripe is not a framework worker, so the framework loop below skips it.
+	// Start its listener directly when it was among the workers being restored
+	// (e.g. recreated after a runtime switch), before the no-framework early
+	// return so it survives even on a site lerd has no framework definition for.
+	for _, w := range workers {
+		if w == "stripe" {
+			scheme := "http"
+			if site.Secured {
+				scheme = "https"
+			}
+			baseURL := scheme + "://" + site.PrimaryDomain()
+			if err := StripeStartForSite(site.Name, site.Path, baseURL); err != nil {
+				fmt.Printf("[WARN] starting stripe listener: %v\n", err)
+			}
+			break
+		}
+	}
+
 	fw, hasFw := config.GetFrameworkForDir(site.Framework, site.Path)
 	if !hasFw || fw.Workers == nil {
 		return
