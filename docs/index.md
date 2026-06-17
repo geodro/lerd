@@ -1,6 +1,7 @@
 ---
 layout: home
 title: Lerd - Local PHP development for Linux
+titleTemplate: false
 description: Open-source local PHP development environment built for Linux. Nginx + PHP on rootless Podman, with automatic .test domains, HTTPS, and a built-in Web UI. First-class on Arch, Ubuntu, Fedora, and Debian; also runs on macOS via Homebrew.
 
 hero:
@@ -20,48 +21,27 @@ hero:
 
 features:
   - icon: 🌐
-    title: Auto .test / .localhost
-    details: Every project gets a .test domain via lerd's dnsmasq, or opt into .localhost (RFC 6761, no DNS setup). Dual-stack IPv4 + IPv6.
-  - icon: 🔒
-    title: One-command HTTPS
-    details: "`lerd secure` issues a locally-trusted TLS cert via mkcert, rewrites the nginx vhost, and updates APP_URL in one shot."
+    title: Auto .test domains & HTTPS
+    details: Every project gets a .test domain via lerd's dnsmasq (or opt into .localhost, no DNS setup), and `lerd secure` issues a locally-trusted TLS cert with mkcert in one shot. Dual-stack IPv4 + IPv6.
   - icon: 🐘
-    title: PHP & Node versions
-    details: PHP 8.1–8.5 plus a frozen 7.4 / 8.0 legacy tier, with multiple Node versions side by side and per-project pinning from CLI, UI, or TUI.
+    title: PHP, Node & bun, per project
+    details: PHP 8.1–8.5 plus a frozen 7.4 / 8.0 legacy tier, multiple Node versions side by side, and bun as a first-class JS runtime, all pinned per project from the CLI, UI, or TUI.
+  - icon: ⚡
+    title: FrankenPHP & Octane
+    details: Per-site FrankenPHP as an alternative to shared PHP-FPM, with full extension parity, Laravel Octane and Symfony worker mode, and auto-reload on file changes.
   - icon: 🔧
     title: Services & presets
-    details: Built-ins (MySQL, Postgres, Redis, Meilisearch, RustFS, Mailpit), one-click presets, or any OCI image as a custom service with depends_on.
+    details: Built-ins (MySQL, Postgres, Redis, Meilisearch, RustFS, Mailpit), one-click presets, or any OCI image as a custom service, each editable and updatable in place.
   - icon: 🖥️
     title: Web UI, TUI & tray
-    details: Browser dashboard with command palette, btop-style TUI (`lerd tui`), and a system tray applet, all wired to the same live event bus.
-  - icon: ✏️
-    title: Edit config in the browser
-    details: Per-site and global nginx, per-version php.ini, .env files, and database/service runtime tuning, edited in the dashboard with validation, timestamped backups, and one-click restore.
-  - icon: 🧪
-    title: Tinker tab
-    details: In-browser PHP REPL per site with autocomplete, live linting, and collapsible dump trees. Works on Laravel, Symfony, and other PHP projects.
+    details: A browser dashboard with command palette, Laravel Doctor and a live Resources view, a btop-style TUI (`lerd tui`), and a system tray applet, all on one event bus.
   - icon: 🛰️
-    title: Debug window
-    details: Live `dump()` / `dd()` capture plus SQL queries with N+1 and slow-query detection, mail, views, events, jobs, and outgoing HTTP, across Laravel and Symfony, streamed to the dashboard, TUI, MCP, and CLI.
-  - icon: 🔥
-    title: SPX profiler
-    details: One global toggle and every PHP-FPM request becomes a flame graph viewable in the dashboard's Profiler view. No FPM restart, no code changes, `lerd profile run` for one-shot CLI commands.
+    title: Debug window & profiler
+    details: Live `dump()` / `dd()` capture, SQL queries with N+1 detection, mail, jobs and outgoing HTTP across Laravel and Symfony, plus a one-toggle SPX flame-graph profiler.
   - icon: 🤖
     title: AI integration (MCP)
-    details: Built-in Model Context Protocol server with eleven grouped tools. Claude Code, Cursor, Codex, Gemini, GitHub Copilot, Google Antigravity, JetBrains Junie, and Windsurf scaffold projects and run migrations straight from chat.
-  - icon: ⚡
-    title: FrankenPHP runtime
-    details: Per-site FrankenPHP as an alternative to shared PHP-FPM, with Laravel Octane and Symfony Runtime worker mode wired up out of the box.
+    details: A built-in Model Context Protocol server with eleven grouped tools. Claude Code, Cursor, Codex, Gemini, Copilot, Antigravity, Junie, and Windsurf scaffold and run migrations from chat.
   - icon: 📦
-    title: Rootless Podman
-    details: No Docker daemon, no sudo, no system pollution. Services run as your user via rootless Podman and systemd user units on Linux and macOS.
-  - icon: 🧩
-    title: Framework store
-    details: YAML framework definitions for Laravel, Symfony, WordPress, Drupal, CakePHP, and Statamic, auto-detected and applied on `lerd link`.
-  - icon: 🧱
-    title: Polyglot sites
-    details: Drop a `Containerfile.lerd` to run Node, Python, Ruby, or Go sites alongside your PHP ones, or point a host-proxy site at a dev server running on your host. Same HTTPS, DNS, and worker pipeline either way.
-  - icon: 🔗
-    title: Site groups
-    details: Group related sites so a main owns a base domain and the rest occupy its subdomains, with optional shared databases, for multi-app and multi-tenant setups.
+    title: Rootless & polyglot
+    details: No Docker daemon, no sudo. Services run as your user via rootless Podman, and a `Containerfile.lerd` or host-proxy site runs Node, Python, Go or Ruby apps alongside your PHP ones.
 ---

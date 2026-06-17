@@ -137,7 +137,7 @@ Worker mode keeps PHP resident, so a source file change is **not** picked up on 
 
 lerd builds a derived image, `localhost/lerd-frankenphp<version>:local`, FROM the dunglas base with the same runtime extension set the FPM image ships (redis, gd, pdo_mysql/pgsql, intl, imagick, igbinary, mongodb, gmp, bcmath, soap, ldap, zip, ...), plus any extensions and packages you add globally. They are compiled for the ZTS runtime and baked once, so `pcntl` and `nodejs` are present from first boot rather than installed at container start. The image rebuilds automatically when lerd's definition changes or via `lerd php:rebuild`.
 
-The per-request debug tooling works for requests Octane serves too: lerd bind-mounts the same dump bridge, `lerd_devtools` (the Debug window's query/job/view/mail/event/http capture), and Xdebug config into the FrankenPHP container. `lerd dump on`, the Debug window, and the Xdebug toggle all apply to a FrankenPHP site. `dump()`/`dd()` and captured queries from a live Octane request land in the dashboard exactly as they do under FPM.
+The per-request debug tooling works for requests Octane serves too: lerd bind-mounts the same dump bridge, `lerd_devtools` (the Debug window's query/job/view/mail/event/http capture), and Xdebug config into the FrankenPHP container. `lerd dump on`, the Debug window, and the Xdebug toggle all apply to a FrankenPHP site. `dump()`/`dd()` and captured queries from a live Octane request land in the dashboard exactly as they do under FPM. The one exception is `lerd xdebug pause`, which breaks into a running worker through `xdebugctl`, a tool only the shared FPM image ships, so it stays PHP-FPM only; the Xdebug on/off/mode toggle still works on FrankenPHP.
 
 CLI tooling (`lerd test`, `lerd pest`, `lerd php:bun`, `lerd pest:browser`, `php`, `composer`) execs into the shared FPM container for the site's PHP version, so bun and Pest browser testing work for FrankenPHP sites with no extra setup.
 
@@ -153,7 +153,7 @@ Everything else — the full runtime extension set, Xdebug, the dump()/dd() brid
 
 ## Other notes
 
-- **PHP version picker** (in the Web UI and `lerd isolate`) rebuilds the derived image for the matching `dunglas/frankenphp:php<version>-alpine` base and restarts the site. Versions without published dunglas images fall back to the latest.
+- **PHP version picker** (in the Web UI and `lerd isolate`) rebuilds the derived image for the matching `dunglas/frankenphp:php<version>-alpine` base and restarts the site. On a FrankenPHP site the dashboard dropdown only lists the versions FrankenPHP publishes an image for, so it never offers one that would silently downgrade the site; a site pinned to a version like 8.5 runs that image rather than dropping back to 8.4.
 - **macOS** works the same way as Linux because FrankenPHP runs inside the Podman Machine VM; no extra wiring required.
 
 ---

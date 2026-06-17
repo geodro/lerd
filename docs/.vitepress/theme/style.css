@@ -165,11 +165,12 @@
 
 /* Home features grid: VitePress applies .grid-6 when features.length is a
    multiple of 3, which lands the cards at 50% width on viewports between
-   640–767px (2 per row) and 33% from 768px upward (3 per row). With 12
-   cards the default never reaches 4 per row, so the bottom rows end up
-   stretched out. These overrides promote grid-6 to 3 per row from 640px
-   and 4 per row from 960px so 12 cards become a clean 4 × 3 grid on
-   desktop while staying readable on tablets. */
+   640–767px (2 per row) and 33% from 768px upward (3 per row). These
+   overrides promote grid-6 to 3 per row from 640px and 4 per row from
+   960px so multiple-of-three counts stay a clean grid on desktop while
+   readable on tablets. The curated home uses 8 features (grid-4), which
+   VitePress already lays out as a clean 4 × 2; this rule is a safety net
+   if the feature count changes back to a multiple of three. */
 @media (min-width: 640px) {
   .VPFeatures .item.grid-6 {
     width: calc(100% / 3) !important;
@@ -182,4 +183,107 @@
   }
 }
 
+/* -----------------------------------------------------------------------
+   Home feature cards — lift + brand-red glow on hover, larger icons
+   ----------------------------------------------------------------------- */
+.VPFeatures .VPFeature {
+  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+}
 
+.VPFeatures .VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 34px rgba(255, 45, 32, 0.1);
+}
+
+.VPFeatures .VPFeature .icon {
+  font-size: 24px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--vp-c-brand-soft);
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* -----------------------------------------------------------------------
+   Home page "wow" — borrow the dev-digest's visual signature.
+   All scoped to .VPHome so docs content pages keep the clean reading theme.
+   ----------------------------------------------------------------------- */
+
+/* Faint film-grain over the home view, exactly like the digest */
+.VPHome::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Hero: red/amber radial glow background + display typography */
+.VPHome .VPHero {
+  position: relative;
+  background:
+    radial-gradient(ellipse 55% 65% at 10% -5%, rgba(255, 45, 32, 0.12), transparent 60%),
+    radial-gradient(ellipse 45% 45% at 95% 110%, rgba(237, 163, 59, 0.06), transparent 60%);
+}
+
+.VPHome .VPHero .name .clip {
+  font-family: 'Archivo', var(--vp-font-family-base);
+  font-weight: 900;
+  font-stretch: 125%;
+  letter-spacing: -0.03em;
+  font-size: clamp(56px, 9vw, 104px);
+  line-height: 0.95;
+  background: linear-gradient(180deg, var(--vp-c-brand-3), var(--vp-c-brand-1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 32px rgba(255, 45, 32, 0.4));
+}
+
+.VPHome .VPHero .text {
+  font-family: 'Archivo', var(--vp-font-family-base);
+  font-weight: 800 !important;
+  letter-spacing: -0.01em;
+}
+
+.VPHome .VPHero .tagline {
+  color: var(--vp-c-text-2);
+}
+
+/* Breathing room between the hero copy and the gif on desktop */
+@media (min-width: 960px) {
+  .VPHome .VPHero .container {
+    gap: 48px;
+  }
+}
+
+/* Action buttons: give the brand CTA a red glow */
+.VPHome .VPHero .actions .VPButton.brand {
+  box-shadow: 0 0 28px rgba(255, 45, 32, 0.28);
+}
+
+/* Feature cards: same corner red glow as the digest banner */
+.VPHome .VPFeature {
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 45, 32, 0.09), transparent 55%),
+    var(--vp-c-bg-soft);
+}
+
+/* Feature card titles in the display font */
+.VPHome .VPFeature .title {
+  font-family: 'Archivo', var(--vp-font-family-base);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Keep the home content above the grain overlay */
+.VPHome .VPHero,
+.VPHome .VPFeatures,
+.VPHome .container {
+  position: relative;
+  z-index: 2;
+}

@@ -113,14 +113,21 @@ Supported PHP versions: **8.5**, **8.4**, **8.3**, **8.2**, **8.1**, and the fro
 | `lerd xdebug on [version] [--mode MODE] [--on-demand]` | Enable Xdebug for a PHP version. `--mode` defaults to `debug`; accepts `coverage`, `develop`, `profile`, `trace`, `gcstats`, or comma combos like `debug,coverage`. `--on-demand` sets `start_with_request=trigger` so nothing auto-connects |
 | `lerd xdebug off [version]` | Disable Xdebug |
 | `lerd xdebug status` | Show Xdebug enabled/disabled state and active mode for all installed PHP versions |
-| `lerd xdebug pause [site] [--list] [--pid PID]` | Break the IDE debugger into a running worker/CLI process via Xdebug's control socket (`xdebugctl`). `--list` shows candidate processes, `--pid` targets one |
+| `lerd xdebug pause [site] [--list] [--pid PID]` | (experimental, PHP-FPM sites only) Break the IDE debugger into a running worker/CLI process via Xdebug's control socket (`xdebugctl`). `--list` shows candidate processes, `--pid` targets one |
 | `lerd php:ext add <ext> [version] [--apk-deps PKG[,PKG]]` | Add a custom PHP extension and rebuild the FPM image. `--apk-deps` accepts additional Alpine packages that the extension needs at build time (e.g. `--apk-deps libwebp-dev,libpng-dev` for `gd` with WebP support); the package list is persisted in `~/.config/lerd/config.yaml` so future rebuilds reapply it |
 | `lerd php:ext remove <ext> [version]` | Remove a custom PHP extension and rebuild |
 | `lerd php:ext list [version]` | List custom extensions for a PHP version |
+| `lerd php:pkg add <package...> [--php VERSION]` | Add extra Alpine packages to the FPM image and rebuild; the list is persisted so future rebuilds reapply it |
+| `lerd php:pkg remove <package...> [--php VERSION]` | Remove extra Alpine packages and rebuild |
+| `lerd php:pkg list [--php VERSION]` | List the extra Alpine packages configured for a PHP version |
 | `lerd php:ini [version]` | Open the user php.ini for a PHP version in `$EDITOR` |
 | `lerd pest:browser install [version]` | Set up in-container Pest browser testing: bake musl chromium into the FPM image, download the Playwright registry into a persistent volume, and shim Playwright's glibc browser to it |
 | `lerd pest:browser remove [version]` | Remove chromium from the FPM image and disable Pest browser testing (the Playwright cache volume is left intact) |
 | `lerd pest:browser doctor [version]` | Diagnose the Pest browser testing setup (plugin, chromium, playwright, shim) for a PHP version |
+| `lerd php:bun install [version] [--pin VERSION]` | Install (or update) a musl bun into the container's persistent `/root/.bun` volume, shared across every PHP version; `--pin` fixes a specific bun version instead of latest |
+| `lerd php:bun update [version]` | Update the container's bun in place (`bun upgrade`) |
+| `lerd php:bun version [version]` | Show the bun version installed in the PHP-FPM container |
+| `lerd php:bun remove` | Remove the in-container bun and clear its persistent volume |
 | `lerd dump on` | Enable the debug bridge so `dump()` / `dd()` calls ship to the lerd dashboard, TUI, and MCP tools |
 | `lerd dump off` | Disable the debug bridge and restore FPM containers to their default state |
 | `lerd dump status` | Show whether the bridge is enabled and how many events are buffered |
@@ -147,6 +154,7 @@ Switch the PHP runtime for the current site between shared PHP-FPM and per-site 
 | `lerd runtime frankenphp --worker` | Enable FrankenPHP with worker mode (Laravel Octane or Symfony's FrankenPHP adapter with `--watch`) |
 | `lerd runtime frankenphp --no-worker` | Switch to FrankenPHP and explicitly disable worker mode |
 | `lerd runtime fpm` | Back to shared PHP-FPM; clears the runtime field from `.lerd.yaml` |
+| `lerd octane:reload [on\|off]` | Toggle Octane auto-reload on file changes (`octane:start --watch`) for the current FrankenPHP worker-mode site; with no argument prints the current state. Needs the `chokidar` npm package |
 
 ## Node
 
@@ -159,6 +167,7 @@ Switch the PHP runtime for the current site between shared PHP-FPM and per-site 
 | `lerd node [args...]` | Run `node` using the project's pinned version via fnm |
 | `lerd npm [args...]` | Run `npm` using the project's pinned Node version via fnm |
 | `lerd npx [args...]` | Run `npx` using the project's pinned Node version via fnm |
+| `lerd js:runtime [bun\|node\|auto]` | Pin the current site's JS runtime in `.lerd.yaml` (the CLI equivalent of the dashboard's bun/Node toggle); with no argument prints the current runtime |
 
 ## Services
 
@@ -223,6 +232,7 @@ For projects that use `laravel/horizon`, lerd detects it automatically from `com
 |---|---|
 | `lerd horizon:start` | Start Laravel Horizon for the current project as a persistent background service |
 | `lerd horizon:stop` | Stop Horizon |
+| `lerd horizon:reload [on\|off]` | Toggle Horizon auto-reload on file changes for the current site; with no argument prints the current state. Needs the `chokidar` npm package |
 
 ## Reverb
 
@@ -247,6 +257,19 @@ Requires [Laravel Broadcasting](https://laravel.com/docs/13.x/broadcasting) with
 | `lerd worker start <name>` | Start any named framework worker for the current project |
 | `lerd worker stop <name>` | Stop a named framework worker |
 | `lerd worker list` | List all workers defined for the current project's framework |
+
+## Idle-suspend
+
+Activity-driven worker suspension: lerd gracefully stops each site's suspendable workers (queue, scheduler, Horizon, Reverb, Stripe listener, Vite) after a period of no activity and resumes them on the next request, CLI command, MCP call, or source-file save. See the [idle-suspend](../usage/idle-suspend.md) page for the full behaviour.
+
+| Command | Description |
+|---|---|
+| `lerd idle on` | Enable idle-suspend globally |
+| `lerd idle off` | Disable idle-suspend and resume every suspended worker |
+| `lerd idle status` | Show each site's idle-suspend policy and last-active time |
+| `lerd idle timeout <duration>` | Set the idle timeout (e.g. `30m`, `2h`) |
+| `lerd idle pin <site>` | Pin a site so idle-suspend never sleeps it |
+| `lerd idle unpin <site>` | Unpin a site so idle-suspend can sleep it again |
 
 ## Framework definitions
 

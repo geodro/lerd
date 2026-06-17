@@ -28,8 +28,8 @@ If you're a PHP developer on Linux and want frictionless local development — a
 - 🌐 **Automatic `.test` domains** with one-command TLS, or [opt out of lerd-managed DNS](https://geodro.github.io/lerd/features/dns/) and use `*.localhost` (no dnsmasq, no system resolver tweak, no sudo for the DNS bits)
 - 🐘 **Per-project PHP version** (8.1–8.5, plus a frozen 7.4 / 8.0 legacy tier for hosted-on-the-old-stack projects), switch with one click
 - ⚡ **FrankenPHP runtime** per site as an alternative to shared PHP-FPM, with Laravel Octane and Symfony Runtime worker mode
-- 📦 **Node.js isolation** per project (Node 22, 24)
-- 🖥️ **Built-in Web UI** with a dashboard root, sites and services overview dashboards, live widgets, a global Cmd+K command palette, install/remove of PHP and Node versions from the System page, and seven dashboard languages (English, German, Spanish, French, Indonesian, Dutch, Portuguese)
+- 📦 **Node.js isolation** per project (Node 22, 24), or **bun** as the JS runtime on the host and, opt-in, inside the container
+- 🖥️ **Built-in Web UI** with a dashboard root, sites and services overview dashboards, live widgets, a global Cmd+K command palette, install/remove of PHP and Node versions from the System page, and fourteen dashboard languages (English, German, Spanish, French, Indonesian, Dutch, Portuguese, Turkish, Simplified Chinese, Japanese, Romanian, Italian, Polish, Vietnamese)
 - ✏️ **Edit config in the browser** — per-site and global nginx, per-version `php.ini`, `.env` files, and database/service runtime tuning, each validated (`nginx -t` where it applies), with timestamped backups and one-click restore
 - 🧪 **Tinker tab** - in-browser PHP REPL per site with autocomplete (project models, composer helpers, PHP built-ins), live `php -l` syntax checking, and a collapsible tree view for `dump()` output. Works on Laravel (`artisan tinker`), Symfony, and any composer-based PHP project
 - 🛰️ **Debug window** that intercepts every `dump()` / `dd()` and streams it to the dashboard, TUI (`D` key), MCP, and `lerd dump tail`, scoped per site and per worktree branch, with the original response left clean unless you flip passthrough on. The same window captures SQL queries with N+1 and slow-query detection, plus outgoing mail, rendered views, dispatched events, queued jobs, and outgoing HTTP, across both Laravel and Symfony, with optional opt-in capture of queue-worker activity
@@ -40,6 +40,7 @@ If you're a PHP developer on Linux and want frictionless local development — a
 - 🧱 **Host-proxy sites** — run a Node, Python, Go, or any non-PHP dev server on the host and have nginx serve it at a `.test` domain with HTTPS, git worktrees included
 - 🌳 **First-class git worktrees** with auto-detected branch domains, per-worktree PHP/Node versions, optional per-worktree database isolation (clone from main or empty), a per-worktree LAN-share proxy, `env_overrides` templating in `.lerd.yaml` for multi-tenant apps, automatic wildcard cert SANs for `*.branch.site.test`, a built-in Vite dev server worker that runs on the host per branch, and a dashboard modal for adding and removing worktrees without touching the CLI
 - ⚒️ **Worker self-heal**, failed queue, schedule, horizon, reverb, and stripe workers are surfaced everywhere (CLI, dashboard banner, TUI, MCP) and recovered with one click or `lerd worker heal`
+- 💤 **Idle-suspend**, activity-driven suspension of a site's workers (queue, schedule, horizon, reverb, stripe, Vite) after a configurable idle timeout, resumed on the next request, CLI command, MCP call, or file save, with per-site pinning
 - 📋 **Live logs** for PHP-FPM, Queue, Schedule, Reverb, per site
 - 🔒 **Rootless & daemonless** - Podman-native, no Docker required, dual-stack IPv4 + IPv6
 - 🤖 **MCP server** - let AI assistants (Claude Code, Cursor, JetBrains Junie, Codex CLI, Gemini CLI, GitHub Copilot, Google Antigravity, Windsurf) manage your environment directly
@@ -65,7 +66,7 @@ AI:  → site(action: "link")
      ✓  myapp → https://myapp.test ready
 ```
 
-Ten grouped tools, each driven by an `action`: `site`, `service`, `db`, `env`, `runtime`, `worker`, `exec`, `framework`, `diag`, and `worktree`. Scaffold projects, run migrations, manage services, toggle workers, tail logs, enable Xdebug, manage databases and PHP extensions, park directories, switch runtimes between PHP-FPM and FrankenPHP, and more, all from your AI assistant.
+Eleven grouped tools, each driven by an `action`: `site`, `service`, `db`, `env`, `runtime`, `worker`, `exec`, `framework`, `diag`, `logs`, and `worktree`. Scaffold projects, run migrations, manage services, toggle workers, tail and search logs, enable Xdebug, manage databases and PHP extensions, park directories, switch runtimes between PHP-FPM and FrankenPHP, and more, all from your AI assistant.
 
 📖 [MCP documentation](https://geodro.github.io/lerd/features/mcp/)
 

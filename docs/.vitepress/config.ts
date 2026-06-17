@@ -7,11 +7,15 @@ export default defineConfig({
   title: 'Lerd',
   description: 'Open-source Herd-like local PHP development environment for Linux. Automatic .test domains, PHP 8.2–8.5, rootless Podman. Works on Ubuntu, Fedora, Arch, and Debian.',
   base: '/lerd/',
+  lang: 'en-US',
   cleanUrls: true,
 
   sitemap: {
     hostname: SITE_URL,
     transformItems(items) {
+      // Static digest pages live in public/ and aren't page-derived, so add them by hand.
+      items.push({ url: 'digest/v1.25.0.html' })
+      items.push({ url: 'digest/v1.24.0.html' })
       return items.map(item => ({ ...item, url: `lerd/${item.url}` }))
     },
   },
@@ -19,16 +23,26 @@ export default defineConfig({
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/lerd/assets/logo.svg' }],
 
+    // Display fonts for the home page hero (Archivo + JetBrains Mono)
+    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
+    ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap' }],
+
+    ['meta', { name: 'theme-color', content: '#FF2D20' }],
+
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'Lerd' }],
+    ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
-    ['meta', { property: 'og:image:width', content: '1200' }],
-    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { property: 'og:image:width', content: '1280' }],
+    ['meta', { property: 'og:image:height', content: '640' }],
+    ['meta', { property: 'og:image:alt', content: 'Lerd — local PHP development for Linux and macOS' }],
 
     // Twitter / X
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
+    ['meta', { name: 'twitter:image:alt', content: 'Lerd — local PHP development for Linux and macOS' }],
   ],
 
   transformPageData(pageData, { siteConfig }) {
@@ -38,10 +52,12 @@ export default defineConfig({
     pageData.frontmatter.head ??= []
     pageData.frontmatter.head.push(
       ['link', { rel: 'canonical', href: canonicalUrl }],
+      ['meta', { name: 'description', content: description }],
       ['meta', { property: 'og:title', content: title }],
       ['meta', { property: 'og:description', content: description }],
       ['meta', { property: 'og:url', content: canonicalUrl }],
-      ['meta', { name: 'description', content: description }],
+      ['meta', { name: 'twitter:title', content: title }],
+      ['meta', { name: 'twitter:description', content: description }],
     )
   },
 
