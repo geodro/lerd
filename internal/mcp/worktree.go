@@ -126,7 +126,7 @@ func execWorktreeList(args map[string]any) (any, *rpcError) {
 			})
 		}
 	}
-	return map[string]any{"site": site.Name, "worktrees": out}, nil
+	return toolJSON(map[string]any{"site": site.Name, "worktrees": out}), nil
 }
 
 func execWorktreeAdd(args map[string]any) (any, *rpcError) {
@@ -151,7 +151,7 @@ func execWorktreeAdd(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return toolErr("git " + strings.Join(gitArgs, " ") + ": " + out), nil
 	}
-	return map[string]any{"ok": true, "site": site.Name, "output": out}, nil
+	return toolJSON(map[string]any{"ok": true, "site": site.Name, "output": out}), nil
 }
 
 func execWorktreeRemove(args map[string]any) (any, *rpcError) {
@@ -191,12 +191,12 @@ func execWorktreeRemove(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return toolErr("git " + strings.Join(gitArgs, " ") + ": " + out), nil
 	}
-	return map[string]any{
+	return toolJSON(map[string]any{
 		"ok":                  true,
 		"site":                site.Name,
 		"output":              out,
 		"isolated_db_dropped": dbDropped,
-	}, nil
+	}), nil
 }
 
 func execWorktreeDBIsolate(args map[string]any) (any, *rpcError) {
@@ -226,7 +226,7 @@ func execWorktreeDBIsolate(args map[string]any) (any, *rpcError) {
 		resp["db_name"] = e.DBName
 		resp["db_service"] = e.Service
 	}
-	return resp, nil
+	return toolJSON(resp), nil
 }
 
 func execWorktreeDBShare(args map[string]any) (any, *rpcError) {
@@ -246,7 +246,7 @@ func execWorktreeDBShare(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return toolErr("lerd db:share: " + out), nil
 	}
-	return map[string]any{"ok": true, "site": site.Name, "branch": branch, "output": out}, nil
+	return toolJSON(map[string]any{"ok": true, "site": site.Name, "branch": branch, "output": out}), nil
 }
 
 func runIn(dir, name string, args ...string) (string, error) {

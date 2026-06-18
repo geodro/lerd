@@ -200,6 +200,17 @@ func toolErr(text string) map[string]any {
 	}
 }
 
+// toolJSON renders a structured value as indented JSON inside a text content
+// block. Tool results must carry a "content" array for the host to display
+// anything; returning a bare map produces a silent "no output" response.
+func toolJSON(v any) map[string]any {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return toolErr("marshal result: " + err.Error())
+	}
+	return toolOK(string(data))
+}
+
 func stripANSI(s string) string {
 	return logsource.StripANSI(s)
 }
@@ -1925,7 +1936,7 @@ func execServiceCheckUpdates(args map[string]any) (any, *rpcError) {
 		}
 		results = append(results, entry)
 	}
-	return map[string]any{"services": results}, nil
+	return toolJSON(map[string]any{"services": results}), nil
 }
 
 func execServiceUpdate(args map[string]any) (any, *rpcError) {
@@ -2078,7 +2089,7 @@ func execServiceEnv(args map[string]any) (any, *rpcError) {
 			k, v, _ := strings.Cut(kv, "=")
 			vars[k] = v
 		}
-		return map[string]any{"service": name, "vars": vars}, nil
+		return toolJSON(map[string]any{"service": name, "vars": vars}), nil
 	}
 
 	// Fall back to custom service env_vars.
@@ -2091,7 +2102,7 @@ func execServiceEnv(args map[string]any) (any, *rpcError) {
 		k, v, _ := strings.Cut(kv, "=")
 		vars[k] = v
 	}
-	return map[string]any{"service": name, "vars": vars}, nil
+	return toolJSON(map[string]any{"service": name, "vars": vars}), nil
 }
 
 func execEnvSetup(args map[string]any) (any, *rpcError) {

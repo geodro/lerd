@@ -12,5 +12,5 @@ func execDNSDiagnose(args map[string]any) (any, *rpcError) {
 			tld = cfg.DNS.TLD
 		}
 	}
-	return dns.Diagnose(tld), nil
+	return toolJSON(dns.Diagnose(tld)), nil
 }
