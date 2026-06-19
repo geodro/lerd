@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geodro/lerd/internal/agentenv"
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -140,6 +141,11 @@ func RunPHPCaptureEnv(cwd string, args []string, extraEnv []string) (int, error)
 	// any shim'd tool like composer) reaches SPX inside the container. extraEnv
 	// is applied after, so an explicit caller like `lerd profile run` wins.
 	for _, e := range spxPassthroughEnv(os.Environ()) {
+		cmdArgs = append(cmdArgs, "--env", e)
+	}
+	// Forward AI agent detection vars so agent-detector (e.g. laravel/pao)
+	// still emits JSON when run inside the container.
+	for _, e := range agentenv.Passthrough(os.Environ()) {
 		cmdArgs = append(cmdArgs, "--env", e)
 	}
 	for _, e := range extraEnv {

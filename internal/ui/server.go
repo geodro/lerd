@@ -178,6 +178,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/sites", withCORS(handleSites))
 	mux.HandleFunc("/api/services", withCORS(handleServices))
 	mux.HandleFunc("/api/ws", handleWS)
+	mux.HandleFunc("/api/lsp/php", handleLSPPhp)
 	mux.HandleFunc("/api/webhooks/mailpit", handleMailpitWebhook)
 	mux.HandleFunc("/api/push/vapid-public-key", withCORS(handlePushVAPIDPublicKey))
 	mux.HandleFunc("/api/push/subscribe", withCORS(handlePushSubscribe))
@@ -3690,43 +3691,6 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, SiteActionResponse{OK: true})
-		return
-	case "tinker:symbols":
-		branch := r.URL.Query().Get("branch")
-		tinkerPath := resolveSitePath(site, branch)
-		if tinkerPath == "" {
-			http.NotFound(w, r)
-			return
-		}
-		ensureWorktreeEnvIfBranch(site, branch)
-		writeJSON(w, cli.CollectTinkerSymbols(tinkerPath))
-		return
-	case "tinker:lint":
-		var body struct {
-			Code string `json:"code"`
-		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": "invalid body: " + err.Error()})
-			return
-		}
-		branch := r.URL.Query().Get("branch")
-		tinkerPath := resolveSitePath(site, branch)
-		if tinkerPath == "" {
-			writeJSON(w, map[string]any{"ok": false, "error": "unknown worktree branch"})
-			return
-		}
-		ensureWorktreeEnvIfBranch(site, branch)
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		diags, err := cli.LintTinkerCode(ctx, tinkerPath, body.Code)
-		resp := map[string]any{
-			"ok":          err == nil,
-			"diagnostics": diags,
-		}
-		if err != nil {
-			resp["error"] = err.Error()
-		}
-		writeJSON(w, resp)
 		return
 	case "tinker":
 		var body struct {

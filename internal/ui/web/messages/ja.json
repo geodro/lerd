@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "この出力をコピー",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "（出力なし）",
+  "tinker_lineLabel": "{n} 行目",
+  "tinker_lineTitle": "エディタの {n} 行目で生成",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "チェックを再実行",
@@ -948,5 +950,7 @@
   "services_cat_storage": "ストレージ",
   "services_cat_testing": "テスト",
   "services_cat_other": "その他",
-  "services_cat_messaging": "メッセージング"
+  "services_cat_messaging": "メッセージング",
+  "tinker_lspConnecting": "言語サーバーを起動中…",
+  "tinker_lspUnavailable": "言語サーバーを利用できません"
 }

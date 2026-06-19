@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "Kopiuj ten wynik",
   "tinker_placeholder": "// Wypróbuj jedno z:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(brak wyniku)",
+  "tinker_lineLabel": "Wiersz {n}",
+  "tinker_lineTitle": "Wygenerowane przez wiersz {n} edytora",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Uruchom ponownie sprawdzenia",
@@ -948,5 +950,7 @@
   "services_cat_storage": "Pamięć masowa",
   "services_cat_testing": "Testowanie",
   "services_cat_other": "Inne",
-  "services_cat_messaging": "Komunikaty"
+  "services_cat_messaging": "Komunikaty",
+  "tinker_lspConnecting": "Uruchamianie serwera języka…",
+  "tinker_lspUnavailable": "Serwer języka niedostępny"
 }

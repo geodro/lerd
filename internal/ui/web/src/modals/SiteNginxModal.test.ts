@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The real editor pulls in CodeMirror and hits the sites API on mount; swap it
+// The real editor pulls in Monaco and hits the sites API on mount; swap it
 // for a stub so these tests stay focused on the modal shell and close guard.
 vi.mock('$tabs/sites/SiteNginxTab.svelte', () => import('./SiteNginxModal.stub.svelte'));
 

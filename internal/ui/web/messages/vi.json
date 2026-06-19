@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "Sao chép kết quả này",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(không có kết quả)",
+  "tinker_lineLabel": "Dòng {n}",
+  "tinker_lineTitle": "Được tạo bởi dòng {n} của trình soạn thảo",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Chạy lại kiểm tra",
@@ -948,5 +950,7 @@
   "services_cat_storage": "Lưu trữ",
   "services_cat_testing": "Kiểm thử",
   "services_cat_other": "Khác",
-  "services_cat_messaging": "Nhắn tin"
+  "services_cat_messaging": "Nhắn tin",
+  "tinker_lspConnecting": "Đang khởi động máy chủ ngôn ngữ…",
+  "tinker_lspUnavailable": "Máy chủ ngôn ngữ không khả dụng"
 }

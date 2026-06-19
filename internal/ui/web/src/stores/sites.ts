@@ -549,75 +549,9 @@ export type TinkerResponse = {
   error?: string;
 };
 
-export type TinkerSymbols = {
-  models: string[];
-  classes: string[];
-  functions: string[];
-};
-
-export type TinkerLintDiagnostic = {
-  line: number;
-  column: number;
-  message: string;
-  severity: 'error' | 'warning';
-};
-
-export type TinkerLintResponse = {
-  ok: boolean;
-  diagnostics: TinkerLintDiagnostic[];
-  error?: string;
-};
-
 function tinkerURL(domain: string, action: string, branch: string): string {
   const base = site(domain, action);
   return branch ? `${base}?branch=${encodeURIComponent(branch)}` : base;
-}
-
-export async function lintTinker(
-  domain: string,
-  code: string,
-  branch: string = ''
-): Promise<TinkerLintResponse> {
-  try {
-    const res = await apiFetch(tinkerURL(domain, 'tinker:lint', branch), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code })
-    });
-    return (await res.json()) as TinkerLintResponse;
-  } catch (e) {
-    return {
-      ok: false,
-      diagnostics: [],
-      error: e instanceof Error ? e.message : 'Request failed'
-    };
-  }
-}
-
-// Symbol responses are stable for the lifetime of the tab session
-// (project classes, composer helpers, PHP internals don't change while
-// the user is at the editor). Cache per-domain+branch so quick tab
-// switches don't re-trigger the ~80 ms PHP exec on the backend, but
-// switching worktree pulls the worktree's own symbol set.
-const tinkerSymbolsCache = new Map<string, Promise<TinkerSymbols>>();
-
-export async function loadTinkerSymbols(
-  domain: string,
-  branch: string = ''
-): Promise<TinkerSymbols> {
-  const key = `${domain}@${branch}`;
-  const cached = tinkerSymbolsCache.get(key);
-  if (cached) return cached;
-  const p = (async () => {
-    try {
-      const res = await apiFetch(tinkerURL(domain, 'tinker:symbols', branch), { method: 'POST' });
-      return (await res.json()) as TinkerSymbols;
-    } catch {
-      return { models: [], classes: [], functions: [] };
-    }
-  })();
-  tinkerSymbolsCache.set(key, p);
-  return p;
 }
 
 export async function runTinker(

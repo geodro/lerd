@@ -1,31 +1,14 @@
 <script lang="ts">
-  import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
-  import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
-  import {
-    autocompletion,
-    completionKeymap,
-    closeBrackets,
-    closeBracketsKeymap,
-    completeAnyWord,
-    startCompletion,
-    acceptCompletion,
-    completionStatus,
-    type CompletionContext,
-    type CompletionResult
-  } from '@codemirror/autocomplete';
-  import { php } from '@codemirror/lang-php';
-  import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
-  import {
-    runTinker,
-    loadTinkerSymbols,
-    lintTinker,
-    type TinkerResponse,
-    type TinkerSymbols,
-    type Site
-  } from '$stores/sites';
+  import { runTinker, type TinkerResponse, type Site } from '$stores/sites';
   import { parseDump, looksLikeDump } from '$lib/dump-parser';
+  import { parseBlock } from '$lib/tinker';
   import DumpView from '$components/DumpView.svelte';
-  import CodeEditor from '$components/CodeEditor.svelte';
+  import MonacoEditor from '$components/MonacoEditor.svelte';
+  import Icon from '$components/Icon.svelte';
+  import { attachPhpLsp, type PhpLspHandle } from '$lib/lsp';
+  import type { MonacoModule } from '$lib/monaco';
+  import type * as Monaco from 'monaco-editor';
+  import { onDestroy } from 'svelte';
   import { m } from '../../paraglide/messages.js';
 
   interface Props {
@@ -48,14 +31,15 @@
   let code = $state(loadInitialDraft());
   let running = $state(false);
   let result = $state<TinkerResponse | null>(null);
-  let symbols: TinkerSymbols = { models: [], classes: [], functions: [] };
 
-  // Backend injects \x1e (record separator) between top-level statement
-  // outputs so each `echo`/`dump` becomes its own block in the UI.
+  // Backend frames each top-level statement's output as `\x1e<line>\x1f<out>`:
+  // the record separator splits blocks, and `line` is the editor line that
+  // produced the block (rendered as a "Line N" badge).
   type OutputBlock =
-    | { kind: 'tree'; nodes: ReturnType<typeof parseDump>['nodes']; trailing: string; raw: string }
-    | { kind: 'error'; type: string; message: string; raw: string }
-    | { kind: 'text'; text: string };
+    | { kind: 'tree'; nodes: ReturnType<typeof parseDump>['nodes']; trailing: string; raw: string; line?: number }
+    | { kind: 'error'; type: string; message: string; raw: string; line?: number }
+    | { kind: 'query'; sql: string; line?: number }
+    | { kind: 'text'; text: string; line?: number };
 
   // psysh emits runtime errors on stdout in the form
   //   `Error  Call to a member function get() on int.`
@@ -66,28 +50,32 @@
 
   const stdoutBlocks = $derived.by<OutputBlock[]>(() => {
     if (!result?.stdout) return [];
-    return result.stdout
-      .split('\x1e')
-      .map((chunk) => chunk.replace(/^\n+|\n+$/g, ''))
-      .filter((chunk) => chunk.length > 0)
-      .map<OutputBlock>((chunk) => {
-        const errMatch = chunk.match(ERROR_RE);
-        if (errMatch) {
-          return {
-            kind: 'error',
-            type: errMatch[1],
-            message: errMatch[2].trim(),
-            raw: chunk
-          };
+    const blocks: OutputBlock[] = [];
+    for (const rawChunk of result.stdout.split('\x1e')) {
+      // Peel the `<line>\x1f` marker before trimming so a block with only the
+      // marker (a no-output statement) drops out as empty.
+      const { line, kind, body } = parseBlock(rawChunk);
+      const chunk = body.replace(/^\n+|\n+$/g, '');
+      if (chunk.length === 0) continue;
+      if (kind === 'query') {
+        blocks.push({ kind: 'query', sql: chunk, line });
+        continue;
+      }
+      const errMatch = chunk.match(ERROR_RE);
+      if (errMatch) {
+        blocks.push({ kind: 'error', type: errMatch[1], message: errMatch[2].trim(), raw: chunk, line });
+        continue;
+      }
+      if (looksLikeDump(chunk)) {
+        const parsed = parseDump(chunk);
+        if (parsed.ok) {
+          blocks.push({ kind: 'tree', nodes: parsed.nodes, trailing: parsed.trailing, raw: chunk, line });
+          continue;
         }
-        if (looksLikeDump(chunk)) {
-          const parsed = parseDump(chunk);
-          if (parsed.ok) {
-            return { kind: 'tree', nodes: parsed.nodes, trailing: parsed.trailing, raw: chunk };
-          }
-        }
-        return { kind: 'text', text: chunk };
-      });
+      }
+      blocks.push({ kind: 'text', text: chunk, line });
+    }
+    return blocks;
   });
 
   async function copyText(text: string) {
@@ -125,298 +113,43 @@
 
   function clearAll() {
     result = null;
-    // CodeEditor's $effect mirrors external value writes into the editor,
-    // so assigning '' here clears the doc without us needing a view ref.
+    // MonacoEditor's $effect mirrors external value writes into the editor,
+    // so assigning '' here clears the doc without us needing an editor ref.
     code = '';
   }
 
+  // LSP status drives the small indicator next to the mode badge. phpantom
+  // backs completion, diagnostics, and hover from the real project.
+  let lspStatus = $state<'connecting' | 'ready' | 'unavailable'>('connecting');
+  let lsp: PhpLspHandle | null = null;
 
-  $effect(() => {
-    const domain = site.domain;
-    const b = branch;
-    loadTinkerSymbols(domain, b).then((s) => {
-      if (site.domain === domain && branch === b) symbols = s;
+  // Mod-Enter runs the buffer; the LSP attaches to the live editor. The
+  // closure reads the current `code` state on each invocation.
+  function onEditorReady({ editor, monaco }: { editor: Monaco.editor.IStandaloneCodeEditor; monaco: MonacoModule }) {
+    // Intercept at the keydown level rather than via addCommand: Ctrl/Cmd+Enter
+    // must run even while the suggestion widget is open (which otherwise
+    // captures Enter to accept the highlighted completion).
+    editor.onKeyDown((e) => {
+      if ((e.ctrlKey || e.metaKey) && e.keyCode === monaco.KeyCode.Enter) {
+        e.preventDefault();
+        e.stopPropagation();
+        void run();
+      }
     });
-  });
+
+    lsp?.dispose();
+    lsp = attachPhpLsp({
+      monaco,
+      editor,
+      domain: site.domain,
+      branch,
+      onStatus: (s) => { lspStatus = s; }
+    });
+  }
+
+  onDestroy(() => lsp?.dispose());
 
   const placeholder = m.tinker_placeholder();
-
-  // Laravel facades and helpers — built-ins, always offered on Laravel sites.
-  const laravelFacades = [
-    'Auth', 'Cache', 'Config', 'DB', 'Event', 'Hash', 'Http',
-    'Log', 'Mail', 'Notification', 'Queue', 'Redis', 'Request', 'Response',
-    'Route', 'Schema', 'Session', 'Storage', 'URL', 'Validator', 'View',
-    'Artisan', 'Bus', 'Broadcast', 'Cookie', 'Crypt', 'Date', 'File',
-    'Gate', 'Lang', 'Password', 'Process'
-  ];
-  const laravelHelpers = [
-    'collect', 'now', 'today', 'config', 'env', 'cache', 'logger',
-    'request', 'session', 'auth', 'response', 'redirect', 'route', 'url',
-    'asset', 'optional', 'tap', 'value', 'with', 'data_get', 'data_set',
-    'str', 'dd', 'dump', 'class_basename', 'app', 'resolve', 'broadcast', 'event'
-  ];
-
-  // Eloquent static methods (called as Model::method()).
-  const eloquentStatic = [
-    'all', 'find', 'findOrFail', 'findMany', 'first', 'firstWhere',
-    'firstOrCreate', 'firstOrNew', 'firstOrFail', 'create', 'make',
-    'updateOrCreate', 'where', 'whereIn', 'whereNotIn', 'whereNull',
-    'whereNotNull', 'whereBetween', 'whereDate', 'whereHas', 'whereDoesntHave',
-    'orderBy', 'latest', 'oldest', 'limit', 'take', 'skip', 'offset',
-    'paginate', 'simplePaginate', 'cursor', 'chunk', 'chunkById',
-    'count', 'sum', 'avg', 'min', 'max', 'exists', 'doesntExist',
-    'pluck', 'value', 'toSql', 'with', 'has', 'select', 'distinct',
-    'groupBy', 'having', 'join', 'leftJoin', 'rightJoin', 'union',
-    'truncate', 'destroy', 'query', 'newQuery'
-  ];
-
-  // Common PHP standard library classes/functions, surfaced regardless of
-  // framework. Keeps Tab+autocomplete useful on a fresh project.
-  const phpStdClasses = [
-    'DateTime', 'DateTimeImmutable', 'DateInterval', 'DateTimeZone',
-    'ArrayObject', 'ArrayIterator', 'SplObjectStorage', 'SplFileObject',
-    'Closure', 'Generator', 'Iterator', 'IteratorAggregate', 'Countable',
-    'Exception', 'Error', 'TypeError', 'ValueError', 'RuntimeException',
-    'InvalidArgumentException', 'LogicException', 'PDO', 'PDOStatement',
-    'ReflectionClass', 'ReflectionMethod', 'ReflectionFunction',
-    'ReflectionProperty', 'ReflectionParameter', 'WeakMap', 'WeakReference',
-    'Stringable', 'JsonSerializable'
-  ];
-  const phpStdFunctions = [
-    'json_encode', 'json_decode', 'array_map', 'array_filter', 'array_reduce',
-    'array_keys', 'array_values', 'array_merge', 'array_combine', 'array_unique',
-    'array_diff', 'array_intersect', 'count', 'in_array', 'sort', 'asort',
-    'ksort', 'usort', 'implode', 'explode', 'strpos', 'str_replace',
-    'str_contains', 'str_starts_with', 'str_ends_with', 'sprintf', 'printf',
-    'preg_match', 'preg_match_all', 'preg_replace', 'preg_split',
-    'file_get_contents', 'file_put_contents', 'file_exists', 'is_file',
-    'is_dir', 'glob', 'fopen', 'fclose', 'fread', 'fwrite',
-    'date', 'time', 'mktime', 'microtime', 'strtotime',
-    'var_dump', 'print_r', 'var_export', 'get_class', 'get_object_vars',
-    'method_exists', 'property_exists', 'is_array', 'is_string', 'is_numeric',
-    'is_object', 'is_null', 'isset', 'empty', 'array_key_exists'
-  ];
-
-  // Symfony-flavored hints when we detect a Symfony app. Things people
-  // actually type at the REPL when poking at Symfony bundles.
-  const symfonyHints = [
-    // HTTP Foundation
-    'Request', 'Response', 'JsonResponse', 'RedirectResponse', 'StreamedResponse',
-    'BinaryFileResponse', 'Cookie', 'HeaderBag', 'ParameterBag', 'Session',
-    // Kernel / Container
-    'Kernel', 'KernelInterface', 'ContainerInterface', 'ContainerBuilder',
-    // Doctrine
-    'EntityManager', 'EntityManagerInterface', 'EntityRepository', 'QueryBuilder',
-    'Query', 'Connection', 'Schema', 'AbstractMigration',
-    // Routing / Annotations / Attributes
-    'Route', 'AbstractController', 'Controller', 'Security',
-    // DI helpers
-    'AutowireServiceLocator', 'TaggedIterator', 'TaggedLocator',
-    // Event / Validation / Form
-    'Event', 'EventDispatcher', 'EventSubscriberInterface',
-    'Validator', 'ValidatorBuilder', 'Constraint', 'NotBlank', 'NotNull',
-    'Form', 'FormBuilder', 'FormType', 'AbstractType',
-    // Console
-    'Command', 'InputInterface', 'OutputInterface', 'SymfonyStyle',
-    // Misc
-    'Filesystem', 'Finder', 'Process', 'Uuid', 'Ulid'
-  ];
-
-  // Eloquent / Builder / Collection instance methods (called as $x->method()).
-  const eloquentInstance = [
-    'save', 'update', 'delete', 'forceDelete', 'restore', 'fresh', 'refresh',
-    'replicate', 'touch', 'push', 'fill', 'forceFill', 'getAttribute',
-    'setAttribute', 'getAttributes', 'getOriginal', 'getDirty', 'isDirty',
-    'wasChanged', 'toArray', 'toJson', 'load', 'loadMissing', 'loadCount',
-    'relationLoaded', 'relationsToArray', 'attributesToArray',
-    'where', 'whereIn', 'orWhere', 'orderBy', 'first', 'firstOrFail',
-    'get', 'find', 'count', 'sum', 'avg', 'min', 'max', 'pluck', 'paginate',
-    'with', 'has', 'whereHas', 'select', 'limit', 'take', 'skip',
-    'each', 'map', 'filter', 'reduce', 'reject', 'pipe', 'tap',
-    'pluck', 'sort', 'sortBy', 'sortByDesc', 'groupBy', 'keyBy',
-    'unique', 'values', 'keys', 'flatten', 'flatMap', 'collapse',
-    'merge', 'concat', 'diff', 'intersect', 'only', 'except',
-    'contains', 'every', 'some', 'isEmpty', 'isNotEmpty',
-    'sum', 'avg', 'min', 'max', 'count', 'reverse', 'shuffle', 'random'
-  ];
-
-  function uniq<T>(xs: T[]): T[] {
-    return Array.from(new Set(xs));
-  }
-
-  // PHP linter — debounced server-side `php -l` check. Each invocation
-  // spawns `podman exec lerd-phpXX-fpm php -l`, which is expensive
-  // (~50–100 ms of host CPU per call), so we:
-  //  1) wait 1.5s after typing stops before linting,
-  //  2) memoize on the exact code string so re-runs with no edit reuse
-  //     the previous diagnostics,
-  //  3) cancel in-flight requests when the doc changes again.
-  let lastLintCode = '';
-  let lastLintDiags: Diagnostic[] = [];
-  let lintAbort: AbortController | null = null;
-
-  const phpLinter = linter(
-    async (view) => {
-      const code = view.state.doc.toString();
-      if (!code.trim()) {
-        lastLintCode = '';
-        lastLintDiags = [];
-        return [];
-      }
-      if (code === lastLintCode) return lastLintDiags;
-
-      lintAbort?.abort();
-      const ctrl = new AbortController();
-      lintAbort = ctrl;
-
-      let res;
-      try {
-        res = await lintTinker(site.domain, code, branch);
-      } catch {
-        return lastLintDiags;
-      }
-      if (ctrl.signal.aborted) return lastLintDiags;
-
-      const out: Diagnostic[] = [];
-      for (const d of res.diagnostics ?? []) {
-        const ln = Math.max(1, Math.min(d.line, view.state.doc.lines));
-        const lineObj = view.state.doc.line(ln);
-        out.push({
-          from: lineObj.from,
-          to: lineObj.to,
-          severity: d.severity === 'error' ? 'error' : 'warning',
-          message: d.message
-        });
-      }
-      lastLintCode = code;
-      lastLintDiags = out;
-      return out;
-    },
-    // CodeMirror's linter debounces by `delay`: it waits this many ms
-    // after the LAST edit before firing. Combined with the memoize
-    // above (return cached if the buffer didn't change since last
-    // lint), we get exactly one fire at the end of a typing burst,
-    // skipped entirely on no-op refreshes.
-    { delay: 600 }
-  );
-
-  // Buffer variable source: scans the editor for $varname tokens and
-  // suggests them when the user types `$…`. Lets you do `$user = ...;`
-  // then `$u` and get `$user` back.
-  function variableSource(ctx: CompletionContext): CompletionResult | null {
-    const word = ctx.matchBefore(/\$\w*/);
-    if (!word || (word.from === word.to && !ctx.explicit)) return null;
-
-    const text = ctx.state.doc.toString();
-    const names = new Set<string>();
-    const re = /\$([A-Za-z_]\w*)/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) names.add(m[1]);
-
-    const cur = word.text.slice(1);
-    const opts = Array.from(names)
-      .filter((n) => n !== cur)
-      .sort()
-      .map((name) => ({ label: '$' + name, type: 'variable', detail: 'var' }));
-    if (opts.length === 0) return null;
-    return { from: word.from, options: opts, validFor: /^\$\w*$/ };
-  }
-
-  type Hint = { label: string; type?: string; detail?: string; boost?: number };
-
-  function hintSource(ctx: CompletionContext): CompletionResult | null {
-    const before = ctx.state.sliceDoc(Math.max(0, ctx.pos - 200), ctx.pos);
-
-    // After `Model::` — offer Eloquent static methods.
-    const staticCall = before.match(/([A-Z][A-Za-z0-9_]*)::([A-Za-z_]\w*)?$/);
-    if (staticCall) {
-      const word = ctx.matchBefore(/[A-Za-z_]\w*/);
-      const from = word ? word.from : ctx.pos;
-      return {
-        from,
-        options: eloquentStatic.map<Hint>((label) => ({ label, type: 'method', detail: 'static' })),
-        validFor: /^\w*$/
-      };
-    }
-
-    // After `->` — offer Eloquent instance / collection methods.
-    const arrowCall = before.match(/->([A-Za-z_]\w*)?$/);
-    if (arrowCall) {
-      const word = ctx.matchBefore(/[A-Za-z_]\w*/);
-      const from = word ? word.from : ctx.pos;
-      return {
-        from,
-        options: uniq(eloquentInstance).map<Hint>((label) => ({ label, type: 'method', detail: 'method' })),
-        validFor: /^\w*$/
-      };
-    }
-
-    // Plain identifier context — offer project models/classes for any
-    // composer-based project, plus framework hints + PHP standard library
-    // + composer-loaded global functions + project-defined functions.
-    const word = ctx.matchBefore(/[A-Za-z_]\w*/);
-    if (!word || (word.from === word.to && !ctx.explicit)) return null;
-    const isSymfony = site.framework === 'symfony';
-    const opts: Hint[] = [];
-    for (const m of symbols.models) opts.push({ label: m, type: 'class', detail: 'model', boost: 10 });
-    for (const c of symbols.classes) {
-      if (!symbols.models.includes(c)) opts.push({ label: c, type: 'class', detail: 'class', boost: 5 });
-    }
-    for (const f of symbols.functions) {
-      opts.push({ label: f, type: 'function', detail: 'function', boost: 1 });
-    }
-    if (site.is_laravel) {
-      for (const f of laravelFacades) opts.push({ label: f, type: 'class', detail: 'facade' });
-      for (const h of laravelHelpers) opts.push({ label: h, type: 'function', detail: 'helper' });
-    }
-    if (isSymfony) {
-      for (const s of symfonyHints) opts.push({ label: s, type: 'class', detail: 'symfony' });
-    }
-    for (const c of phpStdClasses) opts.push({ label: c, type: 'class', detail: 'php class' });
-    for (const f of phpStdFunctions) opts.push({ label: f, type: 'function', detail: 'php fn' });
-    if (opts.length === 0) return null;
-    return { from: word.from, options: opts, validFor: /^\w*$/ };
-  }
-
-  const tinkerExtensions = [
-    lineNumbers(),
-    highlightActiveLine(),
-    history(),
-    closeBrackets(),
-    lintGutter(),
-    phpLinter,
-    php(),
-    autocompletion({
-      // hintSource:    project + framework + PHP-stdlib + composer fns
-      // variableSource: $vars typed earlier in the buffer
-      // completeAnyWord: any other word seen in the buffer (fallback)
-      override: [hintSource, variableSource, completeAnyWord],
-      activateOnTyping: true,
-      closeOnBlur: true
-    }),
-    keymap.of([
-      { key: 'Mod-Enter', preventDefault: true, run: () => { run(); return true; } },
-      // Tab opens autocomplete; if it's open, accept the selection.
-      // Always consumes the key so focus never tabs out of the editor.
-      {
-        key: 'Tab',
-        preventDefault: true,
-        run: (v) => {
-          if (completionStatus(v.state) === 'active') {
-            acceptCompletion(v);
-            return true;
-          }
-          startCompletion(v);
-          return true;
-        }
-      },
-      ...closeBracketsKeymap,
-      ...completionKeymap,
-      ...defaultKeymap,
-      ...historyKeymap
-    ]),
-    EditorView.lineWrapping
-  ];
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-hidden pt-4 px-3 sm:px-5 pb-3 sm:pb-5 gap-3">
@@ -430,6 +163,12 @@
       </span>
       {#if result}
         <span class="text-[10px] text-gray-400">{result.duration_ms} ms</span>
+      {/if}
+      {#if lspStatus !== 'ready'}
+        <span
+          class="text-[10px] {lspStatus === 'unavailable' ? 'text-amber-500' : 'text-gray-400'}"
+          title={lspStatus === 'unavailable' ? m.tinker_lspUnavailable() : m.tinker_lspConnecting()}
+        >{lspStatus === 'unavailable' ? m.tinker_lspUnavailable() : m.tinker_lspConnecting()}</span>
       {/if}
     </div>
     <div class="flex items-center gap-2">
@@ -455,7 +194,7 @@
       class="group flex-1 min-h-[160px] md:min-h-0 md:basis-1/2 flex flex-col rounded-lg border border-gray-200 dark:border-lerd-border overflow-hidden bg-gray-50 dark:bg-black/40 relative"
     >
       <div class="flex-1 min-h-0 overflow-hidden">
-        <CodeEditor bind:value={code} extensions={tinkerExtensions} />
+        <MonacoEditor bind:value={code} language="php" onReady={onEditorReady} />
       </div>
       {#if code.trim()}
         <button
@@ -482,7 +221,7 @@
           </div>
         {/if}
         {#each stdoutBlocks as block, i (i)}
-          <div class="output-row group" data-line={i + 1}>
+          <div class="output-row group" data-line="">
             <div class="output-content">
               {#if block.kind === 'tree'}
                 {#each block.nodes as node, j (j)}
@@ -496,18 +235,30 @@
                   <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 shrink-0">{block.type}</span>
                   <pre class="whitespace-pre-wrap text-red-700 dark:text-red-300">{block.message}</pre>
                 </div>
+              {:else if block.kind === 'query'}
+                <div class="flex items-start gap-2 rounded-md border-l-2 border-sky-400 dark:border-sky-500 border-y border-r border-y-sky-200/60 border-r-sky-200/60 dark:border-y-sky-800/40 dark:border-r-sky-800/40 bg-sky-50/80 dark:bg-sky-950/30 px-2 py-1">
+                  <Icon name="database" class="w-3.5 h-3.5 mt-[2px] text-sky-500 dark:text-sky-400 shrink-0" />
+                  <pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-sky-800 dark:text-sky-300">{block.sql}</pre>
+                </div>
               {:else}
                 <pre class="whitespace-pre-wrap">{block.text}</pre>
               {/if}
             </div>
+            {#if block.line !== undefined && block.kind !== 'query'}
+              <span
+                class="output-line shrink-0 select-none text-[10px] text-gray-400 dark:text-gray-500"
+                title={m.tinker_lineTitle({ n: block.line })}
+              >{m.tinker_lineLabel({ n: block.line })}</span>
+            {/if}
             <button
               onclick={() =>
                 copyText(
                   block.kind === 'tree' ? block.raw :
-                  block.kind === 'error' ? block.raw : block.text
+                  block.kind === 'error' ? block.raw :
+                  block.kind === 'query' ? block.sql : block.text
                 )}
               title={m.tinker_copyOutputTitle()}
-              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0"
+              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0 {block.kind === 'query' ? 'output-copy--abs' : ''}"
             >{m.common_copy()}</button>
           </div>
         {/each}
@@ -529,100 +280,10 @@
 </div>
 
 <style>
-  /* CodeMirror autocomplete tooltip is portaled to <body>, so component
-     scoping doesn't reach it. Use :global() and follow the .dark class on
-     <html> that ThemeSwitcher toggles. */
-  :global(.cm-tooltip.cm-tooltip-autocomplete) {
-    border: 1px solid #e5e7eb;
-    background-color: #ffffff;
-    color: #111827;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-  }
-  :global(.cm-tooltip.cm-tooltip-autocomplete > ul > li) {
-    padding: 2px 8px;
-    color: #111827;
-  }
-  :global(.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]) {
-    background-color: #ff2d20;
-    color: #ffffff;
-  }
-  :global(.cm-tooltip.cm-tooltip-autocomplete > ul > li) {
-    display: flex !important;
-    align-items: center;
-    gap: 6px;
-  }
-  :global(.cm-completionIcon) {
-    color: #6b7280;
-    opacity: 0.85;
-    width: 1em;
-    flex-shrink: 0;
-  }
-  :global(.cm-completionLabel) {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  :global(.cm-completionDetail) {
-    color: #6b7280;
-    font-style: normal;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-left: auto;
-    padding-left: 12px;
-    flex-shrink: 0;
-  }
-  /* Type-specific icon coloring. CodeMirror sets cm-completionIcon-{type} */
-  :global(.cm-completionIcon-class) { color: #0ea5e9; }
-  :global(.cm-completionIcon-method) { color: #8b5cf6; }
-  :global(.cm-completionIcon-function) { color: #10b981; }
-  :global(.cm-completionIcon-variable) { color: #f59e0b; }
-  :global(.cm-completionIcon-property) { color: #ec4899; }
-
-  :global(html.dark .cm-tooltip.cm-tooltip-autocomplete) {
-    border: 1px solid #262626;
-    background-color: #161616;
-    color: #e5e7eb;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-  }
-  :global(html.dark .cm-tooltip.cm-tooltip-autocomplete > ul > li) {
-    color: #e5e7eb;
-  }
-  :global(html.dark .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]) {
-    background-color: #ff2d20;
-    color: #ffffff;
-  }
-  :global(html.dark .cm-completionIcon) {
-    color: #9ca3af;
-  }
-  :global(html.dark .cm-completionDetail) {
-    color: #9ca3af;
-  }
-  /* CodeMirror's default gutter is white-on-light. Override for dark
-     mode (lerd-card background, muted slate text) so the line numbers
-     blend with the rest of the dashboard. */
-  :global(html.dark .cm-gutters) {
-    background-color: #161616;
-    border-right: 1px solid #262626;
-    color: #6b7280;
-  }
-  :global(html.dark .cm-lineNumbers .cm-gutterElement) {
-    color: #6b7280;
-  }
-  :global(html.dark .cm-activeLineGutter) {
-    background-color: rgba(255, 255, 255, 0.04);
-    color: #d1d5db;
-  }
-
-  /* Output panel — visually mirrors the CodeMirror editor on the left:
-     bordered box, monospace, line-number gutter that the user can't
-     mouse-select or copy. Numbers come from `data-line` via `::before`,
-     so they're CSS-generated content (excluded from text selection in
-     all modern browsers). */
+  /* Output panel, visually mirrors the editor on the left: bordered box,
+     monospace, line-number gutter that the user can't mouse-select or copy.
+     Numbers come from `data-line` via `::before`, so they're CSS-generated
+     content (excluded from text selection in all modern browsers). */
   .tinker-output {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 12px;
@@ -634,7 +295,10 @@
     padding: 2px 8px 2px 0;
     position: relative;
   }
-  .tinker-output :global(.output-row::before) {
+  /* Gutter only renders for rows that carry a marker (error/stderr/no-output).
+     Result and query rows use data-line="", so it collapses, their info is on
+     the right ("Line N" badge), leaving no dead column on the left. */
+  .tinker-output :global(.output-row:not([data-line=''])::before) {
     content: attr(data-line);
     flex-shrink: 0;
     width: 32px;
@@ -646,7 +310,7 @@
     -webkit-user-select: none;
     pointer-events: none;
   }
-  :global(html.dark) .tinker-output :global(.output-row::before) {
+  :global(html.dark) .tinker-output :global(.output-row:not([data-line=''])::before) {
     color: #4b5563;
   }
   .tinker-output :global(.output-content) {
@@ -657,10 +321,17 @@
   .tinker-output :global(.output-copy) {
     margin-left: 8px;
   }
-
-  :global(html.dark .cm-completionIcon-class) { color: #38bdf8; }
-  :global(html.dark .cm-completionIcon-method) { color: #a78bfa; }
-  :global(html.dark .cm-completionIcon-function) { color: #34d399; }
-  :global(html.dark .cm-completionIcon-variable) { color: #fbbf24; }
-  :global(html.dark .cm-completionIcon-property) { color: #f472b6; }
+  .tinker-output :global(.output-line) {
+    margin-left: 8px;
+    padding-top: 1px;
+    white-space: nowrap;
+  }
+  /* Query rows keep the result gutter/left padding but float the copy button
+     so the card can span the full width to the right edge. */
+  .tinker-output :global(.output-copy--abs) {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    margin-left: 0;
+  }
 </style>

@@ -668,6 +668,8 @@
   "tinker_copyOutputTitle": "Copier cette sortie",
   "tinker_placeholder": "// Essaie l'un de ceux-ci :\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(aucune sortie)",
+  "tinker_lineLabel": "Ligne {n}",
+  "tinker_lineTitle": "Produit par la ligne {n} de l'éditeur",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Relancer les vérifications",
@@ -948,5 +950,7 @@
   "services_cat_storage": "Stockage",
   "services_cat_testing": "Tests",
   "services_cat_other": "Autres",
-  "services_cat_messaging": "Messagerie"
+  "services_cat_messaging": "Messagerie",
+  "tinker_lspConnecting": "Démarrage du serveur de langage…",
+  "tinker_lspUnavailable": "Serveur de langage indisponible"
 }

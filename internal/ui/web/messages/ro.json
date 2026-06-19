@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "Copiază acest rezultat",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(fără rezultat)",
+  "tinker_lineLabel": "Linia {n}",
+  "tinker_lineTitle": "Generat de linia {n} din editor",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Rulează din nou verificările",
@@ -948,5 +950,7 @@
   "services_cat_storage": "Stocare",
   "services_cat_testing": "Testare",
   "services_cat_other": "Altele",
-  "services_cat_messaging": "Mesagerie"
+  "services_cat_messaging": "Mesagerie",
+  "tinker_lspConnecting": "Serverul de limbaj pornește…",
+  "tinker_lspUnavailable": "Server de limbaj indisponibil"
 }

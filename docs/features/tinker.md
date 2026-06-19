@@ -53,7 +53,7 @@ tinker:
 
 ## Output rendering
 
-The output panel is styled like a read-only CodeMirror: bordered box, monospace, line-number gutter rendered as CSS pseudo-elements so dragging across results never selects or copies the line numbers.
+The output panel is styled like a read-only editor: bordered box, monospace, line-number gutter rendered as CSS pseudo-elements so dragging across results never selects or copies the line numbers.
 
 - **One block per top-level statement.** Backend injects an ASCII `0x1E` separator after each statement, frontend splits on it. Multi-line scripts produce a numbered list of outputs, not one concatenated blob.
 - **Bare expressions auto-dump.** Type `User::count()` (no `dump`, no `echo`) and you see the value. The transformer wraps single-statement bare expressions in `dump(...)` (or `var_dump(...)` if Symfony VarDumper isn't installed). Statements that already produce side effects (`echo`, `return`, `throw`, control flow) are left alone.
@@ -63,45 +63,26 @@ The output panel is styled like a read-only CodeMirror: bordered box, monospace,
 
 ## Editor
 
-CodeMirror 6 with PHP syntax highlighting, line numbers, bracket matching, undo/redo, line wrapping. Light/dark theme follows the Lerd theme.
+The [Monaco editor](https://microsoft.github.io/monaco-editor/) (the engine behind VS Code) with PHP syntax highlighting, line numbers, bracket matching, undo/redo, and line wrapping. Light/dark theme follows the Lerd theme. Monaco is lazy-loaded the first time you open any editor surface, so it never weighs down the initial dashboard load.
 
-### Autocomplete
+### Language intelligence (phpantom_lsp)
 
-Tab opens the popup; if it's already open, Tab accepts the highlighted entry. Tab never escapes focus from the editor (so you can keep typing without losing your place).
+Autocomplete, diagnostics, hover, and signature help are powered by [phpantom_lsp](https://github.com/PHPantom-dev/phpantom_lsp), a fast, self-contained Rust PHP language server. It bundles phpstorm-stubs and the Mago parser, so it needs no PHP runtime to analyze a project — lerd runs it on the host (managed binary in `~/.local/share/lerd/bin/phpantom_lsp`, like `fnm`/`mkcert`/`composer`) pointed at the site's project directory.
 
-What's offered, in priority order:
+Because it analyzes the real project, completions are genuinely project-aware: your Eloquent models, relationships, scopes, casts and Builder chains resolve end-to-end, alongside framework facades, vendor classes, and the PHP standard library. Hover a symbol for its docblock; type `(` inside a call for signature help.
 
-1. **Project models** (boost 10) — classes that look like Eloquent models, Doctrine ORM entities, Pivot, MorphPivot, or `extends Authenticatable`.
-2. **Project classes** (boost 5) — every other class declared in your PSR-4 autoload roots, read from `composer.json`'s `autoload.psr-4` and `autoload-dev.psr-4`. Works for Laravel `app/`, Symfony `src/`, or any custom mapping.
-3. **Composer-loaded global functions** — extracted from `vendor/composer/autoload_files.php`. Picks up Laravel's `collect()`, `dd()`, `dump()`, `tap()`, plus any Symfony / package helpers registered via composer's `files` autoload.
-4. **PHP internal functions** — `get_defined_functions(true)['internal']` for the site's PHP version, ~2,200 entries. Cached per version, so the first symbol fetch pays a ~80 ms PHP exec, subsequent ones are instant.
-5. **Framework hints** — Laravel facades + helpers when `is_laravel`, Symfony framework classes (`Request`, `Response`, `EntityManagerInterface`, `AbstractController`, `Form`, `Command`, …) when `framework === 'symfony'`.
-6. **PHP standard library** — common classes (`DateTime`, `PDO`, `ReflectionClass`, `Closure`, `Generator`, `Stringable`) and functions.
-7. **Buffer variables** — typing `$u` after declaring `$user = ...` suggests `$user`. Source scans the editor for `$varname` tokens.
-8. **Any-word fallback** — words seen anywhere in the buffer.
+The browser connects to the server over a WebSocket (`/api/lsp/php`). `lerd-ui` spawns one `phpantom_lsp` process per connection, rooted at the site (or worktree) path, and bridges its stdio LSP traffic to Monaco. Tinker buffers are headerless PHP, so the bridge presents the document to the server with a synthetic leading `<?php` line (and offsets positions accordingly) — you keep typing bare snippets while the server still parses valid PHP.
 
-Context-aware sources kick in for two patterns:
+A small status hint sits in the toolbar while the server is starting, and switches to "Language server unavailable" if it can't be reached. When that happens (offline first-run download, unsupported platform) the editor still works and code still runs — only the live intelligence is missing.
 
-- After `Model::` — Eloquent **static** methods (`find`, `where`, `paginate`, `firstOrCreate`, `count`, …).
-- After `->` — Eloquent / Builder / Collection **instance** methods (`save`, `update`, `pluck`, `each`, `map`, …).
-
-Each entry shows a colored type icon and an uppercase detail label on the right (`MODEL`, `CLASS`, `FACADE`, `HELPER`, `METHOD`, `STATIC`, `FUNCTION`, `PHP FN`, `PHP CLASS`, `SYMFONY`, `VAR`).
-
-### Live syntax checking
-
-Edits trigger `php -l` against the site's PHP container, debounced 600 ms. Results are rendered as inline CodeMirror diagnostics:
-
-- Parse / fatal errors → red gutter dot, red wavy underline, hover tooltip with the message.
-- Warnings / deprecations / notices → amber, same UI.
-
-The PHP version used is the site's own (8.4 features in an 8.4 site won't trip the linter).
+The server binary is fetched at `lerd install` time, and lazily on first connect for existing installs, so no manual setup is required.
 
 ### Keyboard
 
 | Shortcut | Action |
 |---|---|
 | `Ctrl+Enter` / `Cmd+Enter` | Run the editor contents |
-| `Tab` | Open autocomplete (or accept selected entry) |
+| `Ctrl+Space` | Trigger autocomplete |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 
 ### Drafts
@@ -141,25 +122,29 @@ The Tinker tab executes arbitrary PHP inside your site's container with the same
 | Method + Path | Body | Returns |
 |---|---|---|
 | `POST /api/sites/{domain}/tinker` | `{ "code": "..." }` | `{ ok, stdout, stderr, exit_code, duration_ms, mode, error? }` |
-| `POST /api/sites/{domain}/tinker:symbols` | (none) | `{ models: [...], classes: [...], functions: [...] }` |
-| `POST /api/sites/{domain}/tinker:lint` | `{ "code": "..." }` | `{ ok, diagnostics: [{ line, column, message, severity }], error? }` |
+| `GET /api/lsp/php?domain={domain}&branch={branch}` | WebSocket | LSP JSON-RPC bridged to `phpantom_lsp` (one message per text frame) |
 
 Output from `tinker` runs uses ASCII `0x1E` (record separator) between top-level statements; the frontend splits on it. Aliasing notices and psysh source-location annotations are stripped before being returned.
+
+The `/api/lsp/php` socket first sends a single `{"type":"lerd-root","root":"…"}` handshake frame so the browser can build the document URI for the workspace; every subsequent frame is a raw LSP JSON-RPC message.
 
 ## Implementation map
 
 Backend (Go):
 
 - `internal/cli/tinker.go` — `RunTinker`, the dump-function detector, the multi-statement transformer, `splitTopLevelStatements`, the auto-dump heuristic, output cleanup.
-- `internal/cli/tinker_symbols.go` — `CollectTinkerSymbols`, PSR-4 autoload root resolution, composer autoload-files function harvesting, cached `get_defined_functions()` exec.
-- `internal/cli/tinker_lint.go` — `LintTinkerCode` runs `php -l` and parses the output to diagnostics.
-- `internal/ui/server.go` — `tinker`, `tinker:symbols`, `tinker:lint` cases on the site action handler.
-- Tests: `tinker_test.go`, `tinker_symbols_test.go`, `tinker_lint_test.go`.
+- `internal/phpantom/phpantom.go` — manages the `phpantom_lsp` host binary: platform asset resolution, pinned-version download, tar extraction into `BinDir`.
+- `internal/ui/lsp.go` — `handleLSPPhp`, the WebSocket ↔ stdio LSP framing bridge (`readLSPMessage` / `encodeLSPMessage`).
+- `internal/ui/server.go` — the `tinker` case on the site action handler and the `/api/lsp/php` route.
+- Tests: `tinker_test.go`, `internal/ui/lsp_test.go`, `internal/phpantom/phpantom_test.go`.
 
-Frontend (Svelte 5 + CodeMirror 6):
+Frontend (Svelte 5 + Monaco):
 
-- `internal/ui/web/src/tabs/sites/SiteTinkerTab.svelte` — editor, autocomplete sources, linter integration, output rendering.
+- `internal/ui/web/src/components/MonacoEditor.svelte` — reusable lazy-loaded Monaco wrapper.
+- `internal/ui/web/src/lib/monaco.ts` — single-instance Monaco loader (editor.api + PHP grammar, themes, worker).
+- `internal/ui/web/src/lib/lsp.ts` — dependency-free LSP client: completion/hover/signature providers, diagnostics-to-markers, headerless-REPL position mapping.
+- `internal/ui/web/src/tabs/sites/SiteTinkerTab.svelte` — editor, LSP wiring, output rendering.
 - `internal/ui/web/src/components/DumpView.svelte` — recursive collapsible tree.
 - `internal/ui/web/src/lib/dump-parser.ts` — parses Symfony VarDumper CLI output into a tree (`+ tests`).
 - `internal/ui/web/src/tabs/sites/SiteDetail.svelte` — host the tabs in the bottom-right of `SiteHeader`.
-- `internal/ui/web/src/stores/sites.ts` — `runTinker`, `lintTinker`, `loadTinkerSymbols` API helpers.
+- `internal/ui/web/src/stores/sites.ts` — `runTinker` API helper.

@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "复制此输出",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "（无输出）",
+  "tinker_lineLabel": "第 {n} 行",
+  "tinker_lineTitle": "由编辑器第 {n} 行生成",
   "sites_doctor_button": "诊断",
   "sites_doctor_title": "Laravel 诊断",
   "sites_doctor_refresh": "重新运行检查",
@@ -948,5 +950,7 @@
   "services_cat_storage": "存储",
   "services_cat_testing": "测试",
   "services_cat_other": "其他",
-  "services_cat_messaging": "消息"
+  "services_cat_messaging": "消息",
+  "tinker_lspConnecting": "语言服务器启动中…",
+  "tinker_lspUnavailable": "语言服务器不可用"
 }

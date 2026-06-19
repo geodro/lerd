@@ -668,6 +668,8 @@
   "tinker_copyOutputTitle": "Bu çıktıyı kopyala",
   "tinker_placeholder": "// Birini deneyin:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(çıktı yok)",
+  "tinker_lineLabel": "Satır {n}",
+  "tinker_lineTitle": "Düzenleyici satırı {n} tarafından üretildi",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Kontrolleri yeniden çalıştır",
@@ -948,5 +950,7 @@
   "services_cat_storage": "Depolama",
   "services_cat_testing": "Test",
   "services_cat_other": "Diğer",
-  "services_cat_messaging": "Mesajlaşma"
+  "services_cat_messaging": "Mesajlaşma",
+  "tinker_lspConnecting": "Dil sunucusu başlatılıyor…",
+  "tinker_lspUnavailable": "Dil sunucusu kullanılamıyor"
 }

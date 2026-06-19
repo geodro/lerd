@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { isEditableTarget } from '$lib/dom';
   import {
     sites,
     openSiteInBrowser,
@@ -265,11 +266,7 @@
     }
   });
 
-  function isInInput(t: EventTarget | null) {
-    if (!(t instanceof HTMLElement)) return false;
-    const tag = t.tagName.toLowerCase();
-    return tag === 'input' || tag === 'textarea' || t.isContentEditable;
-  }
+  const isInInput = isEditableTarget;
 
   function onKeydown(e: KeyboardEvent) {
     const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
