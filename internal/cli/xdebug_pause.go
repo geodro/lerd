@@ -116,11 +116,7 @@ func resolvePauseSite(args []string) (*config.Site, error) {
 	if err != nil {
 		return nil, err
 	}
-	site, err := config.FindSiteByPath(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("no lerd site here — run inside a project or pass a site name")
-	}
-	return site, nil
+	return ensureSiteForCwd(cwd)
 }
 
 func pauseSiteVersion(site *config.Site) string {

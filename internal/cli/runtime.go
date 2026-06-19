@@ -52,9 +52,9 @@ func runRuntime(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	site, err := config.FindSiteByPath(cwd)
+	site, err := ensureSiteForCwd(cwd)
 	if err != nil {
-		return fmt.Errorf("not a registered site — run 'lerd link' first")
+		return err
 	}
 	if site.IsCustomContainer() {
 		return fmt.Errorf("site uses a custom Containerfile; the runtime is defined by your Containerfile.lerd")

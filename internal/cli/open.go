@@ -44,10 +44,17 @@ func runOpen(_ *cobra.Command, args []string) error {
 				url = siteURL(site.Path)
 			}
 		}
+		if url == "" {
+			site, err := ensureSiteForCwd(cwd)
+			if err != nil {
+				return err
+			}
+			url = siteURL(site.Path)
+		}
 	}
 
 	if url == "" {
-		return fmt.Errorf("no registered site found for this directory — run 'lerd link' first")
+		return errNotLinked()
 	}
 
 	fmt.Printf("Opening %s\n", url)

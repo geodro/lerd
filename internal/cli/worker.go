@@ -161,7 +161,10 @@ func resolveSiteAndFramework(cwd string) (*config.Site, *config.Framework, strin
 		if parent, ok := config.ParentSiteForWorktreeDir(cwd); ok {
 			site = parent
 		} else {
-			return nil, nil, "", fmt.Errorf("not a registered site — run 'lerd link' first")
+			site, err = ensureSiteForCwd(cwd)
+			if err != nil {
+				return nil, nil, "", err
+			}
 		}
 	}
 
@@ -426,9 +429,9 @@ func newWorkerAddCmd() *cobra.Command {
 				return err
 			}
 
-			site, err := config.FindSiteByPath(cwd)
+			site, err := ensureSiteForCwd(cwd)
 			if err != nil {
-				return fmt.Errorf("not a registered site — run 'lerd link' first")
+				return err
 			}
 
 			w := config.FrameworkWorker{
@@ -514,9 +517,9 @@ func newWorkerRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			site, err := config.FindSiteByPath(cwd)
+			site, err := ensureSiteForCwd(cwd)
 			if err != nil {
-				return fmt.Errorf("not a registered site — run 'lerd link' first")
+				return err
 			}
 
 			// Stop the worker if running — on the parent and on every

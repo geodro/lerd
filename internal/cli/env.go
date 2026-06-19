@@ -243,9 +243,9 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	}
 
 	// Determine framework-specific env file path and format
-	site, _ := config.FindSiteByPath(cwd)
-	if site == nil {
-		return fmt.Errorf("no site registered for this directory\nRun 'lerd link' first")
+	site, err := ensureSiteForCwd(cwd)
+	if err != nil {
+		return err
 	}
 
 	fwName := site.Framework

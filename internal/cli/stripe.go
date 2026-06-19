@@ -33,9 +33,9 @@ func newStripeConfigCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			site, err := config.FindSiteByPath(cwd)
+			site, err := ensureSiteForCwd(cwd)
 			if err != nil {
-				return fmt.Errorf("not a registered site — run 'lerd link' first")
+				return err
 			}
 
 			// No flags: report the current config instead of writing anything.
@@ -114,7 +114,13 @@ func newStripeListenCmd() *cobra.Command {
 
 			base := siteURL(cwd)
 			if base == "" {
-				return fmt.Errorf("no registered site found for this directory — run 'lerd link' first")
+				if _, err := ensureSiteForCwd(cwd); err != nil {
+					return err
+				}
+				base = siteURL(cwd)
+			}
+			if base == "" {
+				return errNotLinked()
 			}
 
 			siteName, err := queueSiteName(cwd)

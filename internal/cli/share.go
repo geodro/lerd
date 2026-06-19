@@ -167,11 +167,10 @@ func resolveShareSite(args []string) (*config.Site, error) {
 
 	// Fall back: treat the directory name as a site name.
 	name, _ := siteops.SiteNameAndDomain(filepath.Base(cwd), "test")
-	site, err = config.FindSite(name)
-	if err != nil {
-		return nil, fmt.Errorf("no registered site found for this directory — run 'lerd link' first")
+	if site, err = config.FindSite(name); err == nil {
+		return site, nil
 	}
-	return site, nil
+	return ensureSiteForCwd(cwd)
 }
 
 func pickShareTool(useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun bool) (*shareTool, error) {

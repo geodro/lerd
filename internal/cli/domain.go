@@ -58,11 +58,7 @@ func resolveSiteForCwd() (*config.Site, error) {
 	if err != nil {
 		return nil, err
 	}
-	site, err := config.FindSiteByPath(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("no site registered for %s — link it first with lerd link", cwd)
-	}
-	return site, nil
+	return ensureSiteForCwd(cwd)
 }
 
 func runDomainAdd(_ *cobra.Command, args []string) error {
