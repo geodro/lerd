@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/geodro/lerd/internal/agentenv"
 	"github.com/geodro/lerd/internal/certs"
 	"github.com/geodro/lerd/internal/composer"
 	"github.com/geodro/lerd/internal/config"
@@ -291,7 +292,11 @@ func execArtisan(args map[string]any) (any, *rpcError) {
 	}
 
 	// No -it flags — non-interactive, output captured to buffer.
-	cmdArgs := []string{"exec", "-w", projectPath, container, "php", consoleCmd}
+	cmdArgs := []string{"exec", "-w", projectPath}
+	for _, e := range agentenv.Passthrough(os.Environ()) {
+		cmdArgs = append(cmdArgs, "--env", e)
+	}
+	cmdArgs = append(cmdArgs, container, "php", consoleCmd)
 	cmdArgs = append(cmdArgs, artisanArgs...)
 
 	var out bytes.Buffer
