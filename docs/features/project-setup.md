@@ -104,7 +104,7 @@ On a machine where `.lerd.yaml` already exists the wizard is skipped and the sav
 
 ## Running a command in an unlinked project
 
-Commands that operate on the current site (`lerd open`, `lerd runtime`, `lerd worker`, `lerd stripe`, `lerd env`, `lerd domain`, `lerd share`, `lerd xdebug`) need the directory to be linked. When you run one in a project that has not been linked yet, lerd offers to link it for you instead of stopping with an error:
+Commands that operate on the current site (`lerd open`, `lerd runtime`, `lerd worker`, `lerd stripe`, `lerd env`, `lerd domain`, `lerd share`, `lerd xdebug`, and the worker-backed `lerd reverb`, `lerd schedule`, `lerd queue`) need the directory to be linked. When you run one in a project that has not been linked yet, lerd offers to link it for you instead of stopping with an error:
 
 ```
 This directory isn't linked to lerd. Link it now? [Y/n]

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/nginx"
@@ -48,11 +47,7 @@ choice is committed with the project.
 }
 
 func runRuntime(cmd *cobra.Command, args []string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	site, err := ensureSiteForCwd(cwd)
+	site, err := ensureSiteForCwd()
 	if err != nil {
 		return err
 	}

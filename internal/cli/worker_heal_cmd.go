@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -63,11 +62,7 @@ func runHealAll() error {
 }
 
 func runHealOne(workerName string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	site, err := ensureSiteForCwd(cwd)
+	site, err := ensureSiteForCwd()
 	if err != nil {
 		return err
 	}

@@ -170,7 +170,7 @@ func resolveShareSite(args []string) (*config.Site, error) {
 	if site, err = config.FindSite(name); err == nil {
 		return site, nil
 	}
-	return ensureSiteForCwd(cwd)
+	return ensureSiteForCwd()
 }
 
 func pickShareTool(useNgrok, useCloudflare, useExpose, useServeo, useLocalhostRun bool) (*shareTool, error) {

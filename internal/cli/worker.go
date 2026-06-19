@@ -161,7 +161,7 @@ func resolveSiteAndFramework(cwd string) (*config.Site, *config.Framework, strin
 		if parent, ok := config.ParentSiteForWorktreeDir(cwd); ok {
 			site = parent
 		} else {
-			site, err = ensureSiteForCwd(cwd)
+			site, err = ensureSiteForCwd()
 			if err != nil {
 				return nil, nil, "", err
 			}
@@ -429,7 +429,7 @@ func newWorkerAddCmd() *cobra.Command {
 				return err
 			}
 
-			site, err := ensureSiteForCwd(cwd)
+			site, err := ensureSiteForCwd()
 			if err != nil {
 				return err
 			}
@@ -517,7 +517,7 @@ func newWorkerRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			site, err := ensureSiteForCwd(cwd)
+			site, err := ensureSiteForCwd()
 			if err != nil {
 				return err
 			}

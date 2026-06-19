@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/geodro/lerd/internal/config"
 )
@@ -13,10 +14,14 @@ func errNotLinked() error {
 	return fmt.Errorf("no site registered for this directory — run 'lerd link' first")
 }
 
-// ensureSiteForCwd resolves the site registered for cwd. When none is found in
-// an interactive terminal it offers to link the directory, which cascades into
-// lerd init, then re-resolves so the caller proceeds in one flow.
-func ensureSiteForCwd(cwd string) (*config.Site, error) {
+// ensureSiteForCwd resolves the site for the current working directory, using
+// os.Getwd for both lookup and link so they can't diverge. On a miss in an
+// interactive terminal it offers to link (cascading into init) and re-resolves.
+func ensureSiteForCwd() (*config.Site, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 	if site, err := config.FindSiteByPath(cwd); err == nil {
 		return site, nil
 	}

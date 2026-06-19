@@ -33,7 +33,7 @@ func newStripeConfigCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			site, err := ensureSiteForCwd(cwd)
+			site, err := ensureSiteForCwd()
 			if err != nil {
 				return err
 			}
@@ -114,7 +114,7 @@ func newStripeListenCmd() *cobra.Command {
 
 			base := siteURL(cwd)
 			if base == "" {
-				if _, err := ensureSiteForCwd(cwd); err != nil {
+				if _, err := ensureSiteForCwd(); err != nil {
 					return err
 				}
 				base = siteURL(cwd)

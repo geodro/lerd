@@ -45,7 +45,7 @@ func runOpen(_ *cobra.Command, args []string) error {
 			}
 		}
 		if url == "" {
-			site, err := ensureSiteForCwd(cwd)
+			site, err := ensureSiteForCwd()
 			if err != nil {
 				return err
 			}

@@ -243,7 +243,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	}
 
 	// Determine framework-specific env file path and format
-	site, err := ensureSiteForCwd(cwd)
+	site, err := ensureSiteForCwd()
 	if err != nil {
 		return err
 	}
