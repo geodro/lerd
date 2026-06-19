@@ -668,6 +668,8 @@
   "tinker_copyOutputTitle": "Copiar esta saída",
   "tinker_placeholder": "// Tente um destes:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(sem saída)",
+  "tinker_lineLabel": "Linha {n}",
+  "tinker_lineTitle": "Produzido pela linha {n} do editor",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Executar verificações novamente",

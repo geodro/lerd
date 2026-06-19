@@ -31,6 +31,79 @@ export interface PhpLspHandle {
   dispose(): void;
 }
 
+export interface MonacoTextEdit {
+  range: Monaco.IRange;
+  text: string;
+}
+
+// Flattens an LSP WorkspaceEdit down to the plain text edits that touch our
+// tinker document, mapped into Monaco coordinates. The server's edits are
+// keyed by the synthetic `.lerd-tinker.php` URI (not the Monaco model's URI)
+// and live in LSP/synthetic-line space, so we can't hand the WorkspaceEdit to
+// Monaco verbatim: we pull out the edits for our URI and re-base every range.
+// Both the `changes` map and the newer `documentChanges` shape are handled.
+export function lspWorkspaceEditToMonaco(
+  edit: any,
+  documentUri: string,
+  fromLspRange: (r: any) => Monaco.IRange
+): MonacoTextEdit[] {
+  if (!edit) return [];
+  const want = decodeURIComponent(documentUri);
+  const out: MonacoTextEdit[] = [];
+  const take = (uri: string, edits: any[]) => {
+    if (decodeURIComponent(uri ?? '') !== want) return;
+    for (const e of edits ?? []) {
+      if (!e?.range) continue;
+      out.push({ range: fromLspRange(e.range), text: e.newText ?? '' });
+    }
+  };
+  if (edit.changes) {
+    for (const uri of Object.keys(edit.changes)) take(uri, edit.changes[uri]);
+  }
+  if (Array.isArray(edit.documentChanges)) {
+    for (const dc of edit.documentChanges) take(dc?.textDocument?.uri, dc?.edits);
+  }
+  return out;
+}
+
+// When an import edit inserts a `use …;` line directly above a line of code,
+// append one blank line so the import block is separated from the code. Skips
+// the blank when the following line is already blank or another use/namespace
+// statement, so repeated imports stay grouped without piling up blank lines.
+// `lineContentAt` returns the current (pre-edit) text of a 1-based line.
+export function withImportBlankLine(
+  edit: MonacoTextEdit,
+  lineContentAt: (lineNumber: number) => string
+): MonacoTextEdit {
+  const isInsertion =
+    edit.range.startLineNumber === edit.range.endLineNumber &&
+    edit.range.startColumn === edit.range.endColumn;
+  if (!isInsertion || !edit.text.endsWith('\n') || edit.text.endsWith('\n\n')) return edit;
+  if (!/^use\s+\S.*;\s*$/.test(edit.text.trim())) return edit;
+  const following = lineContentAt(edit.range.startLineNumber).trim();
+  if (following === '' || /^(use|namespace)\b/.test(following)) return edit;
+  return { ...edit, text: edit.text + '\n' };
+}
+
+// Whether completion should be suppressed for the given line text up to the
+// cursor. On a blank line phpantom returns its entire global symbol list,
+// which is pure noise; a member/variable prefix (->, ::, $, \) is not blank,
+// so member and variable completion is unaffected.
+export function isBlankCompletionPrefix(linePrefix: string): boolean {
+  return linePrefix.trim() === '';
+}
+
+// phpantom formats the document with the synthetic `<?php` header (and a blank
+// line after it) re-included. The tinker buffer is headerless, so we drop the
+// leading `<?php` line and the single blank line the formatter adds before the
+// user's code, leaving everything else untouched.
+export function stripSyntheticHeader(text: string): string {
+  const lines = text.split('\n');
+  if (lines.length && lines[0].trim() === '<?php') lines.shift();
+  if (lines.length && lines[0].trim() === '') lines.shift();
+  return lines.join('\n');
+}
+
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: unknown) => void;
@@ -137,15 +210,19 @@ export function attachPhpLsp(opts: {
   };
 
   // ---- diagnostics ----
+  // Last batch of user-line diagnostics in raw LSP form, kept so the code
+  // action provider can echo them back in the request context (phpantom keys
+  // its quick fixes off the diagnostic under the cursor).
+  let lastDiagnostics: any[] = [];
   notificationHandlers.set('textDocument/publishDiagnostics', (p: any) => {
     if (!p || decodeURIComponent(p.uri ?? '') !== decodeURIComponent(documentUri)) return;
     const model = editor.getModel();
     if (!model) return;
     const sev = monaco.MarkerSeverity;
-    const markers = (p.diagnostics ?? [])
+    lastDiagnostics = (p.diagnostics ?? []).filter((d: any) => d.range?.start?.line >= 1);
+    const markers = lastDiagnostics
       // Drop anything the server pins to the synthetic `<?php` line (LSP line
       // 0); user content always starts at LSP line 1.
-      .filter((d: any) => d.range?.start?.line >= 1)
       .map((d: any) => {
         const r = fromLspRange(d.range);
         return {
@@ -191,11 +268,24 @@ export function attachPhpLsp(opts: {
     return model === editor.getModel();
   }
 
+  // Current text of a 1-based model line, or '' when out of range, used to
+  // decide whether an import edit needs a trailing blank line.
+  function lineContentAt(model: Monaco.editor.ITextModel, ln: number): string {
+    return ln >= 1 && ln <= model.getLineCount() ? model.getLineContent(ln) : '';
+  }
+
   disposables.push(
     monaco.languages.registerCompletionItemProvider('php', {
       triggerCharacters: ['>', ':', '$', '\\', '-', '.'],
       async provideCompletionItems(model, position) {
         if (!isOurModel(model)) return { suggestions: [] };
+        const linePrefix = model.getValueInRange({
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column
+        });
+        if (isBlankCompletionPrefix(linePrefix)) return { suggestions: [] };
         let res: any;
         try {
           res = await request('textDocument/completion', {
@@ -225,6 +315,16 @@ export function attachPhpLsp(opts: {
               ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
               : undefined,
             range: edit?.range ? fromLspRange(edit.range) : range,
+            // Class completions carry the `use …;` import here; without it,
+            // accepting `Bid` inserts the bare name and leaves it unresolved.
+            additionalTextEdits: Array.isArray(it.additionalTextEdits)
+              ? it.additionalTextEdits.map((e: any) =>
+                  withImportBlankLine(
+                    { range: fromLspRange(e.range), text: e.newText ?? '' },
+                    (ln) => lineContentAt(model, ln)
+                  )
+                )
+              : undefined,
             sortText: it.sortText,
             filterText: it.filterText,
             preselect: it.preselect
@@ -291,6 +391,118 @@ export function attachPhpLsp(opts: {
     })
   );
 
+  // ---- code actions (quick fixes) ----
+  // The server's workspace edits target the synthetic .lerd-tinker.php URI, so
+  // Monaco can't apply them itself (the URIs don't match the model). We apply
+  // the converted edits ourselves through this command, which the code action
+  // references by id.
+  const applyEditCmdId =
+    editor.addCommand(0, (_a: unknown, edits: MonacoTextEdit[]) => {
+      if (Array.isArray(edits) && edits.length) {
+        editor.executeEdits('phpantom-quickfix', edits.map((e) => ({ range: e.range, text: e.text })));
+      }
+    }, '') ?? '';
+
+  disposables.push(
+    monaco.languages.registerCodeActionProvider('php', {
+      async provideCodeActions(model, range, context) {
+        if (!isOurModel(model) || !applyEditCmdId) return { actions: [], dispose() {} };
+        const lspRange = {
+          start: toLspPos({ lineNumber: range.startLineNumber, column: range.startColumn }),
+          end: toLspPos({ lineNumber: range.endLineNumber, column: range.endColumn })
+        };
+        let res: any;
+        try {
+          res = await request('textDocument/codeAction', {
+            textDocument: { uri: documentUri },
+            range: lspRange,
+            context: {
+              diagnostics: lastDiagnostics,
+              ...(context.only ? { only: [context.only] } : {})
+            }
+          });
+        } catch {
+          return { actions: [], dispose() {} };
+        }
+        const raw: any[] = Array.isArray(res) ? res : [];
+        const actions: Monaco.languages.CodeAction[] = [];
+        for (const a of raw) {
+          // A pure command (no edit/diagnostics) is something we can't run
+          // without an execute-command bridge, so skip it.
+          if (!a || (!a.edit && !a.command)) continue;
+          let act = a;
+          if (!act.edit) {
+            try {
+              act = await request('codeAction/resolve', a);
+            } catch {
+              act = a;
+            }
+          }
+          const edits = lspWorkspaceEditToMonaco(act.edit, documentUri, fromLspRange).map((e) =>
+            withImportBlankLine(e, (ln) => lineContentAt(model, ln))
+          );
+          if (!edits.length) continue;
+          actions.push({
+            title: act.title ?? a.title ?? 'Quick fix',
+            kind: act.kind ?? a.kind,
+            isPreferred: act.isPreferred ?? a.isPreferred,
+            command: { id: applyEditCmdId, title: act.title ?? 'Quick fix', arguments: [edits] }
+          });
+        }
+        return { actions, dispose() {} };
+      }
+    })
+  );
+
+  // ---- formatting ----
+  // phpantom only does whole-document formatting and returns one replace whose
+  // text re-includes the synthetic header. We turn that into a single
+  // full-model replace of headerless code. The same routine backs both the
+  // explicit Format Document command and format-on-paste; the range provider
+  // ignores the requested range (phpantom has no range formatting) and
+  // reformats the whole buffer, which is what you want in a scratchpad.
+  async function formattingEdits(): Promise<Monaco.languages.TextEdit[]> {
+    const model = editor.getModel();
+    if (!model) return [];
+    let res: any;
+    try {
+      res = await request('textDocument/formatting', {
+        textDocument: { uri: documentUri },
+        options: { tabSize: 4, insertSpaces: true }
+      });
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(res) || !res.length) return [];
+    // We only know how to apply phpantom's single whole-document replace (it
+    // spans from the synthetic `<?php` line). If the server ever returns a
+    // partial/incremental edit instead, skip rather than overwrite the whole
+    // buffer with a fragment.
+    const whole = res.find((e: any) => e?.range?.start?.line === 0);
+    if (!whole || typeof whole.newText !== 'string' || res.length !== 1) return [];
+    return [{ range: model.getFullModelRange(), text: stripSyntheticHeader(whole.newText) }];
+  }
+
+  disposables.push(
+    monaco.languages.registerDocumentFormattingEditProvider('php', {
+      async provideDocumentFormattingEdits(model) {
+        if (!isOurModel(model)) return [];
+        return formattingEdits();
+      }
+    })
+  );
+  disposables.push(
+    monaco.languages.registerDocumentRangeFormattingEditProvider('php', {
+      async provideDocumentRangeFormattingEdits(model) {
+        if (!isOurModel(model)) return [];
+        return formattingEdits();
+      }
+    })
+  );
+  // Format-on-paste leans on the range provider above. Scoped to this editor,
+  // which is only ever the tinker surface.
+  editor.updateOptions({ formatOnPaste: true });
+
   // ---- handshake + initialize ----
   void (async () => {
     const root = await rootReady;
@@ -312,6 +524,13 @@ export function attachPhpLsp(opts: {
             },
             hover: { contentFormat: ['markdown', 'plaintext'] },
             signatureHelp: { signatureInformation: { documentationFormat: ['markdown', 'plaintext'] } },
+            codeAction: {
+              codeActionLiteralSupport: {
+                codeActionKind: { valueSet: ['quickfix', 'source.organizeImports', 'refactor'] }
+              },
+              resolveSupport: { properties: ['edit'] }
+            },
+            formatting: { dynamicRegistration: false },
             publishDiagnostics: {}
           }
         }

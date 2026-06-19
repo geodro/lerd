@@ -668,6 +668,8 @@
   "tinker_copyOutputTitle": "Deze uitvoer kopiëren",
   "tinker_placeholder": "// Probeer een van deze:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(geen uitvoer)",
+  "tinker_lineLabel": "Regel {n}",
+  "tinker_lineTitle": "Gegenereerd door editorregel {n}",
   "sites_doctor_button": "Doctor",
   "sites_doctor_title": "Laravel Doctor",
   "sites_doctor_refresh": "Controles opnieuw uitvoeren",

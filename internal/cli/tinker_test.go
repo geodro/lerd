@@ -120,6 +120,11 @@ func TestCleanTinkerOutput(t *testing.T) {
 			"[!] Aliasing 'User' to 'App\\Models\\User' for this Tinker session.\n[!] Aliasing 'Chart' to 'App\\Models\\Chart' for this Tinker session.\nresult\n",
 			"result\n",
 		},
+		{
+			"strips noise after a block marker, keeping the marker",
+			"\x1e2\x1f[!] Aliasing 'User' to 'App\\Models\\User' for this Tinker session.\n1\n",
+			"\x1e2\x1f1\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,32 +173,37 @@ func TestTransformForMultiStatement(t *testing.T) {
 		{
 			"single expression auto-dumps",
 			"User::count()",
-			[]string{"dump(User::count());"},
+			[]string{`echo "\x1e1\x1f";dump(User::count());`},
 		},
 		{
 			"single echo unchanged",
 			"echo 1+1;",
-			[]string{"echo 1+1;"},
+			[]string{`echo "\x1e1\x1f";echo 1+1;`},
 		},
 		{
 			"two echoes get separator",
 			"echo 1+1; echo 2+2;",
-			[]string{`echo 1+1; echo "\x1e";echo 2+2;`},
+			[]string{`echo "\x1e1\x1f";echo 1+1;echo "\x1e1\x1f";echo 2+2;`},
 		},
 		{
 			"echo then bare expression auto-dumps the expression",
 			"echo 1+1; User::count()",
-			[]string{`echo 1+1; echo "\x1e";dump(User::count());`},
+			[]string{`echo "\x1e1\x1f";echo 1+1;echo "\x1e1\x1f";dump(User::count());`},
 		},
 		{
 			"every bare expression auto-dumps",
 			"User::count(); Chart::count()",
-			[]string{`dump(User::count()); echo "\x1e";dump(Chart::count());`},
+			[]string{`echo "\x1e1\x1f";dump(User::count());echo "\x1e1\x1f";dump(Chart::count());`},
 		},
 		{
 			"assignments stay as-is unless final expression",
 			"$x = 1; $y = 2; $x + $y",
-			[]string{`dump($x = 1); echo "\x1e";dump($y = 2); echo "\x1e";dump($x + $y);`},
+			[]string{`echo "\x1e1\x1f";dump($x = 1);echo "\x1e1\x1f";dump($y = 2);echo "\x1e1\x1f";dump($x + $y);`},
+		},
+		{
+			"line numbers track newlines across statements",
+			"User::count();\n\nChart::count()",
+			[]string{`echo "\x1e1\x1f";dump(User::count());echo "\x1e3\x1f";dump(Chart::count());`},
 		},
 	}
 	for _, tc := range cases {
@@ -202,6 +212,80 @@ func TestTransformForMultiStatement(t *testing.T) {
 			want := tc.wantParts[0]
 			if got != want {
 				t.Errorf("transformForMultiStatement(%q):\n got:  %q\n want: %q", tc.in, got, want)
+			}
+		})
+	}
+}
+
+func TestTransformForTinkerCapturesQueries(t *testing.T) {
+	got := transformForTinkerWithDump("User::count()", "dump")
+	// The query listener prelude is prepended, the current line is published
+	// before the statement, and the statement is still auto-dumped.
+	for _, want := range []string{
+		`DB::listen(`,
+		`$GLOBALS['__lerd_line']=1;`,
+		`echo "\x1e1\x1f";`,
+		`dump(User::count());`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("transformForTinkerWithDump missing %q\n got: %s", want, got)
+		}
+	}
+}
+
+func TestTransformForMultiStatementHasNoQueryCapture(t *testing.T) {
+	got := transformForMultiStatementWithDump("User::count()", "dump")
+	if strings.Contains(got, "DB::listen") || strings.Contains(got, "__lerd_line") {
+		t.Errorf("plain transform should not capture queries, got: %s", got)
+	}
+}
+
+func TestSplitTopLevelStatementsPos(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		lines []int
+	}{
+		{"single line", "User::count()", []int{1}},
+		{"two on one line", "echo 1; echo 2;", []int{1, 1}},
+		{"one per line", "echo 1;\necho 2;\necho 3;", []int{1, 2, 3}},
+		{"blank lines between", "User::count();\n\nChart::count()", []int{1, 3}},
+		{"semicolon inside string does not split", "echo 'a;b';\necho 2;", []int{1, 2}},
+		{"leading blank lines", "\n\nUser::count()", []int{3}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitTopLevelStatementsPos(tc.in)
+			if len(got) != len(tc.lines) {
+				t.Fatalf("splitTopLevelStatementsPos(%q): got %d stmts, want %d", tc.in, len(got), len(tc.lines))
+			}
+			for i, want := range tc.lines {
+				if got[i].line != want {
+					t.Errorf("stmt %d (%q): line %d, want %d", i, got[i].text, got[i].line, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSplitBlockMarker(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         string
+		wantPrefix string
+		wantBody   string
+	}{
+		{"marker present", "12\x1fhello", "12\x1f", "hello"},
+		{"single digit", "1\x1f", "1\x1f", ""},
+		{"no marker", "hello", "", "hello"},
+		{"non-digit before separator is not a marker", "Error \x1foops", "", "Error \x1foops"},
+		{"empty", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix, body := splitBlockMarker(tc.in)
+			if prefix != tc.wantPrefix || body != tc.wantBody {
+				t.Errorf("splitBlockMarker(%q) = (%q, %q), want (%q, %q)", tc.in, prefix, body, tc.wantPrefix, tc.wantBody)
 			}
 		})
 	}

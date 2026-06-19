@@ -1,8 +1,10 @@
 <script lang="ts">
   import { runTinker, type TinkerResponse, type Site } from '$stores/sites';
   import { parseDump, looksLikeDump } from '$lib/dump-parser';
+  import { parseBlock } from '$lib/tinker';
   import DumpView from '$components/DumpView.svelte';
   import MonacoEditor from '$components/MonacoEditor.svelte';
+  import Icon from '$components/Icon.svelte';
   import { attachPhpLsp, type PhpLspHandle } from '$lib/lsp';
   import type { MonacoModule } from '$lib/monaco';
   import type * as Monaco from 'monaco-editor';
@@ -30,12 +32,14 @@
   let running = $state(false);
   let result = $state<TinkerResponse | null>(null);
 
-  // Backend injects \x1e (record separator) between top-level statement
-  // outputs so each `echo`/`dump` becomes its own block in the UI.
+  // Backend frames each top-level statement's output as `\x1e<line>\x1f<out>`:
+  // the record separator splits blocks, and `line` is the editor line that
+  // produced the block (rendered as a "Line N" badge).
   type OutputBlock =
-    | { kind: 'tree'; nodes: ReturnType<typeof parseDump>['nodes']; trailing: string; raw: string }
-    | { kind: 'error'; type: string; message: string; raw: string }
-    | { kind: 'text'; text: string };
+    | { kind: 'tree'; nodes: ReturnType<typeof parseDump>['nodes']; trailing: string; raw: string; line?: number }
+    | { kind: 'error'; type: string; message: string; raw: string; line?: number }
+    | { kind: 'query'; sql: string; line?: number }
+    | { kind: 'text'; text: string; line?: number };
 
   // psysh emits runtime errors on stdout in the form
   //   `Error  Call to a member function get() on int.`
@@ -46,28 +50,32 @@
 
   const stdoutBlocks = $derived.by<OutputBlock[]>(() => {
     if (!result?.stdout) return [];
-    return result.stdout
-      .split('\x1e')
-      .map((chunk) => chunk.replace(/^\n+|\n+$/g, ''))
-      .filter((chunk) => chunk.length > 0)
-      .map<OutputBlock>((chunk) => {
-        const errMatch = chunk.match(ERROR_RE);
-        if (errMatch) {
-          return {
-            kind: 'error',
-            type: errMatch[1],
-            message: errMatch[2].trim(),
-            raw: chunk
-          };
+    const blocks: OutputBlock[] = [];
+    for (const rawChunk of result.stdout.split('\x1e')) {
+      // Peel the `<line>\x1f` marker before trimming so a block with only the
+      // marker (a no-output statement) drops out as empty.
+      const { line, kind, body } = parseBlock(rawChunk);
+      const chunk = body.replace(/^\n+|\n+$/g, '');
+      if (chunk.length === 0) continue;
+      if (kind === 'query') {
+        blocks.push({ kind: 'query', sql: chunk, line });
+        continue;
+      }
+      const errMatch = chunk.match(ERROR_RE);
+      if (errMatch) {
+        blocks.push({ kind: 'error', type: errMatch[1], message: errMatch[2].trim(), raw: chunk, line });
+        continue;
+      }
+      if (looksLikeDump(chunk)) {
+        const parsed = parseDump(chunk);
+        if (parsed.ok) {
+          blocks.push({ kind: 'tree', nodes: parsed.nodes, trailing: parsed.trailing, raw: chunk, line });
+          continue;
         }
-        if (looksLikeDump(chunk)) {
-          const parsed = parseDump(chunk);
-          if (parsed.ok) {
-            return { kind: 'tree', nodes: parsed.nodes, trailing: parsed.trailing, raw: chunk };
-          }
-        }
-        return { kind: 'text', text: chunk };
-      });
+      }
+      blocks.push({ kind: 'text', text: chunk, line });
+    }
+    return blocks;
   });
 
   async function copyText(text: string) {
@@ -126,21 +134,6 @@
         e.preventDefault();
         e.stopPropagation();
         void run();
-      }
-    });
-
-    // Auto-open suggestions when the cursor lands on an empty line (Monaco
-    // only triggers on typed characters). lastSuggestLine fires it once per
-    // arrival, so clicking/Home/End on the same blank line doesn't re-issue.
-    let lastSuggestLine = -1;
-    editor.onDidChangeCursorPosition((e) => {
-      const ln = e.position.lineNumber;
-      const empty = (editor.getModel()?.getLineContent(ln) ?? '').trim() === '';
-      if (empty && ln !== lastSuggestLine) {
-        lastSuggestLine = ln;
-        editor.trigger('lerd-empty-line', 'editor.action.triggerSuggest', {});
-      } else if (!empty) {
-        lastSuggestLine = -1;
       }
     });
 
@@ -228,7 +221,7 @@
           </div>
         {/if}
         {#each stdoutBlocks as block, i (i)}
-          <div class="output-row group" data-line={i + 1}>
+          <div class="output-row group" data-line="">
             <div class="output-content">
               {#if block.kind === 'tree'}
                 {#each block.nodes as node, j (j)}
@@ -242,18 +235,30 @@
                   <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 shrink-0">{block.type}</span>
                   <pre class="whitespace-pre-wrap text-red-700 dark:text-red-300">{block.message}</pre>
                 </div>
+              {:else if block.kind === 'query'}
+                <div class="flex items-start gap-2 rounded-md border-l-2 border-sky-400 dark:border-sky-500 border-y border-r border-y-sky-200/60 border-r-sky-200/60 dark:border-y-sky-800/40 dark:border-r-sky-800/40 bg-sky-50/80 dark:bg-sky-950/30 px-2 py-1">
+                  <Icon name="database" class="w-3.5 h-3.5 mt-[2px] text-sky-500 dark:text-sky-400 shrink-0" />
+                  <pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-sky-800 dark:text-sky-300">{block.sql}</pre>
+                </div>
               {:else}
                 <pre class="whitespace-pre-wrap">{block.text}</pre>
               {/if}
             </div>
+            {#if block.line !== undefined && block.kind !== 'query'}
+              <span
+                class="output-line shrink-0 select-none text-[10px] text-gray-400 dark:text-gray-500"
+                title={m.tinker_lineTitle({ n: block.line })}
+              >{m.tinker_lineLabel({ n: block.line })}</span>
+            {/if}
             <button
               onclick={() =>
                 copyText(
                   block.kind === 'tree' ? block.raw :
-                  block.kind === 'error' ? block.raw : block.text
+                  block.kind === 'error' ? block.raw :
+                  block.kind === 'query' ? block.sql : block.text
                 )}
               title={m.tinker_copyOutputTitle()}
-              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0"
+              class="output-copy opacity-0 group-hover:opacity-100 text-[10px] px-1.5 py-0.5 rounded-sm border border-gray-200 dark:border-lerd-border text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-opacity shrink-0 {block.kind === 'query' ? 'output-copy--abs' : ''}"
             >{m.common_copy()}</button>
           </div>
         {/each}
@@ -290,7 +295,10 @@
     padding: 2px 8px 2px 0;
     position: relative;
   }
-  .tinker-output :global(.output-row::before) {
+  /* Gutter only renders for rows that carry a marker (error/stderr/no-output).
+     Result and query rows use data-line="", so it collapses, their info is on
+     the right ("Line N" badge), leaving no dead column on the left. */
+  .tinker-output :global(.output-row:not([data-line=''])::before) {
     content: attr(data-line);
     flex-shrink: 0;
     width: 32px;
@@ -302,7 +310,7 @@
     -webkit-user-select: none;
     pointer-events: none;
   }
-  :global(html.dark) .tinker-output :global(.output-row::before) {
+  :global(html.dark) .tinker-output :global(.output-row:not([data-line=''])::before) {
     color: #4b5563;
   }
   .tinker-output :global(.output-content) {
@@ -312,5 +320,18 @@
   }
   .tinker-output :global(.output-copy) {
     margin-left: 8px;
+  }
+  .tinker-output :global(.output-line) {
+    margin-left: 8px;
+    padding-top: 1px;
+    white-space: nowrap;
+  }
+  /* Query rows keep the result gutter/left padding but float the copy button
+     so the card can span the full width to the right edge. */
+  .tinker-output :global(.output-copy--abs) {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    margin-left: 0;
   }
 </style>

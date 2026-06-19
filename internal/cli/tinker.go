@@ -41,9 +41,12 @@ func cleanTinkerOutput(s string) string {
 	// start of a non-first chunk.
 	chunks := strings.Split(s, TinkerOutputSeparator)
 	for i, c := range chunks {
-		c = psyshEvalLocRe.ReplaceAllString(c, "")
-		c = tinkerAliasNoticeRe.ReplaceAllString(c, "")
-		chunks[i] = c
+		// Peel the `<line>\x1f` block marker so the `^`-anchored noise regexes
+		// match the real output start, then restore it untouched.
+		prefix, body := splitBlockMarker(c)
+		body = psyshEvalLocRe.ReplaceAllString(body, "")
+		body = tinkerAliasNoticeRe.ReplaceAllString(body, "")
+		chunks[i] = prefix + body
 	}
 	return strings.Join(chunks, TinkerOutputSeparator)
 }
@@ -125,8 +128,10 @@ func RunTinker(ctx context.Context, sitePath, siteName, branch, code string) (Ti
 		// Wrap each top-level statement so its output is delimited by
 		// TinkerOutputSeparator, and auto-dump bare expressions so
 		// `User::count()` shows its value. Frontend splits on the
-		// separator to render one block per statement.
-		payload := transformForMultiStatementWithDump(code, dumpFn)
+		// separator to render one block per statement. The framework REPL
+		// also captures SQL queries (Laravel only, self-gated) into their
+		// own blocks.
+		payload := transformForTinkerWithDump(code, dumpFn)
 		argv = append([]string{"exec", "-i", "-w", sitePath}, envArgs...)
 		argv = append(argv, container, "php", "-d", "memory_limit="+tinkerMemoryLimit)
 		argv = append(argv, tinkerSpec.Command...)
@@ -208,6 +213,41 @@ func tinkerEnvArgs(sitePath, home, composerHome string) []string {
 // output, easy to escape inside a PHP double-quoted string as `\x1e`.
 const TinkerOutputSeparator = "\x1e"
 
+// TinkerBlockFieldSeparator ends the per-block source-line field that follows
+// the record separator (`\x1e<line>\x1f<output>`). ASCII 0x1f (unit
+// separator), same rationale as the record separator.
+const TinkerBlockFieldSeparator = "\x1f"
+
+// splitBlockMarker separates a leading `<line>\x1f` block marker from the
+// chunk body. When the chunk carries no marker (e.g. a single legacy block or
+// pre-marker noise), prefix is empty and the whole chunk is returned as body.
+func splitBlockMarker(c string) (prefix, body string) {
+	idx := strings.IndexByte(c, '\x1f')
+	if idx < 0 {
+		return "", c
+	}
+	for i := 0; i < idx; i++ {
+		if c[i] < '0' || c[i] > '9' {
+			return "", c
+		}
+	}
+	return c[:idx+1], c[idx+1:]
+}
+
+// TinkerQueryMarker (ASCII 0x02, STX) prefixes a block's payload to mark it as
+// a captured SQL query rather than statement output. It sits right after the
+// `\x1e<line>\x1f` block marker.
+const TinkerQueryMarker = "\x02"
+
+// queryListenerPrelude is PHP prepended to a captured tinker run: it registers
+// a Laravel DB query listener that emits each executed query as its own block
+// (`\x1e<line>\x1f\x02<sql>`) with bindings inlined for display, then re-opens
+// a result block so the statement's own dump output lands in a fresh block
+// after its queries. Guarded by class_exists so non-Laravel REPLs are a no-op.
+// `$GLOBALS['__lerd_line']`, set before each statement, tells the listener
+// which editor line triggered the query.
+const queryListenerPrelude = `if(class_exists('Illuminate\\Support\\Facades\\DB')){\Illuminate\Support\Facades\DB::listen(function($q){$s=$q->sql;$o=0;foreach((array)$q->bindings as $b){if(is_null($b)){$v='null';}elseif(is_bool($b)){$v=$b?'1':'0';}elseif(is_int($b)||is_float($b)){$v=(string)$b;}elseif($b instanceof \DateTimeInterface){$v="'".$b->format('Y-m-d H:i:s')."'";}elseif(is_object($b)){$v="'".(method_exists($b,'__toString')?(string)$b:get_class($b))."'";}else{$v="'".str_replace("'","''",(string)$b)."'";}$p=strpos($s,'?',$o);if($p!==false){$s=substr($s,0,$p).$v.substr($s,$p+1);$o=$p+strlen($v);}}$l=$GLOBALS['__lerd_line']??0;echo "\x1e".$l."\x1f\x02".$s."\x1e".$l."\x1f";});}`
+
 // transformForMultiStatement keeps the legacy callsite working with the
 // default Laravel `dump()` helper. Tinker mode uses this directly.
 func transformForMultiStatement(code string) string {
@@ -218,36 +258,52 @@ func transformForMultiStatement(code string) string {
 // lets callers pick which dump function to wrap bare expressions with —
 // `dump` for Symfony VarDumper / Laravel, `var_dump` for vanilla PHP.
 func transformForMultiStatementWithDump(code, dumpFn string) string {
-	return transformWithSeparator(code, func(s string) string {
-		return autoDumpLastExpressionWith(s, dumpFn)
-	})
+	return transformWithSeparator(code, dumpFn, false)
 }
 
-func transformWithSeparator(code string, wrap func(string) string) string {
-	parts := splitTopLevelStatements(code)
+// transformForTinkerWithDump is the framework-REPL variant that also captures
+// SQL queries (Laravel only, self-gated at runtime) so each query surfaces as
+// its own block in the result pane.
+func transformForTinkerWithDump(code, dumpFn string) string {
+	return transformWithSeparator(code, dumpFn, true)
+}
+
+func transformWithSeparator(code, dumpFn string, captureQueries bool) string {
+	parts := splitTopLevelStatementsPos(code)
 	if len(parts) == 0 {
 		return code
 	}
-	if len(parts) == 1 {
-		return wrap(strings.TrimSpace(code))
-	}
 
+	// Each statement's output is prefixed with a block marker
+	// `\x1e<line>\x1f`: the record separator splits blocks, the source line
+	// (then a unit separator) lets the UI label each block with the editor
+	// line that produced it. A statement with no output still emits its
+	// marker, which the frontend drops as an empty block.
 	var sb strings.Builder
+	if captureQueries {
+		sb.WriteString(queryListenerPrelude)
+	}
 	written := 0
 	for _, p := range parts {
-		body := strings.TrimSpace(p)
+		body := strings.TrimSpace(p.text)
 		if body == "" {
 			continue
 		}
-		if written > 0 {
-			sb.WriteString(` echo "\x1e";`)
+		if captureQueries {
+			// Tell the query listener which line is running, so any query it
+			// catches is tagged with this statement's source line.
+			fmt.Fprintf(&sb, `$GLOBALS['__lerd_line']=%d;`, p.line)
 		}
-		out := wrap(body)
+		fmt.Fprintf(&sb, `echo "\x1e%d\x1f";`, p.line)
+		out := autoDumpLastExpressionWith(body, dumpFn)
 		sb.WriteString(out)
 		if !strings.HasSuffix(strings.TrimRight(out, " \t\n"), ";") {
 			sb.WriteString(";")
 		}
 		written++
+	}
+	if written == 0 {
+		return code
 	}
 	return sb.String()
 }
@@ -268,16 +324,51 @@ func detectDumpFunction(sitePath, mode string) string {
 	return "var_dump"
 }
 
+// topLevelStmt is one top-level statement plus the 1-based editor line its
+// first non-whitespace character sits on, so each output block can be
+// labelled with the line that produced it (Tinkerwell-style "Line N").
+type topLevelStmt struct {
+	text string
+	line int
+}
+
 // splitTopLevelStatements splits `code` at top-level semicolons, respecting
 // string literals and nested brackets. The returned slice contains each
 // statement's text without the trailing `;`.
 func splitTopLevelStatements(code string) []string {
-	var parts []string
+	stmts := splitTopLevelStatementsPos(code)
+	parts := make([]string, len(stmts))
+	for i, s := range stmts {
+		parts[i] = s.text
+	}
+	return parts
+}
+
+// splitTopLevelStatementsPos is splitTopLevelStatements plus the source line
+// each statement starts on. Line numbers are derived from the byte offset of
+// the first non-whitespace character, so string contents and escapes don't
+// need special line accounting.
+func splitTopLevelStatementsPos(code string) []topLevelStmt {
+	var parts []topLevelStmt
 	var cur strings.Builder
 	depth := 0
 	inSingle, inDouble := false, false
+	startOff := -1
+	flush := func() {
+		line := 0
+		if startOff >= 0 {
+			line = 1 + strings.Count(code[:startOff], "\n")
+		}
+		parts = append(parts, topLevelStmt{text: cur.String(), line: line})
+		cur.Reset()
+		startOff = -1
+	}
 	for i := 0; i < len(code); i++ {
 		c := code[i]
+		isSep := c == ';' && depth == 0 && !inSingle && !inDouble
+		if startOff < 0 && !isSep && c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			startOff = i
+		}
 		switch {
 		case inSingle:
 			cur.WriteByte(c)
@@ -314,14 +405,13 @@ func splitTopLevelStatements(code string) []string {
 			}
 			cur.WriteByte(c)
 		case c == ';' && depth == 0:
-			parts = append(parts, cur.String())
-			cur.Reset()
+			flush()
 		default:
 			cur.WriteByte(c)
 		}
 	}
 	if strings.TrimSpace(cur.String()) != "" {
-		parts = append(parts, cur.String())
+		flush()
 	}
 	return parts
 }

@@ -695,6 +695,8 @@
   "tinker_copyOutputTitle": "复制此输出",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "（无输出）",
+  "tinker_lineLabel": "第 {n} 行",
+  "tinker_lineTitle": "由编辑器第 {n} 行生成",
   "sites_doctor_button": "诊断",
   "sites_doctor_title": "Laravel 诊断",
   "sites_doctor_refresh": "重新运行检查",

@@ -702,6 +702,8 @@
   "tinker_copyOutputTitle": "Copy this output",
   "tinker_placeholder": "// Try one of:\n//   echo 1 + 1;\n//   User::count();\n//   collect([1,2,3])->sum();\n",
   "tinker_noOutput": "(no output)",
+  "tinker_lineLabel": "Line {n}",
+  "tinker_lineTitle": "Produced by editor line {n}",
   "tinker_lspConnecting": "Language server starting…",
   "tinker_lspUnavailable": "Language server unavailable",
   "sites_doctor_button": "Doctor",
