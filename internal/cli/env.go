@@ -326,6 +326,50 @@ func projectDBIsMySQLFamily(proj *config.ProjectConfig) bool {
 	return true
 }
 
+// applyHostDBExternalEnv translates a project's committed db.external host-database
+// choice into the same effect as LERD_EXTERNAL_SERVICES + a DB_HOST/DB_SOCKET
+// override. For a MySQL/MariaDB project it marks the DB service(s) externally
+// managed in extServices (so runEnv skips ensureServiceRunning/createDatabase — no
+// lerd-mysql container) and layers the host unix-socket connection vars into
+// envOverrides (which are applied last, so they win over the framework's default
+// DB_HOST=lerd-mysql). envMap is the parsed .env, read only to preserve any host
+// DB credentials the user already set. Returns true when it applied (so the caller
+// can print the notice); a no-op (returns false) unless the project sets
+// db.external on a MySQL/MariaDB database.
+func applyHostDBExternalEnv(proj *config.ProjectConfig, envMap map[string]string, extServices map[string]bool, envOverrides map[string]string) bool {
+	if proj == nil || !proj.DB.External || !projectDBIsMySQLFamily(proj) {
+		return false
+	}
+	// Mark the DB service externally managed. "mysql"/"mariadb" cover the keys the
+	// framework service loops consult; the project's own DB service names cover the
+	// custom-services branch and family alternates (e.g. mariadb-11).
+	extServices["mysql"] = true
+	extServices["mariadb"] = true
+	if proj.DB.Service != "" {
+		extServices[strings.ToLower(proj.DB.Service)] = true
+	}
+	for _, s := range proj.Services {
+		if config.IsDBServiceName(s.Name) {
+			extServices[strings.ToLower(s.Name)] = true
+		}
+	}
+	envOverrides["DB_HOST"] = "localhost"
+	envOverrides["DB_SOCKET"] = proj.DB.HostSocketPath()
+	// Clear DB_PORT: the connection is over the unix socket, so a container port
+	// lingering from the framework's default DB vars is misleading and could push
+	// non-socket tooling onto TCP against a wrong port.
+	envOverrides["DB_PORT"] = ""
+	// Don't let the container's default root/lerd creds clobber the host
+	// credentials: preserve whatever the .env already has for these keys.
+	if v, ok := envMap["DB_USERNAME"]; ok {
+		envOverrides["DB_USERNAME"] = v
+	}
+	if v, ok := envMap["DB_PASSWORD"]; ok {
+		envOverrides["DB_PASSWORD"] = v
+	}
+	return true
+}
+
 func runEnv(_ *cobra.Command, _ []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -462,35 +506,8 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 	// First-class committed host-database mode: .lerd.yaml `db.external: true`
 	// is the shareable equivalent of LERD_EXTERNAL_SERVICES + a DB_HOST/DB_SOCKET
-	// override. For a MySQL/MariaDB project it marks the DB service externally
-	// managed (so the loops below skip ensureServiceRunning/createDatabase — no
-	// lerd-mysql container) and layers the host unix-socket connection vars into
-	// envOverrides so they win over the framework's DB_HOST=lerd-mysql default.
-	if proj, _ := config.LoadProjectConfig(cwd); proj != nil && proj.DB.External && projectDBIsMySQLFamily(proj) {
-		extServices["mysql"] = true
-		extServices["mariadb"] = true
-		if proj.DB.Service != "" {
-			extServices[strings.ToLower(proj.DB.Service)] = true
-		}
-		for _, s := range proj.Services {
-			if config.IsDBServiceName(s.Name) {
-				extServices[strings.ToLower(s.Name)] = true
-			}
-		}
-		envOverrides["DB_HOST"] = "localhost"
-		envOverrides["DB_SOCKET"] = proj.DB.HostSocketPath()
-		// Clear DB_PORT: the connection is over the unix socket, so a container
-		// port lingering from the framework's default DB vars is misleading and
-		// could push non-socket tooling onto TCP against a wrong port.
-		envOverrides["DB_PORT"] = ""
-		// Don't let the container's default root/lerd creds clobber the host
-		// credentials: preserve whatever the .env already has for these keys.
-		if v, ok := envMap["DB_USERNAME"]; ok {
-			envOverrides["DB_USERNAME"] = v
-		}
-		if v, ok := envMap["DB_PASSWORD"]; ok {
-			envOverrides["DB_PASSWORD"] = v
-		}
+	// override (see applyHostDBExternalEnv).
+	if proj, _ := config.LoadProjectConfig(cwd); applyHostDBExternalEnv(proj, envMap, extServices, envOverrides) {
 		fmt.Printf("  Host MySQL (db.external) — connecting via socket %s; not starting lerd-mysql\n", proj.DB.HostSocketPath())
 	}
 
