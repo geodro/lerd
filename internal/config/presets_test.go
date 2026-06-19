@@ -280,6 +280,36 @@ func TestLoadPreset_MySQL_MultiVersion(t *testing.T) {
 	}
 }
 
+func TestLoadPreset_MariaDB_Versions(t *testing.T) {
+	p, err := LoadPreset("mariadb")
+	if err != nil {
+		t.Fatalf("LoadPreset(mariadb) error = %v", err)
+	}
+	if p.DefaultVersion != "11.8" {
+		t.Errorf("DefaultVersion = %q, want 11.8 (the pinned LTS default)", p.DefaultVersion)
+	}
+	want := map[string]int{"12": 3412, "12.3": 3423, "11.8": 3418, "11.4": 3414, "11": 3411, "10.11": 3410}
+	got := map[string]int{}
+	seenPort := map[int]string{}
+	for _, v := range p.Versions {
+		got[v.Tag] = v.HostPort
+		if prev, dup := seenPort[v.HostPort]; dup {
+			t.Errorf("host_port %d reused by tags %q and %q; each version needs its own host port", v.HostPort, prev, v.Tag)
+		}
+		seenPort[v.HostPort] = v.Tag
+	}
+	for tag, port := range want {
+		if got[tag] != port {
+			t.Errorf("version %q host_port = %d, want %d", tag, got[tag], port)
+		}
+	}
+	// The bare "11" tag is retained so installs created before the LTS split
+	// (preset_version: "11") still resolve on reinstall instead of erroring.
+	if _, err := p.Resolve("11"); err != nil {
+		t.Errorf("Resolve(11) must still work for legacy installs: %v", err)
+	}
+}
+
 func TestPresetResolve_MultiVersion(t *testing.T) {
 	p, err := LoadPreset("mysql")
 	if err != nil {
