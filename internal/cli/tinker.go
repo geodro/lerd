@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/agentenv"
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
@@ -115,6 +116,11 @@ func RunTinker(ctx context.Context, sitePath, siteName, branch, code string) (Ti
 
 	dumpFn := detectDumpFunction(sitePath, mode)
 	envArgs := tinkerEnvArgs(sitePath, home, composerHome)
+	// Forward AI agent detection vars so agent-detector (e.g. laravel/pao)
+	// still emits JSON when run inside the container.
+	for _, e := range agentenv.Passthrough(os.Environ()) {
+		envArgs = append(envArgs, "--env", e)
+	}
 	if siteName != "" {
 		envArgs = append(envArgs, "--env", "LERD_SITE="+siteName)
 	}

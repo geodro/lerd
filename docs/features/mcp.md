@@ -103,6 +103,12 @@ Most actions accept an optional `path` argument. When omitted, the server resolv
 2. `LERD_SITE_PATH` env var (set by `mcp:inject`)
 3. Current working directory, the directory the assistant was opened in (global sessions)
 
+### Agent detection passthrough
+
+PHP runs inside the container, so the AI agent environment variables your coding agent exports on the host (`CLAUDECODE`, `AI_AGENT`, `CURSOR_AGENT`, `GEMINI_CLI`, and the rest of the [agent-detector](https://github.com/laravel/agent-detector) set) would normally be lost at the container boundary. lerd forwards any that are present into the container for `lerd php`, `lerd artisan`, and tinker, so packages like [laravel/pao](https://github.com/laravel/pao) still detect the agent and emit their compact JSON output.
+
+Commands the `exec` MCP tool runs (`artisan`, `composer`, `vendor_run` for Pest/PHPUnit) go a step further: because reaching them through the MCP server proves an agent is driving the command, lerd injects a neutral `AI_AGENT=lerd-mcp` marker when no real agent variable is present. Pao therefore returns JSON for MCP-originated test runs even if the host environment carries nothing, while a real agent variable is still forwarded as-is when it exists. Manual terminal runs are never given the marker, so their output is unchanged.
+
 ---
 
 ## Available MCP tools
