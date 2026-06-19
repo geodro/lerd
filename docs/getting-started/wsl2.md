@@ -111,7 +111,7 @@ Lerd is built exclusively for rootless Podman with Quadlet. Installing `docker.i
 ## 4. Run the lerd installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+curl -fsSL https://lerd.sh/install.sh | bash
 ```
 
 When the installer asks **"Let lerd manage DNS for local sites?"**, both modes are viable on WSL2:

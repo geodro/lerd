@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://geodro.github.io/lerd/sitemap.xml
+Sitemap: https://lerd.sh/sitemap.xml

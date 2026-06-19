@@ -1,12 +1,12 @@
 import { defineConfig } from 'vitepress'
 
-const SITE_URL = 'https://geodro.github.io/lerd'
+const SITE_URL = 'https://lerd.sh'
 const OG_IMAGE = `${SITE_URL}/assets/social-preview.png`
 
 export default defineConfig({
   title: 'Lerd',
   description: 'Open-source Herd-like local PHP development environment for Linux. Automatic .test domains, PHP 8.2–8.5, rootless Podman. Works on Ubuntu, Fedora, Arch, and Debian.',
-  base: '/lerd/',
+  base: '/',
   lang: 'en-US',
   cleanUrls: true,
 
@@ -16,12 +16,12 @@ export default defineConfig({
       // Static digest pages live in public/ and aren't page-derived, so add them by hand.
       items.push({ url: 'digest/v1.25.0.html' })
       items.push({ url: 'digest/v1.24.0.html' })
-      return items.map(item => ({ ...item, url: `lerd/${item.url}` }))
+      return items
     },
   },
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/lerd/assets/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/assets/logo.svg' }],
 
     // Display fonts for the home page hero (Archivo + JetBrains Mono)
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],

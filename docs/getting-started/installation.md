@@ -13,11 +13,11 @@ Tested and known-good: Ubuntu, Fedora, Arch, Debian, Mint, Pop!_OS, openSUSE, Ca
 ::: code-group
 
 ```bash [curl]
-curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+curl -fsSL https://lerd.sh/install.sh | bash
 ```
 
 ```bash [wget]
-wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+wget -qO- https://lerd.sh/install.sh | bash
 ```
 
 ```bash [From source]
@@ -80,11 +80,11 @@ You can also re-run the installer:
 ::: code-group
 
 ```bash [curl]
-curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
+curl -fsSL https://lerd.sh/install.sh | bash -s -- --update
 ```
 
 ```bash [wget]
-wget -qO- https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --update
+wget -qO- https://lerd.sh/install.sh | bash -s -- --update
 ```
 
 :::

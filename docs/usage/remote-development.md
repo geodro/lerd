@@ -30,7 +30,7 @@ The server runs lerd normally: containers, watcher, dnsmasq, nginx, certs. The l
 Same as any other lerd install:
 
 ```bash
-curl -sSL https://geodro.github.io/lerd/install.sh | bash
+curl -sSL https://lerd.sh/install.sh | bash
 ```
 
 ### 2. Keep user services running after logout

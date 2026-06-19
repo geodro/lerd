@@ -30,10 +30,11 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - name: Copy screenshots
+      - name: Copy static assets into public
         run: |
           mkdir -p docs/public/assets/screenshots
           cp screenshots/app-*.png docs/public/assets/screenshots/
+          cp install.sh docs/public/install.sh
 
       - name: Install dependencies
         working-directory: docs

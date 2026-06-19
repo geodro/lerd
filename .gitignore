@@ -7,3 +7,4 @@ site/
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+docs/public/install.sh
