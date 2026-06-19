@@ -27,7 +27,7 @@ Both kinds use the same YAML schema in `internal/config/presets/*.yaml` and the 
 | `mysql` alternates | `5.7` / `9.7` LTS (canonical 8.4 lives in the default preset) | - | `127.0.0.1:3357` / `127.0.0.1:3397` |
 | `postgres` alternates | `17` / `18` (canonical 16 lives in the default preset) | - | `127.0.0.1:5417` / `127.0.0.1:5418` |
 | `postgres-pgvector` | `pgvector/pgvector:pg18` (canonical) / `pg17` / `pg16` — pgvector instead of PostGIS | - | `127.0.0.1:5518` / `127.0.0.1:5517` / `127.0.0.1:5516` |
-| `mariadb` | `11` (default) / `10.11` LTS | - | `127.0.0.1:3411` / `127.0.0.1:3410` |
+| `mariadb` | `12` / `12.3` LTS / `11.8` LTS (default) / `11.4` LTS / `10.11` LTS / `11` (legacy) | - | host ports `3412` / `3423` / `3418` / `3414` / `3410` / `3411` |
 | `mongo` | `docker.io/library/mongo:7` | - | `127.0.0.1:27017` |
 | `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
 | `selenium` | `docker.io/selenium/standalone-chromium:latest` | - | `http://localhost:7900` (noVNC) |
@@ -85,7 +85,7 @@ dismissal persists in `localStorage`.
 
 ## Multi-version presets
 
-`mysql`, `postgres` and `mariadb` ship multiple selectable versions. The canonical version (mysql 8.4 LTS, postgres 16, mariadb 11) is the default install — recognised as the bare service `mysql` / `postgres` / `mariadb` on the canonical host port. Non-canonical alternates materialise as distinct custom services named `<family>-<sanitized-tag>`, runnable side-by-side with the canonical. The alternates picker only shows non-canonical versions (it doesn't list 8.4 because that IS the default install).
+`mysql`, `postgres` and `mariadb` ship multiple selectable versions. `mysql` and `postgres` mark one version canonical (mysql 8.4 LTS, postgres 16): the canonical version is the default install, recognised as the bare service `mysql` / `postgres` on the canonical host port, and the alternates picker only shows non-canonical versions (it doesn't list 8.4 because that IS the default install). `mariadb` has no canonical version, so there is no bare `mariadb` service: every version, including the default `11.8` LTS, materialises as a distinct custom service named `<family>-<sanitized-tag>` (the default resolves to `mariadb-11-8`). Non-canonical alternates run side-by-side with each other and with the canonical.
 
 | Picked | Service name | Container | Host port | Data dir |
 |---|---|---|---|---|
@@ -95,8 +95,12 @@ dismissal persists in `localStorage`.
 | `postgres 16` (canonical) | `postgres` | `lerd-postgres` | `127.0.0.1:5432` | `~/.local/share/lerd/data/postgres/` |
 | `postgres 17` | `postgres-17` | `lerd-postgres-17` | `127.0.0.1:5417` | `~/.local/share/lerd/data/postgres-17/` |
 | `postgres 18` | `postgres-18` | `lerd-postgres-18` | `127.0.0.1:5418` | `~/.local/share/lerd/data/postgres-18/` |
-| `mariadb 11` (canonical) | `mariadb-11` | `lerd-mariadb-11` | `127.0.0.1:3411` | `~/.local/share/lerd/data/mariadb-11/` |
-| `mariadb 10.11` | `mariadb-10-11` | `lerd-mariadb-10-11` | `127.0.0.1:3410` | `~/.local/share/lerd/data/mariadb-10-11/` |
+| `mariadb 12` | `mariadb-12` | `lerd-mariadb-12` | `127.0.0.1:3412` | `~/.local/share/lerd/data/mariadb-12/` |
+| `mariadb 12.3` LTS | `mariadb-12-3` | `lerd-mariadb-12-3` | `127.0.0.1:3423` | `~/.local/share/lerd/data/mariadb-12-3/` |
+| `mariadb 11.8` LTS (default) | `mariadb-11-8` | `lerd-mariadb-11-8` | `127.0.0.1:3418` | `~/.local/share/lerd/data/mariadb-11-8/` |
+| `mariadb 11.4` LTS | `mariadb-11-4` | `lerd-mariadb-11-4` | `127.0.0.1:3414` | `~/.local/share/lerd/data/mariadb-11-4/` |
+| `mariadb 11` (legacy) | `mariadb-11` | `lerd-mariadb-11` | `127.0.0.1:3411` | `~/.local/share/lerd/data/mariadb-11/` |
+| `mariadb 10.11` LTS | `mariadb-10-11` | `lerd-mariadb-10-11` | `127.0.0.1:3410` | `~/.local/share/lerd/data/mariadb-10-11/` |
 
 Alternates inherit the preset's `update_strategy` but with one caveat: they're internally promoted to `patch` strategy so an alternate explicitly installed at v8.0 doesn't get auto-suggested an 8.4.x upgrade (which would cross the LTS line). Cross-line moves stay in the user's hands via the alternates picker or `lerd service migrate`.
 
