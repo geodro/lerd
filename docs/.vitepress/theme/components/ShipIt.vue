@@ -15,7 +15,7 @@
         </div>
         <div class="term-body">
           <div class="c"># Linux</div>
-          <div><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash</div>
+          <div><span class="p">$</span> curl -fsSL https://lerd.sh/install.sh | bash</div>
           <div class="c"># macOS</div>
           <div><span class="p">$</span> brew install geodro/lerd/lerd &amp;&amp; lerd install</div>
           <div class="c"># then, in any project</div>

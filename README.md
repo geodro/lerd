@@ -93,7 +93,7 @@ Eleven grouped tools, each driven by an `action`: `site`, `service`, `db`, `env`
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash
+curl -fsSL https://lerd.sh/install.sh | bash
 ```
 
 Update later with:
