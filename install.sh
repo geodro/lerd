@@ -357,6 +357,38 @@ installed_version() {
   fi
 }
 
+# Full version token including any git-describe suffix (e.g.
+# 1.25.0-6-g7d030096-dirty). installed_version() collapses that to the bare
+# 1.25.0, which is what version_is_dev needs the suffix from.
+installed_version_raw() {
+  if command -v lerd &>/dev/null; then
+    lerd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*' | head -1 || echo ""
+  else
+    echo ""
+  fi
+}
+
+# True when the version token carries a git-describe suffix. Release binaries
+# report a clean X.Y.Z, so a suffix means an ahead-of-release local build that
+# the installer must not silently overwrite with the matching base release.
+version_is_dev() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+- ]]
+}
+
+# Guards an overwrite of a local development build. Prints a warning and asks
+# before replacing it; keeps the build and exits 0 when declined or when no tty
+# is available to confirm. $1 is the release version about to be installed.
+guard_dev_build() {
+  local target="$1" current_raw; current_raw="$(installed_version_raw)"
+  version_is_dev "$current_raw" || return 0
+  warn "A local development build (v${current_raw}) is installed."
+  if [ -r /dev/tty ] && ask "Replace it with release v${target}?"; then
+    return 0
+  fi
+  info "Keeping your local build. Reinstall a dev build with: install.sh --local <path>"
+  exit 0
+}
+
 # ── Shell integration ────────────────────────────────────────────────────────
 SHELL_MARKER="# Added by Lerd installer"
 
@@ -457,6 +489,7 @@ cmd_install() {
       success "Lerd v${version} is already installed and up to date"
       exit 0
     fi
+    guard_dev_build "$version"
 
     local tmpdir; tmpdir="$(mktemp -d)"
     download_binary "$version" "$arch" "$tmpdir"
@@ -496,6 +529,7 @@ cmd_update() {
     success "Already on latest: v${latest}"
     exit 0
   fi
+  guard_dev_build "$latest"
 
   info "Updating v${current:-unknown} → v${latest}"
   local tmpdir; tmpdir="$(mktemp -d)"
@@ -522,6 +556,18 @@ cmd_uninstall() {
 # the binary is removed) since removing the resolver needs sudo.
 cmd_uninstall_macos() {
   header "Uninstalling Lerd"
+
+  # Only `lerd uninstall` drops the DNS resolver (/etc/resolver/test, sudo) and
+  # the Podman machine, and it's gone once we delete the binary below. Surface
+  # the two-step order while the binary is here so the resolver isn't orphaned.
+  if command -v lerd &>/dev/null; then
+    warn "This script does not remove the DNS resolver (/etc/resolver/test) or the Podman machine."
+    info "Those are torn down by 'lerd uninstall' (needs sudo), which is unavailable once the binary is gone."
+    if [ -r /dev/tty ] && ! ask "Continue and remove the lerd binary now?"; then
+      info "Aborted. Run 'lerd uninstall' first, then re-run this uninstaller."
+      exit 0
+    fi
+  fi
 
   local domain="gui/$(id -u)"
   local agents_dir="$HOME/Library/LaunchAgents"
@@ -569,6 +615,12 @@ cmd_uninstall_macos() {
   else
     info "Config kept at $LERD_CONFIG_DIR"
     info "Data kept at $LERD_DATA_DIR"
+  fi
+
+  if [ -f /etc/resolver/test ]; then
+    warn "DNS resolver /etc/resolver/test is still present (not removed here)."
+    info "Remove it with: sudo rm -f /etc/resolver/test"
+    info "Remove the Podman machine with: podman machine rm <name>  (see 'podman machine ls')"
   fi
 
   success "Lerd uninstalled"

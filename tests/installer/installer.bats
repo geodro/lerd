@@ -221,6 +221,33 @@ teardown() {
   export PATH="$OLD_PATH"
 }
 
+# ── installed_version_raw / version_is_dev ────────────────────────────────────
+
+@test "installed_version_raw keeps the git-describe suffix" {
+  FAKE_BIN="$BATS_TMPDIR/fake-bin-$$"
+  mkdir -p "$FAKE_BIN"
+  printf '#!/bin/sh\necho "lerd version v1.25.0-6-g7d030096-dirty (commit 7d030096)"\n' > "$FAKE_BIN/lerd"
+  chmod +x "$FAKE_BIN/lerd"
+
+  OLD_PATH="$PATH"
+  export PATH="$FAKE_BIN:$PATH"
+
+  run installed_version_raw
+  [ "$output" = "1.25.0-6-g7d030096-dirty" ]
+
+  export PATH="$OLD_PATH"
+}
+
+@test "version_is_dev is true for a git-describe build" {
+  run version_is_dev "1.25.0-6-g7d030096-dirty"
+  [ "$status" -eq 0 ]
+}
+
+@test "version_is_dev is false for a clean release" {
+  run version_is_dev "1.25.0"
+  [ "$status" -ne 0 ]
+}
+
 # ── latest_version ────────────────────────────────────────────────────────────
 
 @test "latest_version parses version from redirect Location header" {

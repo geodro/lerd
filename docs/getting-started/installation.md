@@ -170,6 +170,8 @@ lerd update
 
 If you installed via Homebrew instead, update with `brew upgrade lerd && lerd install`.
 
+If you're running a local development build (a `git describe` version like `1.25.0-6-g7d03`), the one-line installer and `--update` detect it and ask before replacing it with a release binary, so an ahead-of-release build isn't overwritten silently. Decline to keep your build, or reinstall one explicitly with `install.sh --local <path>`.
+
 ### Uninstall
 
 ```bash
@@ -177,7 +179,7 @@ lerd uninstall                                    # tears down launchd agents, D
 curl -fsSL https://raw.githubusercontent.com/geodro/lerd/main/install.sh | bash -s -- --uninstall
 ```
 
-Run `lerd uninstall` first (while the binary is still present) so the DNS resolver and Podman state are cleaned up, then the installer's `--uninstall` removes the launchd agents and the binary. If you installed via Homebrew, finish with `brew uninstall lerd` instead of the second command.
+Run `lerd uninstall` first (while the binary is still present) so the DNS resolver and Podman state are cleaned up, then the installer's `--uninstall` removes the launchd agents and the binary. If you installed via Homebrew, finish with `brew uninstall lerd` instead of the second command. On macOS the installer detects when the binary is still present and pauses to remind you to run `lerd uninstall` first, since the DNS resolver (`/etc/resolver/test`, removed with sudo) and the Podman machine are unreachable once the binary is gone; if it can't reach a terminal it prints the manual removal commands at the end instead.
 
 ## Windows (beta)
 
