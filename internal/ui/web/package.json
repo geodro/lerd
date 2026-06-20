@@ -35,6 +35,7 @@
     "svelte-dnd-action": "^0.9.69"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "dompurify": "^3.4.9"
   }
 }
