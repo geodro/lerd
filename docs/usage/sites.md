@@ -8,7 +8,7 @@
 | `lerd init --fresh` | Re-run the wizard with existing `.lerd.yaml` values as defaults |
 | `lerd park [dir]` | Register all Laravel projects inside `dir` (defaults to cwd) |
 | `lerd unpark [dir]` | Remove a parked directory and unlink all its sites |
-| `lerd link [domain]` | Register the current directory as a site (domain name without TLD, defaults to directory name) |
+| `lerd link [domain]` | Register the current directory as a site (domain name without TLD, defaults to directory name). On a fresh project in an interactive terminal it runs the `lerd init` wizard first |
 | `lerd unlink` | Unlink the current directory site (removes all domains) |
 | `lerd domain add <name>` | Add an additional domain to the current site |
 | `lerd domain remove <name>` | Remove a domain from the current site |
@@ -27,6 +27,8 @@
 ## Project initialisation
 
 `lerd init` runs an interactive wizard, writes the answers to `.lerd.yaml` in the project root, and then applies the configuration: linking the site, enabling HTTPS if requested, picking a database, and starting any required services.
+
+`lerd link` and `lerd init` overlap on purpose. When you run `lerd link` on a project that has no `.lerd.yaml` yet and you're in an interactive terminal, link routes straight into the init wizard, so you don't have to know to reach for `init` first. If the project already has a `.lerd.yaml`, link just applies it. And in a non-interactive shell (a script, CI, `lerd park`, or any piped invocation) link always does a fast, bare auto-detected registration with no wizard, so automation never blocks on a prompt. Passing an explicit domain (`lerd link myapp`) also skips the wizard and links directly.
 
 ```bash
 cd ~/Projects/my-app
