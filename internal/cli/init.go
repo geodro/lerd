@@ -98,7 +98,6 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 	framework, hasFramework := resolveFramework(cwd)
 	hasComposer := fileExists(filepath.Join(cwd, "composer.json"))
 	hasContainerfile := podman.HasContainerfile(cwd)
-	hasPkgJSON := fileExists(filepath.Join(cwd, "package.json"))
 	alreadyCustom := defaults.Container != nil
 	alreadyProxy := defaults.Proxy != nil
 
@@ -112,37 +111,39 @@ func runWizard(cwd string, defaults *config.ProjectConfig) (*config.ProjectConfi
 		return runCustomContainerWizard(cwd, defaults, gcfg)
 	}
 	if !hasFramework && !hasComposer {
-		// Non-PHP project. With a package.json, offer to run the dev server on
-		// the host (proxy) — the default — or build a custom container.
-		if hasPkgJSON {
-			const proxyChoice = "Dev server (proxy to a host port)"
-			const customChoice = "Custom container"
-			choice := proxyChoice
-			if err := huh.NewForm(huh.NewGroup(
-				huh.NewSelect[string]().
-					Title("This looks like a Node project. How should lerd run it?").
-					Options(huh.NewOptions(proxyChoice, customChoice)...).
-					Value(&choice),
-			)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
-				return nil, err
-			}
-			if choice == customChoice {
-				return runCustomContainerWizard(cwd, defaults, gcfg)
-			}
-			return runHostProxyWizard(cwd, defaults, gcfg)
+		// Non-PHP project. Offer the same language-aware choice to every runtime,
+		// not just Node: run the dev server on the host (proxy) or build a custom
+		// container. When the project's runtime is recognised we say so and drop
+		// the plain-PHP option; an unknown/empty directory keeps it as a fallback
+		// (declining both non-PHP paths sets the project up as a PHP site).
+		const proxyChoice = "Dev server (proxy to a host port)"
+		const customChoice = "Custom container (Containerfile.lerd)"
+		const phpChoice = "Plain PHP site"
+
+		rt, knownRuntime := detectProjectRuntime(cwd)
+		title := "No PHP project detected. How should lerd run it?"
+		options := []string{proxyChoice, customChoice, phpChoice}
+		if knownRuntime {
+			title = fmt.Sprintf("This looks like a %s project. How should lerd run it?", rt.label)
+			options = []string{proxyChoice, customChoice}
 		}
-		useCustom := false
+
+		choice := proxyChoice
 		if err := huh.NewForm(huh.NewGroup(
-			huh.NewConfirm().
-				Title("No PHP project detected. Set up a custom container?").
-				Description("A Containerfile.lerd in the project root defines the container image").
-				Value(&useCustom),
+			huh.NewSelect[string]().
+				Title(title).
+				Options(huh.NewOptions(options...)...).
+				Value(&choice),
 		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
 			return nil, err
 		}
-		if useCustom {
+		switch choice {
+		case proxyChoice:
+			return runHostProxyWizard(cwd, defaults, gcfg)
+		case customChoice:
 			return runCustomContainerWizard(cwd, defaults, gcfg)
 		}
+		// phpChoice falls through to the PHP wizard below.
 	}
 
 	// Seed defaults from the site registry when no saved config exists yet,
@@ -559,6 +560,10 @@ func runCustomContainerWizard(cwd string, defaults *config.ProjectConfig, gcfg *
 	port := 0
 	fmt.Sscanf(portStr, "%d", &port)
 
+	// Offer to scaffold the Containerfile if it isn't there yet, so picking
+	// "custom container" on a project without one isn't a dead end.
+	maybeCreateContainerfile(cwd, containerfile, port)
+
 	// Services: same flow as the PHP wizard but without the database select
 	// since custom containers manage their own database connections.
 	serviceOptions := nonDatabaseServiceOptions()
@@ -689,52 +694,35 @@ func buildProjectServices(selectedServices []string, defaults *config.ProjectCon
 	return services
 }
 
-// runHostProxyWizard runs the init wizard for a host-proxy (Node) project: lerd
-// supervises the dev command on the host and nginx proxies the domain to it.
-// Collects the command, port, HTTPS, and services.
+// runHostProxyWizard runs the init wizard for a host-proxy project (Node, or
+// any runtime that serves on a host port): lerd supervises the dev command on
+// the host and nginx proxies the domain to it. Command, port, and HTTPS are
+// collected on a single screen (like the custom container wizard), followed by
+// services.
 func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config.GlobalConfig) (*config.ProjectConfig, error) {
 	manifest := readPackageManifest(cwd)
 	devScripts := manifest.devScripts()
 
-	const otherOption = "Other (enter a command)"
+	// Default command: a saved one wins, else the first detected dev script,
+	// else a runtime-appropriate guess. Blank is allowed (proxy-only mode).
 	command := ""
 	if defaults.Proxy != nil {
 		command = defaults.Proxy.Command
 	}
-
-	// Pick the dev command: choose a detected npm script or enter a custom one.
-	selected := otherOption
+	if command == "" {
+		if len(devScripts) > 0 {
+			command = devScripts[0]
+		} else {
+			command = defaultDevCommand(cwd)
+		}
+	}
+	commandDesc := "How lerd starts the app (lerd supervises and restarts it). Blank = run it yourself."
 	if len(devScripts) > 0 {
-		selected = devScripts[0]
-		options := append(append([]string{}, devScripts...), otherOption)
-		if err := huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Dev command").
-				Description("How lerd starts the app (lerd supervises and restarts it)").
-				Options(huh.NewOptions(options...)...).
-				Value(&selected),
-		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
-			return nil, err
-		}
-	}
-	if selected == otherOption {
-		if command == "" {
-			command = "npm run start:dev"
-		}
-		if err := huh.NewForm(huh.NewGroup(
-			huh.NewInput().
-				Title("Dev command").
-				Description("Leave blank to run the server yourself (proxy-only mode)").
-				Value(&command),
-		)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
-			return nil, err
-		}
-	} else {
-		command = selected
+		commandDesc = "Detected scripts: " + strings.Join(devScripts, ", ") + ". Blank = run it yourself."
 	}
 
-	// Port: default from an explicit flag in the command, else the tool's
-	// conventional port, else 3000.
+	// Port default: a saved one wins, else parse a --port from the command, else
+	// auto-assign the next free dev-server port.
 	port := 0
 	if defaults.Proxy != nil && defaults.Proxy.Port > 0 {
 		port = defaults.Proxy.Port
@@ -743,8 +731,6 @@ func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config
 		if p := portFromCommand(command); p > 0 {
 			port = p
 		} else {
-			// No explicit port: auto-assign from the default base, walking up
-			// past anything already taken (other sites, lerd services).
 			siteName := ""
 			if s, err := config.FindSiteByPath(cwd); err == nil {
 				siteName = s.Name
@@ -756,6 +742,10 @@ func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config
 	secured, httpsAvailable := resolveSecuredDefault(cwd, defaults.Secured, gcfg)
 
 	proxyFields := []huh.Field{
+		huh.NewInput().
+			Title("Dev command").
+			Description(commandDesc).
+			Value(&command),
 		huh.NewInput().
 			Title("Port").
 			Description("The port the dev server listens on (lerd injects PORT and proxies here)").
@@ -778,6 +768,12 @@ func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config
 	}
 	port = 0
 	fmt.Sscanf(portStr, "%d", &port)
+	// An explicit --port in the (possibly edited) command is the port the server
+	// actually binds, so let it win over the port field, which only carried the
+	// pre-form default derived from the default command.
+	if p := portFromCommand(command); p > 0 {
+		port = p
+	}
 
 	// Services multi-select (same flow as the custom container wizard).
 	serviceOptions := nonDatabaseServiceOptions()
@@ -950,6 +946,137 @@ func envExampleFallback(path string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// projectRuntime describes how lerd runs a non-PHP project of a given language.
+// One entry drives all three consumers (detection, the host-proxy default dev
+// command, and the custom-container starter), so adding a language is a single
+// table entry rather than three switch/maps that must stay in sync.
+type projectRuntime struct {
+	label      string   // human name shown in the wizard
+	manifests  []string // files whose presence identifies the runtime
+	devCommand string   // default host-proxy dev command
+	// container is the Containerfile body for this runtime. lerd bind-mounts the
+	// project at runtime (same absolute path), so it needs no COPY or WORKDIR; it
+	// only provides the base image and global tools, app deps come from the mount.
+	container string
+}
+
+// knownRuntimes is the single source of truth for non-PHP runtime support.
+// First match wins on detection. Node's manifests mirror isNodeProject so the
+// two agree on what a Node project is.
+var knownRuntimes = []projectRuntime{
+	{
+		label:      "Node",
+		manifests:  []string{"package.json", ".nvmrc", ".node-version"},
+		devCommand: "npm run dev",
+		container:  "FROM node:20-alpine\nRUN npm install -g nodemon\nCMD [\"npm\", \"run\", \"dev\"]\n",
+	},
+	{
+		label:      "Go",
+		manifests:  []string{"go.mod"},
+		devCommand: "go run .",
+		container:  "FROM golang:1.23-alpine\n# Optional hot reload: RUN go install github.com/air-verse/air@latest (then CMD [\"air\"])\nCMD [\"go\", \"run\", \".\"]\n",
+	},
+	{
+		label:      "Python",
+		manifests:  []string{"pyproject.toml", "requirements.txt", "Pipfile", "manage.py"},
+		devCommand: "python app.py",
+		container:  "FROM python:3.12-slim\n# Install app deps at build time only if they aren't in the mounted project.\nCMD [\"python\", \"app.py\"]\n",
+	},
+	{
+		label:      "Ruby",
+		manifests:  []string{"Gemfile"},
+		devCommand: "ruby app.rb",
+		container:  "FROM ruby:3.3-alpine\nCMD [\"ruby\", \"app.rb\"]\n",
+	},
+	{
+		label:      "Rust",
+		manifests:  []string{"Cargo.toml"},
+		devCommand: "cargo run",
+		container:  "FROM rust:1-alpine\nCMD [\"cargo\", \"run\"]\n",
+	},
+}
+
+// detectProjectRuntime returns the runtime whose manifest is present in cwd, so
+// the wizard can give every language the same language-aware prompt instead of
+// treating anything without a package.json as an unknown blob.
+func detectProjectRuntime(cwd string) (*projectRuntime, bool) {
+	for i := range knownRuntimes {
+		for _, f := range knownRuntimes[i].manifests {
+			if fileExists(filepath.Join(cwd, f)) {
+				return &knownRuntimes[i], true
+			}
+		}
+	}
+	return nil, false
+}
+
+// defaultDevCommand guesses the host-proxy dev command from the detected
+// runtime, refining Python to Django's runserver when manage.py is present
+// (the table default of python app.py is wrong for Django/Flask). Returns "" for
+// an unknown runtime so the wizard offers a blank (proxy-only) default.
+func defaultDevCommand(cwd string) string {
+	rt, ok := detectProjectRuntime(cwd)
+	if !ok {
+		return ""
+	}
+	if rt.label == "Python" && fileExists(filepath.Join(cwd, "manage.py")) {
+		return "python manage.py runserver"
+	}
+	return rt.devCommand
+}
+
+// starterContainerfile returns a commented starter Containerfile.lerd tailored
+// to the project's detected runtime. It's a scaffold for the user to edit; an
+// unrecognised runtime gets a generic skeleton. See projectRuntime.container for
+// why there is no COPY/WORKDIR.
+func starterContainerfile(cwd string, port int) string {
+	header := fmt.Sprintf("# Containerfile.lerd — lerd builds this image and runs your app in it.\n"+
+		"# Your project is bind-mounted into the container at runtime (no COPY or WORKDIR\n"+
+		"# needed) so your edits are live. Install global dev tools here; app dependencies\n"+
+		"# come from the mounted project. Your app must listen on port %d.\n\n", port)
+	body := "FROM alpine:latest\n# RUN <install the global dev tools your app needs>\n# CMD [\"<command that starts your server>\"]\n"
+	if rt, ok := detectProjectRuntime(cwd); ok {
+		body = rt.container
+	}
+	return header + body
+}
+
+// maybeCreateContainerfile offers to scaffold a missing Containerfile and open
+// it in the user's editor. No-op when the file already exists or the shell is
+// non-interactive (scripts/CI shouldn't block on an editor). Best-effort: a
+// failure to write or open is warned, not fatal, since the link still proceeds.
+func maybeCreateContainerfile(cwd, containerfile string, port int) {
+	if !isInteractive() {
+		return
+	}
+	path := filepath.Join(cwd, containerfile)
+	if fileExists(path) {
+		return
+	}
+	create := true
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title(fmt.Sprintf("%s doesn't exist yet. Create it and open your editor?", containerfile)).
+			Description("Lerd writes a starter image for your runtime; edit it to fit your app.").
+			Value(&create),
+	)).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil || !create {
+		return
+	}
+	if dir := filepath.Dir(path); dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+	}
+	if err := os.WriteFile(path, []byte(starterContainerfile(cwd, port)), 0644); err != nil {
+		fmt.Printf("[WARN] could not create %s: %v\n", containerfile, err)
+		return
+	}
+	fmt.Printf("Created %s\n", containerfile)
+	if launched, err := launchEditor(path); err != nil {
+		fmt.Printf("[WARN] %v\n", err)
+	} else if !launched {
+		fmt.Printf("Set $EDITOR to edit it automatically; the starter file is at %s\n", containerfile)
+	}
 }
 
 // resolveSecuredDefault computes a wizard's initial "secured" value and whether
