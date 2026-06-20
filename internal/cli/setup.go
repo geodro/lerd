@@ -71,6 +71,21 @@ mode with no .lerd.yaml, site registration falls back to auto-detection.`,
 	return cmd
 }
 
+// siteServedByPHPFPM reports whether a site has a PHP-FPM container an
+// in-container bun install can target. That covers plain PHP sites (shared FPM),
+// custom-FPM sites (a per-site FPM image built from a Containerfile), and
+// FrankenPHP; it excludes host-proxy and custom-(non-PHP)-container sites, whose
+// runtime lives elsewhere. A nil site is a bare-linked plain PHP site, which
+// qualifies. Driven off the resolved site (which setup folds a worktree back to
+// its parent for) rather than cwd's .lerd.yaml, so a worktree of a proxy site is
+// classified by its parent.
+func siteServedByPHPFPM(site *config.Site) bool {
+	if site == nil {
+		return true
+	}
+	return !site.IsHostProxy() && !site.IsCustomContainer()
+}
+
 func runSetup(allSteps, skipOpen bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -198,15 +213,19 @@ func runSetup(allSteps, skipOpen bool) error {
 				return runJSScript(cwd, buildScript)
 			},
 		},
-		{
-			// Mirror the host's bun into the PHP-FPM container so `lerd shell`
-			// has a working (musl) bun, with no extra command. lerd never
-			// installs bun on the host; this only fires when the user already
-			// has bun installed there. Idempotent: skips when the container bun
-			// is already present, and installContainerBun only restarts the
-			// container if the volume isn't mounted yet. Non-fatal.
+	}...)
+
+	// Mirror the host's bun into the PHP-FPM container so `lerd shell` has a
+	// working (musl) bun, with no extra command. lerd never installs bun on the
+	// host; this only fires when the user already has it there. Only PHP-FPM
+	// sites have that container — host-proxy and custom-container sites run their
+	// runtime elsewhere — so the step is omitted entirely for them, not just left
+	// unchecked, since `lerd setup -a` runs every listed step. Idempotent and
+	// non-fatal: skips when the container bun is already present.
+	if siteServedByPHPFPM(site) && nodeDet.BunPath() != "" && bunPHPVersion != "" {
+		steps = append(steps, setupStep{
 			label:   "bun (container)",
-			enabled: nodeDet.BunPath() != "" && bunPHPVersion != "",
+			enabled: true,
 			run: func() error {
 				// Cheap exec check deferred to run time so setup planning never
 				// blocks on podman; installContainerBun is the no-op fast path.
@@ -218,8 +237,8 @@ func runSetup(allSteps, skipOpen bool) error {
 				}
 				return nil
 			},
-		},
-	}...)
+		})
+	}
 
 	// Offer in-container Pest browser testing when the project depends on the
 	// Playwright-based browser plugin and isn't set up yet. Left unchecked by

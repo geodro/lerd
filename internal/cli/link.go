@@ -16,8 +16,9 @@ import (
 	"golang.org/x/term"
 )
 
-// linkSkipSetupPrompt suppresses the "Run lerd setup?" prompt when runLink
-// is called from within lerd setup / lerd init (prevents infinite recursion).
+// linkSkipSetupPrompt suppresses the post-link "Run lerd setup?" suggestion
+// when runLink is called from within lerd setup / lerd init (prevents infinite
+// recursion and a redundant nag while setup is already running).
 var linkSkipSetupPrompt bool
 
 // linkAssumeYes approves a host-proxy dev command without the interactive
@@ -41,11 +42,44 @@ func NewLinkCmd() *cobra.Command {
 		Long:  "Register the current directory as a lerd site. The optional argument is the domain name without the TLD (e.g. 'myapp' becomes myapp.test). Defaults to the directory name.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLink(args)
+			return runLinkOrInit(args)
 		},
 	}
 	cmd.Flags().BoolVar(&linkAssumeYes, "yes", false, "Approve a host-proxy dev command without the confirmation prompt")
 	return cmd
+}
+
+// runLinkOrInit routes a user-typed `lerd link` into the init wizard when the
+// project has no usable .lerd.yaml and we have an interactive terminal, so a
+// fresh link guides the user through configuration (the wizard then links and
+// offers setup) instead of leaving a bare, unconfigured registration. Every
+// other case — a configured .lerd.yaml, a non-interactive shell (park, CI,
+// scripts), or an explicit domain argument — falls through to a direct link.
+// Internal runLink callers bypass this routing entirely.
+func runLinkOrInit(args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	// IsEmpty (not file existence) so a present-but-empty .lerd.yaml still routes
+	// to the wizard, matching what runLink's old empty-project branch did.
+	proj, _ := config.LoadProjectConfig(cwd)
+	hasConfig := proj != nil && !proj.IsEmpty()
+	_, _, isWorktree := findOwningWorktree(cwd)
+	if linkShouldRunWizard(hasConfig, isInteractive(), len(args) > 0, isWorktree) {
+		return runInit(false)
+	}
+	return runLink(args)
+}
+
+// linkShouldRunWizard reports whether a user-invoked `lerd link` should run the
+// init wizard rather than a bare link. Only true for a fresh, interactive,
+// argument-free link on a real site directory: a missing .lerd.yaml means
+// nothing is committed yet, the terminal can host the wizard, no explicit
+// domain was requested, and the directory isn't a worktree (which inherits its
+// parent's registration). Any false input keeps the fast, scriptable link.
+func linkShouldRunWizard(hasConfig, interactive, hasDomainArg, isWorktree bool) bool {
+	return !hasConfig && interactive && !hasDomainArg && !isWorktree
 }
 
 func runLink(args []string) error {
@@ -337,20 +371,7 @@ func runLink(args []string) error {
 		}
 	}
 
-	if proj.IsEmpty() {
-		if isInteractive() {
-			fmt.Print("\nNo .lerd.yaml found. Run lerd init? [Y/n] ")
-			var answer string
-			fmt.Scanln(&answer) //nolint:errcheck
-			if answer == "" || answer[0] == 'Y' || answer[0] == 'y' {
-				if err := runInit(false); err != nil {
-					fmt.Printf("[WARN] init: %v\n", err)
-				}
-			}
-		} else {
-			fmt.Println("\nNo .lerd.yaml found. Run 'lerd init' to configure domains, services, and workers.")
-		}
-	} else if !linkSkipSetupPrompt {
+	if hint, suggest := linkNextStep(linkSkipSetupPrompt); suggest {
 		if isInteractive() {
 			fmt.Print("\nRun lerd setup? [Y/n] ")
 			var answer string
@@ -361,7 +382,7 @@ func runLink(args []string) error {
 				}
 			}
 		} else {
-			fmt.Println("\nRun 'lerd setup' to install dependencies, run migrations, and start workers.")
+			fmt.Println(hint)
 		}
 	}
 
@@ -564,6 +585,19 @@ func hasRunningWorkers(site *config.Site) bool {
 // isInteractive returns true if stdin is a terminal.
 func isInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// linkNextStep returns the guidance shown after a standalone lerd link, and
+// whether to show it at all. It always points at lerd setup: setup takes a
+// freshly linked project the rest of the way (deps, migrations, workers, HTTPS)
+// and runs the init wizard itself when there is no .lerd.yaml, so suggesting
+// init separately is redundant friction. Returns suggest=false when link runs
+// inside setup/init (skipPrompt), so the guidance never nags mid-setup.
+func linkNextStep(skipPrompt bool) (hint string, suggest bool) {
+	if skipPrompt {
+		return "", false
+	}
+	return "\nRun 'lerd setup' to install dependencies, run migrations, and start workers.", true
 }
 
 // resolveFramework returns the framework name for the project at dir.
