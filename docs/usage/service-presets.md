@@ -27,6 +27,7 @@ Both kinds use the same YAML schema in `internal/config/presets/*.yaml` and the 
 | `mysql` alternates | `5.7` / `9.7` LTS (canonical 8.4 lives in the default preset) | - | `127.0.0.1:3357` / `127.0.0.1:3397` |
 | `postgres` alternates | `17` / `18` (canonical 16 lives in the default preset) | - | `127.0.0.1:5417` / `127.0.0.1:5418` |
 | `postgres-pgvector` | `pgvector/pgvector:pg18` (canonical) / `pg17` / `pg16` — pgvector instead of PostGIS | - | `127.0.0.1:5518` / `127.0.0.1:5517` / `127.0.0.1:5516` |
+| `postgres-timescaledb` | `timescale/timescaledb:latest-pg17` (canonical) / `pg16` — TimescaleDB time-series extension, enabled automatically by `lerd env` / `lerd link` via `site_init` | - | `127.0.0.1:5617` / `127.0.0.1:5616` |
 | `mariadb` | `12` / `12.3` LTS / `11.8` LTS (default) / `11.4` LTS / `10.11` LTS / `11` (legacy) | - | host ports `3412` / `3423` / `3418` / `3414` / `3410` / `3411` |
 | `mongo` | `docker.io/library/mongo:7` | - | `127.0.0.1:27017` |
 | `mongo-express` | `docker.io/library/mongo-express:latest` | `mongo` (preset) | `http://localhost:8082` |
