@@ -13,11 +13,19 @@ import (
 
 // ServiceConfig holds configuration for an optional service.
 type ServiceConfig struct {
-	Enabled       bool     `yaml:"enabled"        mapstructure:"enabled"`
-	Image         string   `yaml:"image"          mapstructure:"image"`
-	Port          int      `yaml:"port"           mapstructure:"port"`
-	ExtraPorts    []string `yaml:"extra_ports"    mapstructure:"extra_ports"`
-	PreviousImage string   `yaml:"previous_image,omitempty" mapstructure:"previous_image"`
+	Enabled    bool     `yaml:"enabled"        mapstructure:"enabled"`
+	Image      string   `yaml:"image"          mapstructure:"image"`
+	Port       int      `yaml:"port"           mapstructure:"port"`
+	ExtraPorts []string `yaml:"extra_ports"    mapstructure:"extra_ports"`
+	// PublishedPort overrides the host (published) port of this service's
+	// primary mapping. 0 = use the preset/version default (e.g. 3306 for MySQL
+	// 8.4). Set it to free the default port for a second server — e.g. move
+	// lerd-mysql to 3307 so the host system MySQL can keep 127.0.0.1:3306. The
+	// container-internal port is unchanged, so bridge clients still use 3306.
+	// Unlike Port (auto-seeded from the preset), this stays 0 until the user
+	// explicitly overrides, so it is an unambiguous "use default" sentinel.
+	PublishedPort int    `yaml:"published_port,omitempty" mapstructure:"published_port"`
+	PreviousImage string `yaml:"previous_image,omitempty" mapstructure:"previous_image"`
 	// LastOp records the most recent mutation kind ("update" or "migrate") so
 	// the rollback flow can refuse a swap that would race the new image
 	// against the post-migrate (fresh) data dir. Empty means no recent op or a

@@ -7,6 +7,40 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+func TestSetPrimaryHostPort(t *testing.T) {
+	cases := []struct {
+		name  string
+		ports []string
+		host  int
+		want  []string
+	}{
+		{"simple", []string{"3306:3306"}, 3307, []string{"3307:3306"}},
+		{"keeps extra ports", []string{"3306:3306", "33060:33060"}, 3307, []string{"3307:3306", "33060:33060"}},
+		{"preserves proto suffix", []string{"3306:3306/tcp"}, 3307, []string{"3307:3306/tcp"}},
+		{"ip:host:container form", []string{"127.0.0.1:3306:3306"}, 3307, []string{"127.0.0.1:3307:3306"}},
+		{"nil ports", nil, 3307, nil},
+		{"zero port is no-op", []string{"3306:3306"}, 0, []string{"3306:3306"}},
+		{"negative port is no-op", []string{"3306:3306"}, -1, []string{"3306:3306"}},
+		{"unrecognised single segment", []string{"3306"}, 3307, []string{"3306"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := SetPrimaryHostPort(c.ports, c.host)
+			if strings.Join(got, ",") != strings.Join(c.want, ",") {
+				t.Errorf("SetPrimaryHostPort(%v, %d) = %v, want %v", c.ports, c.host, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSetPrimaryHostPortDoesNotMutateInput(t *testing.T) {
+	in := []string{"3306:3306", "extra:extra"}
+	_ = SetPrimaryHostPort(in, 3307)
+	if in[0] != "3306:3306" {
+		t.Errorf("SetPrimaryHostPort mutated its input: in[0]=%q", in[0])
+	}
+}
+
 func TestStripInstallSectionNoOpWhenEnabled(t *testing.T) {
 	in := "[Container]\nImage=foo\n\n[Install]\nWantedBy=default.target\n"
 	if got := StripInstallSection(in, false); got != in {
