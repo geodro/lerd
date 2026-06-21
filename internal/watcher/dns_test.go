@@ -359,6 +359,100 @@ func TestTickDNS_containerDNSResync(t *testing.T) {
 	}
 }
 
+// TestTickDNS_exposeMappingRepair pins the lan:expose heal: when DNS reads
+// down because the published .tld mapping drifted from the host's current LAN
+// IP (sleep/wake DHCP renew), the watcher must re-render the mapping and
+// reload lerd-dns *before* the sudo-gated resolver repair, then re-check and
+// publish the recovery. A no-op or a failed re-render must fall through to the
+// existing resolver repair so neither path is shadowed.
+func TestTickDNS_exposeMappingRepair(t *testing.T) {
+	t.Run("re-render heals and skips resolver repair", func(t *testing.T) {
+		var checks, exposeCalls, resolverCalls, waits, publishes int
+		var logs []string
+		deps := dnsWatchDeps{
+			// First probe down, second (post re-render) up.
+			check: func(string) (bool, error) {
+				checks++
+				return checks > 1, nil
+			},
+			waitReady:           func(time.Duration) error { waits++; return nil },
+			configureResolver:   func() error { resolverCalls++; return nil },
+			repairExposeMapping: func() (bool, error) { exposeCalls++; return true, nil },
+			idleOrLocked:        func() bool { return false },
+			publishStatus:       func() { publishes++ },
+			log:                 func(level, _ string, _ ...any) { logs = append(logs, level) },
+		}
+		state := &dnsWatchState{lastOK: ptrBool(true)}
+		tickDNS(deps, state, "test")
+
+		if exposeCalls != 1 {
+			t.Errorf("expose repair calls=%d, want 1", exposeCalls)
+		}
+		if checks != 2 {
+			t.Errorf("checks=%d, want 2 (probe + re-check after re-render)", checks)
+		}
+		if resolverCalls != 0 || waits != 0 {
+			t.Errorf("resolver repair must not run after a successful re-render: waits=%d resolver=%d", waits, resolverCalls)
+		}
+		// down transition + post-heal up flip.
+		if publishes != 2 {
+			t.Errorf("publishes=%d, want 2", publishes)
+		}
+		if !ptrBoolEq(state.lastOK, ptrBool(true)) {
+			t.Errorf("lastOK=%v, want true", deref(state.lastOK))
+		}
+		// info log for the re-render only (down transition doesn't log).
+		if len(logs) != 1 || logs[0] != "info" {
+			t.Errorf("logs=%v, want one info", logs)
+		}
+	})
+
+	t.Run("no-op re-render falls through to resolver repair", func(t *testing.T) {
+		var exposeCalls, resolverCalls, waits int
+		deps := dnsWatchDeps{
+			check:               func(string) (bool, error) { return false, nil },
+			waitReady:           func(time.Duration) error { waits++; return nil },
+			configureResolver:   func() error { resolverCalls++; return nil },
+			repairExposeMapping: func() (bool, error) { exposeCalls++; return false, nil },
+			idleOrLocked:        func() bool { return false },
+			publishStatus:       func() {},
+			log:                 func(string, string, ...any) {},
+		}
+		state := &dnsWatchState{lastOK: ptrBool(false)}
+		tickDNS(deps, state, "test")
+
+		if exposeCalls != 1 {
+			t.Errorf("expose repair calls=%d, want 1", exposeCalls)
+		}
+		if waits != 1 || resolverCalls != 1 {
+			t.Errorf("a no-op re-render must fall through to resolver repair: waits=%d resolver=%d", waits, resolverCalls)
+		}
+	})
+
+	t.Run("re-render error logs warn and falls through", func(t *testing.T) {
+		var resolverCalls int
+		var logs []string
+		deps := dnsWatchDeps{
+			check:               func(string) (bool, error) { return false, nil },
+			waitReady:           func(time.Duration) error { return nil },
+			configureResolver:   func() error { resolverCalls++; return nil },
+			repairExposeMapping: func() (bool, error) { return false, errors.New("reload lerd-dns: boom") },
+			idleOrLocked:        func() bool { return false },
+			publishStatus:       func() {},
+			log:                 func(level, _ string, _ ...any) { logs = append(logs, level) },
+		}
+		state := &dnsWatchState{lastOK: ptrBool(false)}
+		tickDNS(deps, state, "test")
+
+		if resolverCalls != 1 {
+			t.Errorf("resolver repair must still run after a re-render error, got %d", resolverCalls)
+		}
+		if len(logs) < 1 || logs[0] != "warn" {
+			t.Errorf("expected a leading warn for the re-render error, got %v", logs)
+		}
+	})
+}
+
 // TestRunDNSLoop_linkChangeKicksTick pins that an interface change wakes
 // the watcher early, otherwise the user sees the dashboard pill stuck red
 // for up to the full poll interval after a VPN connect or disconnect.

@@ -77,6 +77,15 @@ func CheckStatus(tld string) Status {
 	return StatusDown
 }
 
+// DnsmasqAnswer returns the A-record answer lerd's dnsmasq gives for the
+// configured TLD, queried directly on 127.0.0.1:5300 (bypassing the system
+// resolver). Exported so the watcher can compare the published lan:expose
+// mapping against the host's current primary LAN IP and detect drift after a
+// sleep/wake DHCP renew or a network switch.
+func DnsmasqAnswer(tld string) (string, error) {
+	return defaultDnsmasqAnswer(tld)
+}
+
 // dnsmasqDirectOK queries lerd's dnsmasq straight on 127.0.0.1:5300,
 // bypassing the system resolver entirely. It returns true when dnsmasq
 // answers with an address lerd would legitimately hand out, which is the

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/eventbus"
 	"github.com/geodro/lerd/internal/podman"
@@ -20,15 +21,16 @@ const idleSkipEveryN = 10
 // dnsWatchDeps is the injection surface for tickDNS so the orchestration
 // can be unit-tested without an actual resolver or eventbus subscriber.
 type dnsWatchDeps struct {
-	check              func(tld string) (bool, error)
-	waitReady          func(time.Duration) error
-	configureResolver  func() error
-	repairPossible     func() bool
-	idleOrLocked       func() bool
-	publishStatus      func()
-	dnsEnvFingerprint  func() string
-	resyncContainerDNS func() error
-	log                func(level, msg string, kv ...any)
+	check               func(tld string) (bool, error)
+	waitReady           func(time.Duration) error
+	configureResolver   func() error
+	repairPossible      func() bool
+	idleOrLocked        func() bool
+	publishStatus       func()
+	dnsEnvFingerprint   func() string
+	resyncContainerDNS  func() error
+	repairExposeMapping func() (changed bool, err error)
+	log                 func(level, msg string, kv ...any)
 }
 
 // dnsWatchState is the cross-tick memory for WatchDNS. lastOK starts nil
@@ -65,6 +67,42 @@ func defaultResyncContainerDNS() error {
 		return err
 	}
 	return podman.ReloadNetworks()
+}
+
+// defaultRepairExposeMapping re-renders the host dnsmasq .tld answer to the
+// current primary LAN IP and reloads lerd-dns when lan:expose is on and the
+// published mapping has drifted. lerd only regenerates that mapping on
+// `lerd start`, so a sleep/wake DHCP renew or a network switch leaves dnsmasq
+// answering the old IP; CheckStatus compares that answer against the live
+// primaryLANIP and reports the dashboard pill down even though lerd-dns is
+// serving fine, and in lan:expose mode the published address eventually stops
+// routing once the old lease is gone. The config dir (DnsmasqDir) is
+// user-owned and mounted read-only into the lerd-dns container, so the
+// rewrite needs no privilege escalation and a unit reload picks it up on both
+// macOS (launchd) and Linux (systemd).
+//
+// Returns (false, nil), a safe no-op, when expose is off, the host has no
+// LAN IP yet, or the mapping already matches, so it can run on every failed
+// health tick without thrashing the daemon.
+func defaultRepairExposeMapping(tld string) (bool, error) {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return false, err
+	}
+	if cfg == nil || !cfg.LAN.Exposed {
+		return false, nil
+	}
+	target := primaryLANIP()
+	if target == "" {
+		return false, nil
+	}
+	if answer, err := dns.DnsmasqAnswer(tld); err == nil && answer == target {
+		return false, nil
+	}
+	if err := dns.WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
+		return false, err
+	}
+	return true, podman.RestartUnit("lerd-dns")
 }
 
 // linkChangeDebounce caps how long the netlink burst from a single VPN
@@ -116,6 +154,10 @@ func WatchDNS(interval time.Duration, tld string) {
 		deps.dnsEnvFingerprint = defaultDNSEnvFingerprint
 		deps.resyncContainerDNS = defaultResyncContainerDNS
 	}
+
+	// Cross-platform: heal a stale lan:expose .tld mapping after the host LAN
+	// IP changes. Bind the configured TLD so the tick body stays no-arg.
+	deps.repairExposeMapping = func() (bool, error) { return defaultRepairExposeMapping(tld) }
 
 	state := &dnsWatchState{}
 
@@ -196,6 +238,28 @@ func tickDNS(d dnsWatchDeps, s *dnsWatchState, tld string) {
 
 	if ok {
 		return
+	}
+
+	// A stale lan:expose mapping (the dnsmasq .tld answer drifting from the
+	// host's current primary LAN IP after a sleep/wake or DHCP renew) makes
+	// CheckStatus report down even though lerd-dns is healthy. Re-render the
+	// mapping and reload lerd-dns first: the config dir is user-owned, so this
+	// needs no privilege escalation and heals even on a host where the
+	// sudo-gated resolver repair below is unavailable. A no-op (expose off or
+	// the mapping already current) returns false and falls through.
+	if d.repairExposeMapping != nil {
+		switch changed, err := d.repairExposeMapping(); {
+		case err != nil:
+			d.log("warn", "lan:expose DNS mapping repair failed", "err", err)
+		case changed:
+			d.log("info", "lan:expose DNS mapping re-rendered to the current LAN IP")
+			if ok2, _ := d.check(tld); ok2 {
+				up := true
+				s.lastOK = &up
+				d.publishStatus()
+				return
+			}
+		}
 	}
 
 	// Skip repair when the platform can't write the resolver config from
