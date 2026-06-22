@@ -47,6 +47,16 @@ The **update item** shows "Check for update..." when no update information is ca
 
 ---
 
+## Icon appearance
+
+In the default colour mode the icon doubles as a status light: a red **L** when lerd is stopped and a white **L** when it is running. The white running icon would disappear on a light panel, so the tray reads your desktop's light/dark preference and switches the running icon to a dark **L** whenever the panel is light. It reacts live: toggle your system theme and the icon recolours without restarting the tray.
+
+The preference comes from the cross-desktop XDG desktop portal (`org.freedesktop.appearance` `color-scheme`), so it works the same on GNOME, KDE Plasma, and anything else that implements the portal. On a setup without a portal the tray keeps the white running icon, which is the right default for the common dark panel.
+
+The red stopped icon is left as-is since it reads on both light and dark panels. If you would rather the OS own the colouring entirely, use `lerd tray --mono`, which registers a monochrome template icon that GNOME and KDE recolour to match the panel themselves (this mode does not change with lerd state).
+
+---
+
 ## Autostart
 
 The tray follows the global `lerd autostart` toggle: when autostart is on (the default), `lerd install` writes and enables `lerd-tray.service` so the tray comes up on every graphical login. Run `lerd autostart disable` to turn off autostart for the entire environment, including the tray.

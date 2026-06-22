@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Lerd · share image</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ---- Laravel-dark tokens, lifted from the landing page ---- */
+      :root {
+        --bg: #0a0a0b;
+        --bg-2: #0e0e10;
+        --panel: #131316;
+        --line: #26262c;
+        --line-2: #34343c;
+        --ink: #f4f4f5;
+        --ink-2: #c4c4cc;
+        --muted: #8b8b95;
+        --accent: #ff2d20;
+        --accent-2: #ff5b50;
+        --accent-glow: rgba(255, 45, 32, 0.45);
+        --accent-wash: rgba(255, 45, 32, 0.16);
+        --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: #050506;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      /* The screenshot target: a fixed 1200x630 (1.91:1) OG frame. */
+      .frame {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      /* Ambient field — subtle grid, masked to the top, plus warm + cool washes. */
+      .frame::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+        background-size: 56px 56px;
+        mask-image: radial-gradient(ellipse 90% 70% at 30% 0%, #000 30%, transparent 80%);
+      }
+      .frame::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(50% 55% at 4% 6%, rgba(167, 139, 250, 0.07), transparent 60%);
+      }
+
+      /* Warm bloom on the left, behind the brand — dim and soft. */
+      .glow {
+        position: absolute;
+        z-index: 0;
+        top: -200px;
+        left: -160px;
+        width: 720px;
+        height: 600px;
+        pointer-events: none;
+        background:
+          radial-gradient(closest-side at 50% 45%, rgba(255, 91, 80, 0.16), transparent 72%),
+          radial-gradient(closest-side at 48% 50%, rgba(255, 45, 32, 0.1), transparent 78%),
+          radial-gradient(closest-side at 50% 52%, rgba(255, 168, 92, 0.09), transparent 80%);
+        filter: blur(10px);
+      }
+
+      /* ---- Left: brand + headline + sub ---- */
+      .copy {
+        position: absolute;
+        z-index: 3;
+        left: 76px;
+        top: 0;
+        bottom: 0;
+        width: 510px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 38px;
+      }
+      .brand img { width: 64px; height: 64px; display: block; }
+      .brand .word {
+        font-size: 40px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ink);
+      }
+      h1 {
+        margin: 0;
+        font-weight: 600;
+        font-size: 64px;
+        line-height: 1;
+        letter-spacing: -0.035em;
+        white-space: nowrap;
+      }
+      h1 .accent {
+        background: linear-gradient(180deg, var(--accent-2), var(--accent));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .sub {
+        margin: 30px 0 0;
+        font-size: 20px;
+        line-height: 1.42;
+        color: var(--muted);
+        max-width: 38ch;
+      }
+      .sub b { color: var(--ink-2); font-weight: 600; }
+
+      /* ---- Right: the dashboard demo, bleeding off and fading to dark ---- */
+      .shot {
+        position: absolute;
+        z-index: 1;
+        top: 50%;
+        right: -88px;
+        transform: translateY(-50%);
+        width: 700px;
+        height: 420px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #0d0d0d;
+        overflow: hidden;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.04) inset,
+          0 40px 90px -28px rgba(0, 0, 0, 0.85);
+      }
+      .shot-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 30px;
+        padding: 0 11px;
+        background: linear-gradient(180deg, #15151a, #111114);
+        border-bottom: 1px solid var(--line);
+      }
+      .dots { display: flex; gap: 5px; }
+      .dots i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+      .dots i:nth-child(1) { background: #ff5f57; }
+      .dots i:nth-child(2) { background: #febc2e; }
+      .dots i:nth-child(3) { background: #28c840; }
+      .shot-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .shot-title img { width: 10px; height: 10px; border-radius: 2px; }
+      .shot-body { position: relative; height: calc(100% - 30px); overflow: hidden; }
+      /* Render the demo at a wide logical viewport, then scale it down so the
+         full desktop dashboard fits inside the window chrome. */
+      .shot-body iframe {
+        width: 1480px;
+        height: 827px;
+        border: 0;
+        transform: scale(0.4716);
+        transform-origin: top left;
+        background: #0d0d0d;
+      }
+
+      /* Fade the panel into the dark bg on the right and bottom edges. */
+      .fade {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg, transparent 72%, rgba(10, 10, 11, 0.6) 92%, var(--bg) 100%);
+      }
+      /* Frame-level right-edge fade — dims the demo as it reaches the true frame
+         edge (the window itself bleeds off-frame and would be clipped). */
+      .edge {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent 72%, rgba(10, 10, 11, 0.55) 88%, var(--bg) 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="glow"></div>
+      <!-- dashboard demo, behind the copy, fading right/bottom -->
+      <div class="shot">
+        <div class="shot-bar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="shot-title">
+            <img src="/assets/logo.svg" alt="" />
+            lerd.localhost
+          </span>
+        </div>
+        <div class="shot-body">
+          <iframe src="/demo/index.html" title="Lerd dashboard" loading="eager"></iframe>
+          <div class="fade"></div>
+        </div>
+      </div>
+      <div class="edge"></div>
+
+      <!-- brand + message -->
+      <div class="copy">
+        <div class="brand">
+          <img src="/assets/logo.svg" alt="Lerd logo" />
+          <span class="word">Lerd</span>
+        </div>
+        <h1>Local PHP dev.<br /><span class="accent">Native on Linux.</span></h1>
+        <p class="sub">
+          A <b>Herd-like</b> local environment for the developers who ship PHP every day.
+          Rootless, daemonless, zero&nbsp;config. Also on macOS.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

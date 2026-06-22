@@ -212,8 +212,17 @@ func onReady(mono bool) {
 		}()
 	}
 
+	// In color mode the running icon is white, which vanishes on a light
+	// panel. Watch the desktop light/dark preference and swap to a dark icon
+	// when the panel is light, reacting live when the user toggles their theme.
+	var icons *iconState
+	if !mono {
+		icons = newIconState()
+		go watchAppearance(ctx, icons.setLight)
+	}
+
 	go runPoller(ctx, updateCh)
-	go applyLoop(menu, updateCh, mono)
+	go applyLoop(menu, updateCh, mono, icons)
 	go handleDash(menu.mDash)
 	go handleToggle(menu.mToggle, refresh)
 	go handleServices(menu, refresh)
@@ -325,28 +334,86 @@ func fetchSnapshot() *Snapshot {
 	return snap
 }
 
-func applyLoop(menu *menuState, updateCh <-chan *Snapshot, mono bool) {
-	// Track the last icon we set so we don't thrash the systray with
-	// identical SetIcon calls every 5s poll.
-	var lastRunning = -1
+// iconKind identifies which color-mode icon is currently shown so we don't
+// thrash the systray with identical SetIcon calls.
+type iconKind int
+
+const (
+	iconKindStopped      iconKind = iota // red L, any panel
+	iconKindRunningDark                  // white L, dark panel
+	iconKindRunningLight                 // dark L, light panel
+)
+
+// pickColorIcon chooses the color-mode icon from the running state and whether
+// the desktop panel is light. The running indicator is white on a dark panel
+// and dark on a light panel so it stays visible either way; the stopped icon is
+// red and reads on both.
+func pickColorIcon(running, light bool) (iconKind, []byte) {
+	switch {
+	case !running:
+		return iconKindStopped, iconPNG
+	case light:
+		return iconKindRunningLight, iconDarkPNG
+	default:
+		return iconKindRunningDark, iconWhitePNG
+	}
+}
+
+// iconState owns the color-mode tray icon and recomputes it whenever the lerd
+// running state or the desktop light/dark preference changes. It serializes the
+// two input goroutines (poller and appearance watcher) and skips redundant
+// SetIcon calls.
+type iconState struct {
+	mu      sync.Mutex
+	running bool
+	light   bool
+	last    iconKind
+	// apply performs the actual icon swap; overridable in tests so the logic
+	// can be exercised without a live systray.
+	apply func([]byte)
+}
+
+func newIconState() *iconState {
+	// last defaults to iconKindStopped, matching the red icon onReady sets.
+	return &iconState{last: iconKindStopped, apply: systray.SetIcon}
+}
+
+func (s *iconState) setRunning(running bool) {
+	s.mu.Lock()
+	s.running = running
+	s.mu.Unlock()
+	s.refresh()
+}
+
+func (s *iconState) setLight(light bool) {
+	s.mu.Lock()
+	s.light = light
+	s.mu.Unlock()
+	s.refresh()
+}
+
+func (s *iconState) refresh() {
+	// Hold the lock across apply so the decision and the swap are atomic:
+	// otherwise two concurrent updates (poller + theme watcher) can run their
+	// SetIcon calls out of order and leave the displayed icon disagreeing with
+	// s.last. SetIcon never re-enters iconState, so there's no deadlock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kind, icon := pickColorIcon(s.running, s.light)
+	if kind == s.last {
+		return
+	}
+	s.last = kind
+	s.apply(icon)
+}
+
+func applyLoop(menu *menuState, updateCh <-chan *Snapshot, mono bool, icons *iconState) {
 	for snap := range updateCh {
 		menu.apply(snap)
-		// In color mode the icon doubles as a status indicator: white L
-		// when lerd is running, red L when stopped. In mono mode the OS
-		// recolors the template icon, so we leave it alone.
-		if !mono {
-			running := 0
-			if snap != nil && snap.Running {
-				running = 1
-			}
-			if running != lastRunning {
-				if running == 1 {
-					systray.SetIcon(iconWhitePNG)
-				} else {
-					systray.SetIcon(iconPNG)
-				}
-				lastRunning = running
-			}
+		// In color mode the icon doubles as a status indicator. In mono mode
+		// the OS recolors the template icon, so we leave it alone.
+		if !mono && icons != nil {
+			icons.setRunning(snap != nil && snap.Running)
 		}
 	}
 }

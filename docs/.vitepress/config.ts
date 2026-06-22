@@ -5,7 +5,7 @@ const OG_IMAGE = `${SITE_URL}/assets/social-preview.png`
 
 export default defineConfig({
   title: 'Lerd',
-  description: 'Open-source Herd-like local PHP development environment for Linux and macOS. Automatic .test domains and HTTPS, PHP 7.4–8.5, rootless Podman, no Docker daemon. Works on Ubuntu, Fedora, Arch, Debian, and macOS.',
+  description: 'Open-source, Herd-like local PHP development for Linux and macOS. Automatic .test domains, HTTPS, per-project PHP and Node, rootless Podman, no Docker daemon.',
   base: '/',
   lang: 'en-US',
   cleanUrls: true,
@@ -36,8 +36,8 @@ export default defineConfig({
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:type', content: 'image/png' }],
-    ['meta', { property: 'og:image:width', content: '1280' }],
-    ['meta', { property: 'og:image:height', content: '640' }],
+    ['meta', { property: 'og:image:width', content: '1499' }],
+    ['meta', { property: 'og:image:height', content: '787' }],
     ['meta', { property: 'og:image:alt', content: 'Lerd, local PHP development for Linux and macOS' }],
 
     // Twitter / X

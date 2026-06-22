@@ -1,6 +1,6 @@
 ---
 layout: landing
-title: Lerd - Local PHP development for Linux
+title: Lerd - Local PHP development for Linux and macOS
 titleTemplate: false
-description: Open-source local PHP development environment built for Linux. Nginx + PHP on rootless Podman, with automatic .test domains, HTTPS, and a built-in Web UI. First-class on Arch, Ubuntu, Fedora, and Debian; also runs on macOS via Homebrew.
+description: Open-source, Herd-like local PHP development for Linux and macOS. Automatic .test domains, HTTPS, per-project PHP and Node, rootless Podman, no Docker daemon.
 ---
