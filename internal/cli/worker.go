@@ -679,11 +679,18 @@ func stopWorkerUnit(unitName, label, _ string) error {
 	// Without this they linger in ~/.local/share/lerd/run/workers after
 	// a normal stop and confuse later mode-migration discovery.
 	removeWorkerExecArtifacts(unitName)
-	if err := podman.DaemonReloadFn(); err != nil {
-		feedback.Warn("daemon-reload: %v", err)
-	}
-	step.OK("")
+	finalizeStopStep(step, podman.DaemonReloadFn())
 	return nil
+}
+
+// finalizeStopStep closes the worker-stop step and only then surfaces a
+// non-fatal daemon-reload error, so the warning lands on its own line instead
+// of being overwritten by the live spinner's in-place redraw.
+func finalizeStopStep(step *feedback.Step, reloadErr error) {
+	step.OK("")
+	if reloadErr != nil {
+		feedback.Warn("daemon-reload: %v", reloadErr)
+	}
 }
 
 // StopAllWorkersForWorktree stops every per-worktree worker unit attached

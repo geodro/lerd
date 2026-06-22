@@ -55,7 +55,16 @@ After creation, register the site with:
 	return cmd
 }
 
+// newNextStep builds the post-scaffold hint, preserving the path the user
+// typed (filepath.Base would drop the parent dirs of a nested target).
+func newNextStep(typedTarget string) string {
+	return "cd " + typedTarget + " && lerd link && lerd setup"
+}
+
 func runNew(target, frameworkName string, extraArgs []string) error {
+	// Preserve the path as typed for the "Next" hint before resolving it.
+	typedTarget := target
+
 	// Resolve target to an absolute path
 	if !filepath.IsAbs(target) {
 		cwd, err := os.Getwd()
@@ -96,7 +105,7 @@ func runNew(target, frameworkName string, extraArgs []string) error {
 	feedback.Success("created "+filepath.Base(target), time.Since(start))
 	feedback.NewSummary().
 		Row("Path", target).
-		Row("Next", "cd "+filepath.Base(target)+" && lerd link && lerd setup").
+		Row("Next", newNextStep(typedTarget)).
 		Print()
 	return nil
 }

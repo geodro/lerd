@@ -30,6 +30,12 @@ var linkSkipSetupPrompt bool
 // "linked" summary rather than after it.
 var linkSkipSummary bool
 
+// linkSkipDataImport suppresses the Sail data-import offer. It is kept separate
+// from linkSkipSetupPrompt so routing `lerd link` through the init wizard
+// (which suppresses the setup prompt) still offers to import an existing Sail
+// database. Only the unattended (--all/CI) path sets it.
+var linkSkipDataImport bool
+
 // linkApplied and envApplied track whether the current process has already
 // linked the site and applied its .env. When a link flows straight into setup
 // (the "Run lerd setup?" prompt), this lets the setup pass skip re-printing the
@@ -98,6 +104,14 @@ func runLinkOrInit(args []string) error {
 // parent's registration). Any false input keeps the fast, scriptable link.
 func linkShouldRunWizard(hasConfig, interactive, hasDomainArg, isWorktree bool) bool {
 	return !hasConfig && interactive && !hasDomainArg && !isWorktree
+}
+
+// linkShouldImportSail reports whether runLink should offer to import an
+// existing Sail project's data. Gated on a live terminal and a dedicated
+// suppression flag (NOT linkSkipSetupPrompt), so a fresh `lerd link` that
+// routes through the init wizard still offers the import.
+func linkShouldImportSail(interactive, skipImport, hasSail bool) bool {
+	return interactive && !skipImport && hasSail
 }
 
 func runLink(args []string) error {
@@ -395,7 +409,7 @@ func runLink(args []string) error {
 
 	// Sail detection — offer to import data before setup so lerd's DB is
 	// populated from the existing Sail environment.
-	if isInteractive() && !linkSkipSetupPrompt && config.ComposerHasPackage(cwd, "laravel/sail") {
+	if linkShouldImportSail(isInteractive(), linkSkipDataImport, config.ComposerHasPackage(cwd, "laravel/sail")) {
 		sailDBName := sailLinkDetectDBName(cwd)
 		if feedback.Confirm("This project uses Laravel Sail. Import database (and S3 files) from Sail into lerd?", false) {
 			if err := runImportSail(false, false, "sail", "password", sailDBName, sailDBName != "", false, false); err != nil {
