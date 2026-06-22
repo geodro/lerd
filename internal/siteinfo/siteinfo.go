@@ -98,6 +98,11 @@ type EnrichedSite struct {
 	FrameworkName    string
 	FrameworkLabel   string
 	FrameworkVersion string
+	// FrameworkPHPMin/Max are the framework's supported PHP range, so the UI and
+	// TUI can disable out-of-range versions. Empty when the version was guessed
+	// (clamped), since the range then belongs to a different version.
+	FrameworkPHPMin string
+	FrameworkPHPMax string
 
 	// UsesPHP reports whether the site is actually a PHP project (composer.json
 	// or .php files present) served by the shared FPM image or FrankenPHP.
@@ -299,6 +304,16 @@ func Enrich(s config.Site, flags EnrichFlag) EnrichedSite {
 		fw, hasFw = config.GetFrameworkForDir(s.Framework, s.Path)
 		if hasFw {
 			e.FrameworkVersion = fw.Version
+			if fw.VersionGuessed {
+				// Report the project's real version, not the borrowed
+				// definition's, and don't enforce that definition's PHP range.
+				if fw.DetectedVersion != "" {
+					e.FrameworkVersion = fw.DetectedVersion
+				}
+			} else {
+				e.FrameworkPHPMin = fw.PHP.Min
+				e.FrameworkPHPMax = fw.PHP.Max
+			}
 		}
 	}
 
@@ -394,7 +409,10 @@ func (e *EnrichedSite) enrichVersions(s config.Site, fw *config.Framework, hasFw
 	// container actually runs, undoing what link pinned. Node tooling still applies.
 	if !s.IsCustomFPM() {
 		phpMin, phpMax := "", ""
-		if hasFw {
+		// A guessed framework targets a different version than the project, so its
+		// PHP range must not constrain detection, or a Laravel 6 project pinned to
+		// 7.4 would be bumped to the Laravel 10 minimum on every snapshot.
+		if hasFw && !fw.VersionGuessed {
 			phpMin, phpMax = fw.PHP.Min, fw.PHP.Max
 		}
 		detected := phpPkg.DetectVersionClamped(s.Path, phpMin, phpMax, s.PHPVersion)
@@ -614,6 +632,9 @@ func (e *EnrichedSite) enrichGit() {
 			}
 			if fw, ok := config.GetFrameworkForDir(e.FrameworkName, wt.Path); ok {
 				info.FrameworkVersion = fw.Version
+				if fw.VersionGuessed && fw.DetectedVersion != "" {
+					info.FrameworkVersion = fw.DetectedVersion
+				}
 				info.FrameworkLabel = frameworkLabel(e.FrameworkName, wt.Path, fw, true)
 				info.FrameworkWorkers = enrichWorktreeWorkers(e.Name, wt.Path, fw)
 			} else {
@@ -708,6 +729,12 @@ func frameworkLabel(name, path string, fw *config.Framework, hasFw bool) string 
 		return ""
 	}
 	if hasFw {
+		// A guessed version is labelled by the version detected from the project,
+		// not the borrowed definition's, so a Laravel 6 project reads "Laravel 6"
+		// rather than "Laravel 10".
+		if fw.VersionGuessed && fw.DetectedVersion != "" {
+			return fw.Label + " " + fw.DetectedVersion
+		}
 		if fw.Version != "" {
 			return fw.Label + " " + fw.Version
 		}

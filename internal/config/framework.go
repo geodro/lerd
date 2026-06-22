@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,14 @@ type Framework struct {
 	Label string `yaml:"label"`
 	// Version is the framework major version this definition targets (e.g. "11", "7").
 	Version string `yaml:"version,omitempty"`
+	// DetectedVersion is the project's real major version when it differs from
+	// Version because no exact definition existed and we clamped to the nearest
+	// available one. Runtime only, never serialized.
+	DetectedVersion string `yaml:"-"`
+	// VersionGuessed is true when Version was clamped to a borrowed definition
+	// because the detected version had none of its own (Laravel 6 served by the
+	// Laravel 10 definition); callers must not clamp PHP to its range.
+	VersionGuessed bool `yaml:"-"`
 	// PHP defines the supported PHP version range for this framework version.
 	PHP       FrameworkPHP    `yaml:"php,omitempty"`
 	Detect    []FrameworkRule `yaml:"detect,omitempty"`
@@ -787,6 +796,27 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 		}
 	}
 
+	// 3b. Legacy project below every available definition: serve it with the
+	//     lowest one (not the latest) and mark it guessed, so callers relax PHP
+	//     clamping (a Laravel 6 project must still allow PHP 7.4).
+	guessed := false
+	guessedVersion := ""
+	if base == nil && version != "" {
+		if clamped := clampFrameworkVersion(name, version); clamped != "" {
+			clampedPath := filepath.Join(StoreFrameworksDir(), name+"@"+clamped+".yaml")
+			base = loadFrameworkYAML(clampedPath)
+			if base == nil && frameworkFetchHook != nil {
+				if fetched, err := frameworkFetchHook(name, clamped); err == nil && fetched != nil {
+					base = fetched
+				}
+			}
+			if base != nil {
+				guessed = true
+				guessedVersion = version
+			}
+		}
+	}
+
 	// 4. Fall back to any available local definition.
 	if base == nil {
 		base = loadFrameworkYAML(filepath.Join(StoreFrameworksDir(), name+".yaml"))
@@ -796,6 +826,10 @@ func GetFrameworkForDir(name, projectDir string) (*Framework, bool) {
 	}
 
 	if base != nil {
+		if guessed {
+			base.VersionGuessed = true
+			base.DetectedVersion = guessedVersion
+		}
 		base = mergeUserOverlay(base)
 		base = mergeBuiltinFrankenPHP(base)
 		base = mergeBuiltinTinker(base)
@@ -945,6 +979,43 @@ func cloneFrameworkMutable(in *Framework) *Framework {
 		out.FrankenPHP = &cp
 	}
 	return &out
+}
+
+// availableFrameworkVersions returns the major versions for which a versioned
+// store definition (<name>@<version>.yaml) exists locally, sorted ascending.
+// Only numeric versions are considered, since clamping compares them as ints.
+func availableFrameworkVersions(name string) []int {
+	pattern := filepath.Join(StoreFrameworksDir(), name+"@*.yaml")
+	matches, _ := filepath.Glob(pattern)
+	prefix := name + "@"
+	var vers []int
+	for _, p := range matches {
+		base := strings.TrimSuffix(filepath.Base(p), ".yaml")
+		v := strings.TrimPrefix(base, prefix)
+		if n, err := strconv.Atoi(v); err == nil {
+			vers = append(vers, n)
+		}
+	}
+	sort.Ints(vers)
+	return vers
+}
+
+// clampFrameworkVersion returns the lowest available definition version for a
+// legacy project whose detected version predates them all (so Laravel 6 uses the
+// Laravel 10 definition), or "" when no such clamping applies.
+func clampFrameworkVersion(name, detected string) string {
+	d, err := strconv.Atoi(detected)
+	if err != nil {
+		return ""
+	}
+	vers := availableFrameworkVersions(name)
+	if len(vers) == 0 {
+		return ""
+	}
+	if lo := vers[0]; d < lo {
+		return strconv.Itoa(lo)
+	}
+	return ""
 }
 
 // loadBestVersionedFramework scans StoreFrameworksDir for <name>@<version>.yaml files.

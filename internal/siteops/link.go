@@ -16,10 +16,14 @@ import (
 type VersionResult struct {
 	PHP            string // best installed PHP version (clamped to framework range)
 	Node           string // detected Node version
-	PHPMin         string // framework minimum PHP version (empty if no framework)
-	PHPMax         string // framework maximum PHP version (empty if no framework)
+	PHPMin         string // framework minimum PHP version (empty if no framework or guessed)
+	PHPMax         string // framework maximum PHP version (empty if no framework or guessed)
 	SuggestedPHP   string // better PHP version to install (empty if current is optimal)
 	FrameworkLabel string // human-readable framework name for messages
+	// FrameworkGuessed is true when the framework version was clamped to a
+	// borrowed definition; its PHP range is not enforced (PHPMin/PHPMax stay
+	// empty) since it describes a different version than the project.
+	FrameworkGuessed bool
 }
 
 // DetectSiteVersions resolves the framework, PHP version (clamped to framework
@@ -30,9 +34,15 @@ func DetectSiteVersions(dir, framework, defaultPHP, defaultNode string) VersionR
 
 	if framework != "" {
 		if fw, ok := config.GetFrameworkForDir(framework, dir); ok {
-			result.PHPMin = fw.PHP.Min
-			result.PHPMax = fw.PHP.Max
 			result.FrameworkLabel = fw.Label
+			result.FrameworkGuessed = fw.VersionGuessed
+			// A guessed definition's PHP range must not constrain the project (a
+			// Laravel 6 served by the Laravel 10 def must still allow 7.4), so
+			// leave Min/Max empty when guessed and no clamping happens.
+			if !fw.VersionGuessed {
+				result.PHPMin = fw.PHP.Min
+				result.PHPMax = fw.PHP.Max
+			}
 		}
 	}
 

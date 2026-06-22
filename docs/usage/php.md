@@ -99,6 +99,20 @@ To change the global default (applies to all projects that don't have a per-proj
 lerd use 8.5
 ```
 
+## Framework PHP ranges
+
+Each framework version declares the PHP range it supports (for example Laravel 11 supports PHP 8.2 to 8.4). Lerd clamps the resolved PHP version into that range so a site never runs on a version its framework can't boot, and the PHP version picker in the dashboard and the TUI shows out-of-range versions as disabled rather than hiding them, so the constraint is visible.
+
+The range comes from the framework definition that matches your project. Lerd detects the framework major version from `composer.json` (for Laravel, the `laravel/framework` constraint) and loads that version's definition.
+
+### Legacy projects
+
+When a project's framework version predates every definition lerd ships, lerd serves it with the **lowest** available definition instead of the latest. A Laravel 6 project, for instance, is served by the Laravel 10 definition rather than Laravel 13.
+
+In that case the version is a best-effort guess: the definition targets a newer framework than your project, so its PHP range is **not** enforced. PHP clamping is relaxed and every installed version stays selectable, which lets a legacy Laravel 6 app keep running on PHP 7.4 even though the Laravel 10 definition asks for 8.1 and up. Pin the version you want with `lerd isolate 7.4`.
+
+Newer-than-shipped versions fall back to the latest definition as before, with its range enforced normally.
+
 ---
 
 ## FPM lifecycle

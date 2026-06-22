@@ -296,12 +296,18 @@ func (m *Model) renderPickerModal(w, h int) string {
 	}
 	for i, opt := range m.pickerOptions {
 		marker := "  "
-		styled := opt
-		if i == m.pickerCursor {
+		switch {
+		case m.pickerIsDisabled(i):
+			// Out-of-range PHP version: shown for context, but dimmed and not
+			// selectable, so the framework's constraint is visible.
+			lines = append(lines, marker+dimStyle.Render(opt+"  out of range"))
+			continue
+		case i == m.pickerCursor:
 			marker = accentStyle.Render("▸ ")
-			styled = selectedStyle.Render(opt)
+			lines = append(lines, marker+selectedStyle.Render(opt))
+		default:
+			lines = append(lines, marker+opt)
 		}
-		lines = append(lines, marker+styled)
 	}
 	return renderModal(w, h,
 		title,

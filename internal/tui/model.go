@@ -124,8 +124,12 @@ type Model struct {
 	// pickerWorktreePath is set when the picker was opened from a per-
 	// worktree row; applyPicker uses it as the cwd so the change writes
 	// .php-version / .node-version inside the worktree's checkout.
-	pickerKind         detailKind
-	pickerOptions      []string
+	pickerKind    detailKind
+	pickerOptions []string
+	// pickerDisabled is parallel to pickerOptions: a true entry is shown dimmed
+	// and skipped on navigation and apply. Used to reflect a framework's PHP
+	// range so out-of-range versions are visible but not selectable.
+	pickerDisabled     []bool
 	pickerCursor       int
 	pickerWorktreePath string
 	pickerWorktreeName string
@@ -1352,7 +1356,20 @@ func (m *Model) moveCursor(delta int) {
 			if n == 0 {
 				return
 			}
-			m.pickerCursor = clamp(m.pickerCursor+delta, 0, n-1)
+			next := clamp(m.pickerCursor+delta, 0, n-1)
+			// Skip over disabled (out-of-range) entries in the direction of
+			// travel; fall back to the original cursor if every step is disabled.
+			step := 1
+			if delta < 0 {
+				step = -1
+			}
+			for next >= 0 && next < n && m.pickerIsDisabled(next) {
+				next += step
+			}
+			if next < 0 || next >= n || m.pickerIsDisabled(next) {
+				return
+			}
+			m.pickerCursor = next
 			return
 		}
 		switch m.detailMode {
