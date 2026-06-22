@@ -114,6 +114,13 @@ func ExtraVolumePaths() []string {
 // host, so a configured-but-not-running host server can never make FPM fail to
 // start (podman statfs on a missing bind source).
 func hostDBSocketDirs() []string {
+	// macOS reaches the host DB over TCP (gvproxy's host.containers.internal),
+	// not a bind-mounted socket — unix sockets don't traverse the podman-machine
+	// virtio-fs boundary as functional sockets. So there is nothing to mount;
+	// injecting the dir would only add a dead bind-mount inside FPM.
+	if config.HostDBUsesTCP() {
+		return nil
+	}
 	reg, err := config.LoadSites()
 	if err != nil {
 		return nil

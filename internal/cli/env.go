@@ -344,12 +344,22 @@ func applyHostDBExternalEnv(proj *config.ProjectConfig, envMap map[string]string
 			extServices[strings.ToLower(s.Name)] = true
 		}
 	}
-	envOverrides["DB_HOST"] = "localhost"
-	envOverrides["DB_SOCKET"] = proj.DB.HostSocketPath()
-	// Clear DB_PORT: the connection is over the unix socket, so a container port
-	// lingering from the framework's default DB vars is misleading and could push
-	// non-socket tooling onto TCP against a wrong port.
-	envOverrides["DB_PORT"] = ""
+	if config.HostDBUsesTCP() {
+		// macOS: the host unix socket can't be reached from inside the
+		// podman-machine VM, so connect over TCP via gvproxy's host alias
+		// instead. Clear DB_SOCKET so a socket left by the framework/.env
+		// can't override the TCP target.
+		envOverrides["DB_HOST"] = config.HostDBTCPHost
+		envOverrides["DB_PORT"] = config.HostDBTCPPort
+		envOverrides["DB_SOCKET"] = ""
+	} else {
+		envOverrides["DB_HOST"] = "localhost"
+		envOverrides["DB_SOCKET"] = proj.DB.HostSocketPath()
+		// Clear DB_PORT: the connection is over the unix socket, so a container
+		// port lingering from the framework's default DB vars is misleading and
+		// could push non-socket tooling onto TCP against a wrong port.
+		envOverrides["DB_PORT"] = ""
+	}
 	// Don't let the container's default root/lerd creds clobber the host
 	// credentials: preserve whatever the .env already has for these keys.
 	if v, ok := envMap["DB_USERNAME"]; ok {
@@ -499,7 +509,11 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	// is the shareable equivalent of LERD_EXTERNAL_SERVICES + a DB_HOST/DB_SOCKET
 	// override (see applyHostDBExternalEnv).
 	if proj, _ := config.LoadProjectConfig(cwd); applyHostDBExternalEnv(proj, envMap, extServices, envOverrides) {
-		fmt.Printf("  Host MySQL (db.external) — connecting via socket %s; not starting lerd-mysql\n", proj.DB.HostSocketPath())
+		if config.HostDBUsesTCP() {
+			fmt.Printf("  Host MySQL (db.external) — connecting via TCP %s:%s; not starting lerd-mysql\n", config.HostDBTCPHost, config.HostDBTCPPort)
+		} else {
+			fmt.Printf("  Host MySQL (db.external) — connecting via socket %s; not starting lerd-mysql\n", proj.DB.HostSocketPath())
+		}
 	}
 
 	// Laravel ships .env / .env.example with DB_CONNECTION=sqlite. If the user

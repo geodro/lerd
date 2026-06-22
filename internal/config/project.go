@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -12,8 +13,51 @@ import (
 
 // DefaultHostMySQLSocket is the unix socket a host-installed (system)
 // MySQL/MariaDB server listens on by default on Debian/Ubuntu. Used when
-// db.external is set but db.socket is not specified.
+// db.external is set but db.socket is not specified. See DefaultHostDBSocketPath
+// for the OS-aware default (macOS Homebrew uses a different path).
 const DefaultHostMySQLSocket = "/run/mysqld/mysqld.sock"
+
+// defaultHostMySQLSocketDarwin is the conventional Homebrew MySQL/MariaDB socket
+// on macOS. Used only when probing/displaying; macOS host-mode connects over TCP
+// (see HostDBUsesTCP) because the socket can't cross the podman-machine boundary.
+const defaultHostMySQLSocketDarwin = "/tmp/mysql.sock"
+
+// Host-mode (db.external) DB transport on macOS. Unix sockets don't traverse the
+// podman-machine virtio-fs boundary as functional sockets (the same constraint
+// that puts lerd's debug-dump bridge on TCP — see paths.go DumpsBridgeTarget), so
+// containerized PHP reaches the host server over TCP via gvproxy's host alias
+// instead of a bind-mounted socket.
+const (
+	HostDBTCPHost = "host.containers.internal"
+	HostDBTCPPort = "3306"
+)
+
+// hostDBGOOS is runtime.GOOS, indirected so tests can exercise both the Linux
+// (socket) and macOS (TCP) host-DB transports regardless of the test host.
+var hostDBGOOS = runtime.GOOS
+
+// HostDBUsesTCP reports whether host-mode (db.external) connections use TCP
+// (macOS) rather than a unix socket (Linux). On macOS the host socket is not
+// reachable from inside the podman-machine VM, so the connection goes over TCP
+// to HostDBTCPHost:HostDBTCPPort, which gvproxy forwards to the host's loopback.
+func HostDBUsesTCP() bool { return hostDBGOOS == "darwin" }
+
+// DefaultHostDBSocketPath returns the conventional host MySQL/MariaDB unix socket
+// path for the current OS (Debian/Ubuntu on Linux, Homebrew on macOS).
+func DefaultHostDBSocketPath() string {
+	if hostDBGOOS == "darwin" {
+		return defaultHostMySQLSocketDarwin
+	}
+	return DefaultHostMySQLSocket
+}
+
+// SetHostDBGOOSForTest overrides the OS used for host-DB transport/socket-path
+// decisions and returns a restore func. Test-only.
+func SetHostDBGOOSForTest(goos string) func() {
+	prev := hostDBGOOS
+	hostDBGOOS = goos
+	return func() { hostDBGOOS = prev }
+}
 
 // DB backend identifiers, shared by the per-site switch and the global
 // default. "container" is lerd's own MySQL/MariaDB container (db.external
@@ -48,7 +92,7 @@ func (d ProjectDB) HostSocketPath() string {
 	if d.Socket != "" {
 		return d.Socket
 	}
-	return DefaultHostMySQLSocket
+	return DefaultHostDBSocketPath()
 }
 
 // ContainerConfig holds per-project custom container settings. When present

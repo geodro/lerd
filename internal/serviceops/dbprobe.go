@@ -43,7 +43,7 @@ type HostMySQLStatus struct {
 func ProbeHostMySQL(socketPath string) HostMySQLStatus {
 	path := socketPath
 	if path == "" {
-		path = config.DefaultHostMySQLSocket
+		path = config.DefaultHostDBSocketPath()
 	}
 	present, live := socketLive(path, probeTimeout)
 	if !present && path != legacyMySQLSocket {

@@ -48,12 +48,40 @@ func TestSitesUsingService_HostBackendExcluded(t *testing.T) {
 }
 
 func TestProjectDB_HostSocketPath(t *testing.T) {
+	// Restore the real OS at the end (even on a fatal).
+	defer SetHostDBGOOSForTest("linux")()
+
+	// The unset default is OS-aware: Debian/Ubuntu on Linux, Homebrew on macOS.
 	if got := (ProjectDB{}).HostSocketPath(); got != DefaultHostMySQLSocket {
-		t.Fatalf("default HostSocketPath = %q, want %q", got, DefaultHostMySQLSocket)
+		t.Fatalf("linux default HostSocketPath = %q, want %q", got, DefaultHostMySQLSocket)
 	}
+	SetHostDBGOOSForTest("darwin")
+	if got := (ProjectDB{}).HostSocketPath(); got != defaultHostMySQLSocketDarwin {
+		t.Fatalf("darwin default HostSocketPath = %q, want %q", got, defaultHostMySQLSocketDarwin)
+	}
+	// An explicit socket wins on any OS.
 	custom := "/var/run/mysqld/mysqld.sock"
 	if got := (ProjectDB{Socket: custom}).HostSocketPath(); got != custom {
 		t.Fatalf("custom HostSocketPath = %q, want %q", got, custom)
+	}
+}
+
+func TestHostDBTransport_OSAware(t *testing.T) {
+	defer SetHostDBGOOSForTest("linux")()
+
+	if HostDBUsesTCP() {
+		t.Error("Linux should reach the host DB over a unix socket, not TCP")
+	}
+	if got := DefaultHostDBSocketPath(); got != DefaultHostMySQLSocket {
+		t.Errorf("linux default socket = %q, want %q", got, DefaultHostMySQLSocket)
+	}
+
+	SetHostDBGOOSForTest("darwin")
+	if !HostDBUsesTCP() {
+		t.Error("macOS should reach the host DB over TCP (sockets don't cross the podman-machine boundary)")
+	}
+	if got := DefaultHostDBSocketPath(); got != defaultHostMySQLSocketDarwin {
+		t.Errorf("darwin default socket = %q, want %q", got, defaultHostMySQLSocketDarwin)
 	}
 }
 
@@ -132,8 +160,8 @@ func TestSetProjectDBExternal_RoundTrip(t *testing.T) {
 	if cfg.DB.Socket != "" {
 		t.Fatalf("Socket = %q after default enable, want empty (falls back to default)", cfg.DB.Socket)
 	}
-	if got := cfg.DB.HostSocketPath(); got != DefaultHostMySQLSocket {
-		t.Fatalf("HostSocketPath = %q, want default %q", got, DefaultHostMySQLSocket)
+	if got := cfg.DB.HostSocketPath(); got != DefaultHostDBSocketPath() {
+		t.Fatalf("HostSocketPath = %q, want OS default %q", got, DefaultHostDBSocketPath())
 	}
 
 	// Persisted file carries the committed marker.

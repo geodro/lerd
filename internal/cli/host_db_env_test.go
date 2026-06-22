@@ -7,6 +7,7 @@ import (
 )
 
 func TestApplyHostDBExternalEnv_emitsSocketAndMarksExternal(t *testing.T) {
+	defer config.SetHostDBGOOSForTest("linux")() // socket transport is the Linux path
 	proj := &config.ProjectConfig{
 		DB:       config.ProjectDB{External: true, Service: "mysql"},
 		Services: []config.ProjectService{{Name: "mysql"}},
@@ -40,6 +41,7 @@ func TestApplyHostDBExternalEnv_emitsSocketAndMarksExternal(t *testing.T) {
 }
 
 func TestApplyHostDBExternalEnv_customSocket(t *testing.T) {
+	defer config.SetHostDBGOOSForTest("linux")() // socket transport is the Linux path
 	proj := &config.ProjectConfig{DB: config.ProjectDB{External: true, Socket: "/tmp/mysqld.sock"}}
 	envOverrides := map[string]string{}
 	if !applyHostDBExternalEnv(proj, map[string]string{}, map[string]bool{}, envOverrides) {
@@ -47,6 +49,35 @@ func TestApplyHostDBExternalEnv_customSocket(t *testing.T) {
 	}
 	if got := envOverrides["DB_SOCKET"]; got != "/tmp/mysqld.sock" {
 		t.Errorf("DB_SOCKET = %q, want /tmp/mysqld.sock", got)
+	}
+}
+
+func TestApplyHostDBExternalEnv_macOSEmitsTCP(t *testing.T) {
+	defer config.SetHostDBGOOSForTest("darwin")()
+	// db.socket is set but must be ignored on macOS — the host socket can't be
+	// reached from inside the podman-machine VM, so the connection goes over TCP.
+	proj := &config.ProjectConfig{
+		DB:       config.ProjectDB{External: true, Service: "mysql", Socket: "/tmp/ignored.sock"},
+		Services: []config.ProjectService{{Name: "mysql"}},
+	}
+	extServices := map[string]bool{}
+	envOverrides := map[string]string{}
+
+	if !applyHostDBExternalEnv(proj, map[string]string{}, extServices, envOverrides) {
+		t.Fatal("expected applied=true for a db.external mysql project")
+	}
+	if !extServices["mysql"] {
+		t.Error(`extServices["mysql"] should be true so lerd-mysql is not started`)
+	}
+	if got := envOverrides["DB_HOST"]; got != config.HostDBTCPHost {
+		t.Errorf("DB_HOST = %q, want %q (gvproxy host alias)", got, config.HostDBTCPHost)
+	}
+	if got := envOverrides["DB_PORT"]; got != config.HostDBTCPPort {
+		t.Errorf("DB_PORT = %q, want %q", got, config.HostDBTCPPort)
+	}
+	// DB_SOCKET must be present-and-empty (cleared) so a stale socket can't win.
+	if v, ok := envOverrides["DB_SOCKET"]; !ok || v != "" {
+		t.Errorf("DB_SOCKET override = %q present=%v, want present and empty", v, ok)
 	}
 }
 
