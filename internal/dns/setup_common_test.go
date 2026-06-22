@@ -2,6 +2,7 @@ package dns
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -146,5 +147,72 @@ func assertContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !strings.Contains(s, substr) {
 		t.Errorf("expected %q to contain %q", s, substr)
+	}
+}
+
+// writeGlobalConfig points XDG_CONFIG_HOME at a fresh temp dir and writes the
+// given YAML as the lerd global config there, so config.LoadGlobal picks it up.
+func writeGlobalConfig(t *testing.T, yaml string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	lerdDir := filepath.Join(dir, "lerd")
+	if err := os.MkdirAll(lerdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lerdDir, "config.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNormalizeUpstreamEntry(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"192.168.100.129", "192.168.100.129", true},
+		{" 8.8.8.8 ", "8.8.8.8", true},
+		{"1.1.1.1#5353", "1.1.1.1#5353", true},
+		{"2001:db8::1", "2001:db8::1", true},
+		{"2001:db8::1#53", "2001:db8::1#53", true},
+		{"8.8.8.8#0", "", false},
+		{"8.8.8.8#-5", "", false},
+		{"8.8.8.8#99999", "", false},
+		{"8.8.8.8#abc", "", false},
+		{"127.0.0.1", "", false},
+		{"not-an-ip", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := NormalizeUpstreamEntry(c.in)
+		if ok != c.ok || got != c.want {
+			t.Errorf("NormalizeUpstreamEntry(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestConfiguredUpstreamDNS_returnsPinnedServers(t *testing.T) {
+	writeGlobalConfig(t, "dns:\n  upstream:\n    - 192.168.100.129\n    - 10.0.0.1\n")
+	got := configuredUpstreamDNS()
+	assertSliceEqual(t, got, []string{"192.168.100.129", "10.0.0.1"})
+}
+
+func TestConfiguredUpstreamDNS_preservesPortSuffix(t *testing.T) {
+	writeGlobalConfig(t, "dns:\n  upstream:\n    - 192.168.100.129#5353\n")
+	got := configuredUpstreamDNS()
+	assertSliceEqual(t, got, []string{"192.168.100.129#5353"})
+}
+
+func TestConfiguredUpstreamDNS_skipsLoopbackAndJunk(t *testing.T) {
+	writeGlobalConfig(t, "dns:\n  upstream:\n    - 127.0.0.1\n    - not-an-ip\n    - 8.8.8.8\n")
+	got := configuredUpstreamDNS()
+	assertSliceEqual(t, got, []string{"8.8.8.8"})
+}
+
+func TestConfiguredUpstreamDNS_emptyWhenUnset(t *testing.T) {
+	writeGlobalConfig(t, "dns:\n  tld: test\n")
+	if got := configuredUpstreamDNS(); len(got) != 0 {
+		t.Errorf("expected no upstreams, got %v", got)
 	}
 }

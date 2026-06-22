@@ -51,3 +51,19 @@ To flip an existing install, re-run `lerd install` and answer the DNS prompt wit
 The lerd-dns service itself is also torn down on the disable transition, `systemctl stop` plus quadlet remove on Linux, `launchctl bootout` plus plist remove on macOS. NetworkManager / `/etc/resolver` entries from the previous run are left in place because removing them needs sudo and they are inert when dnsmasq is no longer running. Run `lerd-cleanup` (macOS) or remove the dropins manually if you want a fully clean system.
 
 Custom TLDs (anything other than `test` or `localhost`) are preserved across toggles, lerd only flips the canonical defaults.
+
+## Pinning the upstream DNS
+
+For everything that is not `*.test`, the lerd-dns dnsmasq forwards queries to your system's upstream DNS servers. lerd auto-detects those from `systemd-resolved`, `/etc/resolv.conf`, or NetworkManager. On some setups the detection runs before DHCP has handed out the real resolver and captures the `systemd-resolved` fallback servers instead (`9.9.9.9`, `1.1.1.1`, `8.8.8.8`), so internal hostnames served by your LAN resolver stop resolving.
+
+When that happens, pin the upstream yourself under the `dns` key:
+
+```yaml
+dns:
+  enabled: true
+  tld: test
+  upstream:
+    - 192.168.100.129
+```
+
+Entries are plain IPs; an optional `#port` suffix is supported (e.g. `192.168.100.129#5353`). When `upstream` is set it takes precedence over auto-detection everywhere, both when lerd writes the dnsmasq config and when the NetworkManager dispatcher rewrites it after a network change. Re-run `lerd install` (or restart lerd-dns) to apply it, then confirm with `cat ~/.local/share/lerd/dnsmasq/lerd.conf`.

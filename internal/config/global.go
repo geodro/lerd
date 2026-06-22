@@ -76,6 +76,12 @@ type GlobalConfig struct {
 		// in that mode. Default true preserves historical behaviour.
 		Enabled bool   `yaml:"enabled" mapstructure:"enabled"`
 		TLD     string `yaml:"tld"     mapstructure:"tld"`
+		// Upstream pins the upstream DNS servers dnsmasq forwards
+		// non-.test queries to. When empty, lerd auto-detects them from
+		// the system resolver. Set this when auto-detection picks the
+		// wrong servers (e.g. systemd-resolved fallbacks instead of your
+		// LAN resolver). Accepts plain IPs; #port is allowed.
+		Upstream []string `yaml:"upstream,omitempty" mapstructure:"upstream"`
 	} `yaml:"dns" mapstructure:"dns"`
 	LAN struct {
 		// Exposed controls whether lerd's services are reachable from
@@ -443,6 +449,9 @@ func cloneGlobalConfig(in *GlobalConfig) *GlobalConfig {
 	}
 	if in.ParkedDirectories != nil {
 		out.ParkedDirectories = append([]string(nil), in.ParkedDirectories...)
+	}
+	if in.DNS.Upstream != nil {
+		out.DNS.Upstream = append([]string(nil), in.DNS.Upstream...)
 	}
 	if in.Services != nil {
 		out.Services = make(map[string]ServiceConfig, len(in.Services))

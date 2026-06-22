@@ -162,6 +162,35 @@ func TestWriteDnsmasqConfig_noUpstreamsFallsBackToPasta(t *testing.T) {
 	}
 }
 
+func TestWriteDnsmasqConfig_pinnedUpstreamOverridesResolv(t *testing.T) {
+	writeGlobalConfig(t, "dns:\n  upstream:\n    - 192.168.100.129\n")
+	dir := t.TempDir()
+	fakeResolv := writeTempFile(t, "nameserver 9.9.9.9\nnameserver 8.8.8.8\n")
+	origPaths := resolvPaths
+	resolvPaths = []string{fakeResolv}
+	defer func() { resolvPaths = origPaths }()
+
+	if err := WriteDnsmasqConfig(dir); err != nil {
+		t.Fatalf("WriteDnsmasqConfig: %v", err)
+	}
+	content := readFile(t, filepath.Join(dir, "lerd.conf"))
+	assertContains(t, content, "server=192.168.100.129")
+	if strings.Contains(content, "server=9.9.9.9") || strings.Contains(content, "server=8.8.8.8") {
+		t.Errorf("pinned upstream must replace detected resolv.conf servers, got:\n%s", content)
+	}
+}
+
+// --- NM dispatcher script ---
+
+func TestNMDispatcherScript_runsAsRealUser(t *testing.T) {
+	assertContains(t, nmDispatcherScript, "runuser -u")
+}
+
+func TestNMDispatcherScript_prefersPinnedUpstream(t *testing.T) {
+	assertContains(t, nmDispatcherScript, "upstream:")
+	assertContains(t, nmDispatcherScript, "dns_servers=\"$LERD_DNS\"")
+}
+
 // --- WriteDnsmasqConfigFor ---
 
 func TestWriteDnsmasqConfigFor_customTarget(t *testing.T) {

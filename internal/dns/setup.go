@@ -55,28 +55,43 @@ else
     exit 0
 fi
 
-[ -n "$LERD_DNS" ] || exit 0
-
-# Sync lerd-dns dnsmasq config and restart for any user running it.
+# Sync lerd-dns config and restart for any user running it. systemctl --user
+# runs via runuser as the real user (XDG_RUNTIME_DIR/DBUS from the root
+# dispatcher alone is not enough); the > rewrite keeps the file's user ownership.
 for uid_dir in /run/user/[0-9]*/; do
     [ -d "$uid_dir" ] || continue
     bus="${uid_dir}bus"
     [ -S "$bus" ] || continue
-    XDG_RUNTIME_DIR="$uid_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
-        systemctl --user is-active lerd-dns >/dev/null 2>&1 || continue
     uid=$(basename "$uid_dir")
+    user=$(getent passwd "$uid" | cut -d: -f1)
     home=$(getent passwd "$uid" | cut -d: -f6)
+    [ -n "$user" ] && [ -n "$home" ] || continue
+    as_user="runuser -u $user -- env XDG_RUNTIME_DIR=$uid_dir DBUS_SESSION_BUS_ADDRESS=unix:path=$bus"
+    $as_user systemctl --user is-active lerd-dns >/dev/null 2>&1 || continue
     config_file="$home/.local/share/lerd/dnsmasq/lerd.conf"
+    config_yaml="$home/.config/lerd/config.yaml"
     [ -f "$config_file" ] || continue
-    tld=$(grep 'tld:' "$home/.config/lerd/config.yaml" 2>/dev/null | sed 's/.*tld:[[:space:]]*//' | sed 's/[^a-zA-Z0-9._-]//g' | head -1)
+    tld=$(grep 'tld:' "$config_yaml" 2>/dev/null | sed 's/.*tld:[[:space:]]*//' | sed 's/[^a-zA-Z0-9._-]//g' | head -1)
     tld=${tld:-test}
-    printf '# Lerd DNS configuration\nport=5300\nno-resolv\n' > "$config_file"
-    for dns_ip in $LERD_DNS; do
-        printf 'server=%s\n' "$dns_ip" >> "$config_file"
-    done
-    printf 'address=/.%s/127.0.0.1\n' "$tld" >> "$config_file"
-    XDG_RUNTIME_DIR="$uid_dir" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
-        systemctl --user restart lerd-dns 2>/dev/null || true
+    # Prefer the user's pinned dns.upstream over the DHCP-detected servers.
+    upstream=$(awk '
+        /^[^[:space:]#]/ { indns = ($1 == "dns:"); inup = 0 }
+        indns && $1 == "upstream:" { inup = 1; next }
+        inup && /^[[:space:]]*#/ { next }
+        inup && /^[[:space:]]*-/ { sub(/^[[:space:]]*-[[:space:]]*/, ""); sub(/[[:space:]]+#.*/, ""); gsub(/["'\'']/, ""); if ($0 != "") print; next }
+        inup && /^[[:space:]]*[^[:space:]-]/ { inup = 0 }
+    ' "$config_yaml" 2>/dev/null | tr '\n' ' ')
+    dns_servers="$LERD_DNS"
+    [ -n "$upstream" ] && dns_servers="$upstream"
+    [ -n "$dns_servers" ] || continue
+    {
+        printf '# Lerd DNS configuration\nport=5300\nno-resolv\n'
+        for dns_ip in $dns_servers; do
+            printf 'server=%s\n' "$dns_ip"
+        done
+        printf 'address=/.%s/127.0.0.1\n' "$tld"
+    } > "$config_file"
+    $as_user systemctl --user restart lerd-dns 2>/dev/null || true
 done
 `
 
@@ -237,6 +252,9 @@ func ReadUpstreamDNS() []string {
 
 // readUpstreamDNS is the internal implementation.
 func readUpstreamDNS() []string {
+	if servers := configuredUpstreamDNS(); len(servers) > 0 {
+		return servers
+	}
 	for _, path := range resolvPaths {
 		if servers := parseNameservers(path); len(servers) > 0 {
 			return servers

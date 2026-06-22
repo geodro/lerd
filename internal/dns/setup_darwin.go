@@ -15,6 +15,9 @@ import (
 // On macOS the OS keeps /etc/resolv.conf up-to-date with DHCP-assigned DNS servers,
 // so parsing it gives the real upstreams without needing nmcli or resolvectl.
 func readUpstreamDNS() []string {
+	if servers := configuredUpstreamDNS(); len(servers) > 0 {
+		return servers
+	}
 	return parseNameservers("/etc/resolv.conf")
 }
 

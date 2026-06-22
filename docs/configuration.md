@@ -20,6 +20,13 @@ nginx:
                         # .lerd.yaml request_timeout overrides it per site.
 dns:
   tld: "test"
+  upstream:              # optional. Pins the upstream DNS servers dnsmasq
+    - 192.168.100.129    # forwards non-.test queries to. Leave unset to
+                         # auto-detect from the system resolver. Set this when
+                         # auto-detection picks the wrong servers (e.g.
+                         # systemd-resolved fallbacks like 9.9.9.9 instead of
+                         # your LAN resolver). Plain IPs; an optional #port is
+                         # allowed (e.g. 192.168.100.129#5353).
 host_proxy:
   disabled: false         # set true to refuse setting up or starting any
                           # host-proxy dev server (lerd never supervises a

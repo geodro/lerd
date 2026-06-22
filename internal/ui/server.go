@@ -251,6 +251,7 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/settings/autostart", withCORS(handleSettingsAutostart))
 	mux.HandleFunc("/api/settings/worker-mode", withCORS(handleSettingsWorkerMode))
 	mux.HandleFunc("/api/settings/idle-suspend", withCORS(publishAfter(handleSettingsIdleSuspend, eventbus.KindSites)))
+	mux.HandleFunc("/api/settings/dns-upstream", withCORS(handleSettingsDNSUpstream))
 	mux.HandleFunc("/api/workers/health", withCORS(handleWorkersHealth))
 	mux.HandleFunc("/api/workers/heal", withCORS(handleWorkersHeal))
 	mux.HandleFunc("/api/stats", withCORS(handleStats))
@@ -4280,11 +4281,14 @@ func handleQueueLogs(w http.ResponseWriter, r *http.Request) {
 
 // SettingsResponse is the response for GET /api/settings.
 type SettingsResponse struct {
-	AutostartOnLogin          bool   `json:"autostart_on_login"`
-	WorkerExecMode            string `json:"worker_exec_mode"`
-	WorkerModeApplies         bool   `json:"worker_mode_applies"` // true on macOS only
-	IdleSuspendEnabled        bool   `json:"idle_suspend_enabled"`
-	IdleSuspendTimeoutMinutes int    `json:"idle_suspend_timeout_minutes"`
+	AutostartOnLogin          bool     `json:"autostart_on_login"`
+	WorkerExecMode            string   `json:"worker_exec_mode"`
+	WorkerModeApplies         bool     `json:"worker_mode_applies"` // true on macOS only
+	IdleSuspendEnabled        bool     `json:"idle_suspend_enabled"`
+	IdleSuspendTimeoutMinutes int      `json:"idle_suspend_timeout_minutes"`
+	DNSEnabled                bool     `json:"dns_enabled"`
+	DNSUpstream               []string `json:"dns_upstream"`          // pinned upstreams, empty = auto-detect
+	DNSUpstreamDetected       []string `json:"dns_upstream_detected"` // what auto-detection currently sees
 }
 
 func handleSettings(w http.ResponseWriter, _ *http.Request) {
@@ -4292,10 +4296,14 @@ func handleSettings(w http.ResponseWriter, _ *http.Request) {
 	mode := config.WorkerExecModeExec
 	idleEnabled := false
 	idleMinutes := int(config.DefaultIdleSuspendTimeout / time.Minute)
+	dnsEnabled := true
+	var dnsUpstream []string
 	if cfg != nil {
 		mode = cfg.WorkerExecMode()
 		idleEnabled = cfg.IdleSuspend.Enabled
 		idleMinutes = int(cfg.IdleSuspendTimeout() / time.Minute)
+		dnsEnabled = cfg.DNSManaged()
+		dnsUpstream = cfg.DNS.Upstream
 	}
 	writeJSON(w, SettingsResponse{
 		AutostartOnLogin:          lerdSystemd.IsAutostartEnabled(),
@@ -4303,6 +4311,9 @@ func handleSettings(w http.ResponseWriter, _ *http.Request) {
 		WorkerModeApplies:         runtime.GOOS == "darwin",
 		IdleSuspendEnabled:        idleEnabled,
 		IdleSuspendTimeoutMinutes: idleMinutes,
+		DNSEnabled:                dnsEnabled,
+		DNSUpstream:               dnsUpstream,
+		DNSUpstreamDetected:       dns.ReadUpstreamDNS(),
 	})
 }
 
@@ -4345,6 +4356,57 @@ func handleSettingsIdleSuspend(w http.ResponseWriter, r *http.Request) {
 		activityping.Disable()
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleSettingsDNSUpstream pins (or clears) the upstream DNS servers dnsmasq
+// forwards non-.test queries to. An empty list restores auto-detection. On
+// success it rewrites the dnsmasq config and restarts lerd-dns so the change
+// takes effect without a manual `lerd install`.
+func handleSettingsDNSUpstream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Upstream []string `json:"upstream"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	cleaned := make([]string, 0, len(body.Upstream))
+	for _, entry := range body.Upstream {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		norm, ok := dns.NormalizeUpstreamEntry(entry)
+		if !ok {
+			writeJSON(w, map[string]any{"ok": false, "error": "invalid upstream: " + entry})
+			return
+		}
+		cleaned = append(cleaned, norm)
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	cfg.DNS.Upstream = cleaned
+	if err := config.SaveGlobal(cfg); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if cfg.DNSManaged() {
+		if err := dns.WriteDnsmasqConfig(config.DnsmasqDir()); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "saved, but rewriting dnsmasq config failed: " + err.Error()})
+			return
+		}
+		if err := podman.RestartUnit("lerd-dns"); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "saved, but restarting lerd-dns failed: " + err.Error()})
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"ok": true, "upstream": cleaned})
 }
 
 func handleSettingsWorkerMode(w http.ResponseWriter, r *http.Request) {
