@@ -18,6 +18,8 @@ export interface Site {
   path?: string;
   branch?: string;
   php_version?: string;
+  php_min?: string;
+  php_max?: string;
   uses_php?: boolean;
   node_version?: string;
   js_runtime?: string;
@@ -51,6 +53,8 @@ export interface Site {
     domain?: string;
     path?: string;
     php_version?: string;
+    php_min?: string;
+    php_max?: string;
     node_version?: string;
     php_version_override?: boolean;
     node_version_override?: boolean;

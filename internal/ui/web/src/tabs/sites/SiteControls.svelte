@@ -49,8 +49,19 @@
   const effectiveNode = $derived(activeWorktree?.node_version ?? site.node_version ?? '');
   const phpInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.php_version_override);
   const nodeInherited = $derived(Boolean(activeWorktree) && !activeWorktree?.node_version_override);
+  // Framework PHP range (empty when guessed), used to disable out-of-range
+  // versions in the picker. A worktree carries the parent's range.
+  const effectivePhpMin = $derived(activeWorktree?.php_min ?? site.php_min);
+  const effectivePhpMax = $derived(activeWorktree?.php_max ?? site.php_max);
   const phpOptions = $derived(
-    phpOptionsForSite(site.runtime, $phpVersions, $status.frankenphp_php_versions, effectivePhp)
+    phpOptionsForSite(
+      site.runtime,
+      $phpVersions,
+      $status.frankenphp_php_versions,
+      effectivePhp,
+      effectivePhpMin,
+      effectivePhpMax
+    )
   );
   // When host bun is available, the Node dropdown offers a "bun" entry that
   // pins .lerd.yaml js_runtime (project-level), leaving node_version intact.

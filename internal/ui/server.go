@@ -660,6 +660,8 @@ type WorktreeResponse struct {
 	Domain              string         `json:"domain"`
 	Path                string         `json:"path"`
 	PHPVersion          string         `json:"php_version,omitempty"`
+	PHPMin              string         `json:"php_min,omitempty"`
+	PHPMax              string         `json:"php_max,omitempty"`
 	NodeVersion         string         `json:"node_version,omitempty"`
 	PHPVersionOverride  bool           `json:"php_version_override,omitempty"`
 	NodeVersionOverride bool           `json:"node_version_override,omitempty"`
@@ -702,39 +704,44 @@ type SiteResponse struct {
 	ConflictingDomains []ConflictingDomain `json:"conflicting_domains,omitempty"`
 	Path               string              `json:"path"`
 	PHPVersion         string              `json:"php_version"`
-	UsesPHP            bool                `json:"uses_php"`
-	NodeVersion        string              `json:"node_version"`
-	JSRuntime          string              `json:"js_runtime,omitempty"`
-	TLS                bool                `json:"tls"`
-	Framework          string              `json:"framework"`
-	FPMRunning         bool                `json:"fpm_running"`
-	IsLaravel          bool                `json:"is_laravel"`
-	FrameworkLabel     string              `json:"framework_label"`
-	QueueRunning       bool                `json:"queue_running"`
-	QueueFailing       bool                `json:"queue_failing,omitempty"`
-	StripeRunning      bool                `json:"stripe_running"`
-	StripeSecretSet    bool                `json:"stripe_secret_set"`
-	StripeWebhookPath  string              `json:"stripe_webhook_path,omitempty"`
-	ScheduleRunning    bool                `json:"schedule_running"`
-	ScheduleFailing    bool                `json:"schedule_failing,omitempty"`
-	ReverbRunning      bool                `json:"reverb_running"`
-	ReverbFailing      bool                `json:"reverb_failing,omitempty"`
-	HasReverb          bool                `json:"has_reverb"`
-	HasHorizon         bool                `json:"has_horizon"`
-	HorizonRunning     bool                `json:"horizon_running"`
-	HorizonFailing     bool                `json:"horizon_failing,omitempty"`
-	HorizonReload      bool                `json:"horizon_reload,omitempty"`       // horizon runs via horizon:listen (auto-reload)
-	HorizonReloadReady bool                `json:"horizon_reload_ready,omitempty"` // chokidar present, so auto-reload can be enabled without installing it
-	OctaneReload       bool                `json:"octane_reload,omitempty"`        // FrankenPHP worker serves via octane:start --watch (auto-reload)
-	OctaneReloadReady  bool                `json:"octane_reload_ready,omitempty"`  // FrankenPHP worker mode + chokidar present, so auto-reload can be enabled
-	HasQueueWorker     bool                `json:"has_queue_worker"`
-	HasScheduleWorker  bool                `json:"has_schedule_worker"`
-	FrameworkWorkers   []WorkerStatus      `json:"framework_workers,omitempty"`
-	HasAppLogs         bool                `json:"has_app_logs"`
-	LatestLogTime      string              `json:"latest_log_time,omitempty"`
-	HasFavicon         bool                `json:"has_favicon"`
-	HasEnv             bool                `json:"has_env"`
-	Paused             bool                `json:"paused"`
+	// PHPMin/PHPMax are the framework's supported PHP range. The dashboard
+	// disables out-of-range versions in the picker. Empty when there is no
+	// framework or its version was guessed (clamped), so nothing is disabled.
+	PHPMin             string         `json:"php_min,omitempty"`
+	PHPMax             string         `json:"php_max,omitempty"`
+	UsesPHP            bool           `json:"uses_php"`
+	NodeVersion        string         `json:"node_version"`
+	JSRuntime          string         `json:"js_runtime,omitempty"`
+	TLS                bool           `json:"tls"`
+	Framework          string         `json:"framework"`
+	FPMRunning         bool           `json:"fpm_running"`
+	IsLaravel          bool           `json:"is_laravel"`
+	FrameworkLabel     string         `json:"framework_label"`
+	QueueRunning       bool           `json:"queue_running"`
+	QueueFailing       bool           `json:"queue_failing,omitempty"`
+	StripeRunning      bool           `json:"stripe_running"`
+	StripeSecretSet    bool           `json:"stripe_secret_set"`
+	StripeWebhookPath  string         `json:"stripe_webhook_path,omitempty"`
+	ScheduleRunning    bool           `json:"schedule_running"`
+	ScheduleFailing    bool           `json:"schedule_failing,omitempty"`
+	ReverbRunning      bool           `json:"reverb_running"`
+	ReverbFailing      bool           `json:"reverb_failing,omitempty"`
+	HasReverb          bool           `json:"has_reverb"`
+	HasHorizon         bool           `json:"has_horizon"`
+	HorizonRunning     bool           `json:"horizon_running"`
+	HorizonFailing     bool           `json:"horizon_failing,omitempty"`
+	HorizonReload      bool           `json:"horizon_reload,omitempty"`       // horizon runs via horizon:listen (auto-reload)
+	HorizonReloadReady bool           `json:"horizon_reload_ready,omitempty"` // chokidar present, so auto-reload can be enabled without installing it
+	OctaneReload       bool           `json:"octane_reload,omitempty"`        // FrankenPHP worker serves via octane:start --watch (auto-reload)
+	OctaneReloadReady  bool           `json:"octane_reload_ready,omitempty"`  // FrankenPHP worker mode + chokidar present, so auto-reload can be enabled
+	HasQueueWorker     bool           `json:"has_queue_worker"`
+	HasScheduleWorker  bool           `json:"has_schedule_worker"`
+	FrameworkWorkers   []WorkerStatus `json:"framework_workers,omitempty"`
+	HasAppLogs         bool           `json:"has_app_logs"`
+	LatestLogTime      string         `json:"latest_log_time,omitempty"`
+	HasFavicon         bool           `json:"has_favicon"`
+	HasEnv             bool           `json:"has_env"`
+	Paused             bool           `json:"paused"`
 	// Pinned excludes the site from idle-suspend (kept always-warm).
 	Pinned bool `json:"pinned,omitempty"`
 	// LastActive is the unix-seconds time the site last saw a request, from the
@@ -879,6 +886,8 @@ func buildSites() []SiteResponse {
 				Domain:               wt.Domain,
 				Path:                 wt.Path,
 				PHPVersion:           wt.PHPVersion,
+				PHPMin:               e.FrameworkPHPMin,
+				PHPMax:               e.FrameworkPHPMax,
 				NodeVersion:          wt.NodeVersion,
 				PHPVersionOverride:   wt.PHPVersionOverride,
 				NodeVersionOverride:  wt.NodeVersionOverride,
@@ -906,6 +915,8 @@ func buildSites() []SiteResponse {
 			ConflictingDomains:   conflicting,
 			Path:                 e.Path,
 			PHPVersion:           e.PHPVersion,
+			PHPMin:               e.FrameworkPHPMin,
+			PHPMax:               e.FrameworkPHPMax,
 			UsesPHP:              e.UsesPHP,
 			NodeVersion:          e.NodeVersion,
 			JSRuntime:            projectJSRuntime(e.Path),

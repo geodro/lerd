@@ -24,7 +24,8 @@ func (m *Model) openPHPPicker(s *siteinfo.EnrichedSite) {
 	versions = frankenPHPRunnable(s.Runtime, versions, s.PHPVersion)
 	m.pickerKind = kindPHP
 	m.pickerOptions = versions
-	m.pickerCursor = indexOf(versions, s.PHPVersion)
+	m.pickerDisabled = phpDisabledMask(versions, s.FrameworkPHPMin, s.FrameworkPHPMax, s.PHPVersion)
+	m.pickerCursor = firstEnabledFrom(indexOf(versions, s.PHPVersion), m.pickerDisabled)
 }
 
 // openNodePicker shells out to fnm (same path lerd-ui uses) because node
@@ -45,6 +46,7 @@ func (m *Model) openNodePicker(s *siteinfo.EnrichedSite) {
 	}
 	m.pickerKind = kindNode
 	m.pickerOptions = versions
+	m.pickerDisabled = nil
 	if nodeDet.JSRuntime(s.Path) == "bun" {
 		m.pickerCursor = indexOf(versions, "bun")
 	} else {
@@ -68,7 +70,9 @@ func (m *Model) openWorktreePHPPicker(s *siteinfo.EnrichedSite, row detailRow) {
 	versions = frankenPHPRunnable(s.Runtime, versions, wt.PHPVersion)
 	m.pickerKind = kindWorktreePHP
 	m.pickerOptions = versions
-	m.pickerCursor = indexOf(versions, wt.PHPVersion)
+	// A worktree shares the parent site's framework, so it inherits its range.
+	m.pickerDisabled = phpDisabledMask(versions, s.FrameworkPHPMin, s.FrameworkPHPMax, wt.PHPVersion)
+	m.pickerCursor = firstEnabledFrom(indexOf(versions, wt.PHPVersion), m.pickerDisabled)
 	m.pickerWorktreePath = row.branchPath
 	m.pickerWorktreeName = row.branch
 }
@@ -86,15 +90,23 @@ func (m *Model) openWorktreeNodePicker(s *siteinfo.EnrichedSite, row detailRow) 
 	}
 	m.pickerKind = kindWorktreeNode
 	m.pickerOptions = versions
+	m.pickerDisabled = nil
 	m.pickerCursor = indexOf(versions, wt.NodeVersion)
 	m.pickerWorktreePath = row.branchPath
 	m.pickerWorktreeName = row.branch
+}
+
+// pickerIsDisabled reports whether the option at index i is disabled (an
+// out-of-range PHP version that can't be selected).
+func (m *Model) pickerIsDisabled(i int) bool {
+	return i >= 0 && i < len(m.pickerDisabled) && m.pickerDisabled[i]
 }
 
 // closePicker exits picker mode without applying a choice.
 func (m *Model) closePicker() {
 	m.pickerKind = kindInfo
 	m.pickerOptions = nil
+	m.pickerDisabled = nil
 	m.pickerCursor = 0
 	m.pickerWorktreePath = ""
 	m.pickerWorktreeName = ""
@@ -114,6 +126,11 @@ func (m *Model) applyPicker() tea.Cmd {
 	}
 	if m.pickerCursor >= len(m.pickerOptions) {
 		m.pickerCursor = len(m.pickerOptions) - 1
+	}
+	// A disabled (out-of-range) entry can't be applied; ignore the keystroke
+	// and leave the picker open so the user can pick a valid version.
+	if m.pickerIsDisabled(m.pickerCursor) {
+		return nil
 	}
 	ver := m.pickerOptions[m.pickerCursor]
 	kind := m.pickerKind
@@ -218,6 +235,48 @@ func frankenPHPRunnable(runtime string, versions []string, current string) []str
 		return versions
 	}
 	return out
+}
+
+// phpDisabledMask returns a slice parallel to versions marking those outside
+// the framework's [min, max] range as disabled. The current version is never
+// disabled, so the active selection always shows. An empty min and max (no
+// framework range, or a guessed version) disables nothing.
+func phpDisabledMask(versions []string, min, max, current string) []bool {
+	mask := make([]bool, len(versions))
+	if min == "" && max == "" {
+		return mask
+	}
+	for i, v := range versions {
+		if v == current {
+			continue
+		}
+		if (min != "" && phpPkg.CompareMajorMinor(v, min) < 0) || (max != "" && phpPkg.CompareMajorMinor(v, max) > 0) {
+			mask[i] = true
+		}
+	}
+	return mask
+}
+
+// firstEnabledFrom returns start if enabled, otherwise the nearest enabled index
+// scanning forward then wrapping to the top. Returns start when all are disabled.
+func firstEnabledFrom(start int, disabled []bool) int {
+	if start < 0 || start >= len(disabled) {
+		start = 0
+	}
+	if len(disabled) == 0 || !disabled[start] {
+		return start
+	}
+	for i := start; i < len(disabled); i++ {
+		if !disabled[i] {
+			return i
+		}
+	}
+	for i := 0; i < start; i++ {
+		if !disabled[i] {
+			return i
+		}
+	}
+	return start
 }
 
 func indexOf(ss []string, target string) int {

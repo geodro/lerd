@@ -335,6 +335,26 @@ func stripOp(s, op string) string {
 	return strings.TrimSpace(strings.TrimPrefix(s, op))
 }
 
+// CompareMajorMinor compares two "major.minor" version strings numerically and
+// returns -1, 0, or 1. An unparseable version sorts below any numeric one.
+func CompareMajorMinor(a, b string) int {
+	aMaj, aMin := parseMajorMinor(a)
+	bMaj, bMin := parseMajorMinor(b)
+	if aMaj != bMaj {
+		if aMaj < bMaj {
+			return -1
+		}
+		return 1
+	}
+	if aMin < bMin {
+		return -1
+	}
+	if aMin > bMin {
+		return 1
+	}
+	return 0
+}
+
 func parseMajorMinor(s string) (int, int) {
 	s = strings.TrimSpace(s)
 	// Strip trailing .patch if present (e.g. "8.3.0" → "8.3")

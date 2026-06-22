@@ -5,18 +5,53 @@ import type { SiteNginxBackup, LoadNginxBackupsResult, ResetNginxResult, SaveNgi
 
 export const phpVersions = writable<string[]>([]);
 
-// phpOptionsForSite returns the versions to offer in a site's PHP dropdown.
+export interface PhpOption {
+  value: string;
+  disabled?: boolean;
+  description?: string;
+}
+
+// cmpVersion compares two "major.minor" strings numerically.
+function cmpVersion(a: string, b: string): number {
+  const [aMaj, aMin] = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const [bMaj, bMin] = b.split('.').map((n) => parseInt(n, 10) || 0);
+  return aMaj !== bMaj ? aMaj - bMaj : aMin - bMin;
+}
+
+// outOfFrameworkRange reports whether a PHP version falls outside the
+// framework's [min, max] range. An empty bound means unconstrained on that side.
+function outOfFrameworkRange(v: string, min?: string, max?: string): boolean {
+  if (min && cmpVersion(v, min) < 0) return true;
+  if (max && cmpVersion(v, max) > 0) return true;
+  return false;
+}
+
+// phpOptionsForSite returns the options to offer in a site's PHP dropdown.
 // FrankenPHP sites are limited to the versions dunglas/frankenphp publishes an
 // image for, intersected with what's installed, plus the site's current version
 // so the control never renders blank. Other runtimes offer every installed one.
+// When the framework declares a PHP range (min/max), versions outside it are
+// kept in the list but disabled, so the constraint is visible rather than
+// silently hidden. The site's current version is never disabled. min/max are
+// empty when the framework version was guessed, leaving every version enabled.
 export function phpOptionsForSite(
   runtime: string | undefined,
   installed: string[],
   frankenphpVersions: string[],
-  current: string
-): string[] {
-  if (runtime !== 'frankenphp') return installed;
-  return frankenphpVersions.filter((v) => installed.includes(v) || v === current);
+  current: string,
+  min?: string,
+  max?: string
+): PhpOption[] {
+  const base =
+    runtime === 'frankenphp'
+      ? frankenphpVersions.filter((v) => installed.includes(v) || v === current)
+      : installed;
+  return base.map((v) => {
+    const disabled = v !== current && outOfFrameworkRange(v, min, max);
+    return disabled
+      ? { value: v, disabled: true, description: `needs PHP ${min || '*'} to ${max || '*'}` }
+      : { value: v };
+  });
 }
 
 export async function loadPhpVersions() {
