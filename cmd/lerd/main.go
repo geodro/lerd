@@ -709,6 +709,14 @@ func scanWorktrees() bool {
 				gitpkg.EnsureWorktreeDeps(s.Path, wt.Path, wt.Domain, s.Secured, nil)
 				release()
 			}
+			// Provision the isolated DB for a worktree that committed
+			// db_isolated: true but was never run through `lerd worktree add`
+			// (e.g. linked with the worktree already present). No-op otherwise.
+			if created, err := cli.EnsureWorktreeIsolatedDB(&site, wt.Branch, wt.Path); err != nil {
+				fmt.Printf("[WARN] isolated DB for worktree %s: %v\n", wt.Branch, err)
+			} else if created {
+				fmt.Printf("Worktree DB: created isolated database for %s\n", wt.Branch)
+			}
 			// Host-proxy sites mirror the parent dev command on a per-worktree
 			// port behind the worktree domain; no PHP vhost or framework workers.
 			if site.IsHostProxy() {
@@ -801,6 +809,19 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 			gitpkg.EnsureWorktreeDeps(sitePath, wt.Path, wt.Domain, site.Secured, nil)
 			release()
 		}
+		// Provision the isolated DB for a worktree that committed
+		// db_isolated: true but was never run through `lerd worktree add`.
+		// Gated to genuine creation like the worker/nginx seeding below: on
+		// "changed" (a commit/checkout) an already-provisioned worktree would
+		// no-op anyway, and a misconfigured one would re-warn on every HEAD
+		// write. The boot rescan catches worktrees that opt in while offline.
+		if shouldProvisionWorktreeDBOnSync(action) {
+			if created, err := cli.EnsureWorktreeIsolatedDB(site, wt.Branch, wt.Path); err != nil {
+				fmt.Printf("[WARN] isolated DB for worktree %s: %v\n", wt.Branch, err)
+			} else if created {
+				fmt.Printf("Worktree DB: created isolated database for %s\n", wt.Branch)
+			}
+		}
 		// Host-proxy worktrees run their own dev server behind the worktree
 		// domain; wire that instead of a PHP vhost + framework workers.
 		if site.IsHostProxy() {
@@ -848,6 +869,15 @@ func syncWorktree(sitePath, worktreeName, action string, pruneStale bool) bool {
 // worktree path is stable so existing units need no kick. Resurrecting
 // them clobbered user stops — issue #375.
 func shouldAutoStartWorkersOnSync(action string) bool {
+	return action == "added"
+}
+
+// shouldProvisionWorktreeDBOnSync gates isolated-DB creation to genuine
+// worktree creation. On "changed" an already-isolated worktree is a registry
+// no-op, and a worktree that can't isolate (no lerd-managed parent DB) would
+// otherwise log a warning on every commit/checkout. The boot rescan still
+// picks up worktrees that opted in while the watcher was offline.
+func shouldProvisionWorktreeDBOnSync(action string) bool {
 	return action == "added"
 }
 

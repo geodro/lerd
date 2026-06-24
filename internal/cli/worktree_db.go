@@ -143,6 +143,31 @@ func SetWorktreeDBIsolated(site *config.Site, branch string, isolated bool, sour
 	return nil
 }
 
+// EnsureWorktreeIsolatedDB provisions the isolated database for a worktree that
+// committed `db_isolated: true` in its .lerd.yaml but has no database yet. This
+// is the case when a site is linked with a pre-existing worktree (or one is
+// materialised on a daemon that was offline): the interactive add-time prompt
+// that normally creates the DB never ran, so the worktree's vhost and workers
+// come up but its .env points at a database that was never created.
+//
+// It is a no-op when the worktree didn't opt in or its DB is already in the
+// registry, so it is safe to call on every scan. The database is seeded empty
+// (the worktree's own migrations populate it); cloning from the parent stays an
+// explicit `lerd db:isolate` / `lerd worktree add` choice. Returns true only
+// when it created the database this call.
+func EnsureWorktreeIsolatedDB(site *config.Site, branch, worktreePath string) (bool, error) {
+	if !config.WorktreeDBIsolated(worktreePath) {
+		return false, nil
+	}
+	if _, found, _ := config.FindWorktreeDB(site.Name, branch); found {
+		return false, nil
+	}
+	if err := SetWorktreeDBIsolated(site, branch, true, "empty"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // WorktreeDBName mirrors the projectDBName convention so a parent named
 // "acme_app" with branch "feat-x" becomes "acme_app_feat_x".
 func WorktreeDBName(parentDB, branch string) string {
