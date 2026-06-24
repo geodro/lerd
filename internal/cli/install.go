@@ -85,7 +85,9 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 	// Sample LastUp before ensure so an internal stop+start isn't mistaken
 	// for an external machine restart by healMachineRestartIfNeeded below.
 	preEnsureLastUp := currentMachineLastUp()
-	ensurePodmanMachineRunning()
+	if err := ensurePodmanMachineRunning(); err != nil {
+		return err
+	}
 	healMachineRestartIfNeeded(preEnsureLastUp)
 
 	if err := ensureUnprivilegedPorts(); err != nil {

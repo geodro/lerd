@@ -485,7 +485,9 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// external podman-machine restart (which orphans gvproxy port forwards)
 	// from a stop+start the ensure itself performs. No-op on Linux.
 	preEnsureLastUp := currentMachineLastUp()
-	ensurePodmanMachineRunning()
+	if err := ensurePodmanMachineRunning(); err != nil {
+		return err
+	}
 	migrateExecWorkerPlists()
 	healMachineRestartIfNeeded(preEnsureLastUp)
 

@@ -57,7 +57,7 @@ func runMachineReset(assumeYes bool) error {
 
 	// ensurePodmanMachineRunning re-inits a rootful machine when none exists
 	// and waits for the API socket to be ready.
-	ensurePodmanMachineRunning()
+	_ = ensurePodmanMachineRunning()
 	recordMachineLastUp()
 
 	fmt.Println()

@@ -178,7 +178,7 @@ func TestIsPortConflict(t *testing.T) {
 
 func TestEnsurePodmanMachineRunning_linux(t *testing.T) {
 	// On Linux this is a no-op — should not panic
-	ensurePodmanMachineRunning()
+	_ = ensurePodmanMachineRunning()
 }
 
 func TestMigrateExecWorkerPlists_linux(t *testing.T) {

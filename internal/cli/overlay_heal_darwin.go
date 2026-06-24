@@ -45,7 +45,7 @@ func restartPodmanMachineForHeal() {
 		feedback.Warn("podman machine stop: %v", err)
 	}
 	// ensurePodmanMachineRunning starts the VM and waits for the API socket.
-	ensurePodmanMachineRunning()
+	_ = ensurePodmanMachineRunning()
 	recordMachineLastUp()
 }
 

@@ -172,8 +172,11 @@ func recreateBrokenMachine(name string, running bool, targetMemoryMiB int64) {
 // ensurePodmanMachineRunning ensures a Podman Machine VM exists, is rootful,
 // and is running. If no machine exists it initialises one with --rootful.
 // If an existing machine is rootless it is stopped, switched, and restarted.
-// On macOS all container operations require the VM to be up.
-func ensurePodmanMachineRunning() {
+// On macOS all container operations require the VM to be up. It returns an
+// error only when the VM cannot be started, so callers (install, start) can
+// halt instead of cascading into a wall of confusing podman "exit status 125"
+// failures from every command that follows.
+func ensurePodmanMachineRunning() error {
 	// machine list only exposes Name and Running; use inspect for Rootful.
 	listOut, _ := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
 
@@ -238,7 +241,7 @@ func ensurePodmanMachineRunning() {
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			feedback.Warn("podman machine init: %v", err)
-			return
+			return fmt.Errorf("podman machine init: %w", err)
 		}
 	} else {
 		m := machines[0]
@@ -309,18 +312,14 @@ func ensurePodmanMachineRunning() {
 					}
 				}
 			} else if m.running {
-				return // already running and correctly configured
+				return nil // already running and correctly configured
 			}
 		}
 	}
 
 	feedback.Line("Starting Podman Machine…")
-	cmd := exec.Command(podman.PodmanBin(), "machine", "start")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		feedback.Warn("podman machine start: %v", err)
-		return
+	if err := startPodmanMachineWithRetry(); err != nil {
+		return err
 	}
 
 	// `podman machine start` exits before the API socket is ready to handle
@@ -336,12 +335,45 @@ func ensurePodmanMachineRunning() {
 		if err := exec.Command(podman.PodmanBin(), "ps", "-q").Run(); err == nil {
 			time.Sleep(3 * time.Second) // grace period before container ops
 			fmt.Println(" " + feedback.Green("ready"))
-			return
+			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 		fmt.Print(feedback.Dim("."))
 	}
 	fmt.Println(" " + feedback.Amber("timed out (proceeding anyway)"))
+	return nil
+}
+
+// startPodmanMachineWithRetry runs `podman machine start`, retrying once if the
+// first attempt fails. On new macOS (e.g. Tahoe 26.x) vfkit can crash on the
+// first boot and leave its SSH port unreleased; a second start makes podman
+// notice the stale port, reassign it, and boot cleanly. If the retry also
+// fails we stop with an actionable message instead of letting every later
+// podman command cascade into confusing "exit status 125" errors.
+func startPodmanMachineWithRetry() error {
+	run := func() error {
+		cmd := exec.Command(podman.PodmanBin(), "machine", "start")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	err := run()
+	if err == nil {
+		return nil
+	}
+
+	feedback.Warn("podman machine start: %v", err)
+	feedback.Line("Retrying Podman Machine start once…")
+	err = run()
+	if err == nil {
+		return nil
+	}
+
+	feedback.Warn("podman machine start: %v", err)
+	feedback.Note("The Podman Machine VM would not boot. On new macOS releases this is often a vfkit issue that leaves a stale SSH port behind.")
+	feedback.Note("Try: podman machine stop && podman machine start. If it keeps failing, run `lerd machine reset` to recreate the VM, then `lerd install` again.")
+	return fmt.Errorf("podman machine start: %w", err)
 }
 
 // stopPodmanMachine stops the running Podman Machine VM. Called by runQuit so
