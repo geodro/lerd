@@ -860,3 +860,48 @@ func containsArg(args []string, want string) bool {
 	}
 	return false
 }
+
+// ── sailInitialized ───────────────────────────────────────────────────────────
+
+func TestSailInitialized(t *testing.T) {
+	// laravel/sail in require-dev ships with every fresh Laravel app, so the
+	// package alone must not count as initialized: a Sail compose file must
+	// exist, and an unrelated hand-written compose file must not satisfy it.
+	const composerWithSail = `{"require-dev":{"laravel/sail":"^1.0"}}`
+	const composerNoSail = `{"require-dev":{"phpunit/phpunit":"^11.0"}}`
+	// Trimmed shape of what `sail:install` generates: the app service builds
+	// from the package runtime dir.
+	const sailCompose = "services:\n  laravel.test:\n    build:\n      context: ./vendor/laravel/sail/runtimes/8.4\n"
+	const otherCompose = "services:\n  redis:\n    image: redis:7\n"
+
+	cases := []struct {
+		name     string
+		composer string // "" means no composer.json
+		compose  string // "" means no compose file
+		want     bool
+	}{
+		{"fresh app: sail dep but no compose file", composerWithSail, "", false},
+		{"sail dep but unrelated compose file", composerWithSail, otherCompose, false},
+		{"initialized sail: dep plus sail compose file", composerWithSail, sailCompose, true},
+		{"no sail dependency", composerNoSail, sailCompose, false},
+		{"no composer.json", "", sailCompose, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.composer != "" {
+				if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(tc.composer), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.compose != "" {
+				if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(tc.compose), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := sailInitialized(dir); got != tc.want {
+				t.Fatalf("sailInitialized = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

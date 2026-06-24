@@ -10,11 +10,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/feedback"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+// sailInitialized reports whether a project is actually set up to run Laravel
+// Sail, rather than merely carrying the laravel/sail dev dependency that ships
+// in every fresh Laravel app's require-dev. `sail:install` writes a
+// docker-compose.yml whose app service builds from the package runtime dir, so
+// the gate requires both the dependency and a compose file carrying that Sail
+// marker; a project's unrelated hand-written compose file is not enough.
+func sailInitialized(dir string) bool {
+	if !config.ComposerHasPackage(dir, "laravel/sail") {
+		return false
+	}
+	composePath, err := sailFindComposeFile(dir)
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "vendor/laravel/sail")
+}
 
 // NewImportCmd returns the import parent command with source subcommands.
 func NewImportCmd() *cobra.Command {

@@ -412,8 +412,10 @@ func runLink(args []string) error {
 	printLinkSummary(site, start)
 
 	// Sail detection — offer to import data before setup so lerd's DB is
-	// populated from the existing Sail environment.
-	if linkShouldImportSail(isInteractive(), linkSkipDataImport, config.ComposerHasPackage(cwd, "laravel/sail")) {
+	// populated from the existing Sail environment. Gate on Sail actually being
+	// initialized (a compose file), not just the laravel/sail dev dependency
+	// that every fresh Laravel app ships, which would prompt on a new project.
+	if linkShouldImportSail(isInteractive(), linkSkipDataImport, sailInitialized(cwd)) {
 		sailDBName := sailLinkDetectDBName(cwd)
 		if feedback.Confirm("This project uses Laravel Sail. Import database (and S3 files) from Sail into lerd?", false) {
 			if err := runImportSail(false, false, "sail", "password", sailDBName, sailDBName != "", false, false); err != nil {
