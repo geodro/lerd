@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/feedback"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/registry"
 )
@@ -471,8 +472,12 @@ func StopWithDependents(name string) {
 	unit := "lerd-" + name
 	status, _ := podman.UnitStatus(unit)
 	if status == "active" || status == "activating" {
-		fmt.Printf("Stopping %s...\n", unit)
+		// Show the service name (not the lerd- unit) in the shared feedback
+		// vocabulary, so `lerd unlink`/`lerd stop` read as "stopping meilisearch"
+		// rather than the old "Stopping lerd-meilisearch...".
+		step := feedback.Start("stopping " + name)
 		_ = podman.StopUnit(unit)
+		step.OK("")
 	}
 }
 

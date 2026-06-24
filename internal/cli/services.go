@@ -146,9 +146,9 @@ func newServiceStopCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			feedback.Begin()
-			step := feedback.Start("stopping " + name)
+			// StopServiceAndDependents emits its own "stopping <service>" step
+			// (per service in the dependency cascade), so don't wrap it here.
 			StopServiceAndDependents(name)
-			step.OK("")
 			_ = config.SetServicePaused(name, true)
 			_ = config.SetServiceManuallyStarted(name, false)
 			if fam := serviceops.ServiceFamily(name); fam != "" {
