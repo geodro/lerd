@@ -379,14 +379,16 @@ func restartLerdUserServices() {
 	if len(active) == 0 {
 		return
 	}
-	fmt.Println("\n==> Restarting lerd services to pick up the new binary")
+	feedback.Header("Restarting lerd services to pick up the new binary")
 	for _, u := range active {
-		fmt.Printf("  --> %s ... ", u)
+		s := feedback.Start(u)
 		if err := services.Mgr.Restart(u); err != nil {
-			fmt.Printf("WARN (%v)\n", err)
-		} else {
-			fmt.Println("OK")
+			// Best-effort: the binary swap already succeeded, so a restart that
+			// didn't take is a warning, not a failure of the update itself.
+			s.Warn(err)
+			continue
 		}
+		s.OK("")
 	}
 }
 
@@ -514,7 +516,7 @@ func runRollback() error {
 		return err
 	}
 
-	fmt.Printf("==> Rolling back to v%s\n", prevVersion)
+	feedback.Header(fmt.Sprintf("Rolling back to v%s", prevVersion))
 
 	// Atomically replace lerd.
 	tmp := self + ".tmp"
@@ -548,7 +550,7 @@ func runRollback() error {
 	// `lerd install` starts from a known-good state. The current
 	// binary's probe logic decides v4-only vs dual-stack; the old
 	// binary's EnsureNetwork will accept whatever schema it finds.
-	fmt.Println("  --> Resetting lerd network for rollback")
+	feedback.Line("Resetting lerd network for rollback")
 	if attached, _, err := podman.RecreateNetwork("lerd", nil); err == nil {
 		for _, c := range attached {
 			_ = podman.StartUnit(c)
@@ -561,7 +563,7 @@ func runRollback() error {
 	// the cache picks up Type=simple immediately.
 	prepUserUnitsForRollback("lerd-ui.service", "lerd-watcher.service")
 
-	fmt.Printf("\nRolled back to v%s — applying infrastructure changes...\n\n", prevVersion)
+	feedback.Note(fmt.Sprintf("Rolled back to v%s, applying infrastructure changes...", prevVersion))
 
 	// Re-exec the new binary with `install`, same as a normal update.
 	installCmd := exec.Command(self, "install")

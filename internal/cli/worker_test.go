@@ -296,3 +296,73 @@ func TestWorkerRemove_Global(t *testing.T) {
 		t.Error("other should still be present")
 	}
 }
+
+// hostWorkerNotReadyMsg returns a runtime-agnostic JS-deps message only for a
+// host worker on a node project, and "" otherwise so callers fall back to their
+// own generic dependency message.
+func TestHostWorkerNotReadyMsg(t *testing.T) {
+	nodeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(nodeDir, "package.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plainDir := t.TempDir()
+
+	hostWorker := config.FrameworkWorker{Host: true, Check: &config.FrameworkRule{File: "node_modules/vite"}}
+
+	msg := hostWorkerNotReadyMsg("vite", nodeDir, hostWorker)
+	for _, want := range []string{"JS dependencies are not installed", "lerd setup", "lerd worker start vite"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("host node-worker message missing %q: %s", want, msg)
+		}
+	}
+	// The remedy must stay runtime-agnostic so it doesn't misdirect bun/yarn/pnpm projects.
+	if strings.Contains(msg, "npm ci") {
+		t.Errorf("message should not hardcode npm ci: %s", msg)
+	}
+
+	// Not a node project: no JS-deps claim, caller keeps its generic message.
+	if got := hostWorkerNotReadyMsg("vite", plainDir, hostWorker); got != "" {
+		t.Errorf("non-node project should yield no host message, got: %s", got)
+	}
+	// Non-host worker: never a JS-deps message even on a node project.
+	containerWorker := config.FrameworkWorker{Check: &config.FrameworkRule{Composer: "vendor/pkg"}}
+	if got := hostWorkerNotReadyMsg("queue", nodeDir, containerWorker); got != "" {
+		t.Errorf("non-host worker should yield no host message, got: %s", got)
+	}
+}
+
+// End-to-end gate: WorkerStartForSite runs workerStartPreflight first and returns
+// its error before touching systemd/podman, so a node project (package.json, no
+// node_modules) with a vite host worker must be refused with the actionable
+// JS-deps message and cause no side effects. This mirrors what a real
+// `lerd worker start vite` surfaces on a freshly linked project.
+func TestWorkerStartForSiteRefusesViteWithoutDeps(t *testing.T) {
+	siteDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(siteDir, "package.json"), []byte(`{"scripts":{"dev":"vite"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	vite := config.FrameworkWorker{
+		Host:    true,
+		Command: "npm run dev",
+		Restart: "on-failure",
+		Check:   &config.FrameworkRule{File: "node_modules/vite"},
+	}
+
+	err := WorkerStartForSite("acme", siteDir, "8.5", "vite", vite, false)
+	if err == nil {
+		t.Fatal("expected WorkerStartForSite to refuse vite without node_modules, got nil")
+	}
+	t.Logf("surfaced message: %s", err)
+	for _, want := range []string{"JS dependencies are not installed", "lerd setup", "lerd worker start vite"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("preflight error missing %q: %s", want, err)
+		}
+	}
+
+	// No unit file should have been written for the refused worker.
+	unit, _ := workerNames("acme", siteDir, "vite")
+	if _, statErr := os.Stat(filepath.Join(os.Getenv("HOME"), ".config", "systemd", "user", unit+".service")); statErr == nil {
+		t.Errorf("a unit file was written for a refused worker: %s", unit)
+	}
+}

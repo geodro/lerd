@@ -55,6 +55,28 @@ func TestStepInfoAndFail(t *testing.T) {
 	}
 }
 
+// Warn collapses a step with the amber ⚠ glyph and no red cross, and (unlike
+// Fail) does not mark its error as already-shown, since it is a non-fatal hiccup
+// rather than a failure the command is returning.
+func TestStepWarn(t *testing.T) {
+	var buf bytes.Buffer
+	defer SetTestWriter(&buf)()
+
+	warnErr := errors.New("unit not loaded")
+	Start("restarting lerd-ui").Warn(warnErr)
+
+	got := buf.String()
+	if !strings.Contains(got, " → restarting lerd-ui… ⚠ unit not loaded\n") {
+		t.Errorf("missing warn line: %q", got)
+	}
+	if strings.Contains(got, "✗") {
+		t.Errorf("warn must not render a red cross: %q", got)
+	}
+	if AlreadyShown(warnErr) {
+		t.Error("Warn should not mark its error as already-shown")
+	}
+}
+
 // A Step/Live Fail records its error so the top-level handler can tell it was
 // already shown to the user, covering both the bare error returned as-is and a
 // wrapped error that adds context around it. An unrelated error stays unshown.

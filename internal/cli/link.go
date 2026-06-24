@@ -691,9 +691,15 @@ func startWorkersForSite(site *config.Site, workers []string, phpVersion string)
 		if !ok {
 			continue
 		}
-		// Skip workers whose check doesn't pass.
+		// Skip workers whose check doesn't pass. A host worker (vite et al) the
+		// user opted into but whose deps aren't installed would otherwise drop
+		// silently, reading as "the worker just isn't running"; surface the
+		// reason and remedy instead.
 		if wDef.Check != nil && !config.MatchesRule(site.Path, *wDef.Check) {
 			delete(requested, w)
+			if msg := hostWorkerNotReadyMsg(w, site.Path, wDef); msg != "" {
+				feedback.Warn("%s", msg)
+			}
 			continue
 		}
 		for _, conflict := range wDef.ConflictsWith {

@@ -323,6 +323,18 @@ func (s *Step) Fail(err error) {
 	s.finish(paint(failStyle, "✗"), paint(failStyle, msg))
 }
 
+// Warn collapses the step with an amber warning glyph and message, for a
+// non-fatal hiccup (e.g. a best-effort restart that didn't take) that should be
+// noticed but doesn't mean the command itself failed. Unlike Fail it draws no
+// red cross, so it doesn't read as the whole operation having errored.
+func (s *Step) Warn(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	s.finish(paint(warnStyle, GlyphWarn), paint(warnStyle, msg))
+}
+
 // Fail prints a standalone red ✗ line for err to stderr in the same style (and
 // blank-line spacing) as a Live/Step failure. It is for the top-level command
 // handler to render an error a command returned without surfacing it itself, so

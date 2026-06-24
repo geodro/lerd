@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/geodro/lerd/internal/config"
@@ -33,6 +34,9 @@ func workerStartPreflight(sitePath, workerName string, w config.FrameworkWorker)
 		return fmt.Errorf("worker %q has an invalid command: must not contain newline or NUL", workerName)
 	}
 	if w.Check != nil && !config.MatchesRule(sitePath, *w.Check) {
+		if msg := hostWorkerNotReadyMsg(workerName, sitePath, w); msg != "" {
+			return errors.New(msg)
+		}
 		return fmt.Errorf(
 			"worker %q skipped: required dependency not satisfied (rule: %s)",
 			workerName, describeRule(*w.Check))
@@ -43,6 +47,19 @@ func workerStartPreflight(sitePath, workerName string, w config.FrameworkWorker)
 			workerName, describeRule(*w.ExcludeCheck))
 	}
 	return nil
+}
+
+// hostWorkerNotReadyMsg returns an actionable message for a host worker (vite et
+// al) that can't start because its dependency check fails. On a node project the
+// cause is almost always JS deps not yet installed on the host, so it names the
+// remedy; `lerd setup` is used rather than a bare `npm ci` so the advice holds
+// for bun/yarn/pnpm projects too. Returns "" when the worker isn't a host node
+// worker, so callers keep their own generic dependency message.
+func hostWorkerNotReadyMsg(workerName, sitePath string, w config.FrameworkWorker) string {
+	if !w.Host || !isNodeProject(sitePath) {
+		return ""
+	}
+	return fmt.Sprintf("%s worker not started: JS dependencies are not installed. Run `lerd setup` to install them, then `lerd worker start %s`.", workerName, workerName)
 }
 
 // describeRule renders a FrameworkRule for an end-user error message.
