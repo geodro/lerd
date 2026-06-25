@@ -50,7 +50,7 @@ The `proxy` section in `.lerd.yaml` is mutually exclusive with `container:` (a s
 | `ssl` | no | `false` | Set to `true` if the dev server serves HTTPS on its port (nginx proxies via `https://` with `proxy_ssl_verify off`). |
 | `port_env_key` | no | `PORT` | Environment variable the port is injected as. Most servers read `PORT`; set this if yours uses a different name. |
 | `host_env_key` | no | `HOST` | Environment variable the bind address (`0.0.0.0`) is injected as. Most servers read `HOST`; set this if yours uses a different name, e.g. `HOSTNAME` for a Next.js standalone server. |
-| `bind` | no | `true` | Whether lerd injects the bind-address env (see [Binding](#binding)). Set `false` to opt out entirely, for a server that reads `HOST` for something else or manages its own bind. The port injection is unaffected. |
+| `inject_host` | no | `true` | Whether lerd injects the bind-address env (see [Binding](#binding)). Set `false` to opt out entirely, for a server that reads `HOST` for something else or manages its own bind. The port injection is unaffected. |
 
 ## Ports
 
@@ -64,7 +64,7 @@ nginx runs inside a container and reaches your dev server over the host gateway,
 
 To avoid this, lerd injects `HOST=0.0.0.0` (or `host_env_key`) alongside the port, which Nuxt, NestJS, and most Node servers honour to bind all interfaces. A `HOST` you set yourself later in the command still wins. Servers that ignore the env var (notably the raw Vite CLI, which reads a flag) must bind explicitly: name `--host` in the command, for example `vite --host --port 5173 --strictPort`.
 
-If a server reads `HOST` for something else, or you already set it in your `.env` (dotenv won't override a variable already in the environment, so the injected `0.0.0.0` would win), set `bind: false` to suppress the injection and manage binding yourself. The port injection is unaffected.
+If a server reads `HOST` for something else, or you already set it in your `.env` (dotenv won't override a variable already in the environment, so the injected `0.0.0.0` would win), set `inject_host: false` to suppress the injection and manage binding yourself. The port injection is unaffected.
 
 ## Vite
 

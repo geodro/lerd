@@ -97,11 +97,11 @@ func hostProxyHostEnvKey(proxy *config.ProxyConfig) string {
 }
 
 // hostProxyShouldBind reports whether lerd injects the bind-address env
-// (e.g. HOST=0.0.0.0). Defaults to true; a project sets `bind: false` to opt
-// out entirely, for a dev server that reads HOST for something else or manages
-// its own bind. The port injection is unaffected.
+// (e.g. HOST=0.0.0.0). Defaults to true; a project sets `inject_host: false` to
+// opt out entirely, for a dev server that reads HOST for something else or
+// manages its own bind. The port injection is unaffected.
 func hostProxyShouldBind(proxy *config.ProxyConfig) bool {
-	return proxy.Bind == nil || *proxy.Bind
+	return proxy.InjectHost == nil || *proxy.InjectHost
 }
 
 // hostProxyBindAddr is the address the dev server must bind so the in-container
@@ -119,7 +119,7 @@ const hostProxyBindAddr = "0.0.0.0"
 // shell (macOS) and directly via `fnm exec --` (Linux); `env` is a real
 // executable that works in both. A HOST the user sets later in their own
 // command still wins (env evaluates left to right). The bind injection is
-// suppressed when `bind: false`, leaving only the port. Returns "" in
+// suppressed when `inject_host: false`, leaving only the port. Returns "" in
 // proxy-only mode (no command).
 func buildHostProxyCommandPort(proxy *config.ProxyConfig, port int) string {
 	if proxy.Command == "" {

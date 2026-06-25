@@ -155,20 +155,20 @@ func TestBuildHostProxyCommand_customEnvKeys(t *testing.T) {
 	}
 }
 
-func TestBuildHostProxyCommand_bindFalseOptsOut(t *testing.T) {
-	// bind: false suppresses the HOST injection but keeps the port.
-	bind := false
-	got := buildHostProxyCommand(&config.ProxyConfig{Command: "npm run dev", Port: 3000, Bind: &bind})
+func TestBuildHostProxyCommand_injectHostFalseOptsOut(t *testing.T) {
+	// inject_host: false suppresses the HOST injection but keeps the port.
+	injectHost := false
+	got := buildHostProxyCommand(&config.ProxyConfig{Command: "npm run dev", Port: 3000, InjectHost: &injectHost})
 	want := "env PORT=3000 npm run dev"
 	if got != want {
 		t.Errorf("buildHostProxyCommand = %q, want %q", got, want)
 	}
 }
 
-func TestBuildHostProxyCommand_bindTrueExplicitInjects(t *testing.T) {
-	// bind: true is the same as the default: HOST is injected.
-	bind := true
-	got := buildHostProxyCommand(&config.ProxyConfig{Command: "npm run dev", Port: 3000, Bind: &bind})
+func TestBuildHostProxyCommand_injectHostTrueExplicitInjects(t *testing.T) {
+	// inject_host: true is the same as the default: HOST is injected.
+	injectHost := true
+	got := buildHostProxyCommand(&config.ProxyConfig{Command: "npm run dev", Port: 3000, InjectHost: &injectHost})
 	want := "env PORT=3000 HOST=0.0.0.0 npm run dev"
 	if got != want {
 		t.Errorf("buildHostProxyCommand = %q, want %q", got, want)
