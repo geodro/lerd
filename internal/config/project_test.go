@@ -441,6 +441,43 @@ func TestProjectConfig_Proxy_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectConfig_Proxy_InjectHost(t *testing.T) {
+	// Guards the inject_host struct tag: a typo would leave the field nil
+	// even though the key is present, and every Go-level test would still pass.
+	cases := map[string]struct {
+		input   string
+		wantSet bool
+		wantVal bool
+	}{
+		"opt out":      {"proxy:\n  port: 3000\n  inject_host: false\n", true, false},
+		"explicit on":  {"proxy:\n  port: 3000\n  inject_host: true\n", true, true},
+		"unset is nil": {"proxy:\n  port: 3000\n", false, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var cfg ProjectConfig
+			if err := yaml.Unmarshal([]byte(tc.input), &cfg); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if cfg.Proxy == nil {
+				t.Fatal("Proxy is nil")
+			}
+			if !tc.wantSet {
+				if cfg.Proxy.InjectHost != nil {
+					t.Errorf("InjectHost = %v, want nil (unset = default true)", *cfg.Proxy.InjectHost)
+				}
+				return
+			}
+			if cfg.Proxy.InjectHost == nil {
+				t.Fatal("InjectHost = nil, want non-nil (inject_host struct tag mismatch?)")
+			}
+			if *cfg.Proxy.InjectHost != tc.wantVal {
+				t.Errorf("InjectHost = %v, want %v", *cfg.Proxy.InjectHost, tc.wantVal)
+			}
+		})
+	}
+}
+
 func TestProjectConfig_Proxy_IsEmpty(t *testing.T) {
 	cfg := &ProjectConfig{}
 	if !cfg.IsEmpty() {

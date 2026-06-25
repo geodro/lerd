@@ -86,16 +86,53 @@ func hostProxyPortEnvKey(proxy *config.ProxyConfig) string {
 	return "PORT"
 }
 
-// buildHostProxyCommandPort prefixes the dev command with `env KEY=port` so the
-// app binds the port nginx proxies to. The `env` utility (not a bare `KEY=value`
+// hostProxyHostEnvKey returns the environment variable the bind address is
+// injected as, defaulting to HOST (honoured by Nuxt, NestJS, and most Node
+// servers). Set host_env_key to e.g. HOSTNAME for a Next.js standalone server.
+func hostProxyHostEnvKey(proxy *config.ProxyConfig) string {
+	if proxy.HostEnvKey != "" {
+		return proxy.HostEnvKey
+	}
+	return "HOST"
+}
+
+// hostProxyShouldBind reports whether lerd injects the bind-address env
+// (e.g. HOST=0.0.0.0). Defaults to true; a project sets `inject_host: false` to
+// opt out entirely, for a dev server that reads HOST for something else or
+// manages its own bind. The port injection is unaffected.
+func hostProxyShouldBind(proxy *config.ProxyConfig) bool {
+	return proxy.InjectHost == nil || *proxy.InjectHost
+}
+
+// hostProxyBindAddr is the address the dev server must bind so the in-container
+// nginx can reach it. nginx proxies to the host over the gateway IP, so a dev
+// server that binds loopback (the common default) is unreachable: it surfaces
+// as a connection error, or as a stray all-interfaces HMR socket answering
+// every plain request with 426 Upgrade Required. Binding all interfaces fixes
+// both. Note: env-only; pure Vite reads --host, not this env var.
+const hostProxyBindAddr = "0.0.0.0"
+
+// buildHostProxyCommandPort prefixes the dev command with `env PORT=port
+// HOST=0.0.0.0` so the app binds the port nginx proxies to, on an interface the
+// proxy container can reach. The `env` utility (not a bare `KEY=value`
 // assignment) is used because host workers exec the command both through a
 // shell (macOS) and directly via `fnm exec --` (Linux); `env` is a real
-// executable that works in both. Returns "" in proxy-only mode (no command).
+// executable that works in both. A HOST the user sets later in their own
+// command still wins (env evaluates left to right). The bind injection is
+// suppressed when `inject_host: false`, leaving only the port. Returns "" in
+// proxy-only mode (no command).
 func buildHostProxyCommandPort(proxy *config.ProxyConfig, port int) string {
 	if proxy.Command == "" {
 		return ""
 	}
-	return fmt.Sprintf("env %s=%d %s", hostProxyPortEnvKey(proxy), port, proxy.Command)
+	if !hostProxyShouldBind(proxy) {
+		return fmt.Sprintf("env %s=%d %s",
+			hostProxyPortEnvKey(proxy), port, proxy.Command)
+	}
+	return fmt.Sprintf("env %s=%d %s=%s %s",
+		hostProxyPortEnvKey(proxy), port,
+		hostProxyHostEnvKey(proxy), hostProxyBindAddr,
+		proxy.Command)
 }
 
 func buildHostProxyCommand(proxy *config.ProxyConfig) string {

@@ -49,6 +49,8 @@ The `proxy` section in `.lerd.yaml` is mutually exclusive with `container:` (a s
 | `port` | yes | | Port the dev server listens on. lerd injects this and proxies to it. |
 | `ssl` | no | `false` | Set to `true` if the dev server serves HTTPS on its port (nginx proxies via `https://` with `proxy_ssl_verify off`). |
 | `port_env_key` | no | `PORT` | Environment variable the port is injected as. Most servers read `PORT`; set this if yours uses a different name. |
+| `host_env_key` | no | `HOST` | Environment variable the bind address (`0.0.0.0`) is injected as. Most servers read `HOST`; set this if yours uses a different name, e.g. `HOSTNAME` for a Next.js standalone server. |
+| `inject_host` | no | `true` | Whether lerd injects the bind-address env (see [Binding](#binding)). Set `false` to opt out entirely, for a server that reads `HOST` for something else or manages its own bind. The port injection is unaffected. |
 
 ## Ports
 
@@ -56,9 +58,17 @@ For Node projects the port is auto-assigned: `lerd init` starts from a default a
 
 Lerd sets both sides of the contract: it injects the chosen port via `PORT` (or `port_env_key`) so a server that honours it binds there, and points nginx at the same port. It does not probe the live socket, so a server that ignores the env var and hardcodes a different port will not be reached. For those, name the port directly in the command (for example `vite --port 5173 --strictPort`, or `runserver 0.0.0.0:8000`) so both sides agree.
 
+## Binding
+
+nginx runs inside a container and reaches your dev server over the host gateway, not loopback. A server bound to `127.0.0.1` (the common dev default) is therefore unreachable through the proxy: depending on the framework it surfaces as a connection error, or as a stray all-interfaces HMR socket answering every request with `426 Upgrade Required` (the symptom seen with Nuxt).
+
+To avoid this, lerd injects `HOST=0.0.0.0` (or `host_env_key`) alongside the port, which Nuxt, NestJS, and most Node servers honour to bind all interfaces. A `HOST` you set yourself later in the command still wins. Servers that ignore the env var (notably the raw Vite CLI, which reads a flag) must bind explicitly: name `--host` in the command, for example `vite --host --port 5173 --strictPort`.
+
+If a server reads `HOST` for something else, or you already set it in your `.env` (dotenv won't override a variable already in the environment, so the injected `0.0.0.0` would win), set `inject_host: false` to suppress the injection and manage binding yourself. The port injection is unaffected.
+
 ## Vite
 
-Vite checks the request's `Host` header against its `allowedHosts` list and answers anything else with `403 Blocked request`. Because nginx proxies with the site domain as the `Host`, a default Vite project returns 403 through the lerd proxy until you allow the domain. Add it to `server.allowedHosts` in `vite.config` (or set `allowedHosts: true`). `lerd init` prints this reminder when it detects a Vite dev command.
+Vite checks the request's `Host` header against its `allowedHosts` list and answers anything else with `403 Blocked request`. Because nginx proxies with the site domain as the `Host`, a default Vite project returns 403 through the lerd proxy until you allow the domain. Add it to `server.allowedHosts` in `vite.config` (or set `allowedHosts: true`). The raw Vite CLI also ignores `HOST` (see [Binding](#binding)), so add `--host` to the command. `lerd init` prints these reminders when it detects a Vite dev command.
 
 ## Lifecycle
 
