@@ -4,12 +4,19 @@
   import { m } from '../../paraglide/messages.js';
 
   let dismissed = $state(false);
-  // Show once probed and the host database server is not live (absent, or a stale
-  // socket with nothing accepting). null = not probed yet → stay hidden.
-  const visible = $derived(!dismissed && $hostDB !== null && !$hostDB.live);
   // Engine name + systemd unit for the setup copy, from the probed service.
   const engine = $derived(dbEngineDisplay($hostDB?.service_name ?? 'mysql'));
   const unit = $derived(dbServiceUnit($hostDB?.service_name ?? 'mysql'));
+  // The host server is absent or not accepting → show the "start it" guidance.
+  const notReachable = $derived($hostDB !== null && !$hostDB.live);
+  // macOS reaches the host DB over TCP via gvproxy, so even a *live* server can refuse
+  // the container unless it listens beyond loopback and grants a non-local source.
+  // Surface the grant/bind note whenever the probe reports TCP — regardless of liveness.
+  const usesTCP = $derived($hostDB?.uses_tcp ?? false);
+  const isPostgres = $derived(($hostDB?.service_name ?? '').toLowerCase().startsWith('postgres'));
+  // Show when there's something to say: the server isn't reachable, or (macOS) the TCP
+  // grant/bind gotcha applies. null = not probed yet → stay hidden.
+  const visible = $derived(!dismissed && $hostDB !== null && (notReachable || usesTCP));
 </script>
 
 {#if visible}
@@ -33,11 +40,22 @@
       </svg>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">
-          {m.services_hostSetup_title({ engine })}
+          {notReachable
+            ? m.services_hostSetup_title({ engine })
+            : m.services_hostSetup_macosTitle({ engine })}
         </p>
-        <p class="text-[11px] text-amber-700 dark:text-amber-300/80 mt-0.5">
-          {m.services_hostSetup_subtitle({ engine, unit })}
-        </p>
+        {#if notReachable}
+          <p class="text-[11px] text-amber-700 dark:text-amber-300/80 mt-0.5">
+            {m.services_hostSetup_subtitle({ engine, unit })}
+          </p>
+        {/if}
+        {#if usesTCP}
+          <p class="text-[11px] text-amber-700 dark:text-amber-300/80 mt-0.5">
+            {isPostgres
+              ? m.services_hostSetup_macosPostgres({ engine })
+              : m.services_hostSetup_macosMysql({ engine })}
+          </p>
+        {/if}
       </div>
       <button
         onclick={() => (dismissed = true)}
