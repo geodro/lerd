@@ -91,8 +91,9 @@ func newLANExposeCmd() *cobra.Command {
     become reachable from other devices on the LAN).
   - Restarts each affected container so the new bind takes effect.
   - Rewrites the dnsmasq config to answer *.test queries with the host's
-    auto-detected LAN IP and starts the userspace lerd-dns-forwarder so
-    LAN devices can resolve those names.
+    auto-detected LAN IP so LAN devices can resolve those names. On Linux
+    this is bridged by the userspace lerd-dns-forwarder; on macOS lerd-dns
+    binds the LAN address directly, so no forwarder is installed.
 
 The dashboard at port 7073 is still gated by the remote-control middleware:
 LAN clients get 403 unless you have run 'lerd remote-control on' to set

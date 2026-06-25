@@ -189,7 +189,11 @@ Re-run this command to generate a new code if it expires or is consumed.`,
 				return fmt.Errorf("enabling lan:expose: %w", err)
 			}
 			expose.OK(feedback.Val(lanIP))
-			feedback.Note("lerd-dns-forwarder on " + lanIP + ":5300 (UDP+TCP), answering *.test → " + lanIP)
+			if lerdDNSBindsLANPort {
+				feedback.Note("lerd-dns binds " + lanIP + ":5300 (UDP+TCP) directly, answering *.test → " + lanIP)
+			} else {
+				feedback.Note("lerd-dns-forwarder on " + lanIP + ":5300 (UDP+TCP), answering *.test → " + lanIP)
+			}
 			feedback.Note("allow port 5300 through your firewall from the devices you want to grant access")
 
 			code, err := GenerateRemoteSetupToken(ttl)
