@@ -424,6 +424,7 @@ func EnsureDefaultPresetQuadletPinned(name, pinnedImage string) error {
 					publishedPort = free
 					fmt.Printf("Note: host %s is present — publishing lerd-%s on 127.0.0.1:%d instead of the default %d to avoid a clash.\n",
 						spec.Display, name, free, spec.DefaultPort)
+					fmt.Printf("      Update host clients pointed at lerd's %s to port %d (the default is now the host server); containerized apps are unaffected.\n", name, free)
 					fmt.Printf("      (override with: lerd service port %s <port>)\n", name)
 				}
 			}
