@@ -37,6 +37,60 @@ func TestIsShell_empty(t *testing.T) {
 	}
 }
 
+func TestPortPreflightConflicts(t *testing.T) {
+	// Isolate config so nginx ports fall back to the 80/443 defaults and the
+	// DNS check is the fixed 5300, making CollectPortChecks deterministic.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	notRunning := func(string) bool { return false }
+	running := func(string) bool { return true }
+	dnsDown := func() bool { return false }
+	dnsUp := func() bool { return true }
+
+	hasPort := func(cs []PortCheck, port string) bool {
+		for _, c := range cs {
+			if c.Port == port {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("foreign listener on 80 is a conflict", func(t *testing.T) {
+		list := "herd-nginx 1234 herd 6u IPv4 TCP 0.0.0.0:80 (LISTEN)"
+		got := portPreflightConflicts(list, notRunning, dnsDown)
+		if !hasPort(got, "80") {
+			t.Fatalf("expected port 80 conflict, got %+v", got)
+		}
+	})
+
+	t.Run("lerd-nginx already running is not a conflict", func(t *testing.T) {
+		list := "conmon 1234 sdp 6u IPv4 TCP 0.0.0.0:80 (LISTEN)"
+		got := portPreflightConflicts(list, running, dnsUp)
+		if len(got) != 0 {
+			t.Fatalf("expected no conflicts when lerd owns the ports, got %+v", got)
+		}
+	})
+
+	t.Run("answering dnsmasq holding 5300 is not a conflict", func(t *testing.T) {
+		list := "dnsmasq 60498 sdp 5u IPv4 TCP 127.0.0.1:5300 (LISTEN)"
+		got := portPreflightConflicts(list, notRunning, dnsUp)
+		if hasPort(got, "5300") {
+			t.Fatalf("expected 5300 suppressed when dns is answering, got %+v", got)
+		}
+	})
+
+	t.Run("all ports free yields no conflicts", func(t *testing.T) {
+		got := portPreflightConflicts("", notRunning, dnsDown)
+		if len(got) != 0 {
+			t.Fatalf("expected no conflicts on an empty listener list, got %+v", got)
+		}
+	})
+}
+
 func TestEnsurePortForwarding(t *testing.T) {
 	// Should not error on any platform
 	if err := ensurePortForwarding(); err != nil {
