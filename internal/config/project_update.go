@@ -398,25 +398,3 @@ func IsDBServiceName(name string) bool {
 	}
 	return false
 }
-
-// IsMySQLFamilyDB reports whether the project's database is MySQL or MariaDB —
-// the families that support host access over a unix socket, and so the only
-// ones the host (db.external) backend applies to. A nil receiver and an
-// unspecified DB both count as MySQL family, since db.external is the
-// host-MySQL feature. Shared by `lerd env` and the dashboard's backend switch.
-func (c *ProjectConfig) IsMySQLFamilyDB() bool {
-	if c == nil {
-		return true
-	}
-	if c.DB.Service != "" {
-		fam := FamilyOfName(c.DB.Service)
-		return fam == "mysql" || fam == "mariadb"
-	}
-	for _, s := range c.Services {
-		if IsDBServiceName(s.Name) {
-			fam := FamilyOfName(s.Name)
-			return fam == "mysql" || fam == "mariadb"
-		}
-	}
-	return true
-}

@@ -22,15 +22,13 @@ const DefaultHostMySQLSocket = "/run/mysqld/mysqld.sock"
 // (see HostDBUsesTCP) because the socket can't cross the podman-machine boundary.
 const defaultHostMySQLSocketDarwin = "/tmp/mysql.sock"
 
-// Host-mode (db.external) DB transport on macOS. Unix sockets don't traverse the
-// podman-machine virtio-fs boundary as functional sockets (the same constraint
-// that puts lerd's debug-dump bridge on TCP — see paths.go DumpsBridgeTarget), so
-// containerized PHP reaches the host server over TCP via gvproxy's host alias
-// instead of a bind-mounted socket.
-const (
-	HostDBTCPHost = "host.containers.internal"
-	HostDBTCPPort = "3306"
-)
+// HostDBTCPHost is the host-mode (db.external) DB transport target on macOS.
+// Unix sockets don't traverse the podman-machine virtio-fs boundary as functional
+// sockets (the same constraint that puts lerd's debug-dump bridge on TCP — see
+// paths.go DumpsBridgeTarget), so containerized PHP reaches the host server over
+// TCP via gvproxy's host alias instead of a bind-mounted socket. The port is
+// per-engine (HostBackendSpec.DefaultPort), so it is not a constant here.
+const HostDBTCPHost = "host.containers.internal"
 
 // hostDBGOOS is runtime.GOOS, indirected so tests can exercise both the Linux
 // (socket) and macOS (TCP) host-DB transports regardless of the test host.
@@ -38,8 +36,8 @@ var hostDBGOOS = runtime.GOOS
 
 // HostDBUsesTCP reports whether host-mode (db.external) connections use TCP
 // (macOS) rather than a unix socket (Linux). On macOS the host socket is not
-// reachable from inside the podman-machine VM, so the connection goes over TCP
-// to HostDBTCPHost:HostDBTCPPort, which gvproxy forwards to the host's loopback.
+// reachable from inside the podman-machine VM, so the connection goes over TCP to
+// HostDBTCPHost:<engine port>, which gvproxy forwards to the host's loopback.
 func HostDBUsesTCP() bool { return hostDBGOOS == "darwin" }
 
 // DefaultHostDBSocketPath returns the conventional host MySQL/MariaDB unix socket
@@ -81,16 +79,23 @@ type ProjectDB struct {
 	// DB_SOCKET and lerd does not start the lerd-mysql container. Opt-in,
 	// per-project, committed to .lerd.yaml. See Socket.
 	External bool `yaml:"external,omitempty"`
-	// Socket overrides the host database unix socket path used when External
-	// is set. Empty defaults to DefaultHostMySQLSocket.
+	// Socket overrides the host database socket path used when External is set.
+	// Empty defaults to the OS-aware socket for the DB's family (a socket file
+	// for MySQL/MariaDB, the socket directory for Postgres).
 	Socket string `yaml:"socket,omitempty"`
 }
 
-// HostSocketPath returns the host database unix socket to use in external
-// mode: the configured Socket, or DefaultHostMySQLSocket when unset.
+// HostSocketPath returns the host database socket to use in external mode: the
+// configured Socket, or the OS-aware default for this DB's family (a socket file
+// for MySQL/MariaDB, the socket directory for Postgres). It resolves the family
+// from db.service; callers holding the full project config should prefer
+// ProjectConfig.HostDBSocketPath, which also consults the services list.
 func (d ProjectDB) HostSocketPath() string {
 	if d.Socket != "" {
 		return d.Socket
+	}
+	if spec, ok := HostBackendFor(FamilyOfName(d.Service)); ok {
+		return spec.HostSocketPath()
 	}
 	return DefaultHostDBSocketPath()
 }

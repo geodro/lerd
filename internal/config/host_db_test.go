@@ -55,6 +55,10 @@ func TestProjectDB_HostSocketPath(t *testing.T) {
 	if got := (ProjectDB{}).HostSocketPath(); got != DefaultHostMySQLSocket {
 		t.Fatalf("linux default HostSocketPath = %q, want %q", got, DefaultHostMySQLSocket)
 	}
+	// Postgres resolves to its socket DIRECTORY, not a socket file.
+	if got := (ProjectDB{Service: "postgres"}).HostSocketPath(); got != "/var/run/postgresql" {
+		t.Fatalf("postgres HostSocketPath = %q, want /var/run/postgresql", got)
+	}
 	SetHostDBGOOSForTest("darwin")
 	if got := (ProjectDB{}).HostSocketPath(); got != defaultHostMySQLSocketDarwin {
 		t.Fatalf("darwin default HostSocketPath = %q, want %q", got, defaultHostMySQLSocketDarwin)
@@ -118,28 +122,33 @@ func TestGlobalConfig_DefaultDBBackend(t *testing.T) {
 	}
 }
 
-func TestProjectConfig_IsMySQLFamilyDB(t *testing.T) {
-	// Nil and unspecified DB both assume MySQL family (db.external is the
-	// host-MySQL feature; an unset DB shouldn't block enabling it).
-	if !(*ProjectConfig)(nil).IsMySQLFamilyDB() {
-		t.Error("nil receiver should be MySQL family (assumed)")
+func TestProjectConfig_IsHostBackendCapableDB(t *testing.T) {
+	// Nil and unspecified DB both assume MySQL family (db.external originated as
+	// the host-MySQL feature; an unset DB shouldn't block enabling it).
+	if !(*ProjectConfig)(nil).IsHostBackendCapableDB() {
+		t.Error("nil receiver should be host-backend capable (assumed MySQL)")
 	}
-	if !(&ProjectConfig{}).IsMySQLFamilyDB() {
-		t.Error("empty config should be MySQL family (assumed)")
+	if !(&ProjectConfig{}).IsHostBackendCapableDB() {
+		t.Error("empty config should be host-backend capable (assumed MySQL)")
 	}
 	// db.service wins over the services list.
-	if !(&ProjectConfig{DB: ProjectDB{Service: "mariadb"}}).IsMySQLFamilyDB() {
-		t.Error("db.service=mariadb should be MySQL family")
+	if !(&ProjectConfig{DB: ProjectDB{Service: "mariadb"}}).IsHostBackendCapableDB() {
+		t.Error("db.service=mariadb should be host-backend capable")
 	}
-	if (&ProjectConfig{DB: ProjectDB{Service: "postgres"}}).IsMySQLFamilyDB() {
-		t.Error("db.service=postgres should NOT be MySQL family")
+	// Postgres is now host-backend capable (no longer MySQL-only).
+	if !(&ProjectConfig{DB: ProjectDB{Service: "postgres"}}).IsHostBackendCapableDB() {
+		t.Error("db.service=postgres should be host-backend capable")
+	}
+	// Families with no host backend (redis, mongo, …) are not capable.
+	if (&ProjectConfig{DB: ProjectDB{Service: "redis"}}).IsHostBackendCapableDB() {
+		t.Error("db.service=redis should NOT be host-backend capable")
 	}
 	// Falls back to the services list when db.service is unset.
-	if !(&ProjectConfig{Services: []ProjectService{{Name: "mysql"}}}).IsMySQLFamilyDB() {
-		t.Error("services=[mysql] should be MySQL family")
+	if !(&ProjectConfig{Services: []ProjectService{{Name: "mysql"}}}).IsHostBackendCapableDB() {
+		t.Error("services=[mysql] should be host-backend capable")
 	}
-	if (&ProjectConfig{Services: []ProjectService{{Name: "postgres"}}}).IsMySQLFamilyDB() {
-		t.Error("services=[postgres] should NOT be MySQL family")
+	if !(&ProjectConfig{Services: []ProjectService{{Name: "postgres"}}}).IsHostBackendCapableDB() {
+		t.Error("services=[postgres] should be host-backend capable")
 	}
 }
 

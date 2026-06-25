@@ -38,6 +38,24 @@ func SetServicePinned(name string, v bool) error {
 	return serviceSetUpdate(pinnedServicesFile(), name, v)
 }
 
+// ServicePublishedPort returns the published host port a service was pinned to
+// (0 = preset/version default). It is non-zero when the user ran
+// `lerd service port`, or when the port-ownership guard auto-shifted lerd's DB
+// off the engine default because a host server owns it. Readers that surface a
+// host-facing endpoint (e.g. the dashboard's connection URL) use it so the port
+// reflects where lerd's container actually listens, not the default a coexisting
+// host server may be sitting on.
+func ServicePublishedPort(name string) int {
+	cfg, err := LoadGlobal()
+	if err != nil {
+		return 0
+	}
+	if sc, ok := cfg.Services[name]; ok {
+		return sc.PublishedPort
+	}
+	return 0
+}
+
 // CountSitesUsingPHP returns how many non-ignored, non-paused sites are
 // registered with the given PHP version.
 func CountSitesUsingPHP(version string) int {
@@ -65,21 +83,21 @@ func SitesUsingService(name string) []Site {
 		return nil
 	}
 	needle := "lerd-" + name
-	// Whether name is the containerized MySQL/MariaDB service. Such a service is
-	// "not used" by a site that has switched to the host (system) database over
-	// its socket, even though the site's .lerd.yaml may still list it and its
-	// .env may still mention lerd-<name>.
+	// name's database family (empty for non-DB services). A host-capable DB
+	// service is "not used" by a site that has switched to the host (system)
+	// database over its socket, even though the site's .lerd.yaml may still list
+	// it and its .env may still mention lerd-<name>.
 	nameFam := FamilyOfName(name)
-	nameIsMySQLContainer := nameFam == "mysql" || nameFam == "mariadb"
 	var out []Site
 	for _, s := range reg.Sites {
 		if s.Ignored || s.Paused {
 			continue
 		}
 		proj, pErr := LoadProjectConfig(s.Path)
-		// Don't count a host-backend MySQL site against the container DB service,
-		// so it can auto-stop once every MySQL site has moved to the host.
-		if pErr == nil && proj != nil && nameIsMySQLContainer && proj.DB.External && proj.IsMySQLFamilyDB() {
+		// Don't count a host-backend site against the container DB service of its
+		// own family, so that service can auto-stop once every site of that family
+		// has moved to the host.
+		if pErr == nil && proj != nil && proj.DB.External && dbFamiliesShareContainer(nameFam, proj.DBFamily()) {
 			continue
 		}
 		if pErr == nil && proj != nil {
