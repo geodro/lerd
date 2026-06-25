@@ -38,6 +38,7 @@ type ProxyConfig struct {
 	Port       int    `yaml:"port"`                   // host port the app binds (required)
 	SSL        bool   `yaml:"ssl,omitempty"`          // app serves TLS on its port; proxy via https
 	PortEnvKey string `yaml:"port_env_key,omitempty"` // env var the port is injected as (default "PORT")
+	HostEnvKey string `yaml:"host_env_key,omitempty"` // env var the bind address is injected as (default "HOST")
 }
 
 // ProjectConfig holds per-project configuration stored in .lerd.yaml.

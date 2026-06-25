@@ -139,17 +139,17 @@ func TestBuildProjectServices_builtins(t *testing.T) {
 	}
 }
 
-func TestBuildHostProxyCommand_injectsPort(t *testing.T) {
+func TestBuildHostProxyCommand_injectsPortAndHost(t *testing.T) {
 	got := buildHostProxyCommand(&config.ProxyConfig{Command: "npm run start:dev", Port: 3000})
-	want := "env PORT=3000 npm run start:dev"
+	want := "env PORT=3000 HOST=0.0.0.0 npm run start:dev"
 	if got != want {
 		t.Errorf("buildHostProxyCommand = %q, want %q", got, want)
 	}
 }
 
-func TestBuildHostProxyCommand_customEnvKey(t *testing.T) {
-	got := buildHostProxyCommand(&config.ProxyConfig{Command: "node server.js", Port: 4000, PortEnvKey: "APP_PORT"})
-	want := "env APP_PORT=4000 node server.js"
+func TestBuildHostProxyCommand_customEnvKeys(t *testing.T) {
+	got := buildHostProxyCommand(&config.ProxyConfig{Command: "node server.js", Port: 4000, PortEnvKey: "APP_PORT", HostEnvKey: "HOSTNAME"})
+	want := "env APP_PORT=4000 HOSTNAME=0.0.0.0 node server.js"
 	if got != want {
 		t.Errorf("buildHostProxyCommand = %q, want %q", got, want)
 	}
@@ -184,7 +184,7 @@ func TestHostProxyWorkerForPort_usesGivenPort(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a worker for a non-empty command")
 	}
-	if w.Command != "env PORT=3101 npm run start:dev" {
+	if w.Command != "env PORT=3101 HOST=0.0.0.0 npm run start:dev" {
 		t.Errorf("worker command = %q, want the worktree port 3101 injected", w.Command)
 	}
 	if !w.Host || w.Restart != "always" {
