@@ -299,16 +299,14 @@ func baseContainerfileHash() (string, error) {
 	return fmt.Sprintf("%x", sum)[:12], nil
 }
 
-// basePullArgs builds the `podman pull` args for a base image ref. The
-// --policy=always flag is podman 5.0+ only (older podman rejects it with
-// "unknown flag: --policy"), so withPolicy gates it; without the flag a plain
-// pull still fetches the hash-pinned tag. authFile is the anonymous authfile
-// path, omitted when empty. Extracted so the version-gated flag has test cover.
-func basePullArgs(ref, authFile string, withPolicy bool) []string {
+// basePullArgs builds the `podman pull` args for a base image ref. It uses no
+// --policy flag: `podman pull` already defaults to the "always" policy, so the
+// flag was pure redundancy, and worse, `podman pull --policy` only exists on
+// recent podman (absent on 5.4 and every 4.x), where it was rejected as an
+// unknown flag and silently forced a full local build. authFile is the
+// anonymous authfile path, omitted when empty. Extracted for test cover.
+func basePullArgs(ref, authFile string) []string {
 	args := []string{"pull"}
-	if withPolicy {
-		args = append(args, "--policy=always")
-	}
 	args = append(args, PlatformPullArgs(ref)...)
 	if authFile != "" {
 		args = append(args, "--authfile="+authFile)
@@ -339,26 +337,22 @@ func tryPullBaseImage(version string, w io.Writer) string {
 		defer os.Remove(tmpAuth.Name())
 	}
 
-	// --policy=always (podman 5.0+) re-pulls a republished base on rebuild; on
-	// older podman it's an unknown flag that would fail the pull, so gate it.
-	withPolicy := supportsPullPolicy()
-
 	// Try each registry in order (old org first, new org fallback) so a binary
 	// keeps pulling across the org move without a rebuild.
 	var lastErr string
 	for _, ref := range origin.BaseImageRefs(short, hash) {
-		cmd := exec.Command(PodmanBin(), basePullArgs(ref, authFile, withPolicy)...)
+		cmd := exec.Command(PodmanBin(), basePullArgs(ref, authFile)...)
 		cmd.Stdout = w
 		// Capture stderr instead of discarding it: a swallowed pull failure
-		// (an unknown flag, a 404, a network or storage error) used to surface
-		// only as a confusing full local build with no reason given.
+		// (a 404, a network or storage error) used to surface only as a
+		// confusing full local build with no reason given.
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err == nil {
 			origin.NoteFetched(ref)
 			return ref
 		} else if s := strings.TrimSpace(stderr.String()); s != "" {
-			lastErr = lastLine(s)
+			lastErr = pullErrLine(s)
 		}
 	}
 	if lastErr != "" {
@@ -369,16 +363,27 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	return ""
 }
 
-// lastLine returns the last non-empty line of s, the most useful part of a
-// podman error (the trailing "Error: ..." rather than progress noise).
-func lastLine(s string) string {
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if t := strings.TrimSpace(lines[i]); t != "" {
-			return t
+// pullErrLine extracts the most informative line of a podman pull failure: the
+// last line beginning with "Error" (podman's actual reason) when present,
+// otherwise the last non-empty line. Podman prints the reason on an "Error:"
+// line and follows it with a "See 'podman ... --help'" hint, so picking the
+// trailing line alone would surface the hint instead of the cause.
+func pullErrLine(s string) string {
+	var last, errLine string
+	for _, ln := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		last = t
+		if strings.HasPrefix(t, "Error") {
+			errLine = t
 		}
 	}
-	return ""
+	if errLine != "" {
+		return errLine
+	}
+	return last
 }
 
 func buildFPMImage(version string, force, local bool, customExts []string, extDeps map[string][]string, packages []string, w io.Writer) error {

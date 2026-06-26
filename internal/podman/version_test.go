@@ -57,25 +57,3 @@ func TestSupportsContainerStopTimeoutBoundary(t *testing.T) {
 		}
 	}
 }
-
-func TestSupportsPullPolicyBoundary(t *testing.T) {
-	// `podman pull --policy` was added in Podman 5.0. On anything below the
-	// flag is unknown and the pull must omit it (Ubuntu 24.04 ships 4.9.3).
-	tests := []struct {
-		major, minor int
-		want         bool
-	}{
-		{3, 4, false},
-		{4, 9, false},
-		{4, 99, false},
-		{5, 0, true},
-		{5, 8, true},
-		{6, 0, true},
-	}
-	for _, tt := range tests {
-		got := podmanVersionSupportsPullPolicy(tt.major, tt.minor)
-		if got != tt.want {
-			t.Errorf("%d.%d: got %v, want %v", tt.major, tt.minor, got, tt.want)
-		}
-	}
-}
