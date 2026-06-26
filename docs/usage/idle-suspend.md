@@ -37,6 +37,8 @@ All of them. When a site goes idle, lerd stops every worker it runs — queue, s
 
 Suspension is graceful: workers receive `SIGTERM` and finish their current job before exiting, and Laravel's job reservation/retry covers anything in flight, so no jobs are lost.
 
+A suspended worker's unit is removed entirely, so the only record that it is asleep (rather than simply off) is the persisted list. If that list is ever lost while the units stay gone, which replacing the lerd binary mid-session can do, the watcher re-marks the affected workers as suspended on its next evaluation, reading the site's declared workers from `.lerd.yaml`, so they show as sleeping again instead of off. It only re-marks a worker whose unit is gone entirely (idle-suspend's own signature); one that merely crashed or stopped keeps its unit and is left to the usual worker-healing, and one you genuinely stopped or removed is dropped from `.lerd.yaml`, so neither is revived this way.
+
 **Vite is a special case.** Stopping the Vite dev server makes Laravel's `@vite` directive fall back to the built asset manifest, so before suspending Vite lerd runs `npm run build` (once, if no usable build exists) and clears `public/hot`. A sleeping site then serves built assets instead of a broken page. If a build can't be produced, Vite is left running for that site.
 
 ## Pinning a site

@@ -9,17 +9,28 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	phpDet "github.com/geodro/lerd/internal/php"
+	"github.com/geodro/lerd/internal/siteinfo"
 )
 
+// unitStatesFn snapshots every lerd-* unit's state; a var so tests can pin which
+// units exist. A worker absent from it has had its unit removed entirely, which
+// is idle-suspend's signature (it removes units, not just stops them).
+var unitStatesFn = siteinfo.AllUnitStates
+
 // SuspendWorkersForIdle stops ALL of the site's running workers (queue, Horizon,
-// scheduler, Stripe, vite, ...) and returns the names it stopped, for the caller
-// to persist as Site.IdleSuspendedWorkers. An idle site does no background work.
+// scheduler, Stripe, vite, ...) and returns the names to persist as
+// Site.IdleSuspendedWorkers. An idle site does no background work.
 //
 // Vite is the one special case: stopping it makes Laravel's @vite directive fall
 // back to the built asset manifest, so a site with no build would serve a broken
 // page. So before sleeping we ensure a usable build exists (running `npm run
 // build` if missing) and clear public/hot; if no build can be produced, vite is
 // left running for that site. Idempotent.
+//
+// The returned set also includes declared workers whose unit was removed entirely
+// (see appendLostSuspended), so an idle site whose persisted suspended list was
+// wiped while its units stayed gone (e.g. a reinstall) is re-marked as sleepy
+// rather than left showing as "off" with no way for the engine to recover it.
 func SuspendWorkersForIdle(site *config.Site) []string {
 	running := collectRunningWorkers(site)
 
@@ -43,6 +54,34 @@ func SuspendWorkersForIdle(site *config.Site) []string {
 		}
 		stopWorkerByName(site, w)
 		suspended = append(suspended, w)
+	}
+	return appendLostSuspended(site, suspended)
+}
+
+// appendLostSuspended adds any of the site's declared workers (.lerd.yaml) whose
+// systemd unit is gone entirely and that are resumable. A removed unit is
+// idle-suspend's own signature, so such a worker is one whose persisted
+// "suspended" marking was lost (e.g. a reinstall cleared the list) while its unit
+// stayed gone; re-listing it restores the sleeping state instead of leaving it
+// showing as "off". A worker that merely crashed or stopped still has its unit
+// (active/failed/inactive), so it is left to worker-healing; one the user stopped
+// or removed is dropped from .lerd.yaml entirely, so neither is ever re-marked.
+func appendLostSuspended(site *config.Site, suspended []string) []string {
+	proj, err := config.LoadProjectConfig(site.Path)
+	if err != nil || proj == nil {
+		return suspended
+	}
+	states := unitStatesFn()
+	for _, w := range proj.Workers {
+		if containsString(suspended, w) {
+			continue
+		}
+		if _, unitExists := states["lerd-"+w+"-"+site.Name]; unitExists {
+			continue // unit still present -> not idle-suspend's doing, leave it alone
+		}
+		if idleWorkerResumable(site, w) {
+			suspended = append(suspended, w)
+		}
 	}
 	return suspended
 }
