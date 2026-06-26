@@ -17,6 +17,10 @@ ContainerName=lerd-php{{.VersionShort}}-fpm
 Network=lerd
 Volume=%h/.local/share/lerd/hosts:/etc/hosts:ro,z
 Volume=%h:%h:rw
+# Shared ssh-agent socket (lerd auth ssh) so composer's git-over-SSH can reach
+# the user's passphrase-protected keys. Named volume, auto-created by podman;
+# empty until `lerd auth ssh` starts the agent sidecar.
+Volume=lerd-ssh-agent:/ssh-agent
 Volume={{.XdebugIniPath}}:/usr/local/etc/php/conf.d/99-xdebug.ini:ro
 Volume={{.UserIniPath}}:/usr/local/etc/php/conf.d/98-lerd-user.ini:ro
 Volume={{.DumpsDir}}:/usr/local/etc/lerd:ro
