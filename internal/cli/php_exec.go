@@ -151,6 +151,10 @@ func RunPHPCaptureEnv(cwd string, args []string, extraEnv []string) (int, error)
 	for _, e := range extraEnv {
 		cmdArgs = append(cmdArgs, "--env", e)
 	}
+	// Point composer/git at the shared ssh-agent when it's running, so private
+	// packages with passphrase-protected keys authenticate over SSH. No-op when
+	// the agent isn't up (falls back to the bind-mounted on-disk keys).
+	cmdArgs = append(cmdArgs, podman.SSHAuthSockEnv()...)
 	cmdArgs = append(cmdArgs, container, "php")
 	cmdArgs = append(cmdArgs, args...)
 
