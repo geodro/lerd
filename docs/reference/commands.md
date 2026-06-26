@@ -277,7 +277,8 @@ Activity-driven worker suspension: lerd gracefully stops each site's suspendable
 |---|---|
 | `lerd framework list` | List all available framework definitions and their workers |
 | `lerd framework add <name>` | Add or update a framework definition (flags or `--from-file`) |
-| `lerd framework remove <name>` | Remove a user-defined framework definition |
+| `lerd framework remove <name>` | Remove a framework definition (confirms if a site still uses it) |
+| `lerd framework prune` | Remove installed definitions no site uses |
 
 ## Stripe
 

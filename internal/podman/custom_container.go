@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -139,7 +138,7 @@ func BuildCustomImage(siteName, projectPath string, cfg *config.ContainerConfig)
 	buildCtx := ResolveBuildContext(projectPath, cfg)
 	imageName := CustomImageName(siteName)
 
-	cmd := exec.Command(PodmanBin(), buildCustomImageArgs(imageName, containerfile, buildCtx, cfg)...)
+	cmd := execCommand(PodmanBin(), buildCustomImageArgs(imageName, containerfile, buildCtx, cfg)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -158,7 +157,7 @@ func BuildCustomImageTo(siteName, projectPath string, cfg *config.ContainerConfi
 	buildCtx := ResolveBuildContext(projectPath, cfg)
 	imageName := CustomImageName(siteName)
 
-	cmd := exec.Command(PodmanBin(), buildCustomImageArgs(imageName, containerfile, buildCtx, cfg)...)
+	cmd := execCommand(PodmanBin(), buildCustomImageArgs(imageName, containerfile, buildCtx, cfg)...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {
@@ -170,7 +169,7 @@ func BuildCustomImageTo(siteName, projectPath string, cfg *config.ContainerConfi
 // RemoveCustomImage removes the local image for a site's custom container.
 func RemoveCustomImage(siteName string) error {
 	imageName := CustomImageName(siteName)
-	_ = exec.Command(PodmanBin(), "rmi", "-f", imageName).Run()
+	_ = execCommand(PodmanBin(), "rmi", "-f", imageName).Run()
 	return nil
 }
 
@@ -206,5 +205,5 @@ func ContainerBaseImage(projectPath string, cfg *config.ContainerConfig) string 
 // container (force-remove to handle edge cases).
 func RemoveCustomContainer(siteName string) {
 	name := CustomContainerName(siteName)
-	_ = exec.Command(PodmanBin(), "rm", "-f", name).Run()
+	_ = execCommand(PodmanBin(), "rm", "-f", name).Run()
 }

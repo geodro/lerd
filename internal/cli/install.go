@@ -67,6 +67,46 @@ func fileChangedBy(path string, mutate func() error) (bool, error) {
 	return string(after) != string(before), nil
 }
 
+// portPreflightConflicts returns the core host ports lerd needs to bind first
+// (nginx HTTP/HTTPS and DNS) that are already held by a foreign process.
+// portList is the host listener dump from PortListOutput; the seams mirror
+// checkPortConflicts so lerd's own running container, an already-answering
+// dnsmasq, and the macOS gvproxy forward are not reported as conflicts.
+func portPreflightConflicts(portList string, containerRunning func(string) bool, dnsAnswering func() bool) []PortCheck {
+	var conflicts []PortCheck
+	for _, c := range CollectPortChecks([]string{"lerd-nginx", "lerd-dns"}) {
+		if isPortConflict(c, portList, containerRunning, dnsAnswering) {
+			conflicts = append(conflicts, c)
+		}
+	}
+	return conflicts
+}
+
+// ensurePortsAvailable warns, before any setup work runs, when a core port lerd
+// needs is already taken by a foreign process. The usual culprit is a parallel
+// local-dev stack such as Laravel Herd or a system nginx/Apache holding 80/443.
+// It is advisory only: install continues so a user who knows the conflict (or
+// plans to remap lerd's ports) isn't blocked.
+func ensurePortsAvailable() {
+	step("Checking required host ports")
+	portList := PortListOutput()
+	if portList == "" {
+		ok()
+		return
+	}
+	conflicts := portPreflightConflicts(portList, podmanContainerRunning, lerdDNSAnswering)
+	if len(conflicts) == 0 {
+		ok()
+		return
+	}
+	fmt.Println()
+	for _, c := range conflicts {
+		feedback.Warn("port %s (%s) is already in use, %s may fail to start", c.Port, c.Label, c.Container)
+		feedback.Note("find it: " + FindListenerCmd(c.Port))
+	}
+	feedback.Note("another local stack such as Laravel Herd may be hosting sites; stop it to free these ports, then re-run lerd install")
+}
+
 func runInstall(cmd *cobra.Command, _ []string) error {
 	feedback.Header("Installing Lerd")
 
@@ -89,6 +129,8 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	healMachineRestartIfNeeded(preEnsureLastUp)
+
+	ensurePortsAvailable()
 
 	if err := ensureUnprivilegedPorts(); err != nil {
 		return err

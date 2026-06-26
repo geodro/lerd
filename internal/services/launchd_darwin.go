@@ -279,20 +279,6 @@ func expandSpecifiers(s string) string {
 	return strings.ReplaceAll(s, "%h", home)
 }
 
-// podmanBinPath returns the path to the podman binary.
-func podmanBinPath() string {
-	if p, err := exec.LookPath("podman"); err == nil {
-		return p
-	}
-	// Homebrew default locations
-	for _, candidate := range []string{"/opt/homebrew/bin/podman", "/usr/local/bin/podman"} {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return "podman"
-}
-
 // stripSELinuxVolOpts removes SELinux relabelling flags (:z, :Z) from a
 // volume mount spec. On macOS with Podman Machine the source path is a
 // virtiofs mount and SELinux relabelling is unsupported; passing :z causes
@@ -384,7 +370,7 @@ func stripIPv6PublishPorts(content string) string {
 // On macOS we run detached (-d) so that launchctl bootstrap sees an immediate
 // exit 0 (success); podman's own --restart=always policy handles crash recovery.
 func containerToPodmanArgs(c map[string][]string) ([]string, error) {
-	args := []string{podmanBinPath(), "run", "-d", "--restart=always"}
+	args := []string{podman.PodmanBin(), "run", "-d", "--restart=always"}
 
 	if names := c["ContainerName"]; len(names) > 0 {
 		// --replace removes any stale container with this name before starting.
@@ -751,8 +737,8 @@ func (m *darwinServiceManager) Stop(name string) error {
 	// Skipping the podman calls when the container is absent avoids flooding the
 	// Podman Machine SSH socket with N parallel no-op requests during lerd stop.
 	if running, _ := podman.ContainerRunning(name); running {
-		exec.Command(podmanBinPath(), "stop", "-t", "5", name).Run() //nolint:errcheck
-		exec.Command(podmanBinPath(), "rm", "-f", name).Run()        //nolint:errcheck
+		podman.Cmd("stop", "-t", "5", name).Run() //nolint:errcheck
+		podman.Cmd("rm", "-f", name).Run()        //nolint:errcheck
 	}
 
 	domain := uidDomain()
@@ -777,8 +763,8 @@ func (m *darwinServiceManager) Restart(name string) error {
 	// of launchd. Stop it explicitly so the restart is clean even if
 	// --replace is ever removed from the podman run args.
 	if running, _ := podman.ContainerRunning(name); running {
-		exec.Command(podmanBinPath(), "stop", "-t", "5", name).Run() //nolint:errcheck
-		exec.Command(podmanBinPath(), "rm", "-f", name).Run()        //nolint:errcheck
+		podman.Cmd("stop", "-t", "5", name).Run() //nolint:errcheck
+		podman.Cmd("rm", "-f", name).Run()        //nolint:errcheck
 	}
 
 	domain := uidDomain()

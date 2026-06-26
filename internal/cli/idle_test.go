@@ -3,11 +3,13 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/siteinfo"
 )
 
 // stubUnitStatus reports the units in active as running and everything else as
@@ -224,6 +226,106 @@ func TestIdleSuspendStateIsStale(t *testing.T) {
 	site.IdleSuspendedWorkers = nil
 	if IdleSuspendStateIsStale(site) {
 		t.Error("empty suspended set is never stale")
+	}
+}
+
+// appendLostSuspended must re-mark declared workers whose unit was removed
+// entirely (idle-suspend's signature, so their marking was lost while asleep),
+// while never touching a worker whose unit still exists (running, crashed, or
+// merely stopped — left to worker-healing), a duplicate, an orphan with no
+// framework definition, or a worker the user removed from .lerd.yaml.
+func TestAppendLostSuspended(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	dir := filepath.Join(tmp, "site")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("framework: laravel\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := config.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj.CustomWorkers = map[string]config.FrameworkWorker{
+		"queue":   {Command: "php artisan queue:work"},
+		"horizon": {Command: "php artisan horizon"},
+	}
+	proj.Workers = []string{"queue", "horizon", "stripe", "some-orphan"}
+	if err := config.SaveProjectConfig(dir, proj); err != nil {
+		t.Fatal(err)
+	}
+	site := &config.Site{Name: "site", Framework: "laravel", Path: dir}
+
+	// present pins which units still exist (any state); a worker keyed here is
+	// treated as not idle-suspended and must be left alone.
+	present := map[string]string{}
+	t.Cleanup(func() { unitStatesFn = siteinfo.AllUnitStates })
+	unitStatesFn = func() map[string]string { return present }
+
+	// All declared+resumable units removed -> all re-marked; the orphan is skipped.
+	if got := appendLostSuspended(site, nil); !slices.Equal(got, []string{"queue", "horizon", "stripe"}) {
+		t.Errorf("all-removed: got %v, want [queue horizon stripe]", got)
+	}
+	// A worker whose unit still exists (e.g. crashed/failed) is not re-marked, so
+	// worker-healing still sees it instead of it being masked as sleeping.
+	present = map[string]string{"lerd-queue-site": "failed"}
+	if got := appendLostSuspended(site, nil); !slices.Equal(got, []string{"horizon", "stripe"}) {
+		t.Errorf("queue unit present: got %v, want [horizon stripe]", got)
+	}
+	// An already-listed worker isn't duplicated; the rest are appended.
+	present = map[string]string{}
+	if got := appendLostSuspended(site, []string{"horizon"}); !slices.Equal(got, []string{"horizon", "queue", "stripe"}) {
+		t.Errorf("horizon pre-listed: got %v, want [horizon queue stripe]", got)
+	}
+
+	// A worker the user removed is gone from .lerd.yaml, so it is never re-marked
+	// even though its unit is absent like a sleepy one.
+	proj.Workers = []string{"queue"}
+	if err := config.SaveProjectConfig(dir, proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := appendLostSuspended(site, nil); !slices.Equal(got, []string{"queue"}) {
+		t.Errorf("undeclared worker must not be re-marked: got %v, want [queue]", got)
+	}
+}
+
+// SuspendWorkersForIdle must return declared workers whose unit was removed so an
+// idle site whose persisted list was wiped (units already gone) is re-marked as
+// sleepy rather than stranded showing "off". No worker is running here, so nothing
+// is stopped; the result is purely the recovered set.
+func TestSuspendWorkersForIdle_remarksAbsent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	dir := filepath.Join(tmp, "site")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("framework: laravel\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := config.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj.CustomWorkers = map[string]config.FrameworkWorker{"queue": {Command: "php artisan queue:work"}}
+	proj.Workers = []string{"queue"}
+	if err := config.SaveProjectConfig(dir, proj); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		podman.UnitLifecycle = nil
+		unitStatesFn = siteinfo.AllUnitStates
+	})
+	podman.UnitLifecycle = stubUnitStatus{active: map[string]bool{}}       // nothing running
+	unitStatesFn = func() map[string]string { return map[string]string{} } // queue unit removed
+
+	site := &config.Site{Name: "site", Framework: "laravel", Path: dir}
+	if got := SuspendWorkersForIdle(site); len(got) != 1 || got[0] != "queue" {
+		t.Errorf("SuspendWorkersForIdle = %v, want [queue] (re-marked from .lerd.yaml)", got)
 	}
 }
 

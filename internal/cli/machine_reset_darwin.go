@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/geodro/lerd/internal/feedback"
@@ -42,13 +41,13 @@ func runMachineReset(assumeYes bool) error {
 	}
 
 	feedback.Line(fmt.Sprintf("Stopping Podman Machine %q…", name))
-	stop := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+	stop := podman.Cmd("machine", "stop", name)
 	stop.Stdout = os.Stdout
 	stop.Stderr = os.Stderr
 	_ = stop.Run() // a stopped machine still removes fine
 
 	feedback.Line(fmt.Sprintf("Removing Podman Machine %q…", name))
-	rm := exec.Command(podman.PodmanBin(), "machine", "rm", "-f", name)
+	rm := podman.Cmd("machine", "rm", "-f", name)
 	rm.Stdout = os.Stdout
 	rm.Stderr = os.Stderr
 	if err := rm.Run(); err != nil {

@@ -27,6 +27,7 @@ func NewFrameworkCmd() *cobra.Command {
 	cmd.AddCommand(newFrameworkSearchCmd())
 	cmd.AddCommand(newFrameworkInstallCmd())
 	cmd.AddCommand(newFrameworkUpdateCmd())
+	cmd.AddCommand(newFrameworkPruneCmd())
 	return cmd
 }
 
@@ -281,18 +282,23 @@ YAML file format:
 
 func newFrameworkRemoveCmd() *cobra.Command {
 	var all bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "remove <name>[@version]",
 		Short: "Remove a framework definition (user-defined or store-installed)",
 		Long: `Remove a framework definition. If multiple versions are installed and no
 version is specified, you will be prompted to choose which to remove.
 
-Use --all to remove all versions without prompting.
+If any linked site still uses the framework, you are asked to confirm first.
+
+Use --all to remove all versions without prompting, and --force to skip the
+in-use confirmation.
 
 Examples:
   lerd framework remove symfony          # prompt if multiple versions
   lerd framework remove symfony@7        # remove specific version
-  lerd framework remove symfony --all    # remove all versions`,
+  lerd framework remove symfony --all    # remove all versions
+  lerd framework remove symfony --force  # skip the in-use confirmation`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name, version := parseNameVersion(args[0])
@@ -313,7 +319,8 @@ Examples:
 				return fmt.Errorf("framework %q not found", name)
 			}
 
-			// Specific version requested.
+			// Specific version requested: this removes one cached definition, not
+			// the framework, so the name-level in-use guard does not apply.
 			if version != "" {
 				for _, f := range files {
 					if f.Version == version {
@@ -327,12 +334,31 @@ Examples:
 				return fmt.Errorf("framework %q version %q not found", name, version)
 			}
 
+			// Removing every definition for the name. Confirm if an active site
+			// still uses it, unless it is built-in (the binary definition remains,
+			// so a site never breaks) or --force is given.
+			if !force && !config.IsBuiltinFramework(name) {
+				if sites := config.SitesUsingFramework(name); len(sites) > 0 {
+					fmt.Printf("Framework %q is still used by %s: %s\n",
+						name, pluralizeSites(len(sites)), strings.Join(sites, ", "))
+					if !promptConfirm("Remove it anyway?") {
+						feedback.Note("aborted")
+						return nil
+					}
+				}
+			}
+
+			builtinNote := ""
+			if config.IsBuiltinFramework(name) {
+				builtinNote = " (built-in definition remains)"
+			}
+
 			// Single file or --all: remove everything.
 			if len(files) == 1 || all {
 				if err := config.RemoveFramework(name); err != nil {
 					return err
 				}
-				feedback.Done(fmt.Sprintf("framework %q removed", name))
+				feedback.Done(fmt.Sprintf("framework %q removed%s", name, builtinNote))
 				return nil
 			}
 
@@ -360,7 +386,7 @@ Examples:
 				if err := config.RemoveFramework(name); err != nil {
 					return err
 				}
-				feedback.Done(fmt.Sprintf("framework %q removed (all versions)", name))
+				feedback.Done(fmt.Sprintf("framework %q removed (all versions)%s", name, builtinNote))
 				return nil
 			}
 
@@ -381,7 +407,77 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "Remove all versions without prompting")
+	cmd.Flags().BoolVar(&force, "force", false, "Skip the confirmation when a site still uses the framework")
 	return cmd
+}
+
+func pluralizeSites(n int) string {
+	if n == 1 {
+		return "1 site"
+	}
+	return fmt.Sprintf("%d sites", n)
+}
+
+func newFrameworkPruneCmd() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove installed framework definitions no site uses",
+		Long: `Remove store-installed and user-defined framework definitions that no linked
+site references. Built-in definitions are never touched.
+
+This is safe: lerd re-fetches a definition from the store automatically the
+moment a site needs one that is no longer present locally, so a pruned
+framework comes back on its own if it is needed again.
+
+Examples:
+  lerd framework prune          # list unused, then confirm
+  lerd framework prune --force  # remove without confirming`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			unused := config.UnusedInstalledFrameworks()
+			if len(unused) == 0 {
+				feedback.Done("no unused frameworks to prune")
+				return nil
+			}
+
+			fmt.Printf("The following %s used by any site:\n", pruneSubject(len(unused)))
+			for _, name := range unused {
+				fmt.Printf("  %s\n", name)
+			}
+
+			if !force && !promptConfirm("Remove them?") {
+				feedback.Note("aborted")
+				return nil
+			}
+
+			removed, failed := config.RemoveFrameworks(unused)
+			for _, name := range failed {
+				feedback.Warn("could not remove %q", name)
+			}
+			if len(removed) == 0 {
+				return fmt.Errorf("could not prune any frameworks")
+			}
+			feedback.Done(fmt.Sprintf("pruned %s", pluralizeFrameworks(len(removed))))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "Remove without confirming")
+	return cmd
+}
+
+func pruneSubject(n int) string {
+	if n == 1 {
+		return "framework is not"
+	}
+	return "frameworks are not"
+}
+
+func pluralizeFrameworks(n int) string {
+	if n == 1 {
+		return "1 framework"
+	}
+	return fmt.Sprintf("%d frameworks", n)
 }
 
 func newFrameworkSearchCmd() *cobra.Command {

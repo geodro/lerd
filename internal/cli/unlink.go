@@ -104,8 +104,44 @@ func UnlinkSite(name string) error {
 		}
 	}
 
+	// Offer to remove the framework definition when this was the last site
+	// using it and the definition is removable (store-installed or user-defined,
+	// never a built-in). It is safe to remove: lerd re-fetches it from the store
+	// the moment another site needs it.
+	offerRemoveOrphanedFramework(site.Framework)
+
 	autoStopUnusedServices()
 	autoStopUnusedFPMs()
 
 	return nil
+}
+
+// offerRemoveOrphanedFramework prompts, in interactive sessions only, to delete
+// a framework definition once no remaining active site references it. Built-in
+// frameworks are never offered.
+func offerRemoveOrphanedFramework(fw string) {
+	if !isInteractive() || !frameworkIsOrphaned(fw) {
+		return
+	}
+	if feedback.Confirm(fmt.Sprintf("No sites use the %q framework anymore. Remove its definition?", fw), false) {
+		if err := config.RemoveFramework(fw); err != nil {
+			feedback.Warn("could not remove framework %q: %v", fw, err)
+			return
+		}
+		feedback.Line("framework definition removed")
+	}
+}
+
+// frameworkIsOrphaned reports whether fw has a removable definition (store or
+// user, never built-in) that no remaining active site references.
+func frameworkIsOrphaned(fw string) bool {
+	if fw == "" {
+		return false
+	}
+	for _, name := range config.UnusedInstalledFrameworks() {
+		if name == fw {
+			return true
+		}
+	}
+	return false
 }

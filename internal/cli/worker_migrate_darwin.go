@@ -4,7 +4,6 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -124,7 +123,7 @@ func sweepOrphanWorkerContainers() {
 	if len(prefixes) == 0 {
 		return
 	}
-	out, err := exec.Command(podman.PodmanBin(), "ps", "-a", "--format", "{{.Names}}").Output()
+	out, err := podman.Cmd("ps", "-a", "--format", "{{.Names}}").Output()
 	if err != nil {
 		return
 	}

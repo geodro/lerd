@@ -4,7 +4,6 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,7 +23,7 @@ func machineLastUpFile() string {
 // (default-marked, else first) so inspect targets the VM lerd actually
 // uses. Returns "" when no machine exists yet.
 func selectedMachineName() string {
-	out, err := exec.Command(podman.PodmanBin(), "machine", "list",
+	out, err := podman.Cmd("machine", "list",
 		"--format", "{{.Name}}").Output()
 	if err != nil {
 		return ""
@@ -58,7 +57,7 @@ func currentMachineLastUp() string {
 	if name == "" {
 		return ""
 	}
-	out, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
+	out, err := podman.Cmd("machine", "inspect",
 		"--format", "{{.LastUp}}", name).Output()
 	if err != nil {
 		return ""
@@ -143,7 +142,7 @@ func forceRemoveLerdContainers(includeStopped bool, announce string) {
 	}
 	feedback.Line(announce)
 	args := append([]string{"rm", "-f"}, names...)
-	if out, err := exec.Command(podman.PodmanBin(), args...).CombinedOutput(); err != nil {
+	if out, err := podman.Cmd(args...).CombinedOutput(); err != nil {
 		feedback.Warn("podman rm -f failed: %v", err)
 		if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
 			feedback.Note(trimmed)

@@ -819,10 +819,14 @@ func runHostProxyWizard(cwd string, defaults *config.ProjectConfig, gcfg *config
 	// Vite rejects requests whose Host header isn't localhost/an IP (its
 	// allowedHosts check). nginx proxies with the site domain as Host, so the
 	// user has to allow it in vite.config or every request fails with a 403.
+	// The raw Vite CLI also ignores the injected HOST env and binds loopback,
+	// which the proxy container cannot reach, so it needs an explicit --host.
 	if manifest.runsVite(command) {
 		fmt.Println("\nNote: Vite blocks proxied requests by their Host header. Add your site")
 		fmt.Println("domain to server.allowedHosts in vite.config (or set allowedHosts: true),")
 		fmt.Println("or requests through the lerd proxy fail with \"host not allowed\".")
+		fmt.Println("Vite also ignores the HOST env; add --host to the command so it binds")
+		fmt.Println("all interfaces, otherwise the proxy can't reach it.")
 	}
 
 	return &config.ProjectConfig{

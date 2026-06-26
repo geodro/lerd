@@ -182,7 +182,7 @@ func confirmPurgeLerdImages() bool {
 // (mysql/redis/postgres/etc.) are left alone since they're expensive to
 // re-pull and not lerd-owned.
 func removeLerdImages() {
-	out, err := exec.Command(podman.PodmanBin(), "images", "--format", "{{.Repository}}:{{.Tag}}").Output()
+	out, err := podman.Cmd("images", "--format", "{{.Repository}}:{{.Tag}}").Output()
 	if err != nil {
 		feedback.Warn("listing images: %v", err)
 		return
@@ -195,7 +195,7 @@ func removeLerdImages() {
 		if !isLerdBuiltImage(line) {
 			continue
 		}
-		if err := exec.Command(podman.PodmanBin(), "image", "rm", "-f", line).Run(); err != nil {
+		if err := podman.Cmd("image", "rm", "-f", line).Run(); err != nil {
 			feedback.Warn("removing %s: %v", line, err)
 			continue
 		}

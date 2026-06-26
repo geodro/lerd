@@ -7,7 +7,6 @@ package stats
 import (
 	"bufio"
 	"context"
-	"os/exec"
 	"runtime"
 	"sort"
 	"strconv"
@@ -212,9 +211,9 @@ func SetHostReader(fn func() ([]ContainerStat, error)) (restore func()) {
 func readPodmanStats() ([]ContainerStat, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(
+	cmd := podman.CmdContext(
 		ctx,
-		podman.PodmanBin(), "stats", "--interval", "1",
+		"stats", "--interval", "1",
 		"--format", "{{.Name}}|{{.CPU}}|{{.MemUsage}}|{{.MemPerc}}",
 	)
 	stdout, err := cmd.StdoutPipe()

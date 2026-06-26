@@ -163,7 +163,7 @@ func RunTinker(ctx context.Context, sitePath, siteName, branch, code string) (Ti
 	}
 
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, podman.PodmanBin(), argv...)
+	cmd := podman.CmdContext(ctx, argv...)
 	if stdinPipe != "" {
 		cmd.Stdin = strings.NewReader(stdinPipe)
 	}

@@ -3628,6 +3628,8 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 		return toolOK("Custom Laravel worker additions removed. Built-in queue/schedule/reverb workers remain."), nil
 	}
 
+	// Version-specific removal deletes one cached definition, not the framework,
+	// so the name-level in-use guard does not apply.
 	if version != "" {
 		files := config.ListFrameworkFiles(name)
 		for _, f := range files {
@@ -3641,13 +3643,43 @@ func execFrameworkRemove(args map[string]any) (any, *rpcError) {
 		return toolErr(fmt.Sprintf("framework %q version %q not found", name, version)), nil
 	}
 
+	// Built-in frameworks keep working from the binary definition after their
+	// overlay is removed, so only third-party definitions need the guard.
+	if !boolArg(args, "force") && !config.IsBuiltinFramework(name) {
+		if sites := config.SitesUsingFramework(name); len(sites) > 0 {
+			return toolErr(fmt.Sprintf("framework %q is still used by: %s. Pass force=true to remove it anyway.",
+				name, strings.Join(sites, ", "))), nil
+		}
+	}
+
 	if err := config.RemoveFramework(name); err != nil {
 		if os.IsNotExist(err) {
 			return toolErr(fmt.Sprintf("framework %q not found", name)), nil
 		}
 		return toolErr(fmt.Sprintf("removing framework: %v", err)), nil
 	}
-	return toolOK(fmt.Sprintf("Framework %q removed.", name)), nil
+	note := ""
+	if config.IsBuiltinFramework(name) {
+		note = " (built-in definition remains)"
+	}
+	return toolOK(fmt.Sprintf("Framework %q removed%s.", name, note)), nil
+}
+
+func execFrameworkPrune(_ map[string]any) (any, *rpcError) {
+	unused := config.UnusedInstalledFrameworks()
+	if len(unused) == 0 {
+		return toolOK("No unused frameworks to prune."), nil
+	}
+
+	removed, failed := config.RemoveFrameworks(unused)
+	if len(removed) == 0 {
+		return toolErr(fmt.Sprintf("could not prune any of: %s", strings.Join(failed, ", "))), nil
+	}
+	msg := fmt.Sprintf("Pruned %d unused framework(s): %s.", len(removed), strings.Join(removed, ", "))
+	if len(failed) > 0 {
+		msg += fmt.Sprintf(" Failed: %s.", strings.Join(failed, ", "))
+	}
+	return toolOK(msg), nil
 }
 
 func execFrameworkSearch(args map[string]any) (any, *rpcError) {

@@ -196,7 +196,7 @@ func NeedsFPMRebuild(activeVersions []string) bool {
 // error (image missing, podman unreachable, label absent) so callers
 // treat that as "doesn't match" and fall back to a rebuild.
 func imageLabel(image, key string) string {
-	out, err := exec.Command(PodmanBin(), "inspect",
+	out, err := execCommand(PodmanBin(), "inspect",
 		"--format", "{{index .Config.Labels \""+key+"\"}}",
 		image,
 	).Output()
@@ -341,7 +341,7 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	// keeps pulling across the org move without a rebuild.
 	var lastErr string
 	for _, ref := range origin.BaseImageRefs(short, hash) {
-		cmd := exec.Command(PodmanBin(), basePullArgs(ref, authFile)...)
+		cmd := execCommand(PodmanBin(), basePullArgs(ref, authFile)...)
 		cmd.Stdout = w
 		// Capture stderr instead of discarding it: a swallowed pull failure
 		// (a 404, a network or storage error) used to surface only as a
@@ -391,7 +391,7 @@ func buildFPMImage(version string, force, local bool, customExts []string, extDe
 
 	if !force {
 		// Skip if image already exists
-		if exec.Command(PodmanBin(), "image", "exists", imageName).Run() == nil {
+		if execCommand(PodmanBin(), "image", "exists", imageName).Run() == nil {
 			return nil
 		}
 	}
@@ -454,7 +454,7 @@ build:
 	}
 
 	buildArgs = append(buildArgs, "-f", cfPath, tmp)
-	cmd := exec.Command(PodmanBin(), buildArgs...)
+	cmd := execCommand(PodmanBin(), buildArgs...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {
@@ -623,7 +623,7 @@ func phpExtensionLoaded(moduleOutput, ext string) bool {
 // in the custom-extension RUN block).
 func VerifyExtensionLoaded(version, ext string) error {
 	imageName := FPMImageName(version)
-	out, err := exec.Command(PodmanBin(), "run", "--rm", imageName, "php", "-m").CombinedOutput()
+	out, err := execCommand(PodmanBin(), "run", "--rm", imageName, "php", "-m").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("inspecting extensions in %s: %w\n%s", imageName, err, out)
 	}

@@ -181,6 +181,7 @@ var groupDispatch = map[string]map[string]handlerFn{
 		"remove":      execFrameworkRemove,
 		"search":      execFrameworkSearch,
 		"install":     execFrameworkInstall,
+		"prune":       func(a map[string]any) (any, *rpcError) { return execFrameworkPrune(a) },
 		"project_new": execProjectNew,
 		"setup":       execSetup,
 	},
@@ -444,12 +445,13 @@ func execTool() mcpTool {
 func frameworkTool() mcpTool {
 	return mcpTool{
 		Name:        "framework",
-		Description: "Framework definitions and scaffolding. action: list, add (name=laravel merges into built-in), remove, search (community store), install, project_new (scaffold), setup (run post-install steps — MANDATORY after env setup).",
+		Description: "Framework definitions and scaffolding. action: list, add (name=laravel merges into built-in), remove (force=true overrides in-use guard), prune (remove unused defs), search (store), install, project_new (scaffold), setup (post-install steps, MANDATORY after env setup).",
 		InputSchema: mcpSchema{
 			Type: "object",
 			Properties: map[string]mcpProp{
-				"action":              {Type: "string", Enum: []string{"list", "add", "remove", "search", "install", "project_new", "setup"}},
+				"action":              {Type: "string", Enum: []string{"list", "add", "remove", "prune", "search", "install", "project_new", "setup"}},
 				"name":                {Type: "string", Description: "add/remove/install: framework slug."},
+				"force":               {Type: "boolean", Description: "remove: delete even if a site uses it."},
 				"label":               {Type: "string", Description: "add: human-readable name."},
 				"public_dir":          {Type: "string", Description: "add: document root."},
 				"detect_files":        {Type: "array", Description: "add: filenames that signal this framework."},

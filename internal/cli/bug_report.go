@@ -186,12 +186,12 @@ func dumpConfigFiles(w io.Writer) {
 }
 
 func dumpRuntimes(w io.Writer) {
-	if out, err := exec.Command("podman", "--version").Output(); err == nil {
+	if out, err := podman.Cmd("--version").Output(); err == nil {
 		fmt.Fprintf(w, "podman:    %s", string(out))
 	} else {
 		fmt.Fprintln(w, "podman:    (not found)")
 	}
-	if out, err := exec.Command("podman", "info", "--format", "{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}").Output(); err == nil {
+	if out, err := podman.Cmd("info", "--format", "{{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}").Output(); err == nil {
 		fmt.Fprintf(w, "OCI:       %s", string(out))
 	}
 	if cfg, err := config.LoadGlobal(); err == nil {

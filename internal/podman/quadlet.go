@@ -124,7 +124,7 @@ func RemoveQuadlet(name string) error {
 // RemoveContainer removes a stopped Podman container by name, ignoring errors
 // if the container does not exist.
 func RemoveContainer(name string) {
-	_ = exec.Command(PodmanBin(), "rm", "-f", name).Run()
+	_ = execCommand(PodmanBin(), "rm", "-f", name).Run()
 }
 
 // AfterQuadletWriteFn, if non-nil, is called by WriteQuadletDiff after
@@ -318,22 +318,22 @@ func WaitReady(service string, timeout time.Duration) error {
 	case "mysql":
 		args := append([]string{"exec", unit}, mysqlReadyArgs...)
 		probe = func() bool {
-			return exec.Command(PodmanBin(), args...).Run() == nil
+			return execCommand(PodmanBin(), args...).Run() == nil
 		}
 	case "mariadb":
 		args := append([]string{"exec", unit}, mariadbReadyArgs...)
 		probe = func() bool {
-			return exec.Command(PodmanBin(), args...).Run() == nil
+			return execCommand(PodmanBin(), args...).Run() == nil
 		}
 	case "postgres":
 		probe = func() bool {
-			cmd := exec.Command(PodmanBin(), "exec", unit,
+			cmd := execCommand(PodmanBin(), "exec", unit,
 				"pg_isready", "-U", "postgres")
 			return cmd.Run() == nil
 		}
 	case "redis":
 		probe = func() bool {
-			cmd := exec.Command(PodmanBin(), "exec", unit,
+			cmd := execCommand(PodmanBin(), "exec", unit,
 				"redis-cli", "ping")
 			return cmd.Run() == nil
 		}

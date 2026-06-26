@@ -4,7 +4,6 @@ package cli
 
 import (
 	"io"
-	"os/exec"
 	"strings"
 
 	"github.com/geodro/lerd/internal/podman"
@@ -25,8 +24,8 @@ func ensureDNSImageForStart() {
 	// Build the dnsmasq image if it doesn't exist. Ignore errors — the image
 	// will be pulled/built during RunParallel if missing.
 	containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-	if exec.Command("podman", "image", "exists", "lerd-dnsmasq:local").Run() != nil {
-		cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+	if !podman.ImageExists("lerd-dnsmasq:local") {
+		cmd := podman.Cmd("build", "-t", "lerd-dnsmasq:local", "-")
 		cmd.Stdin = strings.NewReader(containerfile)
 		cmd.Run() //nolint:errcheck
 	}
@@ -38,7 +37,7 @@ func pullDNSImages() []BuildJob {
 		{
 			Label: "Pulling alpine:latest",
 			Run: func(w io.Writer) error {
-				cmd := exec.Command("podman", "pull", "docker.io/library/alpine:latest")
+				cmd := podman.Cmd("pull", "docker.io/library/alpine:latest")
 				cmd.Stdout = w
 				cmd.Stderr = w
 				return cmd.Run()
@@ -48,7 +47,7 @@ func pullDNSImages() []BuildJob {
 			Label: "Building dnsmasq image",
 			Run: func(w io.Writer) error {
 				containerfile := "FROM docker.io/library/alpine:latest\nRUN apk add --no-cache dnsmasq\n"
-				cmd := exec.Command("podman", "build", "-t", "lerd-dnsmasq:local", "-")
+				cmd := podman.Cmd("build", "-t", "lerd-dnsmasq:local", "-")
 				cmd.Stdin = strings.NewReader(containerfile)
 				cmd.Stdout = w
 				cmd.Stderr = w

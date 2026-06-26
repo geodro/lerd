@@ -46,13 +46,18 @@ After install, reload your shell or open a new terminal so `PATH` takes effect.
 
 `lerd install` will:
 
-1. Create XDG config and data directories
-2. Create the `lerd` Podman network
-3. Download static binaries: Composer, fnm, mkcert
-4. Install the mkcert CA into your system trust store
-5. Write and start the `lerd-dns` and `lerd-nginx` Podman Quadlet containers
-6. Enable the `lerd-watcher` background service (auto-discovers new projects)
-7. Add `~/.local/share/lerd/bin` to your shell's `PATH`
+1. Check that the host ports lerd binds first (HTTP 80, HTTPS 443, DNS 5300) are free
+2. Create XDG config and data directories
+3. Create the `lerd` Podman network
+4. Download static binaries: Composer, fnm, mkcert
+5. Install the mkcert CA into your system trust store
+6. Write and start the `lerd-dns` and `lerd-nginx` Podman Quadlet containers
+7. Enable the `lerd-watcher` background service (auto-discovers new projects)
+8. Add `~/.local/share/lerd/bin` to your shell's `PATH`
+
+::: info Running alongside Laravel Herd or another local stack
+If another tool is already serving sites on ports 80/443 (Laravel Herd, a system nginx/Apache) or holding the DNS port, install prints a warning naming each busy port and how to find the process. Install still continues, so stop the other stack to free the ports first, otherwise `lerd-nginx` and `lerd-dns` will fail to start.
+:::
 
 ---
 

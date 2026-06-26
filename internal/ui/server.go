@@ -4224,7 +4224,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pr, pw := io.Pipe()
-	cmd := exec.CommandContext(streamCtx, podman.PodmanBin(), "logs", "-f", "--tail", tail, container)
+	cmd := podman.CmdContext(streamCtx, "logs", "-f", "--tail", tail, container)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 

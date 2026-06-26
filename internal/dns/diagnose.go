@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/geodro/lerd/internal/config"
+	"github.com/geodro/lerd/internal/podman"
 )
 
 // StepStatus is the outcome of a single rung in the layered DNS check.
@@ -308,7 +309,7 @@ func defaultContainerRunning() bool {
 	if err == nil && strings.TrimSpace(string(out)) == "active" {
 		return true
 	}
-	cmd := exec.Command("podman", "ps", "--filter", "name=^lerd-dns$", "--format", "{{.Names}}")
+	cmd := podman.Cmd("ps", "--filter", "name=^lerd-dns$", "--format", "{{.Names}}")
 	out, err = cmd.Output()
 	return err == nil && strings.TrimSpace(string(out)) == "lerd-dns"
 }

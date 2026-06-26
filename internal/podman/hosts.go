@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -207,7 +206,7 @@ func ReadHostGatewayFromFile() string {
 // probeHostFromNginx returns true if lerd-nginx can open a TCP connection to
 // ip:port within 2 seconds. Uses busybox nc (-z = scan only, -w = timeout).
 func probeHostFromNginx(ip, port string) bool {
-	cmd := exec.Command(PodmanBin(), "exec", "lerd-nginx", "nc", "-z", "-w", "2", ip, port)
+	cmd := execCommand(PodmanBin(), "exec", "lerd-nginx", "nc", "-z", "-w", "2", ip, port)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	// Cap total wall time so a hung exec doesn't block lerd start.
@@ -233,7 +232,7 @@ func ContainerRunningQuiet(name string) bool {
 }
 
 func parseHostGatewayFromExec(container string) string {
-	out, err := exec.Command(PodmanBin(), "exec", container,
+	out, err := execCommand(PodmanBin(), "exec", container,
 		"getent", "hosts", "host.containers.internal").Output()
 	if err != nil {
 		return ""
@@ -242,7 +241,7 @@ func parseHostGatewayFromExec(container string) string {
 }
 
 func parseHostGatewayFromProbe() string {
-	out, err := exec.Command(PodmanBin(), "run", "--rm", "--network", "lerd",
+	out, err := execCommand(PodmanBin(), "run", "--rm", "--network", "lerd",
 		"docker.io/library/alpine", "getent", "hosts", "host.containers.internal").Output()
 	if err != nil {
 		return ""
@@ -263,7 +262,7 @@ func firstField(s string) string {
 // nginxContainerIP returns the IP address of lerd-nginx on the lerd Podman
 // network. Falls back to 127.0.0.1 if the container isn't running.
 func nginxContainerIP() string {
-	out, err := exec.Command(PodmanBin(), "inspect", "lerd-nginx",
+	out, err := execCommand(PodmanBin(), "inspect", "lerd-nginx",
 		"--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}").Output()
 	if err != nil {
 		return "127.0.0.1"

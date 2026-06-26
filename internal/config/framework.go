@@ -1447,7 +1447,12 @@ func ListFrameworkFiles(name string) []FrameworkFile {
 		files = append(files, FrameworkFile{Path: path, Version: version, Source: source})
 	}
 
-	add(filepath.Join(FrameworksDir(), name+".yaml"), SourceUser)
+	userDir := FrameworksDir()
+	add(filepath.Join(userDir, name+".yaml"), SourceUser)
+	userMatches, _ := filepath.Glob(filepath.Join(userDir, name+"@*.yaml"))
+	for _, m := range userMatches {
+		add(m, SourceUser)
+	}
 
 	storeDir := StoreFrameworksDir()
 	add(filepath.Join(storeDir, name+".yaml"), SourceStore)
@@ -1457,6 +1462,106 @@ func ListFrameworkFiles(name string) []FrameworkFile {
 	}
 
 	return files
+}
+
+// IsBuiltinFramework reports whether name is one of lerd's built-in frameworks
+// (laravel, symfony). Their definitions ship in the binary, so their store or
+// user files are overlays that prune and the unlink offer leave alone.
+func IsBuiltinFramework(name string) bool {
+	return builtinFramework(name) != nil
+}
+
+// SitesUsingFramework returns the names of active sites whose framework field
+// matches name. Ignored entries (parked directories that were unlinked) are not
+// served, so they do not count as usage. It is the basis for the remove
+// confirmation and prune.
+func SitesUsingFramework(name string) []string {
+	reg, err := LoadSites()
+	if err != nil || reg == nil {
+		return nil
+	}
+	var out []string
+	for _, s := range reg.Sites {
+		if s.Ignored {
+			continue
+		}
+		if s.Framework == name {
+			out = append(out, s.Name)
+		}
+	}
+	return out
+}
+
+// activeFrameworkSet returns the set of framework names referenced by at least
+// one active (non-ignored) site, loading the registry once.
+func activeFrameworkSet() map[string]bool {
+	set := make(map[string]bool)
+	reg, err := LoadSites()
+	if err != nil || reg == nil {
+		return set
+	}
+	for _, s := range reg.Sites {
+		if s.Ignored || s.Framework == "" {
+			continue
+		}
+		set[s.Framework] = true
+	}
+	return set
+}
+
+// UnusedInstalledFrameworks returns installed framework names that no active
+// site references, sorted. Built-in frameworks are never included.
+func UnusedInstalledFrameworks() []string {
+	inUse := activeFrameworkSet()
+	var out []string
+	for _, name := range InstalledFrameworkNames() {
+		if !inUse[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// RemoveFrameworks removes each named framework definition, returning the names
+// that were removed and the names that failed so callers can report accurately.
+func RemoveFrameworks(names []string) (removed, failed []string) {
+	for _, name := range names {
+		if err := RemoveFramework(name); err != nil {
+			failed = append(failed, name)
+			continue
+		}
+		removed = append(removed, name)
+	}
+	return removed, failed
+}
+
+// InstalledFrameworkNames returns the unique names of frameworks that have a
+// removable definition file on disk (user-defined or store-installed). Built-in
+// frameworks are excluded: their definitions live in the binary, so what is on
+// disk is only an overlay we never prune away.
+func InstalledFrameworkNames() []string {
+	seen := make(map[string]bool)
+	var names []string
+
+	collect := func(dir string) {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*.yaml"))
+		for _, m := range matches {
+			base := strings.TrimSuffix(filepath.Base(m), ".yaml")
+			if i := strings.IndexByte(base, '@'); i != -1 {
+				base = base[:i]
+			}
+			if base == "" || seen[base] || IsBuiltinFramework(base) {
+				continue
+			}
+			seen[base] = true
+			names = append(names, base)
+		}
+	}
+
+	collect(FrameworksDir())
+	collect(StoreFrameworksDir())
+	sort.Strings(names)
+	return names
 }
 
 // RemoveFrameworkFile removes a single framework definition file.

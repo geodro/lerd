@@ -20,6 +20,7 @@ Laravel has a built-in definition. Other frameworks (Symfony, WordPress, Drupal,
 | `lerd framework add <name>` | Add or update a user-defined framework definition |
 | `lerd framework remove <name>[@version]` | Remove a framework definition (prompts if multiple versions) |
 | `lerd framework remove <name> --all` | Remove all versions of a framework definition |
+| `lerd framework prune` | Remove installed definitions no site uses |
 
 ---
 
@@ -182,6 +183,21 @@ lerd framework remove symfony --all    # remove all versions
 ```
 
 When multiple versions of a framework are installed, `lerd framework remove` prompts you to choose which version to remove.
+
+If a linked site still uses the framework, `lerd framework remove` lists those sites and asks you to confirm before deleting it. Pass `--force` to skip that confirmation.
+
+### Pruning unused definitions
+
+Installed definitions accumulate over time as you try different frameworks. To clear out the ones no site references:
+
+```bash
+lerd framework prune          # lists unused definitions, then asks to confirm
+lerd framework prune --force  # removes them without confirming
+```
+
+Pruning only touches store-installed and user-defined definitions, never the built-in ones. It is safe to run: lerd re-fetches a definition from the store automatically the moment a site needs one that is no longer present locally, so a pruned framework comes back on its own if you need it again.
+
+When you `lerd unlink` the last site using a framework, lerd offers to remove that framework's definition right then, so you do not have to remember to prune it later. The offer only appears for removable definitions, never the built-in ones.
 
 ---
 

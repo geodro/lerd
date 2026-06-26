@@ -149,19 +149,19 @@ func recreateBrokenMachine(name string, running bool, targetMemoryMiB int64) {
 	feedback.Line("Podman Machine is missing the host home mount; recreating it (can't be repaired in place)…")
 	feedback.Note("No running containers are affected; a machine in this state can't start any.")
 	if running {
-		stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+		stopCmd := podman.Cmd("machine", "stop", name)
 		stopCmd.Stdout = os.Stdout
 		stopCmd.Stderr = os.Stderr
 		stopCmd.Run() //nolint:errcheck
 	}
-	rmCmd := exec.Command(podman.PodmanBin(), "machine", "rm", "-f", name)
+	rmCmd := podman.Cmd("machine", "rm", "-f", name)
 	rmCmd.Stdout = os.Stdout
 	rmCmd.Stderr = os.Stderr
 	if err := rmCmd.Run(); err != nil {
 		feedback.Warn("podman machine rm: %v", err)
 		return
 	}
-	initCmd := exec.Command(podman.PodmanBin(), machineInitArgs(name, targetMemoryMiB)...)
+	initCmd := podman.Cmd(machineInitArgs(name, targetMemoryMiB)...)
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
@@ -178,7 +178,7 @@ func recreateBrokenMachine(name string, running bool, targetMemoryMiB int64) {
 // failures from every command that follows.
 func ensurePodmanMachineRunning() error {
 	// machine list only exposes Name and Running; use inspect for Rootful.
-	listOut, _ := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
+	listOut, _ := podman.Cmd("machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
 
 	type machineInfo struct {
 		name    string
@@ -207,7 +207,7 @@ func ensurePodmanMachineRunning() error {
 
 		// Inspect to get Rootful status.
 		rootful := false
-		inspectOut, err := exec.Command(podman.PodmanBin(), "machine", "inspect", "--format", "{{.Rootful}}", name).Output()
+		inspectOut, err := podman.Cmd("machine", "inspect", "--format", "{{.Rootful}}", name).Output()
 		if err == nil {
 			rootful = strings.TrimSpace(string(inspectOut)) == "true"
 		}
@@ -236,7 +236,7 @@ func ensurePodmanMachineRunning() error {
 		cfg, _ := config.LoadGlobal()
 		execMode := cfg != nil && cfg.WorkerExecMode() != config.WorkerExecModeContainer
 		targetMemoryMiB := recommendedVMMemoryMiB(hostMemoryGiB(), execMode)
-		cmd := exec.Command(podman.PodmanBin(), machineInitArgs("", targetMemoryMiB)...)
+		cmd := podman.Cmd(machineInitArgs("", targetMemoryMiB)...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -262,7 +262,7 @@ func ensurePodmanMachineRunning() error {
 		} else {
 			needsRootful := !m.rootful
 			needsMemory := false
-			if inspectMem, err := exec.Command(podman.PodmanBin(), "machine", "inspect",
+			if inspectMem, err := podman.Cmd("machine", "inspect",
 				"--format", "{{.Resources.Memory}}", m.name).Output(); err == nil {
 				if memMiB, parseErr := strconv.ParseInt(strings.TrimSpace(string(inspectMem)), 10, 64); parseErr == nil && memMiB > 0 {
 					if memMiB < targetMemoryMiB {
@@ -282,14 +282,14 @@ func ensurePodmanMachineRunning() error {
 					}
 					reason := strings.Join(parts, " and ")
 					feedback.Line(fmt.Sprintf("Stopping Podman Machine to %s…", reason))
-					stopCmd := exec.Command(podman.PodmanBin(), "machine", "stop", m.name)
+					stopCmd := podman.Cmd("machine", "stop", m.name)
 					stopCmd.Stdout = os.Stdout
 					stopCmd.Stderr = os.Stderr
 					stopCmd.Run() //nolint:errcheck
 				}
 				if needsRootful {
 					feedback.Line("Enabling rootful mode for Podman Machine (required for ports 80/443)…")
-					setCmd := exec.Command(podman.PodmanBin(), "machine", "set", "--rootful", m.name)
+					setCmd := podman.Cmd("machine", "set", "--rootful", m.name)
 					setCmd.Stdout = os.Stdout
 					setCmd.Stderr = os.Stderr
 					if err := setCmd.Run(); err != nil {
@@ -303,7 +303,7 @@ func ensurePodmanMachineRunning() error {
 					} else {
 						feedback.Line(fmt.Sprintf("Setting Podman Machine memory to %d MB…", targetMemoryMiB))
 					}
-					setCmd := exec.Command(podman.PodmanBin(), "machine", "set",
+					setCmd := podman.Cmd("machine", "set",
 						"--memory", strconv.FormatInt(targetMemoryMiB, 10), m.name)
 					setCmd.Stdout = os.Stdout
 					setCmd.Stderr = os.Stderr
@@ -332,7 +332,7 @@ func ensurePodmanMachineRunning() error {
 	fmt.Printf(" %s %s", feedback.Dim("→"), feedback.Dim("Waiting for Podman Machine to be ready…"))
 	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := exec.Command(podman.PodmanBin(), "ps", "-q").Run(); err == nil {
+		if err := podman.Cmd("ps", "-q").Run(); err == nil {
 			time.Sleep(3 * time.Second) // grace period before container ops
 			fmt.Println(" " + feedback.Green("ready"))
 			return nil
@@ -352,7 +352,7 @@ func ensurePodmanMachineRunning() error {
 // podman command cascade into confusing "exit status 125" errors.
 func startPodmanMachineWithRetry() error {
 	run := func() error {
-		cmd := exec.Command(podman.PodmanBin(), "machine", "start")
+		cmd := podman.Cmd("machine", "start")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -384,7 +384,7 @@ func startPodmanMachineWithRetry() error {
 // stopPodmanMachine stops the running Podman Machine VM. Called by runQuit so
 // the VM is cleanly shut down when the user quits Lerd entirely.
 func stopPodmanMachine() {
-	out, err := exec.Command(podman.PodmanBin(), "machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
+	out, err := podman.Cmd("machine", "list", "--format", "{{.Name}}\t{{.Running}}").Output()
 	if err != nil {
 		return
 	}
@@ -398,7 +398,7 @@ func stopPodmanMachine() {
 		}
 		name := strings.TrimSuffix(fields[0], "*")
 		feedback.Line(fmt.Sprintf("Stopping Podman Machine (%s)…", name))
-		cmd := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+		cmd := podman.Cmd("machine", "stop", name)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

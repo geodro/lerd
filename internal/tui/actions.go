@@ -31,7 +31,7 @@ func runShellIn(container, workDir string) tea.Cmd {
 		args = append(args, "-w", workDir)
 	}
 	args = append(args, container, "sh", "-c", podman.InteractiveShellScript())
-	cmd := exec.Command(podman.PodmanBin(), args...)
+	cmd := podman.Cmd(args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

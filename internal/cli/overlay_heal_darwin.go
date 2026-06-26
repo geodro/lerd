@@ -4,7 +4,6 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 
 	"github.com/geodro/lerd/internal/feedback"
 	"github.com/geodro/lerd/internal/podman"
@@ -38,7 +37,7 @@ func restartPodmanMachineForHeal() {
 		return
 	}
 	feedback.Line("Container storage looks stale after an unclean shutdown; restarting the Podman Machine to remount it…")
-	stop := exec.Command(podman.PodmanBin(), "machine", "stop", name)
+	stop := podman.Cmd("machine", "stop", name)
 	stop.Stdout = os.Stdout
 	stop.Stderr = os.Stderr
 	if err := stop.Run(); err != nil {

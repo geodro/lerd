@@ -68,11 +68,11 @@ func HostHasUsableIPv6() bool {
 // both v4 and v6 subnets, returns the v4 gateway (which most callers expect
 // for backwards compatibility).
 func NetworkGateway(name string) string {
-	out, err := exec.Command(PodmanBin(), "network", "inspect", name,
+	out, err := execCommand(PodmanBin(), "network", "inspect", name,
 		"--format", "{{range .Subnets}}{{if (.Gateway).To4}}{{.Gateway}}{{end}}{{end}}").Output()
 	if err != nil || strings.TrimSpace(string(out)) == "" {
 		// Fallback for older podman that doesn't expose .To4 in the template.
-		out, err = exec.Command(PodmanBin(), "network", "inspect", name,
+		out, err = execCommand(PodmanBin(), "network", "inspect", name,
 			"--format", "{{range .Subnets}}{{.Gateway}} {{end}}").Output()
 		if err != nil {
 			return "127.0.0.1"
@@ -90,7 +90,7 @@ func NetworkGateway(name string) string {
 // NetworkHasIPv6 reports whether the named podman network has at least one
 // IPv6 subnet configured.
 func NetworkHasIPv6(name string) bool {
-	out, err := exec.Command(PodmanBin(), "network", "inspect", name,
+	out, err := execCommand(PodmanBin(), "network", "inspect", name,
 		"--format", "{{range .Subnets}}{{.Subnet}} {{end}}").Output()
 	if err != nil {
 		return false
@@ -262,7 +262,7 @@ const probeNetworkIPv6Timeout = 30 * time.Second
 func probeNetworkIPv6(name string) (ok, timedOut bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeNetworkIPv6Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, PodmanBin(), "run", "--rm", "--network", name,
+	cmd := execCommandContext(ctx, PodmanBin(), "run", "--rm", "--network", name,
 		"--pull", "never", "alpine:latest", "true")
 	out, err := cmd.CombinedOutput()
 	if err == nil {

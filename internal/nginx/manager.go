@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -770,7 +769,7 @@ func reloadWithRetry(reload func() error, timeout time.Duration) error {
 func Test() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, podman.PodmanBin(), "exec", "lerd-nginx", "nginx", "-t")
+	cmd := podman.CmdContext(ctx, "exec", "lerd-nginx", "nginx", "-t")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

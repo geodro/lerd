@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -142,7 +141,7 @@ func buildFrankenPHPImage(version string, force bool, customExts, packages []str
 		return fmt.Errorf("hashing FrankenPHP Containerfile: %w", err)
 	}
 	if !force {
-		if exec.Command(PodmanBin(), "image", "exists", imageName).Run() == nil &&
+		if execCommand(PodmanBin(), "image", "exists", imageName).Run() == nil &&
 			imageLabelFn(imageName, frankenPHPContainerfileHashLabel) == hash {
 			return nil // image exists and is current
 		}
@@ -178,7 +177,7 @@ func buildFrankenPHPImage(version string, force bool, customExts, packages []str
 		args = append(args, "--no-cache")
 	}
 	args = append(args, "-f", cfPath, tmp)
-	cmd := exec.Command(PodmanBin(), args...)
+	cmd := execCommand(PodmanBin(), args...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

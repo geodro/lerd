@@ -130,7 +130,7 @@ func (t *logTail) run(ctx context.Context, target LogTarget, ch chan<- string) {
 		// the same scrollback as the podman/journal variants.
 		cmd = exec.CommandContext(ctx, "tail", "-n", "200", "-F", target.ID)
 	default:
-		cmd = exec.CommandContext(ctx, podman.PodmanBin(), "logs", "-f", "--tail", "200", target.ID)
+		cmd = podman.CmdContext(ctx, "logs", "-f", "--tail", "200", target.ID)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

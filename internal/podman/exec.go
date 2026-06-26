@@ -2,6 +2,7 @@ package podman
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,14 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// execCommand and execCommandContext are the single seam every podman
+// invocation in this package is built on. Tests override them to fake the
+// shell-out; the no-direct-exec guard keeps callers outside from bypassing it.
+var (
+	execCommand        = exec.Command
+	execCommandContext = exec.CommandContext
+)
+
 // ShellQuote single-quotes s so it is safe as one argument inside an
 // `sh -c` command string. Embedded single quotes are closed, escaped, reopened.
 func ShellQuote(s string) string {
@@ -20,6 +29,7 @@ func ShellQuote(s string) string {
 
 // PodmanBin returns the full path to the podman binary. On macOS it searches
 // well-known Homebrew locations when PATH is restricted (e.g. launchd services).
+// Resolved fresh each call: tests override PATH per-case to force a fake binary.
 func PodmanBin() string {
 	if p, err := exec.LookPath("podman"); err == nil {
 		return p
@@ -38,12 +48,18 @@ func PodmanBin() string {
 // Cmd returns an exec.Cmd for podman with the given arguments, using PodmanBin()
 // so the binary is found even under launchd's restricted PATH.
 func Cmd(args ...string) *exec.Cmd {
-	return exec.Command(PodmanBin(), args...)
+	return execCommand(PodmanBin(), args...)
+}
+
+// CmdContext is Cmd bound to a context, for callers that stream output or need
+// cancellation (log tailing, nginx -t with a timeout, container migration).
+func CmdContext(ctx context.Context, args ...string) *exec.Cmd {
+	return execCommandContext(ctx, PodmanBin(), args...)
 }
 
 // Run executes podman with the given arguments and returns stdout.
 func Run(args ...string) (string, error) {
-	cmd := exec.Command(PodmanBin(), args...)
+	cmd := execCommand(PodmanBin(), args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -99,15 +115,22 @@ func pullArgs(image string) []string {
 	return append(args, image)
 }
 
-// PullImageTo pulls the named image, writing progress output to w.
-func PullImageTo(image string, w io.Writer) error {
-	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
-	cmd.Stdout = w
-	cmd.Stderr = w
+// runPull builds and runs `podman pull image`, sending podman's stdout and
+// stderr to the given writers so the three entry points share one error-wrap
+// and one platform-aware argv (pullArgs).
+func runPull(image string, stdout, stderr io.Writer) error {
+	cmd := Cmd(pullArgs(image)...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("pulling %s: %w", image, err)
 	}
 	return nil
+}
+
+// PullImageTo pulls the named image, writing progress output to w.
+func PullImageTo(image string, w io.Writer) error {
+	return runPull(image, w, w)
 }
 
 // PullImageWithProgress pulls the named image and invokes onLine for each
@@ -116,12 +139,9 @@ func PullImageWithProgress(image string, onLine func(string)) error {
 	if onLine == nil {
 		return PullImageIfMissing(image)
 	}
-	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
 	w := &lineWriter{onLine: onLine}
-	cmd.Stdout = w
-	cmd.Stderr = w
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pulling %s: %w", image, err)
+	if err := runPull(image, w, w); err != nil {
+		return err
 	}
 	w.flush()
 	return nil
@@ -164,13 +184,7 @@ func PullImageIfMissing(image string) error {
 	if ImageExists(image) {
 		return nil
 	}
-	cmd := exec.Command(PodmanBin(), pullArgs(image)...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pulling %s: %w", image, err)
-	}
-	return nil
+	return runPull(image, os.Stdout, os.Stderr)
 }
 
 // ServiceImage returns the OCI image name embedded in a named quadlet template.

@@ -130,7 +130,7 @@ func containerExec(container, shellCmd string, envPairs []string, stdin *os.File
 		args = append(args, "--env", kv)
 	}
 	args = append(args, container, "sh", "-c", shellCmd)
-	cmd := exec.CommandContext(ctx, podman.PodmanBin(), args...)
+	cmd := podman.CmdContext(ctx, args...)
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}
@@ -153,7 +153,7 @@ func dumpToHost(container, shellCmd string, envPairs []string, hostPath string, 
 		args = append(args, "--env", kv)
 	}
 	args = append(args, container, "sh", "-c", shellCmd)
-	cmd := exec.CommandContext(ctx, podman.PodmanBin(), args...)
+	cmd := podman.CmdContext(ctx, args...)
 	if err := runStreaming(cmd, out); err != nil {
 		return fmt.Errorf("dump command failed: %w", err)
 	}
@@ -187,7 +187,7 @@ func restoreFromHost(container, shellCmd string, envPairs []string, hostPath str
 		args = append(args, "--env", kv)
 	}
 	args = append(args, container, "sh", "-c", shellCmd)
-	cmd := exec.CommandContext(ctx, podman.PodmanBin(), args...)
+	cmd := podman.CmdContext(ctx, args...)
 	cmd.Stdin = in
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -3,7 +3,6 @@ package podman
 import (
 	"embed"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -166,7 +165,7 @@ func InjectExtraVolumes(content string, paths []string) string {
 
 // OCIRuntime returns the name of the OCI runtime podman is currently configured to use.
 func OCIRuntime() string {
-	out, err := exec.Command(PodmanBin(), "info", "--format", "{{.Host.OCIRuntime.Name}}").Output()
+	out, err := execCommand(PodmanBin(), "info", "--format", "{{.Host.OCIRuntime.Name}}").Output()
 	if err != nil {
 		return ""
 	}
