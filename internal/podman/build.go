@@ -299,6 +299,21 @@ func baseContainerfileHash() (string, error) {
 	return fmt.Sprintf("%x", sum)[:12], nil
 }
 
+// basePullArgs builds the `podman pull` args for a base image ref. It uses no
+// --policy flag: `podman pull` already defaults to the "always" policy, so the
+// flag was pure redundancy, and worse, `podman pull --policy` only exists on
+// recent podman (absent on 5.4 and every 4.x), where it was rejected as an
+// unknown flag and silently forced a full local build. authFile is the
+// anonymous authfile path, omitted when empty. Extracted for test cover.
+func basePullArgs(ref, authFile string) []string {
+	args := []string{"pull"}
+	args = append(args, PlatformPullArgs(ref)...)
+	if authFile != "" {
+		args = append(args, "--authfile="+authFile)
+	}
+	return append(args, ref)
+}
+
 // tryPullBaseImage attempts to pull the pre-built base image from ghcr.io.
 // Returns the image reference on success, or "" if unavailable.
 func tryPullBaseImage(version string, w io.Writer) string {
@@ -314,32 +329,61 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	// expired or mismatched credentials would otherwise cause a 401 for this
 	// public image and force a slow local build.
 	tmpAuth, err := os.CreateTemp("", "lerd-auth-*.json")
+	authFile := ""
 	if err == nil {
 		tmpAuth.WriteString("{}")
 		tmpAuth.Close()
+		authFile = tmpAuth.Name()
 		defer os.Remove(tmpAuth.Name())
 	}
 
 	// Try each registry in order (old org first, new org fallback) so a binary
 	// keeps pulling across the org move without a rebuild.
+	var lastErr string
 	for _, ref := range origin.BaseImageRefs(short, hash) {
-		args := []string{"pull", "--policy=always"}
-		args = append(args, PlatformPullArgs(ref)...)
-		if tmpAuth != nil {
-			args = append(args, "--authfile="+tmpAuth.Name())
-		}
-		args = append(args, ref)
-
-		cmd := execCommand(PodmanBin(), args...)
+		cmd := execCommand(PodmanBin(), basePullArgs(ref, authFile)...)
 		cmd.Stdout = w
-		cmd.Stderr = io.Discard
+		// Capture stderr instead of discarding it: a swallowed pull failure
+		// (a 404, a network or storage error) used to surface only as a
+		// confusing full local build with no reason given.
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
 		if err := cmd.Run(); err == nil {
 			origin.NoteFetched(ref)
 			return ref
+		} else if s := strings.TrimSpace(stderr.String()); s != "" {
+			lastErr = pullErrLine(s)
 		}
 	}
-	fmt.Fprintf(w, "  Pre-built image unavailable, falling back to local build (may take a few minutes)...\n")
+	if lastErr != "" {
+		fmt.Fprintf(w, "  Pre-built image unavailable (%s), falling back to local build (may take a few minutes)...\n", lastErr)
+	} else {
+		fmt.Fprintf(w, "  Pre-built image unavailable, falling back to local build (may take a few minutes)...\n")
+	}
 	return ""
+}
+
+// pullErrLine extracts the most informative line of a podman pull failure: the
+// last line beginning with "Error" (podman's actual reason) when present,
+// otherwise the last non-empty line. Podman prints the reason on an "Error:"
+// line and follows it with a "See 'podman ... --help'" hint, so picking the
+// trailing line alone would surface the hint instead of the cause.
+func pullErrLine(s string) string {
+	var last, errLine string
+	for _, ln := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		last = t
+		if strings.HasPrefix(t, "Error") {
+			errLine = t
+		}
+	}
+	if errLine != "" {
+		return errLine
+	}
+	return last
 }
 
 func buildFPMImage(version string, force, local bool, customExts []string, extDeps map[string][]string, packages []string, w io.Writer) error {

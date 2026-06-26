@@ -7,6 +7,26 @@ Lerd uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.26.2] - 2026-06-26
+
+A follow-up to 1.26.1 that completes the prebuilt-base pull fix for every podman version.
+
+### Fixed
+
+- **Prebuilt PHP base images are pulled on all podman versions** (#638). 1.26.1 gated the base pull's `--policy=always` flag behind podman 5.0, but `podman pull --policy` actually landed later (it is absent on 5.4 and every 4.x), so podman 5.0 through 5.4 still rejected the flag and fell back to a full local build. The flag is dropped entirely, `podman pull` already defaults to the `always` policy so it was redundant, and the real pull error line is surfaced when a pull genuinely fails.
+
+## [1.26.1] - 2026-06-26
+
+A patch release fixing a silent fallback that made most Linux hosts rebuild every PHP image from source, alongside cherry-picked fixes for macOS LAN exposure, setup feedback, and host-worker reporting.
+
+### Fixed
+
+- **Prebuilt PHP base images are pulled on podman below 5.0 instead of silently building from source** (#638). lerd pulled the base with `podman pull --policy=always`, but `--policy` only exists on podman 5.0+, so on Ubuntu 24.04 (4.9.3), 22.04 (3.4.4) and Debian 12 (4.3.1) the flag was rejected; the pull's stderr was discarded, so the failure was invisible and lerd quietly fell back to the full local build even when a matching prebuilt base was published. The flag is now gated behind a podman 5.0 check and the pull error surfaces in the fallback message.
+- **`lerd setup` reports npm and bun build failures instead of killing the process** (#622). A failed install returns through the feedback step rather than calling `os.Exit`, so the failure shows in context.
+- **Host workers whose dependencies aren't installed surface a remedy instead of dropping silently** (#616), and `lerd update`'s service restarts route through the feedback layer, warning rather than erroring when a best-effort restart doesn't take.
+- **macOS LAN exposure keeps published ports and no longer double-binds the DNS forwarder** (#618, #619). Bind-all IPv6 publish lines are rewritten to `0.0.0.0` rather than dropped so `lan.exposed` containers keep their ports, and the LAN DNS forwarder is skipped where the host dnsmasq already binds the LAN address.
+- **Docs: the host database override example uses `host.containers.internal`** (#626).
+
 ## [1.26.0] - 2026-06-24
 
 This release brings lerd's one-line installer to macOS, rebuilds the dashboard's editors on Monaco with a real PHP language server behind Tinker, reshapes the terminal UI into a clickable tabbed dashboard, and gives the whole CLI a styled feedback layer. The same `curl … | install.sh` one-liner that installs on Linux now installs on macOS, and `lerd update` self-updates there too. Every in-browser editor moves from CodeMirror to Monaco, and Tinker's autocomplete, diagnostics, hover, quick fixes and formatting now come from phpantom_lsp analysing the real project rather than static lists, with each statement's executed SQL captured inline and results tagged to the line that produced them. `lerd tui` becomes a mouse-driven, tabbed Dashboard/Sites/Services interface that mirrors the web UI, and the CLI routes through a shared feedback palette with spinners, aligned summaries, responsive tables and a unified error style that all degrade to plain text when piped. Linking is smarter, an unlinked project is offered the init wizard rather than dead-ending and non-PHP projects are handled, DNS gains pinnable upstream servers and heals across host network changes, postgres-timescaledb joins the presets, and the website moves to its lerd.sh home with a rebuilt landing page. Alongside the features, a focused security pass closes name-injection, root-write and websocket-rebinding holes, and DNS healing, TLS cert swaps, podman startup and MCP output get hardened.

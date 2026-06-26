@@ -4,11 +4,39 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/geodro/lerd/internal/config"
 )
+
+func TestBasePullArgs(t *testing.T) {
+	ref := "ghcr.io/geodro/lerd-php85-fpm-base:abc123def456"
+
+	args := basePullArgs(ref, "/tmp/auth.json")
+	if args[0] != "pull" {
+		t.Errorf("first arg must be pull, got %v", args)
+	}
+	// --policy is never passed: it's redundant (pull defaults to "always") and
+	// absent on podman 5.4 and every 4.x, where it was rejected as an unknown flag.
+	if slices.Contains(args, "--policy=always") {
+		t.Errorf("basePullArgs must not pass --policy, got %v", args)
+	}
+	if !slices.Contains(args, "--authfile=/tmp/auth.json") {
+		t.Errorf("must include the authfile, got %v", args)
+	}
+	if args[len(args)-1] != ref {
+		t.Errorf("ref must be the last arg, got %v", args)
+	}
+
+	noAuth := basePullArgs(ref, "")
+	for _, a := range noAuth {
+		if strings.HasPrefix(a, "--authfile=") {
+			t.Errorf("empty authFile must omit --authfile, got %v", noAuth)
+		}
+	}
+}
 
 func TestBuildCustomExtBlock_Empty(t *testing.T) {
 	if got := buildCustomExtBlock(nil, nil); got != "" {
