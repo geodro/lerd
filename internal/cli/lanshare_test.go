@@ -610,6 +610,60 @@ func mustExtractPort(t *testing.T, rawURL string) int {
 	return p
 }
 
+func TestLANShareProxy_rewritesHTTPSLocationRedirects(t *testing.T) {
+	// Upstream stands in for nginx/the app. It builds a redirect Location from
+	// the path: /to-domain uses the origin domain, /to-lanhost uses the
+	// forwarded LAN host with a forced https scheme (the case Laravel hits when
+	// it honors X-Forwarded-Host but forces https from APP_URL).
+	const domain = "laravel.test"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var loc string
+		switch r.URL.Path {
+		case "/to-domain":
+			loc = "https://" + domain + "/dashboard"
+		case "/to-lanhost":
+			loc = "https://" + r.Header.Get("X-Forwarded-Host") + "/dashboard"
+		}
+		w.Header().Set("Location", loc)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	upstreamPort := mustExtractPort(t, upstream.URL)
+
+	// Reserve a free port for the proxy, then hand it to startLANShareProxy.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("probe listen: %v", err)
+	}
+	proxyPort := probe.Addr().(*net.TCPAddr).Port
+	probe.Close()
+
+	srv, err := startLANShareProxy(domain, proxyPort, upstreamPort, 0, false)
+	if err != nil {
+		t.Fatalf("startLANShareProxy: %v", err)
+	}
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	lanHost := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	wantLoc := "http://" + lanHost + "/dashboard"
+
+	for _, path := range []string{"/to-domain", "/to-lanhost"} {
+		t.Run(path, func(t *testing.T) {
+			resp, err := client.Get("http://" + lanHost + path)
+			if err != nil {
+				t.Fatalf("GET %s: %v", path, err)
+			}
+			resp.Body.Close()
+			if got := resp.Header.Get("Location"); got != wantLoc {
+				t.Errorf("Location = %q, want %q", got, wantLoc)
+			}
+		})
+	}
+}
+
 func TestRewriteLANShareBody_fixesLANIPWithWrongPort(t *testing.T) {
 	// Laravel/Symfony can emit URLs with the LAN IP but SERVER_PORT (443 from
 	// the nginx HTTPS vhost) when X-Forwarded-Port isn't honored — those must

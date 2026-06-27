@@ -452,10 +452,14 @@ func startLANShareProxy(domain string, port, httpPort, httpsPort int, secured bo
 		}
 
 		// Rewrite Location headers: replace both http:// and https:// variants
-		// of the origin domain with the plain-HTTP LAN address.
+		// of the origin domain with the plain-HTTP LAN address. The third pass
+		// collapses https://<lanHost> redirects the app emitted itself (it
+		// honored X-Forwarded-Host but forced an https scheme) so the browser
+		// doesn't TLS-handshake the plain-HTTP proxy (ERR_SSL_PROTOCOL_ERROR).
 		if loc := resp.Header.Get("Location"); loc != "" {
 			loc = strings.ReplaceAll(loc, "https://"+domain, scheme+"://"+lanHost)
 			loc = strings.ReplaceAll(loc, "http://"+domain, scheme+"://"+lanHost)
+			loc = strings.ReplaceAll(loc, "https://"+lanHost, scheme+"://"+lanHost)
 			resp.Header.Set("Location", loc)
 		}
 
