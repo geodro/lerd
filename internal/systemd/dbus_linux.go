@@ -101,7 +101,7 @@ func dbusUnitOp(op, verb, name string) error {
 		return fmt.Errorf("%s %s failed: %w", verb, name, err)
 	}
 	if result != "done" {
-		return fmt.Errorf("%s %s failed: %s", verb, name, result)
+		return fmt.Errorf("%s %s failed: %s%s", verb, name, result, unitFailureDetail(conn, name))
 	}
 	return nil
 }

@@ -313,14 +313,22 @@ func (s *Step) OK(result string) { s.finish(paint(okStyle, "✓"), result) }
 // Info collapses the step with a plain result and no mark.
 func (s *Step) Info(result string) { s.finish("", result) }
 
+// failText is the message rendered next to a ✗. A cross must never appear
+// without a reason, so a nil or empty-string error falls back to a placeholder
+// instead of leaving the user staring at a bare red mark.
+func failText(err error) string {
+	if err != nil {
+		if msg := err.Error(); msg != "" {
+			return msg
+		}
+	}
+	return "failed (no error detail reported)"
+}
+
 // Fail collapses the step with a red cross and the error text.
 func (s *Step) Fail(err error) {
 	markReported(err)
-	msg := ""
-	if err != nil {
-		msg = err.Error()
-	}
-	s.finish(paint(failStyle, "✗"), paint(failStyle, msg))
+	s.finish(paint(failStyle, "✗"), paint(failStyle, failText(err)))
 }
 
 // Warn collapses the step with an amber warning glyph and message, for a
@@ -354,7 +362,7 @@ func FailOn(w io.Writer, err error) {
 	on := colorEnabledFor(w)
 	mu.Lock()
 	defer mu.Unlock()
-	fmt.Fprintf(w, "\n%s%s %s\n\n", pad, paintIf(on, failStyle, GlyphFail), paintIf(on, failStyle, err.Error()))
+	fmt.Fprintf(w, "\n%s%s %s\n\n", pad, paintIf(on, failStyle, GlyphFail), paintIf(on, failStyle, failText(err)))
 }
 
 // Line prints a standalone step (arrow prefix, no trailing ellipsis) for an
@@ -832,10 +840,7 @@ func (l *Live) Fail(err error) {
 	if l.animated {
 		fmt.Fprint(target(), "\r\033[2K")
 	}
-	msg := ""
-	if err != nil {
-		msg = err.Error()
-	}
+	msg := failText(err)
 	// A live line fails the whole operation, so give the cross some breathing
 	// room with a blank line above and below, matching the top-level handler.
 	fmt.Fprintf(target(), "\n%s%s %s\n\n", pad, paint(failStyle, "✗"), paint(failStyle, msg))

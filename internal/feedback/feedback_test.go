@@ -355,3 +355,38 @@ func TestStartLive_TracksActiveAcrossNesting(t *testing.T) {
 		t.Fatal("outer Fail did not restore the baseline active line")
 	}
 }
+
+func TestFailTextNeverEmpty(t *testing.T) {
+	if got := failText(nil); got == "" {
+		t.Error("failText(nil) must not be empty — a ✗ needs a reason")
+	}
+	if got := failText(errors.New("")); got == "" {
+		t.Error("failText of an empty-message error must not be empty")
+	}
+	if got := failText(errors.New("boom")); got != "boom" {
+		t.Errorf("failText = %q, want %q", got, "boom")
+	}
+}
+
+// End-to-end: every ✗-rendering path must route through failText so a cross is
+// never drawn without a reason, even when handed a nil or empty error.
+func TestFailPathsAlwaysShowReason(t *testing.T) {
+	render := func(run func()) string {
+		var buf bytes.Buffer
+		restore := SetTestWriter(&buf)
+		run()
+		restore()
+		return buf.String()
+	}
+	cases := map[string]func(){
+		"Step.Fail(nil)":      func() { Start("starting lerd-dns").Fail(nil) },
+		"Step.Fail(emptyErr)": func() { Start("starting lerd-redis").Fail(errors.New("")) },
+		"Live.Fail(nil)":      func() { StartLive("pulling image").Fail(nil) },
+	}
+	for name, run := range cases {
+		out := render(run)
+		if !strings.Contains(out, "✗") || !strings.Contains(out, "no error detail") {
+			t.Errorf("%s drew a ✗ without a reason: %q", name, out)
+		}
+	}
+}
