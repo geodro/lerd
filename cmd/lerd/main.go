@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"bytes"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/geodro/lerd/internal/activityping"
 	"github.com/geodro/lerd/internal/certs"
+	"github.com/geodro/lerd/internal/cleanup"
 	"github.com/geodro/lerd/internal/cli"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
@@ -58,6 +60,12 @@ func main() {
 	// publish; in the CLI/MCP processes we HTTP-POST to the dashboard.
 	podman.AfterUnitChange = notifyLerdUI
 
+	// A PHP image (re)build orphans the previous image. Flag it here and reclaim
+	// once when the command finishes, so a multi-version install/update coalesces
+	// into a single safe-tier sweep instead of one per built version.
+	var imageRebuilt atomic.Bool
+	podman.OnImageRebuilt = func() { imageRebuilt.Store(true) }
+
 	root := &cobra.Command{
 		Use:     "lerd",
 		Short:   "Lerd — Podman-powered local PHP dev environment for Linux and macOS",
@@ -76,6 +84,13 @@ func main() {
 			cmd.SilenceUsage = true
 			return nil
 		},
+		// After any command that rebuilt a PHP image, reclaim the now-orphaned
+		// image (safe tier, gated by auto_cleanup). Runs once per command.
+		PersistentPostRun: func(_ *cobra.Command, _ []string) {
+			if imageRebuilt.Load() {
+				cleanup.SweepSafe()
+			}
+		},
 	}
 
 	// Register all subcommands
@@ -85,6 +100,7 @@ func main() {
 	root.AddCommand(cli.NewQuitCmd())
 	root.AddCommand(cli.NewUpdateCmd(version.Version))
 	root.AddCommand(cli.NewUninstallCmd())
+	root.AddCommand(cli.NewCleanupCmd())
 	root.AddCommand(cli.NewParkCmd())
 	root.AddCommand(cli.NewInitCmd())
 	root.AddCommand(cli.NewLinkCmd())
@@ -495,6 +511,11 @@ func newWatchCmd() *cobra.Command {
 			// under launchd that can be left orphaned by an interrupted
 			// migration or sleep/wake bridge churn. No-op on Linux.
 			go watcher.WatchExecWorkers(60 * time.Second)
+
+			// Reclaim orphaned lerd images (safe tier) on a slow daily cadence,
+			// so rebuild leftovers and stale base images don't pile up. Gated by
+			// the auto_cleanup config; never touches service images (--deep).
+			go watcher.WatchCleanup(time.Hour)
 
 			// Idle-suspend: suspends/resumes workers by activity. The whole session,
 			// including the source-file watcher passed here, only runs while the

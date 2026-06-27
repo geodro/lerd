@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geodro/lerd/internal/cleanup"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/registry"
@@ -154,6 +155,11 @@ func UpdateServiceStreaming(name, targetImage string, emit func(PhaseEvent)) err
 	unlock := lockService(name)
 	defer unlock()
 
+	// The image currently held as the rollback target becomes unreferenced once
+	// this update sets PreviousImage to the outgoing current. Capture it now so
+	// we can reclaim exactly that superseded image afterwards.
+	_, superseded := serviceImageRefs(name)
+
 	emit(PhaseEvent{Phase: "checking_registry"})
 	chosenImage := targetImage
 	if chosenImage == "" {
@@ -188,7 +194,32 @@ func UpdateServiceStreaming(name, targetImage string, emit func(PhaseEvent)) err
 		return err
 	}
 	emit(PhaseEvent{Phase: "done", Image: chosenImage, Unit: unit})
+	// Reclaim exactly the image this update superseded (the old rollback target),
+	// not the whole repo, so a user's own same-repo image is never touched. The
+	// protected set still guards against removing an image another service holds.
+	cleanup.SweepRefs(superseded)
 	return nil
+}
+
+// serviceImageRefs returns the image refs lerd records for a service: its
+// current image and the one-back rollback target. For a default preset the
+// current image lives in the installed quadlet (config may leave it empty), so
+// that is preferred; for a custom service both come from its config.
+func serviceImageRefs(name string) (current, previous string) {
+	if config.IsDefaultPreset(name) {
+		if cfg, err := config.LoadGlobal(); err == nil {
+			s := cfg.Services[name]
+			current, previous = s.Image, s.PreviousImage
+		}
+		if img := podman.InstalledImage("lerd-" + name); img != "" {
+			current = img
+		}
+		return current, previous
+	}
+	if svc, err := config.LoadCustomService(name); err == nil && svc != nil {
+		return svc.Image, svc.PreviousImage
+	}
+	return current, previous
 }
 
 // restartWithRetry handles the "unit not found" race after writing a fresh

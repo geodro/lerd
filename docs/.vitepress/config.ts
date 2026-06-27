@@ -165,6 +165,7 @@ export default defineConfig({
             { text: 'Service presets', link: '/usage/service-presets' },
             { text: 'Custom services', link: '/usage/custom-services' },
             { text: 'Database', link: '/usage/database' },
+            { text: 'Disk cleanup', link: '/usage/cleanup' },
           ],
         },
         {

@@ -206,8 +206,19 @@ type GlobalConfig struct {
 		// DefaultIdleSuspendTimeout; read it via IdleSuspendTimeout.
 		Timeout string `yaml:"timeout,omitempty" mapstructure:"timeout"`
 	} `yaml:"idle_suspend,omitempty" mapstructure:"idle_suspend"`
+	// AutoCleanup lets the watcher periodically reclaim orphaned lerd images
+	// (safe tier only, never service images). On by default; set false to turn
+	// off the daily sweep. Read it via AutoCleanupEnabled for nil-safety.
+	AutoCleanup       bool                     `yaml:"auto_cleanup"       mapstructure:"auto_cleanup"`
 	ParkedDirectories []string                 `yaml:"parked_directories" mapstructure:"parked_directories"`
 	Services          map[string]ServiceConfig `yaml:"services"           mapstructure:"services"`
+}
+
+// AutoCleanupEnabled reports whether the watcher's periodic image cleanup is on.
+// Nil-safe and defaults on, matching defaultConfig, so an unconfigured install
+// reclaims orphaned images on its own.
+func (c *GlobalConfig) AutoCleanupEnabled() bool {
+	return c == nil || c.AutoCleanup
 }
 
 // DefaultIdleSuspendTimeout is how long a site stays idle before its
@@ -274,6 +285,7 @@ func defaultConfig() *GlobalConfig {
 	cfg.Nginx.HTTPSPort = 443
 	cfg.DNS.Enabled = true
 	cfg.DNS.TLD = "test"
+	cfg.AutoCleanup = true
 
 	home, _ := os.UserHomeDir()
 	cfg.ParkedDirectories = []string{home + "/Lerd"}

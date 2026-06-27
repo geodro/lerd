@@ -184,6 +184,9 @@ func buildFrankenPHPImage(version string, force bool, customExts, packages []str
 		return fmt.Errorf("building FrankenPHP PHP %s image: %w", version, err)
 	}
 	fmt.Fprintf(w, "  FrankenPHP PHP %s image built successfully.\n", version)
+	if OnImageRebuilt != nil {
+		OnImageRebuilt()
+	}
 	return nil
 }
 

@@ -24,7 +24,14 @@
 | `lerd man [page]` | Browse the built-in documentation in the terminal; pass a page name to jump directly (e.g. `lerd man sites`) |
 | `lerd tui` | Open a btop-style terminal dashboard with live site / service / worker status, per-site detail pane, inline domain and version editing, shell drop-in, log tailing, filter + sort, and global settings |
 | `lerd check` | Validate `.lerd.yaml` syntax, services, and PHP version before setup |
-| `lerd doctor` | Full environment diagnostic: podman, systemd, DNS, ports, PHP images, config validity |
+| `lerd doctor` | Full environment diagnostic: podman, systemd, DNS, ports, PHP images, config validity; also reports how much podman disk is reclaimable |
+| `lerd cleanup` | Reclaim podman disk from orphaned lerd images: old PHP build images and stale base images a rebuild left behind. Previews the list and confirms before removing. Only ever touches lerd's own images, never your databases, volumes, or other images |
+| `lerd cleanup --dry-run` | Show what would be reclaimed and the approximate size, remove nothing |
+| `lerd cleanup --deep` | Also remove unused service images no installed service references any more (e.g. an old `mysql:8.0` after upgrading), keeping each service's current image and its one-back rollback target |
+| `lerd cleanup --yes` | Remove without the confirmation prompt |
+| `lerd cleanup auto on` | Enable automatic cleanup (the default): the watcher's daily safe-tier sweep plus immediate reaping after a PHP rebuild or service update/remove |
+| `lerd cleanup auto off` | Disable automatic cleanup; `lerd cleanup` still works on demand |
+| `lerd cleanup auto status` | Show whether automatic cleanup is enabled |
 | `lerd bug-report [-o file] [--log-lines n] [--show-real-names]` | Dump doctor output, config files, unit state, recent logs, network state and env vars to a plain-text file you can attach to a GitHub issue. Site names, domains, parked paths, home paths and the username are anonymized by default; `--show-real-names` keeps raw values |
 | `lerd logs [-f] [target]` | Show logs for the current project's FPM container, `nginx`, a service name, or a PHP version |
 

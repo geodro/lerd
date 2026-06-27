@@ -35,6 +35,15 @@ host_proxy:
                           # "start this command on your host?" confirmation.
                           # Default false so a command from a cloned repo is
                           # never run unconfirmed. See usage/host-proxy.md.
+auto_cleanup: true      # when true (default), lerd reclaims its own orphaned
+                        # podman images on its own: the lerd-watcher runs a safe
+                        # daily sweep, and a PHP rebuild or a service update/remove
+                        # reclaims the image it just superseded. Only ever removes
+                        # lerd's own images (old PHP build and base images,
+                        # superseded service versions), never data volumes or
+                        # images in use. Toggle with `lerd cleanup auto on/off`
+                        # (or set this key); `lerd cleanup` still works on demand
+                        # when off. See reference/commands.md.
 parked_directories:
   - ~/Lerd
 services:

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/geodro/lerd/internal/cleanup"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/dns"
 	"github.com/geodro/lerd/internal/feedback"
@@ -335,6 +336,10 @@ func RunDoctorTo(w io.Writer, useColor bool) (fails, warns int, err error) {
 		} else {
 			ok(fmt.Sprintf("PHP %s image", v))
 		}
+	}
+
+	if plan, planErr := cleanup.Inspect(false); planErr == nil && plan.ReclaimBytes() > 0 {
+		info("Reclaimable disk", fmt.Sprintf("about %s (run: lerd cleanup)", humanSize(plan.ReclaimBytes())))
 	}
 
 	// ── Container → Host Connectivity ────────────────────────────────────────

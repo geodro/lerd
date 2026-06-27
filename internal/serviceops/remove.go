@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geodro/lerd/internal/cleanup"
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/podman"
 )
@@ -71,6 +72,10 @@ func RemoveService(name string, opts RemoveOptions, emit func(PhaseEvent)) error
 	}
 	unit := "lerd-" + name
 
+	// Capture the service's images before its config/quadlet are removed, so
+	// cleanup can reclaim exactly those once nothing references them.
+	removedImage, removedPrev := serviceImageRefs(name)
+
 	var family string
 	if existing, err := config.LoadCustomService(name); err == nil {
 		family = existing.Family
@@ -121,6 +126,10 @@ func RemoveService(name string, opts RemoveOptions, emit func(PhaseEvent)) error
 	}
 
 	emit(PhaseEvent{Phase: "done"})
+	// The service is gone from config now, so its current and rollback images are
+	// unreferenced unless another service shares them. Reclaim exactly those refs
+	// (auto_cleanup gated); the protected set keeps any another service still holds.
+	cleanup.SweepRefs(removedImage, removedPrev)
 	return nil
 }
 

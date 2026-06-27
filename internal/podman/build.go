@@ -32,6 +32,12 @@ var DaemonReloadFn func() error = DaemonReload
 // Set to true on macOS where the unit file is a launchd plist, not a quadlet.
 var SkipQuadletUpToDateCheck bool
 
+// OnImageRebuilt, when set, is invoked after a PHP FPM/FrankenPHP image is
+// actually (re)built — the moment the old image of that version is orphaned. A
+// higher layer wires it to reclaim that orphan at once (event-driven cleanup);
+// it is injected here because podman must not import the cleanup package.
+var OnImageRebuilt func()
+
 // ExtraVolumePaths returns absolute paths that need to be bind-mounted into the
 // PHP-FPM container because they are outside the user's home directory. It
 // collects parked directories and linked site paths, deduplicates them, and
@@ -469,6 +475,9 @@ build:
 	}
 
 	fmt.Fprintf(w, "  PHP %s image built successfully.\n", version)
+	if OnImageRebuilt != nil {
+		OnImageRebuilt()
+	}
 	return nil
 }
 
