@@ -549,10 +549,13 @@ func (h *lanShareHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.viteProxy(port).ServeHTTP(w, r)
 		return
 	}
-	// Vite's HMR client opens a WebSocket to the page origin with no
-	// distinguishing path (just "/?token=..."). When we know the active
-	// Vite port, forward any WS upgrade there so HMR can connect.
-	if isWebSocketUpgrade(r) {
+	// Vite's HMR client opens a WebSocket to the bare page origin (just
+	// "/?token=..."). Divert only that socket to the active Vite port.
+	// Application sockets carry a real path (Reverb's /app/<key>, noVNC's
+	// /websockify, Vite HMR is the exception) and must flow to the main proxy
+	// so nginx upgrades them like its own vhost does — httputil.ReverseProxy
+	// carries WebSockets natively.
+	if isWebSocketUpgrade(r) && isViteHMRSocket(r) {
 		if port := h.getActiveVitePort(); port > 0 {
 			h.viteProxy(port).ServeHTTP(w, r)
 			return
@@ -573,6 +576,14 @@ func (h *lanShareHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.main.ServeHTTP(w, r)
+}
+
+// isViteHMRSocket reports whether a WebSocket upgrade is Vite's HMR client,
+// which connects to the bare page origin ("/" plus a token query). Application
+// sockets such as Reverb's /app/<key> or noVNC's /websockify carry a real path
+// and must not be hijacked to the Vite dev server.
+func isViteHMRSocket(r *http.Request) bool {
+	return r.URL.Path == "" || r.URL.Path == "/"
 }
 
 // isWebSocketUpgrade reports whether r is an HTTP upgrade to WebSocket.
