@@ -1189,6 +1189,28 @@ func TestDefaultPresetMeta_Caches(t *testing.T) {
 	}
 }
 
+// DefaultPresetPorts must return the same ports as DefaultPresetMeta without the
+// deep copy, and nil for a non-default preset, so the services snapshot can read
+// a preset's ports without cloning the whole struct on every refresh.
+func TestDefaultPresetPorts(t *testing.T) {
+	meta, err := DefaultPresetMeta("mysql")
+	if err != nil {
+		t.Fatalf("DefaultPresetMeta(mysql): %v", err)
+	}
+	got := DefaultPresetPorts("mysql")
+	if len(got) != len(meta.Ports) {
+		t.Fatalf("DefaultPresetPorts(mysql) = %v, want %v", got, meta.Ports)
+	}
+	for i := range got {
+		if got[i] != meta.Ports[i] {
+			t.Errorf("port %d = %q, want %q", i, got[i], meta.Ports[i])
+		}
+	}
+	if DefaultPresetPorts("sqlite") != nil {
+		t.Error("DefaultPresetPorts(sqlite) must be nil for a non-default preset")
+	}
+}
+
 func TestLoadPreset_DefaultEnvVarsParity(t *testing.T) {
 	// Each default preset must encode the same env_vars that lerd shipped from
 	// the hardcoded cli.serviceEnvVars map. This is the no-regression test for

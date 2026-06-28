@@ -77,6 +77,30 @@ func AllUnitStates() map[string]string {
 	return out
 }
 
+// AllUnitStatesOK is AllUnitStates plus a trust signal: ok is false when the
+// batched systemctl enumeration was attempted this call and failed, leaving the
+// snapshot empty or stale. Callers that infer "unit absent -> removed" must check
+// ok first, since a failed enumeration makes every unit look absent. On the
+// non-systemd override path (darwin) ok is always true.
+func AllUnitStatesOK() (map[string]string, bool) {
+	if allUnitStatesFn != nil {
+		return allUnitStatesFn(), true
+	}
+	globalUnitCache.mu.Lock()
+	defer globalUnitCache.mu.Unlock()
+	ok := true
+	if globalUnitCache.states == nil || time.Since(globalUnitCache.at) > unitCacheTTL {
+		if err := globalUnitCache.refreshLocked(); err != nil {
+			ok = false
+		}
+	}
+	out := make(map[string]string, len(globalUnitCache.states))
+	for k, v := range globalUnitCache.states {
+		out[k] = v
+	}
+	return out, ok
+}
+
 // unitStatusCached returns the active state of a lerd-* unit, consulting a
 // short-lived batched snapshot. One systemctl call populates ~all lerd units
 // instead of one subprocess per worker.

@@ -1156,6 +1156,15 @@ func collapseTimerSiblings(in []string) []string {
 	return out
 }
 
+// mergeMigrationRestarts unions the containers torn down by the podman-upgrade
+// heal with those recreated by a network migration, de-duplicated and order
+// preserved, so a run that triggers BOTH restarts every affected container
+// exactly once. Overwriting one list with the other left heal-torn-down services
+// stopped after install.
+func mergeMigrationRestarts(healed, recreated []string) []string {
+	return dedupeStrings(append(append([]string(nil), healed...), recreated...))
+}
+
 func dedupeStrings(in []string) []string {
 	seen := make(map[string]struct{}, len(in))
 	out := make([]string, 0, len(in))

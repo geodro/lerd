@@ -578,11 +578,18 @@ func (h *lanShareHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.main.ServeHTTP(w, r)
 }
 
-// isViteHMRSocket reports whether a WebSocket upgrade is Vite's HMR client,
-// which connects to the bare page origin ("/" plus a token query). Application
-// sockets such as Reverb's /app/<key> or noVNC's /websockify carry a real path
-// and must not be hijacked to the Vite dev server.
+// isViteHMRSocket reports whether a WebSocket upgrade is Vite's HMR client.
+// Vite always opens its HMR socket with the "vite-hmr" subprotocol, so we key off
+// that — it survives a custom server.hmr.path or a base-path deployment, which the
+// old bare-root-path check missed. The path check stays as a fallback for the
+// default bare-origin setup. Application sockets such as Reverb's /app/<key> or
+// noVNC's /websockify carry neither signal and must not be hijacked to Vite.
 func isViteHMRSocket(r *http.Request) bool {
+	for _, p := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		if strings.EqualFold(strings.TrimSpace(p), "vite-hmr") {
+			return true
+		}
+	}
 	return r.URL.Path == "" || r.URL.Path == "/"
 }
 

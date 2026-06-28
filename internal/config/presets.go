@@ -514,6 +514,23 @@ func DefaultPresetDashboard(name string) string {
 	return svc.Dashboard
 }
 
+// DefaultPresetPorts returns the default port mappings for a default preset, or
+// nil for non-defaults. Like DefaultPresetDashboard it reads the cached meta
+// directly instead of through DefaultPresetMeta, which deep-copies the struct and
+// clones its slices — wasteful for the services snapshot, which rebuilds every
+// service every refresh and only reads the ports. The returned slice is the cached
+// instance's own; callers must not mutate it.
+func DefaultPresetPorts(name string) []string {
+	if !IsDefaultPreset(name) {
+		return nil
+	}
+	svc, err := cachedDefaultPresetMeta(name)
+	if err != nil {
+		return nil
+	}
+	return svc.Ports
+}
+
 // DefaultPresetConnectionURL returns the developer-facing connection URL for
 // a default preset, or empty for non-defaults / presets without one.
 func DefaultPresetConnectionURL(name string) string {

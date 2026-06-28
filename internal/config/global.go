@@ -321,6 +321,41 @@ func defaultConfig() *GlobalConfig {
 	return cfg
 }
 
+// HostPorts returns every host port this service entry claims: its preset-default
+// Port, its PublishedPort override, and the host side of each ExtraPorts mapping.
+// Single source for the serviceops port-ownership guard and the host-proxy dev
+// server allocator, which previously parsed these out separately and drifted (the
+// guard even mis-read the host side of an "ip:host:container" extra mapping).
+func (s ServiceConfig) HostPorts() []int {
+	var ports []int
+	if s.Port > 0 {
+		ports = append(ports, s.Port)
+	}
+	if s.PublishedPort > 0 {
+		ports = append(ports, s.PublishedPort)
+	}
+	for _, ep := range s.ExtraPorts {
+		if n := mappingHostPort(ep); n > 0 {
+			ports = append(ports, n)
+		}
+	}
+	return ports
+}
+
+// mappingHostPort extracts the host port from a podman port mapping: a bare host
+// port "3411", "3411:3306", or "127.0.0.1:3411:3306", with an optional "/tcp"
+// suffix. Returns 0 when no valid host port is present.
+func mappingHostPort(mapping string) int {
+	parts := strings.Split(mapping, ":")
+	host := parts[0]
+	if len(parts) > 1 {
+		host = parts[len(parts)-2]
+	}
+	host = strings.SplitN(host, "/", 2)[0]
+	n, _ := strconv.Atoi(strings.TrimSpace(host))
+	return n
+}
+
 // firstHostPort returns the host-side port number from the first ports entry,
 // e.g. "3306:3306" → 3306. Used by defaultConfig to populate ServiceConfig.Port
 // without mirroring the YAML port literals in code.

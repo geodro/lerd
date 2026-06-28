@@ -262,8 +262,8 @@ func TestAppendLostSuspended(t *testing.T) {
 	// present pins which units still exist (any state); a worker keyed here is
 	// treated as not idle-suspended and must be left alone.
 	present := map[string]string{}
-	t.Cleanup(func() { unitStatesFn = siteinfo.AllUnitStates })
-	unitStatesFn = func() map[string]string { return present }
+	t.Cleanup(func() { unitStatesOKFn = siteinfo.AllUnitStatesOK })
+	unitStatesOKFn = func() (map[string]string, bool) { return present, true }
 
 	// All declared+resumable units removed -> all re-marked; the orphan is skipped.
 	if got := appendLostSuspended(site, nil); !slices.Equal(got, []string{"queue", "horizon", "stripe"}) {
@@ -289,6 +289,41 @@ func TestAppendLostSuspended(t *testing.T) {
 	}
 	if got := appendLostSuspended(site, nil); !slices.Equal(got, []string{"queue"}) {
 		t.Errorf("undeclared worker must not be re-marked: got %v, want [queue]", got)
+	}
+}
+
+// TestAppendLostSuspended_ignoresUntrustedSnapshot: when the systemctl
+// enumeration fails the snapshot is empty and untrustworthy. The detector must
+// re-mark nothing — treating every declared worker as removed would later resume
+// workers the user never had running (an opted-out vite/queue).
+func TestAppendLostSuspended_ignoresUntrustedSnapshot(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	dir := filepath.Join(tmp, "site")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".lerd.yaml"), []byte("framework: laravel\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := config.LoadProjectConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj.CustomWorkers = map[string]config.FrameworkWorker{"queue": {Command: "php artisan queue:work"}}
+	proj.Workers = []string{"queue", "stripe"}
+	if err := config.SaveProjectConfig(dir, proj); err != nil {
+		t.Fatal(err)
+	}
+	site := &config.Site{Name: "site", Framework: "laravel", Path: dir}
+
+	t.Cleanup(func() { unitStatesOKFn = siteinfo.AllUnitStatesOK })
+	// Empty map with ok=false models a failed enumeration: every unit looks absent.
+	unitStatesOKFn = func() (map[string]string, bool) { return map[string]string{}, false }
+
+	if got := appendLostSuspended(site, nil); len(got) != 0 {
+		t.Errorf("failed enumeration must re-mark nothing, got %v", got)
 	}
 }
 
@@ -318,10 +353,10 @@ func TestSuspendWorkersForIdle_remarksAbsent(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		podman.UnitLifecycle = nil
-		unitStatesFn = siteinfo.AllUnitStates
+		unitStatesOKFn = siteinfo.AllUnitStatesOK
 	})
-	podman.UnitLifecycle = stubUnitStatus{active: map[string]bool{}}       // nothing running
-	unitStatesFn = func() map[string]string { return map[string]string{} } // queue unit removed
+	podman.UnitLifecycle = stubUnitStatus{active: map[string]bool{}}                       // nothing running
+	unitStatesOKFn = func() (map[string]string, bool) { return map[string]string{}, true } // queue unit removed, enum OK
 
 	site := &config.Site{Name: "site", Framework: "laravel", Path: dir}
 	if got := SuspendWorkersForIdle(site); len(got) != 1 || got[0] != "queue" {

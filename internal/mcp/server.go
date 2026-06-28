@@ -116,7 +116,14 @@ type mcpProp struct {
 // Serve runs the MCP server, reading JSON-RPC messages from stdin and writing responses to stdout.
 // All diagnostic output goes to stderr so it never corrupts the JSON-RPC stream on stdout.
 func Serve() error {
-	enc := json.NewEncoder(os.Stdout)
+	// The JSON-RPC encoder owns the real stdout. Repoint os.Stdout at stderr for
+	// the session so any in-process handler that still prints to stdout — a service
+	// port-shift notice, the host-proxy .env refresh, a shelled-out `lerd env` that
+	// inherits os.Stdout — lands on stderr instead of corrupting a protocol frame.
+	stdout, restore := guardStdout()
+	defer restore()
+
+	enc := json.NewEncoder(stdout)
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1 MB — handle large artisan output
 
@@ -150,6 +157,16 @@ func Serve() error {
 		_ = enc.Encode(resp)
 	}
 	return scanner.Err()
+}
+
+// guardStdout repoints os.Stdout at os.Stderr and returns the prior stdout (for
+// the JSON-RPC encoder) plus a restore func. Any in-process diagnostic that still
+// prints to stdout — or a child process that inherits it — then writes to stderr
+// instead of corrupting the protocol stream the server keeps on the real stdout.
+func guardStdout() (real *os.File, restore func()) {
+	real = os.Stdout
+	os.Stdout = os.Stderr
+	return real, func() { os.Stdout = real }
 }
 
 func dispatch(req *rpcRequest) (any, *rpcError) {

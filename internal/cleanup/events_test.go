@@ -1,20 +1,28 @@
 package cleanup
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/geodro/lerd/internal/config"
+)
 
 // SweepRefs reaps exactly the refs lerd hands it, skipping any the protected set
 // still holds, and never scans the whole repo (so a user's same-repo image that
 // wasn't passed is untouched).
 func TestSweepRefs_ReapsGivenRefsSkipsProtected(t *testing.T) {
 	autoEnabled = func() bool { return true }
-	protectedImages = func() (map[string]bool, error) {
-		return map[string]bool{"docker.io/library/mysql:8.4": true}, nil
+	referencedImages = func(candidates map[string]bool) map[string]bool {
+		out := map[string]bool{}
+		if candidates[canonRef("docker.io/library/mysql:8.4")] {
+			out[canonRef("docker.io/library/mysql:8.4")] = true
+		}
+		return out
 	}
 	var removed []string
 	removeImage = func(id string) error { removed = append(removed, id); return nil }
 	t.Cleanup(func() {
 		autoEnabled = defaultAutoEnabled
-		protectedImages = realProtectedImages
+		referencedImages = realReferencedImages
 		removeImage = podmanRemoveImage
 	})
 
@@ -54,5 +62,45 @@ func TestSweepSafe_GatedOffNoOp(t *testing.T) {
 	images, bytes, err := SweepSafe()
 	if err != nil || images != 0 || bytes != 0 || scanned {
 		t.Errorf("gated off must no-op without scanning: images=%d bytes=%d err=%v scanned=%v", images, bytes, err, scanned)
+	}
+}
+
+// SweepRefs must skip the per-quadlet image reads when the cheap config sources
+// already account for every candidate ref — the efficiency the short-circuit
+// buys over building the full protected set on each update/remove.
+func TestSweepRefs_shortCircuitsQuadletScanWhenConfigCovers(t *testing.T) {
+	autoEnabled = func() bool { return true }
+	referencedImages = realReferencedImages
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Services["mysql-8.4"] = config.ServiceConfig{Enabled: true, Image: "docker.io/library/mysql:8.4"}
+	if err := config.SaveGlobal(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	scanned := false
+	installedServiceImages = func() []string { scanned = true; return nil }
+	var removed []string
+	removeImage = func(id string) error { removed = append(removed, id); return nil }
+	t.Cleanup(func() {
+		autoEnabled = defaultAutoEnabled
+		installedServiceImages = realInstalledServiceImages
+		removeImage = podmanRemoveImage
+	})
+
+	// The only candidate is still in config, so it is protected and the quadlet
+	// scan must never run.
+	SweepRefs("docker.io/library/mysql:8.4")
+
+	if scanned {
+		t.Error("quadlet image reads must be skipped when config already covers every candidate")
+	}
+	if len(removed) != 0 {
+		t.Errorf("a still-referenced ref must not be reaped, got %v", removed)
 	}
 }

@@ -37,16 +37,26 @@ func SweepRefs(refs ...string) {
 	if !autoEnabled() {
 		return
 	}
-	prot, err := protectedImages()
-	if err != nil {
-		return
-	}
-	seen := map[string]bool{}
+	// De-dup the non-empty refs into canonical candidates, preserving order so a
+	// repeated ref is reaped once.
+	candidates := map[string]bool{}
+	var order []string
 	for _, ref := range refs {
-		if ref == "" || seen[ref] || prot[canonRef(ref)] {
+		c := canonRef(ref)
+		if ref == "" || candidates[c] {
 			continue
 		}
-		seen[ref] = true
+		candidates[c] = true
+		order = append(order, ref)
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	protected := referencedImages(candidates)
+	for _, ref := range order {
+		if protected[canonRef(ref)] {
+			continue
+		}
 		_ = removeImage(ref)
 	}
 }

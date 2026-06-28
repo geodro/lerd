@@ -319,17 +319,13 @@ func lerdServiceHostPorts() map[int]bool {
 		}
 	}
 	if cfg, err := config.LoadGlobal(); err == nil {
+		// config.ServiceConfig.HostPorts is the shared source of the host ports a
+		// service entry claims (Port, the PublishedPort override, and ExtraPorts),
+		// so this allocator and the serviceops guard can't drift on it.
 		for _, svc := range cfg.Services {
-			if svc.Port > 0 {
-				out[svc.Port] = true
+			for _, p := range svc.HostPorts() {
+				out[p] = true
 			}
-			// A moved service (guard auto-shift or `lerd service port`) publishes on
-			// PublishedPort, not Port; reserve it too so a dev server isn't handed the
-			// shifted port and then collide when the service restarts.
-			if svc.PublishedPort > 0 {
-				out[svc.PublishedPort] = true
-			}
-			add(svc.ExtraPorts)
 		}
 	}
 	if presets, err := config.ListPresets(); err == nil {

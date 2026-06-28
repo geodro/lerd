@@ -700,3 +700,32 @@ func TestParseDNSMode(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeMigrationRestarts_keepsHealTornDownContainers guards the install
+// regression where a run that triggered both the podman-upgrade heal and a
+// network migration overwrote the heal-torn-down container list with the
+// migration's, leaving those services stopped. The merge must keep both sets,
+// de-duplicated.
+func TestMergeMigrationRestarts_keepsHealTornDownContainers(t *testing.T) {
+	healed := []string{"lerd-mysql", "lerd-redis"}
+	recreated := []string{"lerd-redis", "lerd-postgres"}
+
+	got := mergeMigrationRestarts(healed, recreated)
+
+	has := func(s string) bool {
+		for _, c := range got {
+			if c == s {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range []string{"lerd-mysql", "lerd-redis", "lerd-postgres"} {
+		if !has(c) {
+			t.Errorf("%s missing from merged restart set %v", c, got)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("expected the de-duplicated union of 3 containers, got %v", got)
+	}
+}

@@ -21,6 +21,27 @@ func interactiveTTY() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
+// Seams for the shared FPM up/installed fast path, swappable in tests.
+var (
+	fpmContainerRunning = podman.ContainerRunning
+	fpmIsInstalled      = phpDet.FPMInstalled
+	fpmStart            = startFPM
+)
+
+// startInstalledFPM handles the two outcomes ensureFPMRunning and ensureFPMStarted
+// share before any human decision: the container is already up, or it is installed
+// but stopped (start it). handled is true when the container is now up and no
+// install prompt is needed; false means the version is not installed.
+func startInstalledFPM(version, container string) (handled bool, err error) {
+	if running, _ := fpmContainerRunning(container); running {
+		return true, nil
+	}
+	if fpmIsInstalled(version, container) {
+		return true, fpmStart(version, container)
+	}
+	return false, nil
+}
+
 // ensureFPMRunning makes sure the FPM container for the detected PHP version is
 // up before lerd execs into it, replacing the old "container is not running"
 // dead end. Behaviour when the container is down:
@@ -35,16 +56,11 @@ func interactiveTTY() bool {
 // which differ from the requested ones when the user switches versions.
 func ensureFPMRunning(cwd, version, container string) (string, string, error) {
 	for {
-		if running, _ := podman.ContainerRunning(container); running {
+		// Already up, or installed-but-stopped (auto-started) — done in both cases.
+		if handled, err := startInstalledFPM(version, container); err != nil {
+			return version, container, err
+		} else if handled {
 			return version, container, nil
-		}
-
-		// Installed but stopped — bring it up automatically.
-		if phpDet.FPMInstalled(version, container) {
-			if err := startFPM(version, container); err != nil {
-				return version, container, err
-			}
-			continue
 		}
 
 		// Not installed — needs a human decision. Only prompt at a real
@@ -79,13 +95,9 @@ func ensureFPMRunning(cwd, version, container string) (string, string, error) {
 // It auto-starts a stopped-but-installed container, offers to install a missing
 // version (same version only — never switches), and otherwise errors.
 func ensureFPMStarted(version, container string) error {
-	if running, _ := podman.ContainerRunning(container); running {
-		return nil
+	if handled, err := startInstalledFPM(version, container); handled || err != nil {
+		return err
 	}
-	if phpDet.FPMInstalled(version, container) {
-		return startFPM(version, container)
-	}
-
 	if !interactiveTTY() {
 		return notInstalledErr(version)
 	}

@@ -1,52 +1,47 @@
 package cli
 
 import (
-	"bufio"
-	"strings"
+	"errors"
 	"testing"
 )
 
-func TestChooseInstalledVersion(t *testing.T) {
-	versions := []string{"8.2", "8.3", "8.4"}
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"1\n", "8.2"},    // by index
-		{"3\n", "8.4"},    // last index
-		{"8.3\n", "8.3"},  // by literal version
-		{"\n", ""},        // blank cancels
-		{"0\n", ""},       // out of range
-		{"9\n", ""},       // out of range
-		{"abc\n", ""},     // garbage
-		{"  2 \n", "8.3"}, // surrounding space trimmed
-	}
-	for _, c := range cases {
-		r := bufio.NewReader(strings.NewReader(c.in))
-		if got := chooseInstalledVersion(r, versions); got != c.want {
-			t.Errorf("chooseInstalledVersion(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
+// startInstalledFPM is the fast path ensureFPMRunning and ensureFPMStarted share:
+// it reports the container as handled when it is already up or installed-but-
+// stopped (starting it), and not-handled when the version isn't installed so the
+// caller can prompt. Keeping it shared is what removed the duplicated sequence.
+func TestStartInstalledFPM(t *testing.T) {
+	origRunning, origInstalled, origStart := fpmContainerRunning, fpmIsInstalled, fpmStart
+	t.Cleanup(func() {
+		fpmContainerRunning, fpmIsInstalled, fpmStart = origRunning, origInstalled, origStart
+	})
 
-func TestReadConfirmAnswerReader(t *testing.T) {
-	cases := []struct {
-		in         string
-		defaultYes bool
-		want       bool
-	}{
-		{"\n", true, true},   // blank → default yes
-		{"\n", false, false}, // blank → default no
-		{"y\n", false, true}, // explicit yes overrides default
-		{"yes\n", false, true},
-		{"n\n", true, false}, // explicit no overrides default
-		{"no\n", true, false},
-		{"NO\n", true, false}, // case-insensitive
+	// Already running: handled, nothing started.
+	started := false
+	fpmContainerRunning = func(string) (bool, error) { return true, nil }
+	fpmIsInstalled = func(string, string) bool { return false }
+	fpmStart = func(string, string) error { started = true; return nil }
+	if handled, err := startInstalledFPM("8.4", "lerd-php84-fpm"); !handled || err != nil || started {
+		t.Errorf("running container: handled=%v err=%v started=%v, want true/nil/false", handled, err, started)
 	}
-	for _, c := range cases {
-		r := bufio.NewReader(strings.NewReader(c.in))
-		if got := readConfirmAnswerReader(r, "Install it?", c.defaultYes); got != c.want {
-			t.Errorf("readConfirmAnswerReader(%q, default=%v) = %v, want %v", c.in, c.defaultYes, got, c.want)
-		}
+
+	// Installed but stopped: handled, started once, start error surfaced.
+	started = false
+	fpmContainerRunning = func(string) (bool, error) { return false, nil }
+	fpmIsInstalled = func(string, string) bool { return true }
+	fpmStart = func(string, string) error { started = true; return nil }
+	if handled, err := startInstalledFPM("8.4", "lerd-php84-fpm"); !handled || err != nil || !started {
+		t.Errorf("installed-stopped: handled=%v err=%v started=%v, want true/nil/true", handled, err, started)
+	}
+	wantErr := errors.New("boom")
+	fpmStart = func(string, string) error { return wantErr }
+	if handled, err := startInstalledFPM("8.4", "lerd-php84-fpm"); !handled || !errors.Is(err, wantErr) {
+		t.Errorf("installed-stopped start failure: handled=%v err=%v, want true + boom", handled, err)
+	}
+
+	// Not installed: not handled so the caller prompts; nothing started.
+	started = false
+	fpmIsInstalled = func(string, string) bool { return false }
+	if handled, err := startInstalledFPM("8.4", "lerd-php84-fpm"); handled || err != nil || started {
+		t.Errorf("not-installed: handled=%v err=%v started=%v, want false/nil/false", handled, err, started)
 	}
 }

@@ -682,3 +682,33 @@ func TestRewriteLANShareBody_fixesLANIPWithWrongPort(t *testing.T) {
 		t.Errorf("rewriteLANShareBody port-fix:\nGOT:\n%s\nWANT:\n%s", got, want)
 	}
 }
+
+// TestIsViteHMRSocket_matchesViteSubprotocolOnAnyPath: Vite's HMR client always
+// opens its socket with the "vite-hmr" subprotocol regardless of the configured
+// server.hmr.path or base, so the diversion must key off that, not only the bare
+// root path. Application sockets (Reverb's /app/<key>, noVNC's /websockify) carry
+// no such subprotocol and must keep flowing to the main proxy.
+func TestIsViteHMRSocket_matchesViteSubprotocolOnAnyPath(t *testing.T) {
+	mk := func(path, proto string) *http.Request {
+		r := httptest.NewRequest("GET", "http://lan.test"+path, nil)
+		if proto != "" {
+			r.Header.Set("Sec-WebSocket-Protocol", proto)
+		}
+		return r
+	}
+
+	if !isViteHMRSocket(mk("/__vite_hmr", "vite-hmr")) {
+		t.Error("custom server.hmr.path Vite socket (vite-hmr subprotocol) must route to Vite")
+	}
+	if !isViteHMRSocket(mk("/", "vite-hmr")) {
+		t.Error("bare-origin Vite HMR socket must route to Vite")
+	}
+	if !isViteHMRSocket(mk("/", "")) {
+		t.Error("bare-origin socket must still route to Vite via the path fallback")
+	}
+	for _, p := range []string{"/app/local-key", "/websockify"} {
+		if isViteHMRSocket(mk(p, "")) {
+			t.Errorf("app socket %s must flow to the main proxy, not be hijacked to Vite", p)
+		}
+	}
+}

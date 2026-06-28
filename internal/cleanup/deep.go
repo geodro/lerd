@@ -16,7 +16,59 @@ import (
 var (
 	serviceRepos    = realServiceRepos
 	protectedImages = realProtectedImages
+
+	// referencedImages is the seam SweepRefs uses to test a handful of specific
+	// refs without materialising the whole protected set: it scans cheap config
+	// sources first and stops as soon as every candidate is accounted for.
+	referencedImages = realReferencedImages
+
+	// installedServiceImages is a seam so the short-circuit (config covers every
+	// candidate, so the per-quadlet image reads are skipped) is assertable.
+	installedServiceImages = realInstalledServiceImages
 )
+
+// realReferencedImages returns the subset of candidates (keyed by canonical ref)
+// still used by a service config entry, a custom service, or an installed service
+// quadlet. It scans config (cheap, cached) before the per-quadlet image reads and
+// short-circuits once all candidates are found, so reaping a couple of refs no
+// longer reads every installed unit's image when config already covers them.
+func realReferencedImages(candidates map[string]bool) map[string]bool {
+	found := map[string]bool{}
+	remaining := len(candidates)
+	mark := func(ref string) {
+		c := canonRef(ref)
+		if candidates[c] && !found[c] {
+			found[c] = true
+			remaining--
+		}
+	}
+	if cfg, err := config.LoadGlobal(); err == nil {
+		for _, s := range cfg.Services {
+			mark(s.Image)
+			mark(s.PreviousImage)
+		}
+	}
+	if remaining > 0 {
+		if customs, err := config.ListCustomServices(); err == nil {
+			for _, s := range customs {
+				mark(s.Image)
+				mark(s.PreviousImage)
+				if remaining == 0 {
+					break
+				}
+			}
+		}
+	}
+	if remaining > 0 {
+		for _, img := range installedServiceImages() {
+			mark(img)
+			if remaining == 0 {
+				break
+			}
+		}
+	}
+	return found
+}
 
 // deepTargets reclaims service images lerd pulled but nothing references any
 // more: an image whose every tag is an unprotected catalog ref. Treating lerd's
@@ -133,7 +185,7 @@ func realProtectedImages() (map[string]bool, error) {
 // installedServiceImages returns the current Image= of every installed service
 // quadlet, so a service that is installed but not running is still protected.
 // PHP-FPM units are skipped: their images are handled by the safe tier.
-func installedServiceImages() []string {
+func realInstalledServiceImages() []string {
 	entries, err := os.ReadDir(config.QuadletDir())
 	if err != nil {
 		return nil

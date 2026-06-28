@@ -1061,26 +1061,35 @@ func portConflictsFor(unit, ssOutput string) []PortConflict {
 // connection URL all agree: the published-port override, else the configured
 // port (which a non-canonical preset version seeds to its own host port, e.g.
 // postgres 18 → 5418), else the primary host port from the default mappings.
-// 0 when none applies (no host port published, e.g. a worker).
-func effectiveHostPort(name string, defaultPorts []string) int {
-	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
-		if sc, ok := cfg.Services[name]; ok {
-			if sc.PublishedPort > 0 {
-				return sc.PublishedPort
-			}
-			if sc.Port > 0 {
-				return sc.Port
-			}
+// 0 when none applies (no host port published, e.g. a worker). services is the
+// caller's already-loaded cfg.Services map so a full services-list rebuild loads
+// (and deep-clones) the global config once rather than once per service.
+func effectiveHostPort(services map[string]config.ServiceConfig, name string, defaultPorts []string) int {
+	if sc, ok := services[name]; ok {
+		if sc.PublishedPort > 0 {
+			return sc.PublishedPort
+		}
+		if sc.Port > 0 {
+			return sc.Port
 		}
 	}
 	return podman.PrimaryHostPort(defaultPorts)
 }
 
-func buildServiceResponse(name string) ServiceResponse {
-	return buildServiceResponseWithPortList(name, "")
+// loadServicesMap returns cfg.Services, or nil when the global config can't be
+// loaded — the single load behind a one-off buildServiceResponse.
+func loadServicesMap() map[string]config.ServiceConfig {
+	if cfg, err := config.LoadGlobal(); err == nil && cfg != nil {
+		return cfg.Services
+	}
+	return nil
 }
 
-func buildServiceResponseWithPortList(name, ssOutput string) ServiceResponse {
+func buildServiceResponse(name string) ServiceResponse {
+	return buildServiceResponseWithPortList(loadServicesMap(), name, "")
+}
+
+func buildServiceResponseWithPortList(services map[string]config.ServiceConfig, name, ssOutput string) ServiceResponse {
 	unit := "lerd-" + name
 	status, _ := podman.UnitStatus(unit)
 	if status == "" {
@@ -1095,11 +1104,8 @@ func buildServiceResponseWithPortList(name, ssOutput string) ServiceResponse {
 		}
 	}
 
-	var presetPorts []string
-	if meta, err := config.DefaultPresetMeta(name); err == nil {
-		presetPorts = meta.Ports
-	}
-	hostPort := effectiveHostPort(name, presetPorts)
+	presetPorts := config.DefaultPresetPorts(name)
+	hostPort := effectiveHostPort(services, name, presetPorts)
 	resp := ServiceResponse{
 		Name:          name,
 		Status:        status,
@@ -1191,10 +1197,14 @@ func buildServicesList() []ServiceResponse {
 	// this rebuild; portConflictsFor is a no-op when ssOutput is empty.
 	ssOutput := cli.PortListOutput()
 
+	// Load the global config once for the whole rebuild; effectiveHostPort reads
+	// the shared Services map instead of re-loading (and deep-cloning) it per service.
+	svcCfg := loadServicesMap()
+
 	defaultNames := siteinfo.KnownServices()
 	services := make([]ServiceResponse, 0, len(defaultNames))
 	for _, name := range defaultNames {
-		services = append(services, buildServiceResponseWithPortList(name, ssOutput))
+		services = append(services, buildServiceResponseWithPortList(svcCfg, name, ssOutput))
 	}
 	customs, _ := config.ListCustomServices()
 	for _, svc := range customs {
@@ -1225,7 +1235,7 @@ func buildServicesList() []ServiceResponse {
 		if dashProxyEligible(svc) {
 			dashboard, dashboardExternal = dashProxyPath(svc.Name), false
 		}
-		hostPort := effectiveHostPort(svc.Name, svc.Ports)
+		hostPort := effectiveHostPort(svcCfg, svc.Name, svc.Ports)
 		services = append(services, ServiceResponse{
 			Name:              svc.Name,
 			Status:            status,

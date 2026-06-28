@@ -12,10 +12,12 @@ import (
 	"github.com/geodro/lerd/internal/siteinfo"
 )
 
-// unitStatesFn snapshots every lerd-* unit's state; a var so tests can pin which
-// units exist. A worker absent from it has had its unit removed entirely, which
-// is idle-suspend's signature (it removes units, not just stops them).
-var unitStatesFn = siteinfo.AllUnitStates
+// unitStatesOKFn snapshots every lerd-* unit's state plus a trust flag; a var so
+// tests can pin which units exist. A worker absent from the map has had its unit
+// removed entirely, which is idle-suspend's signature (it removes units, not just
+// stops them) — but only when the snapshot is trustworthy. The flag is false when
+// the systemctl enumeration failed, in which case every unit looks absent.
+var unitStatesOKFn = siteinfo.AllUnitStatesOK
 
 // SuspendWorkersForIdle stops ALL of the site's running workers (queue, Horizon,
 // scheduler, Stripe, vite, ...) and returns the names to persist as
@@ -71,7 +73,13 @@ func appendLostSuspended(site *config.Site, suspended []string) []string {
 	if err != nil || proj == nil {
 		return suspended
 	}
-	states := unitStatesFn()
+	states, ok := unitStatesOKFn()
+	if !ok {
+		// The systemctl enumeration failed, so absence proves nothing — every unit
+		// looks gone. Infer no lost-suspended workers rather than re-mark every
+		// declared worker and resume ones the user never had running.
+		return suspended
+	}
 	for _, w := range proj.Workers {
 		if containsString(suspended, w) {
 			continue

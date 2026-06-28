@@ -45,10 +45,13 @@ func PortAvailable(port int) bool { return freeport.Bindable(port) }
 // OnPublishedPortShift, if set, is invoked when the port-ownership guard moves a
 // service's published port to avoid a host server (service name, new port). The
 // CLI wires this to regenerate host-proxy sites' .env so their loopback DB target
-// follows the moved port; it stays nil in non-CLI contexts (tests, MCP), where
-// serviceops must not reach back into the env writer. Fired from the guard so any
-// quadlet-write path (install, start, reinstall, `service port --reset`) refreshes
-// followers, not just the explicit `lerd service port` command.
+// follows the moved port; it stays nil in pure serviceops tests (which don't
+// import package cli). The MCP server shares the binary, so the CLI init sets it
+// there too — that is fine: the env refresh is still the right thing to do, and
+// the MCP server repoints os.Stdout at stderr so its output can't corrupt the
+// protocol. Fired from the guard so any quadlet-write path (install, start,
+// reinstall, `service port --reset`) refreshes followers, not just the explicit
+// `lerd service port` command.
 var OnPublishedPortShift func(service string, newPort int)
 
 // unitActive reports whether a service's own systemd unit is currently up. The
@@ -92,20 +95,8 @@ func lerdReservedPorts() map[int]bool {
 		return reserved
 	}
 	for _, svc := range cfg.Services {
-		if svc.PublishedPort > 0 {
-			reserved[svc.PublishedPort] = true
-		}
-		if svc.Port > 0 {
-			reserved[svc.Port] = true
-		}
-		for _, ep := range svc.ExtraPorts {
-			host := ep // ExtraPorts are "host:container" (or a bare number); take the host side.
-			if i := strings.IndexByte(ep, ':'); i >= 0 {
-				host = ep[:i]
-			}
-			if n, perr := strconv.Atoi(strings.TrimSpace(host)); perr == nil && n > 0 {
-				reserved[n] = true
-			}
+		for _, p := range svc.HostPorts() {
+			reserved[p] = true
 		}
 	}
 	return reserved
@@ -525,11 +516,12 @@ func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 				return fmt.Errorf("shifting lerd-%s off in-use port %d: %w", svc.Name, primary, err)
 			}
 			pp = free // use the just-persisted value directly — no second config read to diverge
-			fmt.Printf("Note: 127.0.0.1:%d is in use; publishing lerd-%s on 127.0.0.1:%d instead.\n", primary, svc.Name, free)
-			fmt.Printf("      (override with: lerd service port %s <port>)\n", svc.Name)
+			// Stderr, never stdout: this path runs in-process inside the MCP stdio
+			// server, which reserves stdout for the JSON-RPC stream.
+			fmt.Fprintf(os.Stderr, "Note: 127.0.0.1:%d is in use; publishing lerd-%s on 127.0.0.1:%d instead.\n", primary, svc.Name, free)
+			fmt.Fprintf(os.Stderr, "      (override with: lerd service port %s <port>)\n", svc.Name)
 			// Host-proxy sites reach this service over the published loopback port,
-			// so their .env must follow the shift. The CLI registers the refresh hook;
-			// it stays nil elsewhere (tests, MCP).
+			// so their .env must follow the shift. The CLI registers the refresh hook.
 			if OnPublishedPortShift != nil {
 				OnPublishedPortShift(svc.Name, free)
 			}

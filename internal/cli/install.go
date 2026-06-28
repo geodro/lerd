@@ -208,7 +208,11 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 				feedback.Note("recreated lerd network as v4-only (IPv6 not available for containers)")
 			}
 			feedback.Note("existing containers on this network were recreated")
-			migrated = restored
+			// Union, don't overwrite: `migrated` already holds the containers the
+			// upgrade heal tore down (line above). Replacing it with `restored`
+			// here dropped those from the restart loop, leaving services stopped
+			// after a run that triggered both heal and a network migration.
+			migrated = mergeMigrationRestarts(migrated, restored)
 			step("Creating lerd podman network")
 		} else {
 			return err
