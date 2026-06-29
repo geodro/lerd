@@ -199,6 +199,44 @@ func TestBuildWorkerGuard_SkipsOrphanCleanupWhenOuterAlive(t *testing.T) {
 	}
 }
 
+// TestBuildWorkerReapCommand_TargetsContainerAndCwd verifies the stop-time reap
+// (persisted as a worker's .reap sidecar) invokes `podman exec <container> sh -c`
+// with the same cwd-scoped kill the launch guard uses, so a stop terminates the
+// in-container worker (and its file-watcher child) instead of orphaning it.
+func TestBuildWorkerReapCommand_TargetsContainerAndCwd(t *testing.T) {
+	tmp := t.TempDir()
+	marker := filepath.Join(tmp, "podman-ran")
+	stub := filepath.Join(tmp, "podman-stub")
+	stubScript := "#!/bin/sh\nfor a in \"$@\"; do printf '<%s>' \"$a\" >> " + marker + "; done\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(stubScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	reap := buildWorkerReapCommand(stub, "lerd-php85-fpm", "/Users/u/lferp", "php artisan horizon:listen")
+	if err := exec.Command("sh", "-c", reap).Run(); err != nil {
+		t.Fatalf("reap run failed: %v", err)
+	}
+
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("reap did not invoke podman: %v", err)
+	}
+	gotStr := string(got)
+	for _, want := range []string{
+		"<exec>",
+		"<lerd-php85-fpm>",
+		"<sh>",
+		"<-c>",
+		"php artisan horizon:listen",
+		"/Users/u/lferp",
+		"readlink /proc/$p/cwd",
+	} {
+		if !strings.Contains(gotStr, want) {
+			t.Errorf("reap command missing %q in podman args:\n%s", want, gotStr)
+		}
+	}
+}
+
 func testPIDString() string {
 	return itoa(os.Getpid())
 }
