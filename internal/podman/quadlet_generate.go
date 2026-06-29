@@ -8,10 +8,16 @@ import (
 	"github.com/geodro/lerd/internal/config"
 )
 
+// CustomServiceQuadletMarker tags quadlets generated for lerd-managed services
+// (custom + default presets) so ReconcileServices finds orphans by content, not
+// by name, sparing site/worker quadlets that lack it (issue #678).
+const CustomServiceQuadletMarker = "# lerd-managed-service"
+
 // GenerateCustomQuadlet builds a quadlet .container file for a custom service.
 func GenerateCustomQuadlet(svc *config.CustomService) string {
 	var b strings.Builder
 
+	b.WriteString(CustomServiceQuadletMarker + "\n")
 	b.WriteString("[Unit]\n")
 	desc := svc.Description
 	if desc == "" {

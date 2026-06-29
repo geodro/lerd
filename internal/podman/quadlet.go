@@ -1,6 +1,7 @@
 package podman
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -109,6 +110,26 @@ func QuadletInstalled(name string) bool {
 	path := filepath.Join(config.QuadletDir(), name+".container")
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// ListManagedServiceNames returns the service names (lerd- prefix and .container
+// suffix stripped) of every quadlet carrying CustomServiceQuadletMarker. Used by
+// ReconcileServices to find orphans without misclassifying site/worker quadlets.
+func ListManagedServiceNames() []string {
+	entries, err := filepath.Glob(filepath.Join(config.QuadletDir(), "lerd-*.container"))
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, p := range entries {
+		data, err := os.ReadFile(p)
+		if err != nil || !bytes.Contains(data, []byte(CustomServiceQuadletMarker)) {
+			continue
+		}
+		base := strings.TrimSuffix(filepath.Base(p), ".container")
+		names = append(names, strings.TrimPrefix(base, "lerd-"))
+	}
+	return names
 }
 
 // RemoveQuadlet removes a Podman quadlet container unit file. On macOS it

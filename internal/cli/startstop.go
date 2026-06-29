@@ -19,6 +19,7 @@ import (
 	"github.com/geodro/lerd/internal/nginx"
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/serviceops"
 	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -523,6 +524,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// uninstall/reinstall cycle. Reads .lerd.yaml from each active site.
 	restoreSiteInfrastructure()
 
+	// Reconcile custom services against their YAMLs (issue #678): regenerate a
+	// missing quadlet, drop an orphan quadlet with no YAML. Data dirs untouched.
+	reconcileCustomServices()
+
 	// If the configured default PHP version has never been installed (no plist /
 	// quadlet / container), install it now so coreUnits() can include it.
 	ensureDefaultPHPInstalled()
@@ -799,6 +804,24 @@ func startRestoredServices() {
 func killTray() {
 	exec.Command("pkill", "-f", "lerd tray").Run()
 	exec.Command("pkill", "-f", "lerd-tray").Run()
+}
+
+// reconcileCustomServices heals custom-service drift on start (issue #678).
+// Failures are non-fatal so one bad service can't block the start sequence.
+func reconcileCustomServices() {
+	res, err := serviceops.ReconcileServices(nil)
+	if err != nil {
+		feedback.Warn("reconciling services: %v", err)
+	}
+	for _, name := range res.QuadletsRegenerated {
+		feedback.Warn("regenerated missing unit for %s from its config", name)
+	}
+	for _, name := range res.OrphansRemoved {
+		feedback.Warn("removed orphan service %s (unit with no config; data left intact)", name)
+	}
+	for _, name := range res.RunningOrphansSkipped {
+		feedback.Warn("orphan service %s has no config but its container is running; left as-is (remove with: lerd service remove %s)", name, name)
+	}
 }
 
 // registeredStripeUnits returns unit names for all lerd-stripe-* service files

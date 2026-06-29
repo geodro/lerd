@@ -404,3 +404,52 @@ func TestRealReinstallInstall_CustomServicePath_CallsStreamingWithPresetName(t *
 		t.Errorf("streaming fn version = %q, want %q", captured.version, "10.11")
 	}
 }
+
+// TestResolvePresetForInstall_partialRemnantsAreHealable: a fully-installed
+// service blocks install, but a YAML-only or quadlet-only remnant from a partial
+// install/remove is reinstallable so install can heal it (issue #678 #3).
+func TestResolvePresetForInstall_partialRemnantsAreHealable(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
+
+	const name = "gotenberg" // a non-default bundled preset
+	quadlet := filepath.Join(config.QuadletDir(), "lerd-"+name+".container")
+	mkUnit := func() {
+		if err := os.MkdirAll(config.QuadletDir(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(quadlet, []byte("[Container]\nImage=x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkYAML := func() {
+		if err := config.SaveCustomService(&config.CustomService{Name: name, Image: "docker.io/gotenberg/gotenberg:8"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Clean tree: installable.
+	if _, err := resolvePresetForInstall(name, ""); err != nil {
+		t.Fatalf("clean tree must be installable: %v", err)
+	}
+	// YAML-only remnant: installable (heal forward).
+	mkYAML()
+	if _, err := resolvePresetForInstall(name, ""); err != nil {
+		t.Fatalf("YAML-only remnant must be reinstallable: %v", err)
+	}
+	// Quadlet-only orphan: installable (adopt).
+	if err := config.RemoveCustomService(name); err != nil {
+		t.Fatal(err)
+	}
+	mkUnit()
+	if _, err := resolvePresetForInstall(name, ""); err != nil {
+		t.Fatalf("quadlet-only orphan must be reinstallable: %v", err)
+	}
+	// Fully installed (YAML + unit): blocked.
+	mkYAML()
+	if _, err := resolvePresetForInstall(name, ""); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("fully installed service must be blocked, got: %v", err)
+	}
+}

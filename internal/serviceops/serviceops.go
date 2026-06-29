@@ -25,15 +25,20 @@ import (
 // Kept as a passthrough so callers don't have to import config.
 func IsBuiltin(name string) bool { return config.IsDefaultPreset(name) }
 
-// ServiceInstalled is the single source of truth for whether a lerd service
-// is installed on this host. It checks for the quadlet (lerd-<name>.container)
-// because that's what podman actually uses to run the service, and it can
-// outlive the YAML when the on-disk config drifts (older installs, partial
-// removes, etc.). Use this instead of probing config.LoadCustomService when
-// you only care about install presence.
+// ServiceInstalled is the single source of truth for install state (issue #678):
+// the quadlet for built-in default presets (no YAML by design), the services/
+// YAML for custom services so it agrees with the services list, not the quadlet.
 func ServiceInstalled(name string) bool {
-	return podman.QuadletInstalled("lerd-" + name)
+	if config.IsDefaultPreset(name) {
+		return podman.QuadletInstalled("lerd-" + name)
+	}
+	return config.CustomServiceExists(name)
 }
+
+// UnitInstalledFn reports whether the platform container unit is installed.
+// Defaults to the .container check; the CLI overrides it with the platform-aware
+// services.Mgr.ContainerUnitInstalled (launchd plist on macOS) for reconcile.
+var UnitInstalledFn = func(unit string) bool { return podman.QuadletInstalled(unit) }
 
 // PortAvailable reports whether a TCP port is free to bind on both loopback
 // stacks. It is the exported form of the guard's own bindability test (now the
@@ -241,10 +246,10 @@ func resolvePresetForInstall(name, version string) (*config.CustomService, error
 	if IsBuiltin(svc.Name) {
 		return nil, fmt.Errorf("%q collides with the built-in service of the same name", svc.Name)
 	}
-	// Quadlet presence is the install-state truth (see ServiceInstalled); a
-	// yaml-only remnant from a partial install gets silently rewritten by
-	// registerPreset as the heal path.
-	if ServiceInstalled(svc.Name) {
+	// Only a fully-installed service (YAML and unit both present) blocks install.
+	// A partial remnant (YAML-only after an interrupted install, or a quadlet-only
+	// orphan) is healed by letting registerPreset rewrite both here.
+	if config.CustomServiceExists(svc.Name) && UnitInstalledFn("lerd-"+svc.Name) {
 		return nil, fmt.Errorf("custom service %q already exists; remove it first with: lerd service remove %s", svc.Name, svc.Name)
 	}
 	if missing := MissingPresetDependencies(svc); len(missing) > 0 {

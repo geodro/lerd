@@ -525,6 +525,15 @@ func RemoveCustomService(name string) error {
 	return nil
 }
 
+// CustomServiceExists reports whether a custom service's definition YAML exists.
+// The YAML is the authoritative install-state signal for a custom service, so
+// ServiceInstalled and the services list resolve from it and can't drift (#678).
+func CustomServiceExists(name string) bool {
+	path := filepath.Join(CustomServicesDir(), name+".yaml")
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // ListCustomServices returns all custom services defined in the services directory.
 func ListCustomServices() ([]*CustomService, error) {
 	dir := CustomServicesDir()

@@ -14,6 +14,7 @@ import (
 	phpPkg "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
 	"github.com/geodro/lerd/internal/serviceops"
+	"github.com/geodro/lerd/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -1136,6 +1137,10 @@ func init() {
 	serviceops.OnPublishedPortShift = func(service string, _ int) {
 		refreshHostProxySitesForService(service)
 	}
+	// Route reconcile's "is the unit installed" check through the platform
+	// service manager (launchd plist on macOS, .container quadlet on Linux) so
+	// it matches `lerd start`'s notion of an installed unit.
+	serviceops.UnitInstalledFn = services.Mgr.ContainerUnitInstalled
 }
 
 // StartServiceDependencies and StopServiceAndDependents are thin wrappers so

@@ -182,3 +182,26 @@ func TestValidateCustomService_allowsClean(t *testing.T) {
 		t.Errorf("clean service rejected: %v", err)
 	}
 }
+
+func TestCustomServiceExists(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if CustomServiceExists("gotenberg") {
+		t.Fatalf("expected gotenberg to not exist on a clean tree")
+	}
+
+	svc := &CustomService{Name: "gotenberg", Image: "docker.io/gotenberg/gotenberg:8"}
+	if err := SaveCustomService(svc); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if !CustomServiceExists("gotenberg") {
+		t.Fatalf("expected gotenberg to exist after SaveCustomService")
+	}
+
+	if err := RemoveCustomService("gotenberg"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if CustomServiceExists("gotenberg") {
+		t.Fatalf("expected gotenberg to not exist after RemoveCustomService")
+	}
+}
