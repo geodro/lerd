@@ -411,6 +411,27 @@ func UISocketPath() string {
 	return filepath.Join(RunDir(), "lerd-ui.sock")
 }
 
+// UIClientNetwork / UIClientAddr give the transport a CLI process uses to reach
+// the running lerd-ui daemon. On macOS the unix socket is never created (the
+// server binds it Linux-only, see internal/ui/server.go), so the CLI dials the
+// same TCP loopback the dashboard uses; on Linux it stays on the unix socket.
+// Mirrors the DumpsListenNetwork/Addr split. The port matches lerd-ui's fixed
+// listen port (internal/ui/server.go listenAddr).
+func UIClientNetwork() string {
+	if runtime.GOOS == "darwin" {
+		return "tcp"
+	}
+	return "unix"
+}
+
+// UIClientAddr is the address paired with UIClientNetwork.
+func UIClientAddr() string {
+	if runtime.GOOS == "darwin" {
+		return "127.0.0.1:7073"
+	}
+	return UISocketPath()
+}
+
 // IdleActivityFile is where the lerd-watcher persists per-site last-active times
 // so a restart restores the idle countdowns instead of re-seeding to now; lerd-ui
 // and the CLI read it to render each site's idle state. Lives in RunDir.

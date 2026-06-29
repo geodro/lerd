@@ -114,6 +114,12 @@ func fakeUISocket(t *testing.T) *atomic.Pointer[string] {
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
 	}
+	// Point the CLI client at this unix socket regardless of the production
+	// per-OS default (TCP loopback on macOS), so the test exercises the same
+	// handler on both platforms.
+	prevDial := uiClientDial
+	uiClientDial = func() (string, string) { return "unix", sockPath }
+	t.Cleanup(func() { uiClientDial = prevDial })
 	var seen atomic.Pointer[string]
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

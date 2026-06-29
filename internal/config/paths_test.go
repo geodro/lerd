@@ -2,9 +2,32 @@ package config
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// UIClient{Network,Addr} must give the CLI a transport that actually exists on
+// the host: macOS has no lerd-ui unix socket (server binds it Linux-only), so
+// the client dials the TCP loopback; Linux stays on the unix socket.
+func TestUIClientTransport_matchesOS(t *testing.T) {
+	net, addr := UIClientNetwork(), UIClientAddr()
+	if runtime.GOOS == "darwin" {
+		if net != "tcp" {
+			t.Errorf("UIClientNetwork() = %q on darwin, want tcp", net)
+		}
+		if addr != "127.0.0.1:7073" {
+			t.Errorf("UIClientAddr() = %q on darwin, want 127.0.0.1:7073", addr)
+		}
+		return
+	}
+	if net != "unix" {
+		t.Errorf("UIClientNetwork() = %q on %s, want unix", net, runtime.GOOS)
+	}
+	if addr != UISocketPath() {
+		t.Errorf("UIClientAddr() = %q, want UISocketPath() %q", addr, UISocketPath())
+	}
+}
 
 // ── XDG overrides ─────────────────────────────────────────────────────────────
 
