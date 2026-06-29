@@ -3805,6 +3805,28 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 			if len(parts) == 3 && (parts[2] == "start" || parts[2] == "stop") {
 				workerName := parts[1]
 				branch := r.URL.Query().Get("branch")
+				// A host-proxy site's dev server (the "app" worker) IS the site:
+				// nothing runs behind the proxy vhost but the dev command itself.
+				// Stopping just its unit leaves the vhost proxying to a now-dead
+				// port, so every request 502s. Route the parent app worker's
+				// start/stop through pause/unpause, which swap the vhost to the
+				// paused page (and back) and keep registry state consistent so the
+				// paused page's Resume button works. Worktree dev servers keep the
+				// plain worker path; their vhosts are handled by (un)pauseWorktrees.
+				if lifecycle, ok := hostProxyAppLifecycleOp(site.IsHostProxy(), workerName, branch, parts[2]); ok {
+					var opErr error
+					if lifecycle == "pause" {
+						opErr = cli.PauseSite(site.Name)
+					} else {
+						opErr = cli.UnpauseSite(site.Name)
+					}
+					if opErr != nil {
+						writeJSON(w, SiteActionResponse{Error: opErr.Error()})
+						return
+					}
+					writeJSON(w, SiteActionResponse{OK: true})
+					return
+				}
 				targetPath := site.Path
 				if branch != "" {
 					wtPath := resolveSitePath(site, branch)
@@ -3865,6 +3887,26 @@ func handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, SiteActionResponse{OK: true})
+}
+
+// hostProxyAppLifecycleOp maps a worker start/stop on a host-proxy site's parent
+// dev-server worker ("app") to the site-level lifecycle op that also swaps the
+// proxy vhost: "stop" -> "pause", "start" -> "unpause". It returns ok=false for
+// anything that must take the normal per-worker path — a different worker, a
+// worktree target (branch set), or a non-host-proxy site — so only the parent
+// app worker is rerouted. Without this, stopping the app worker leaves the proxy
+// vhost pointing at the dead dev-server port and every request to the site 502s.
+func hostProxyAppLifecycleOp(isHostProxy bool, workerName, branch, op string) (string, bool) {
+	if !isHostProxy || workerName != config.HostProxyWorkerName || branch != "" {
+		return "", false
+	}
+	switch op {
+	case "stop":
+		return "pause", true
+	case "start":
+		return "unpause", true
+	}
+	return "", false
 }
 
 func handlePHPVersionAction(w http.ResponseWriter, r *http.Request) {
