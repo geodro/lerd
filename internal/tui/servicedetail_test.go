@@ -3,7 +3,33 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/geodro/lerd/internal/serviceops"
 )
+
+func TestServiceDetail_ShowsPortsLine(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := serviceops.SetExtraPorts("mysql", []string{"8080:80"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serviceops.SetPublishedPort("mysql", 33907); err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel("test")
+	svc := &ServiceRow{Name: "mysql", State: stateRunning}
+	joined := stripANSI(strings.Join(serviceDetailContentLines(m, svc, 120), "\n"))
+	if !strings.Contains(joined, "ports:") || !strings.Contains(joined, "33907") {
+		t.Errorf("expected ports line with the moved port:\n%s", joined)
+	}
+	if !strings.Contains(joined, "default 3306") {
+		t.Errorf("expected the default-port hint:\n%s", joined)
+	}
+	if !strings.Contains(joined, "8080:80") {
+		t.Errorf("expected the extra port mapping:\n%s", joined)
+	}
+}
 
 func TestServiceDetail_RendersHeader(t *testing.T) {
 	m := NewModel("test")

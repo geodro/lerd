@@ -53,6 +53,41 @@ describe('services store', () => {
     expect(calls.some((c) => c[0] === '/api/services')).toBe(true);
   });
 
+  it('setServicePorts POSTs the published port and extra ports as JSON', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      calls.push([String(url), init]);
+      if (String(url).endsWith('/mysql/ports'))
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response('[]', { status: 200 });
+    }) as unknown as typeof fetch;
+    const { setServicePorts } = await import('./services');
+    const res = await setServicePorts('mysql', { published_port: 3307, extra_ports: ['8080:80'] });
+    expect(res.ok).toBe(true);
+    expect(calls[0][0]).toBe('/api/services/mysql/ports');
+    expect(calls[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      published_port: 3307,
+      extra_ports: ['8080:80']
+    });
+    expect(calls.some((c) => c[0] === '/api/services')).toBe(true);
+  });
+
+  it('setServicePorts surfaces a server error without reloading', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ ok: false, error: 'port already in use: 3307' }), {
+        status: 200
+      });
+    }) as unknown as typeof fetch;
+    const { setServicePorts } = await import('./services');
+    const res = await setServicePorts('mysql', { published_port: 3307, extra_ports: [] });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('already in use');
+    expect(calls.some((c) => c === '/api/services')).toBe(false);
+  });
+
   it('getServiceConfig GETs the tuning override with exists flag', async () => {
     globalThis.fetch = vi.fn(
       async () =>

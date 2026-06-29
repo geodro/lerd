@@ -2,6 +2,7 @@ package tui
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -49,6 +50,18 @@ func serviceDetailContentLines(m *Model, svc *ServiceRow, innerW int) []string {
 	}
 	add(dimStyle.Render("  state:   ") + stateText)
 	add(dimStyle.Render("  unit:    ") + "lerd-" + svc.Name)
+	// Published host port and any extra mappings, read-only. Editing lives in
+	// the CLI/UI/MCP (a multi-field edit is out of the TUI's quick-action scope).
+	if host, def, extras := servicePortsInfo(svc.Name); host > 0 {
+		portLine := strconv.Itoa(host)
+		if def > 0 && host != def {
+			portLine += dimStyle.Render(" (default " + strconv.Itoa(def) + ")")
+		}
+		add(dimStyle.Render("  ports:   ") + portLine)
+		for _, e := range extras {
+			add(dimStyle.Render("  +extra:  ") + e)
+		}
+	}
 	if svc.Pinned {
 		add(dimStyle.Render("  pinned:  ") + accentStyle.Render("yes (preset will not auto-update)"))
 	}
@@ -178,6 +191,25 @@ func presetSuggestionFor(svc *ServiceRow) string {
 		return ""
 	}
 	return "install " + target + " for a browser dashboard (run `lerd preset install " + target + "`)"
+}
+
+// servicePortsInfo returns the host (published) port a built-in service is
+// exposed on, its preset-default host port, and any extra published mappings,
+// read straight from global config for the read-only TUI ports line. host is 0
+// when the service publishes no host port (e.g. a custom service whose ports
+// live in its own YAML), in which case the caller omits the line.
+func servicePortsInfo(name string) (host, def int, extras []string) {
+	cfg, err := config.LoadGlobal()
+	if err != nil || cfg == nil {
+		return 0, 0, nil
+	}
+	sc := cfg.Services[name]
+	def = sc.Port
+	host = def
+	if sc.PublishedPort > 0 {
+		host = sc.PublishedPort
+	}
+	return host, def, sc.ExtraPorts
 }
 
 // serviceStateText renders a one-word state with the matching colour. Used

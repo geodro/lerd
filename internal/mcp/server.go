@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/geodro/lerd/internal/agentenv"
@@ -2082,56 +2081,16 @@ func execServiceExpose(args map[string]any) (any, *rpcError) {
 	if port == "" {
 		return toolErr("port is required"), nil
 	}
-	if !isKnownService(name) {
-		return toolErr(name + " is not a built-in service"), nil
-	}
-	remove := boolArg(args, "remove")
-
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return toolErr("loading config: " + err.Error()), nil
-	}
-	svcCfg := cfg.Services[name]
-	if remove {
-		filtered := svcCfg.ExtraPorts[:0]
-		for _, p := range svcCfg.ExtraPorts {
-			if p != port {
-				filtered = append(filtered, p)
-			}
+	if boolArg(args, "remove") {
+		if err := serviceops.RemoveExtraPort(name, port); err != nil {
+			return toolErr(err.Error()), nil
 		}
-		svcCfg.ExtraPorts = filtered
-	} else {
-		found := false
-		for _, p := range svcCfg.ExtraPorts {
-			if p == port {
-				found = true
-				break
-			}
-		}
-		if !found {
-			svcCfg.ExtraPorts = append(svcCfg.ExtraPorts, port)
-		}
+		return toolOK(fmt.Sprintf("Port %s removed from %s.", port, name)), nil
 	}
-	cfg.Services[name] = svcCfg
-	if err := config.SaveGlobal(cfg); err != nil {
-		return toolErr("saving config: " + err.Error()), nil
+	if err := serviceops.AddExtraPort(name, port); err != nil {
+		return toolErr(err.Error()), nil
 	}
-
-	unitName := "lerd-" + name
-	if err := serviceops.EnsureDefaultPresetQuadlet(name); err != nil {
-		return toolErr("ensuring default preset quadlet: " + err.Error()), nil
-	}
-
-	status, _ := podman.UnitStatus(unitName)
-	if status == "active" {
-		_ = podman.RestartUnit(unitName)
-	}
-
-	action := "added to"
-	if remove {
-		action = "removed from"
-	}
-	return toolOK(fmt.Sprintf("Port %s %s %s.", port, action, name)), nil
+	return toolOK(fmt.Sprintf("Port %s added to %s.", port, name)), nil
 }
 
 func execServiceEnv(args map[string]any) (any, *rpcError) {
@@ -4243,23 +4202,38 @@ func execServiceUnpin(args map[string]any) (any, *rpcError) {
 	return runLerdCmd("service", "unpin", name)
 }
 
-// execServicePort shells out to `lerd service port`, reusing the CLI's gate,
-// pre-flight, fail-closed persistence, host-proxy refresh and actual-port
-// reporting. published_port sets the port (0 resets); reset:true is shorthand
-// for the default.
+// execServicePort moves a service's published host port through the shared
+// serviceops.SetPublishedPort, so the CLI, MCP and Web UI enforce the same
+// gate, pre-flight, fail-closed persistence and host-proxy refresh.
+// published_port sets the port (0 resets); reset:true is shorthand for the default.
 func execServicePort(args map[string]any) (any, *rpcError) {
 	name := strArg(args, "name")
 	if name == "" {
 		return toolErr("name is required"), nil
 	}
-	if boolArg(args, "reset") {
-		return runLerdCmd("service", "port", name, "--reset")
+	port := 0
+	if !boolArg(args, "reset") {
+		port = intArg(args, "published_port", -1)
+		if port < 0 {
+			return toolErr("provide published_port (0 to reset), or set reset: true"), nil
+		}
 	}
-	port := intArg(args, "published_port", -1)
-	if port < 0 {
-		return toolErr("provide published_port (0 to reset), or set reset: true"), nil
+	res, err := serviceops.SetPublishedPort(name, port)
+	if err != nil {
+		return toolErr(err.Error()), nil
 	}
-	return runLerdCmd("service", "port", name, strconv.Itoa(port))
+	switch {
+	case res.NoOp && res.Actual == 0:
+		return toolOK(name + " already uses its default published port."), nil
+	case res.NoOp:
+		return toolOK(fmt.Sprintf("%s is already published on port %d.", name, res.Actual)), nil
+	case !res.Installed:
+		return toolOK(fmt.Sprintf("%s is not installed; saved published-port override (%d).", name, res.Requested)), nil
+	case res.Actual == 0:
+		return toolOK("Reset " + name + " to its default published port."), nil
+	default:
+		return toolOK(fmt.Sprintf("%s now publishes 127.0.0.1:%d (container-internal port unchanged).", name, res.Actual)), nil
+	}
 }
 
 // runLerdCmd runs the lerd binary with the given arguments and returns its

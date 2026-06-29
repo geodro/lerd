@@ -36,8 +36,12 @@
     actions: ButtonMenuAction[];
     busy?: boolean;
     menuLabel?: string;
+    // When set, a cog button is rendered in the group between the primary button
+    // and the dropdown toggle (or to the right of a lone primary button).
+    onSettings?: () => void;
+    settingsTitle?: string;
   }
-  let { actions, busy = false, menuLabel }: Props = $props();
+  let { actions, busy = false, menuLabel, onSettings, settingsTitle }: Props = $props();
 
   const primary = $derived(actions[0]);
   const rest = $derived(actions.slice(1));
@@ -87,37 +91,60 @@
   </svg>
 {/snippet}
 
+{#snippet cog(tone: DetailButtonTone)}
+  <button
+    type="button"
+    onclick={onSettings}
+    class="{baseBtn} border-l border-black/10 dark:border-white/10 px-1.5 {buttonMenuToneClass[tone]}"
+    disabled={busy}
+    aria-label={settingsTitle ?? m.common_settings()}
+    title={settingsTitle ?? m.common_settings()}
+    data-testid="button-menu-settings"
+  >
+    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+{/snippet}
+
 {#if actions.length === 0}
   {''}
 {:else if actions.length === 1}
   {@const only = actions[0]}
   {@const tone = only.tone ?? 'secondary'}
-  {#if only.href}
-    <a
-      class="{baseBtn} rounded-lg {buttonMenuToneClass[tone]}"
-      href={only.href}
-      target={only.target}
-      title={only.title}
-    >
-      {#if only.icon}{@render only.icon()}{/if}
-      {only.label}
-    </a>
-  {:else}
-    <button
-      type="button"
-      class="{baseBtn} rounded-lg {buttonMenuToneClass[tone]}"
-      onclick={only.onclick}
-      disabled={only.disabled || busy}
-      title={only.title}
-    >
-      {#if busy}
-        {@render spinner()}
-      {:else}
+  {@const lead = onSettings ? 'rounded-l-lg' : 'rounded-lg'}
+  <div class="inline-flex">
+    {#if only.href}
+      <a
+        class="{baseBtn} {lead} {buttonMenuToneClass[tone]}"
+        href={only.href}
+        target={only.target}
+        title={only.title}
+      >
         {#if only.icon}{@render only.icon()}{/if}
         {only.label}
-      {/if}
-    </button>
-  {/if}
+      </a>
+    {:else}
+      <button
+        type="button"
+        class="{baseBtn} {lead} {buttonMenuToneClass[tone]}"
+        onclick={only.onclick}
+        disabled={only.disabled || busy}
+        title={only.title}
+      >
+        {#if busy}
+          {@render spinner()}
+        {:else}
+          {#if only.icon}{@render only.icon()}{/if}
+          {only.label}
+        {/if}
+      </button>
+    {/if}
+    {#if onSettings}
+      {@render cog(tone)}
+    {/if}
+  </div>
 {:else}
   {@const tone = primary.tone ?? 'secondary'}
   <div bind:this={rootEl} class="relative inline-flex">
@@ -146,6 +173,9 @@
           {primary.label}
         {/if}
       </button>
+    {/if}
+    {#if onSettings}
+      {@render cog(tone)}
     {/if}
     <button
       type="button"

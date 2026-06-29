@@ -13,6 +13,11 @@ export interface Service {
   connection_url?: string;
   // Host (published) port the service is exposed on; reflects a moved port.
   port?: number;
+  // Published-port override (0/undefined = default), the preset default host
+  // port, and the extra published mappings — read by the ports modal.
+  published_port?: number;
+  default_port?: number;
+  extra_ports?: string[];
   custom?: boolean;
   is_default?: boolean;
   tunable?: boolean;
@@ -158,6 +163,31 @@ export async function serviceAction(
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+// setServicePorts sends the published-port override (null = reset to default)
+// and the full extra-ports set in one request, routed through the shared
+// serviceops layer server-side. Returns {ok, error} so the modal can surface a
+// validation failure (e.g. a port already in use).
+export async function setServicePorts(
+  name: string,
+  body: { published_port: number | null; extra_ports: string[] }
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await apiFetch('/api/services/' + encodeURIComponent(name) + '/ports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (res.ok && data.ok) {
+      await loadServices();
+      return { ok: true };
+    }
+    return { ok: false, error: data.error || 'failed' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 

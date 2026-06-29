@@ -992,9 +992,16 @@ type ServiceResponse struct {
 	// published-port override when set, else the preset/version default. 0 when
 	// the service publishes no host port (e.g. a worker). The UI shows it in the
 	// status pill so a moved port reads at a glance.
-	Port      int  `json:"port,omitempty"`
-	Custom    bool `json:"custom,omitempty"`
-	IsDefault bool `json:"is_default,omitempty"`
+	Port int `json:"port,omitempty"`
+	// PublishedPort is the user's published-port override (0 when unset, i.e.
+	// using the default). DefaultPort is the preset/version default host port.
+	// ExtraPorts are the extra published mappings. The ports modal reads these
+	// to show the current state and a reset-to-default affordance.
+	PublishedPort int      `json:"published_port,omitempty"`
+	DefaultPort   int      `json:"default_port,omitempty"`
+	ExtraPorts    []string `json:"extra_ports,omitempty"`
+	Custom        bool     `json:"custom,omitempty"`
+	IsDefault     bool     `json:"is_default,omitempty"`
 	// Tunable is true when the service exposes a user-editable runtime config
 	// override (see config.ServiceTuningMount), so the UI can show a Tuning tab.
 	Tunable            bool     `json:"tunable,omitempty"`
@@ -1106,6 +1113,10 @@ func buildServiceResponseWithPortList(services map[string]config.ServiceConfig, 
 
 	presetPorts := config.DefaultPresetPorts(name)
 	hostPort := effectiveHostPort(services, name, presetPorts)
+	defaultPort := podman.PrimaryHostPort(presetPorts)
+	if sc, ok := services[name]; ok && sc.Port > 0 {
+		defaultPort = sc.Port
+	}
 	resp := ServiceResponse{
 		Name:          name,
 		Status:        status,
@@ -1119,6 +1130,11 @@ func buildServiceResponseWithPortList(services map[string]config.ServiceConfig, 
 		Pinned:        config.ServiceIsPinned(name),
 		Paused:        config.ServiceIsPaused(name),
 		IsDefault:     config.IsDefaultPreset(name),
+		DefaultPort:   defaultPort,
+	}
+	if sc, ok := services[name]; ok {
+		resp.PublishedPort = sc.PublishedPort
+		resp.ExtraPorts = sc.ExtraPorts
 	}
 	// Only advertise Tunable when the service is actually installed.
 	// ResolveServiceForTuning resolves built-in default presets even when
@@ -1960,6 +1976,11 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if action == "ports" && r.Method == http.MethodPost {
+		handleServicePorts(w, r, name)
+		return
+	}
+
 	if action == "update" && r.Method == http.MethodPost {
 		targetTag := r.URL.Query().Get("tag")
 		var targetImage string
@@ -2305,6 +2326,49 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeJSON(w, ServiceActionResponse{
+		ServiceResponse: buildServiceResponse(name),
+		OK:              true,
+	})
+}
+
+// handleServicePorts sets a service's published host port and (for built-in
+// services) its extra published ports in one request, routing both through the
+// shared serviceops layer so the Web UI enforces the same validation, guard and
+// host-proxy refresh as the CLI and MCP. A nil/zero published_port resets to the
+// preset default.
+func handleServicePorts(w http.ResponseWriter, r *http.Request, name string) {
+	var body struct {
+		PublishedPort *int     `json:"published_port"`
+		ExtraPorts    []string `json:"extra_ports"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	fail := func(err error) {
+		writeJSON(w, ServiceActionResponse{
+			ServiceResponse: buildServiceResponse(name),
+			OK:              false,
+			Error:           err.Error(),
+		})
+	}
+	port := 0
+	if body.PublishedPort != nil {
+		port = *body.PublishedPort
+	}
+	if _, err := serviceops.SetPublishedPort(name, port); err != nil {
+		fail(err)
+		return
+	}
+	// Extra ports apply to built-in services only; custom services declare ports
+	// in their own YAML.
+	if config.IsDefaultPreset(name) {
+		if err := serviceops.SetExtraPorts(name, body.ExtraPorts); err != nil {
+			fail(err)
+			return
+		}
+	}
 	writeJSON(w, ServiceActionResponse{
 		ServiceResponse: buildServiceResponse(name),
 		OK:              true,

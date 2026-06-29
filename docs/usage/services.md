@@ -65,6 +65,8 @@ services:
 
 Then apply with `lerd service restart mysql`.
 
+You can also manage extra ports from the dashboard: open a service, click the cog button in the action group (between the main button and the dropdown), and add or remove mappings in the **Ports** modal alongside the published port. The CLI, dashboard, MCP and TUI all route through the same logic, so a change made on one surface shows up on the others.
+
 ### Moving a service's published host port
 
 Each service publishes on a default host port (MySQL `3306`, PostgreSQL `5432`, Redis `6379`, and so on). When lerd writes a service's quadlet and that default port can't be bound, it shifts the service to the next free port and records it, so the container comes up cleanly instead of failing to bind. The decision is made purely from port availability: lerd never inspects host files, sockets, or installed packages. It applies to every service, not just databases.
@@ -82,6 +84,8 @@ lerd service port mysql --reset   # or: lerd service port mysql 0
 The container-internal port never changes, so containerized apps (which reach the service by name over the `lerd` network) are unaffected. Only host clients pointed at the old published port need to follow. [Host-proxy sites](host-proxy.md) that connect over the published loopback port have their `.env` regenerated automatically when the port moves. A host-proxy site that is paused when the port moves is skipped at that moment and picks up the new port when it is next unpaused.
 
 The chosen port is persisted under `services.<name>.published_port` in `~/.config/lerd/config.yaml` and reapplied on every start. Once a port is set, automatically or with `lerd service port`, it sticks: lerd never moves it again on its own, not even back to the default when that frees up later. Change it only with `lerd service port`.
+
+The published port can also be moved from the dashboard: the cog button on a service opens the **Ports** modal, where you set a new host port or reset to the preset default. The TUI shows the current published and extra ports read-only; editing stays in the CLI, dashboard and MCP.
 
 ::: warning Known limitation
 The shift is decided at quadlet-write time, from whether the port can be bound right then. A host server that is installed but stopped at that moment leaves its port looking free, so lerd may take it and clash when that server next starts (for example at boot). This is the deliberate trade for not inspecting the host: a host database is usually running, and the failure is loud. Recover by moving lerd onto a free port with `lerd service port <name> <port>`.

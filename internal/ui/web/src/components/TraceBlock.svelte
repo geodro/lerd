@@ -20,7 +20,7 @@
 
 {#if primary}
   <div class="text-gray-700 dark:text-gray-200">
-    {#if primary.func}<span class="font-semibold">{primary.func}</span> — {/if}
+    {#if primary.func}<span class="font-semibold">{primary.func}</span> · {/if}
     <button
       type="button"
       class="font-mono text-lerd-red hover:underline break-all"
@@ -41,7 +41,7 @@
         {#each trace as frame}
           {@const app = !frame.file.includes('/vendor/')}
           <li class={app ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
-            <span class={app ? 'font-semibold' : ''}>{frame.func}</span> —
+            <span class={app ? 'font-semibold' : ''}>{frame.func}</span> ·
             <button
               type="button"
               class="hover:underline break-all {app ? 'text-lerd-red' : ''}"

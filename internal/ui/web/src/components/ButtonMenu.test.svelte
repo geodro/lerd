@@ -4,8 +4,10 @@
   interface Props {
     actions: ButtonMenuAction[];
     busy?: boolean;
+    onSettings?: () => void;
+    settingsTitle?: string;
   }
-  let { actions, busy = false }: Props = $props();
+  let { actions, busy = false, onSettings, settingsTitle }: Props = $props();
 </script>
 
-<ButtonMenu {actions} {busy} />
+<ButtonMenu {actions} {busy} {onSettings} {settingsTitle} />

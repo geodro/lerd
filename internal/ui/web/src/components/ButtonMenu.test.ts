@@ -161,4 +161,46 @@ describe('ButtonMenu', () => {
     });
     expect(container.querySelector('svg.animate-spin')).toBeInTheDocument();
   });
+
+  it('renders no settings cog by default', () => {
+    render(Harness, {
+      props: {
+        actions: [action({ id: 'p', label: 'Primary' }), action({ id: 's', label: 'Second' })]
+      }
+    });
+    expect(screen.queryByTestId('button-menu-settings')).not.toBeInTheDocument();
+  });
+
+  it('renders a settings cog in a split-button and fires onSettings', async () => {
+    const fn = vi.fn();
+    render(Harness, {
+      props: {
+        onSettings: fn,
+        actions: [action({ id: 'p', label: 'Primary' }), action({ id: 's', label: 'Second' })]
+      }
+    });
+    const cog = screen.getByTestId('button-menu-settings');
+    expect(cog).toBeInTheDocument();
+    await fireEvent.click(cog);
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it('renders a settings cog next to a lone primary button', () => {
+    render(Harness, {
+      props: { onSettings: () => {}, actions: [action({ id: 'p', label: 'Solo' })] }
+    });
+    expect(screen.getByTestId('button-menu-settings')).toBeInTheDocument();
+  });
+
+  it('disables the settings cog when busy', () => {
+    render(Harness, {
+      props: {
+        busy: true,
+        onSettings: () => {},
+        actions: [action({ id: 'p', label: 'Primary' }), action({ id: 's', label: 'Second' })]
+      }
+    });
+    const cog = screen.getByTestId('button-menu-settings') as HTMLButtonElement;
+    expect(cog.disabled).toBe(true);
+  });
 });
