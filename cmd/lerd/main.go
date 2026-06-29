@@ -151,6 +151,7 @@ func main() {
 	root.AddCommand(cli.NewWhatsnewCmd())
 	root.AddCommand(cli.NewManCmd())
 	root.AddCommand(cli.NewDoctorCmd())
+	root.AddCommand(cli.NewSiteDoctorCmd())
 	root.AddCommand(cli.NewMachineCmd())
 	root.AddCommand(cli.NewBugReportCmd())
 	root.AddCommand(cli.NewLogsCmd())

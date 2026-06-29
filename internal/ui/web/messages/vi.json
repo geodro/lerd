@@ -708,7 +708,7 @@
   "tinker_lineLabel": "Dòng {n}",
   "tinker_lineTitle": "Được tạo bởi dòng {n} của trình soạn thảo",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Chạy lại kiểm tra",
   "sites_doctor_running": "Đang chạy kiểm tra…",
   "sites_doctor_allClear": "Tất cả kiểm tra đều đạt",

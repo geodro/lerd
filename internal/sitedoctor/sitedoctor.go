@@ -1,12 +1,13 @@
-// Package sitedoctor runs Laravel app-level health checks for a single site:
-// APP_KEY, .env drift against .env.example, the APP_DEBUG-in-production footgun,
-// the public/storage symlink, and pending migrations. The checks are pure
-// (files plus one optional artisan exec) so both the web dashboard and the TUI
-// can share one implementation rather than each carrying its own copy.
+// Package sitedoctor runs app-level health checks for a single site. It pairs a
+// universal baseline every framework gets (env file present, .env drift,
+// dependency install + lock, security audits, PHP version range) with the
+// framework's own declarative checks from the store (config.FrameworkDoctor), so
+// the web dashboard, TUI, and CLI all share one framework-agnostic engine.
 package sitedoctor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/geodro/lerd/internal/config"
 	"github.com/geodro/lerd/internal/envfile"
+	phpkg "github.com/geodro/lerd/internal/php"
 )
 
 // Check statuses, mirroring the MCP doctor's check shape so the diagnostics
@@ -30,16 +32,37 @@ const (
 	StatusUnknown = "unknown"
 )
 
-// migrateStatusTimeout bounds the one container exec the doctor makes. Booting
-// Laravel + reaching the DB is usually sub-second, but a wedged app or an
-// unreachable DB shouldn't hang the panel — it degrades to an "unknown" check.
-const migrateStatusTimeout = 25 * time.Second
+// Universal doctor fix keys. A Check.Fix set to one of these names a package
+// manager command the UI runs through the doctor fix endpoint, distinct from a
+// framework command from the site's own command set.
+const (
+	FixComposerInstall = "composer_install"
+	FixComposerUpdate  = "composer_update"
+	FixNpmInstall      = "npm_install"
+	FixNpmAuditFix     = "npm_audit_fix"
+)
+
+// DoctorFixCommands maps each universal fix key to the shell command run in the
+// site container. The fix endpoint only runs commands from this allowlist, so a
+// client can never drive arbitrary shell through it.
+var DoctorFixCommands = map[string]string{
+	FixComposerInstall: "composer install",
+	FixComposerUpdate:  "composer update",
+	FixNpmInstall:      "npm install",
+	FixNpmAuditFix:     "npm audit fix",
+}
+
+// commandTimeout bounds each container exec a check makes (declared command
+// checks plus the composer/npm audits). A wedged app, unreachable DB, or slow
+// network degrades the check to "unknown" rather than hanging the panel.
+const commandTimeout = 25 * time.Second
 
 // Check is one app-level health finding for a site. Fix, when set, names a
 // command from the site's command set that a UI can run to resolve the finding,
 // so the doctor never grows its own mutation endpoints.
 type Check struct {
 	Name   string `json:"name"`
+	Label  string `json:"label,omitempty"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	Fix    string `json:"fix,omitempty"`
@@ -62,46 +85,183 @@ func (d *Response) add(c Check) {
 	d.Checks = append(d.Checks, c)
 }
 
-// Run builds the doctor report for the Laravel project at path. The cheap
-// checks read files only; the migrations check is the one that touches the
-// container. Checks that don't apply to a project (no .env.example, no public
-// disk) are omitted rather than reported as passing.
-func Run(ctx context.Context, path string) Response {
+// Run builds the doctor report for the project at path using fw to drive both
+// the universal baseline and the framework's declarative checks. fw may be nil
+// (an unknown framework) — only the file/dependency baseline runs then. The
+// cheap checks read files; command and audit checks touch the container.
+func Run(ctx context.Context, path string, fw *config.Framework) Response {
 	resp := Response{Checks: []Check{}}
-	envPath := filepath.Join(path, ".env")
+	envFile, envFormat, exampleFile := envSetup(fw, path)
+	envPath := filepath.Join(path, envFile)
 
-	resp.add(checkAppKey(envPath))
-	if c, ok := checkEnvDrift(path, envPath); ok {
+	if hasEnvConfig(fw) {
+		if c, ok := checkEnvPresent(path, envFile); ok {
+			resp.add(c)
+		}
+	}
+	// The env drift and app-key checks parse the file as dotenv, so skip them for
+	// frameworks that store config another way (WordPress's wp-config.php, etc.).
+	if envFormat == "dotenv" {
+		if c, ok := checkAppKey(envPath, fw); ok {
+			resp.add(c)
+		}
+		if c, ok := checkEnvDrift(path, envPath, filepath.Join(path, exampleFile)); ok {
+			resp.add(c)
+		}
+	}
+
+	for _, spec := range frameworkChecks(fw) {
+		if c, ok := runDeclaredCheck(ctx, path, envPath, spec); ok {
+			resp.add(c)
+		}
+	}
+
+	for _, c := range dependencyChecks(ctx, path, fw) {
 		resp.add(c)
 	}
-	resp.add(checkAppDebug(envPath))
-	if c, ok := checkStorageLink(path); ok {
+	if c, ok := checkPHPVersion(path, fw); ok {
 		resp.add(c)
 	}
-	resp.add(checkMigrations(ctx, path))
+	applyLabels(&resp)
 	return resp
 }
 
-// checkAppKey fails when APP_KEY is unset, which breaks encryption, signed
-// URLs, and session cookies.
-func checkAppKey(envPath string) Check {
-	if strings.TrimSpace(envfile.ReadKey(envPath, "APP_KEY")) == "" {
-		return Check{
-			Name:   "app_key",
-			Status: StatusFail,
-			Detail: "APP_KEY is empty — encryption, signed URLs, and sessions won't work until it's set.",
-			Fix:    "key:generate",
+// envSetup resolves the env file, its format, and the example file for the
+// framework. It honours the framework's fallback (WordPress resolves to
+// wp-config.php), defaulting to .env / dotenv / .env.example when fw is nil.
+func envSetup(fw *config.Framework, path string) (envFile, format, exampleFile string) {
+	envFile, format, exampleFile = ".env", "dotenv", ".env.example"
+	if fw != nil {
+		envFile, format = fw.Env.Resolve(path)
+		if fw.Env.ExampleFile != "" {
+			exampleFile = fw.Env.ExampleFile
 		}
 	}
-	return Check{Name: "app_key", Status: StatusOK}
+	return envFile, format, exampleFile
+}
+
+// hasEnvConfig reports whether the framework uses an env file at all, so a plain
+// site with no framework isn't flagged for a missing .env it never needed.
+func hasEnvConfig(fw *config.Framework) bool {
+	if fw == nil {
+		return false
+	}
+	e := fw.Env
+	return e.File != "" || e.FallbackFile != "" || e.ExampleFile != "" || e.KeyGeneration != nil || len(e.Services) > 0
+}
+
+// frameworkChecks returns the framework's declarative doctor checks, or nil.
+func frameworkChecks(fw *config.Framework) []config.DoctorCheck {
+	if fw == nil || fw.Doctor == nil {
+		return nil
+	}
+	return fw.Doctor.Checks
+}
+
+// runDeclaredCheck dispatches one store-declared check to its typed evaluator,
+// stamping the spec's label. An unknown type is skipped (ok=false) so a newer
+// store never errors an older binary.
+func runDeclaredCheck(ctx context.Context, path, envPath string, spec config.DoctorCheck) (Check, bool) {
+	var c Check
+	var ok bool
+	switch spec.Type {
+	case "env_key_set":
+		c, ok = checkEnvKeySet(envPath, spec.Name, spec.EnvKey, spec.Fix, spec.Detail), true
+	case "env_combo":
+		c, ok = checkEnvCombo(envPath, spec), true
+	case "symlink":
+		c, ok = checkSymlink(path, spec)
+	case "command":
+		c, ok = checkCommand(ctx, path, spec), true
+	default:
+		return Check{}, false
+	}
+	if ok {
+		c.Label = spec.Label
+	}
+	return c, ok
+}
+
+// universalLabels maps the built-in check names to their display labels. The
+// declared framework checks carry their own labels from the store.
+var universalLabels = map[string]string{
+	"env_present":    "Env File",
+	"app_key":        "App Key",
+	"env_drift":      "Env Drift",
+	"composer_deps":  "Composer Dependencies",
+	"composer_audit": "Composer Audit",
+	"node_deps":      "Node Dependencies",
+	"node_audit":     "Node Audit",
+	"php_version":    "PHP Version",
+}
+
+// humanize turns a snake_case check name into a Title Case fallback label.
+func humanize(name string) string {
+	words := strings.Split(name, "_")
+	for i, w := range words {
+		if w != "" {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// applyLabels fills any check whose Label is still empty, preferring the
+// universal label table and falling back to a humanized name.
+func applyLabels(resp *Response) {
+	for i := range resp.Checks {
+		if resp.Checks[i].Label != "" {
+			continue
+		}
+		if l, ok := universalLabels[resp.Checks[i].Name]; ok {
+			resp.Checks[i].Label = l
+		} else {
+			resp.Checks[i].Label = humanize(resp.Checks[i].Name)
+		}
+	}
+}
+
+// checkEnvPresent fails when the framework's env file is missing — every other
+// env-driven check would otherwise read an empty file and misreport.
+func checkEnvPresent(path, envFile string) (Check, bool) {
+	if _, err := os.Stat(filepath.Join(path, envFile)); err != nil {
+		return Check{
+			Name:   "env_present",
+			Status: StatusFail,
+			Detail: fmt.Sprintf("%s is missing, copy it from the example and configure it.", envFile),
+		}, true
+	}
+	return Check{Name: "env_present", Status: StatusOK}, true
+}
+
+// checkAppKey fails when the framework's app key (env.key_generation) is unset,
+// which breaks encryption, signed URLs, and session cookies. Skipped for
+// frameworks that declare no key generation.
+func checkAppKey(envPath string, fw *config.Framework) (Check, bool) {
+	if fw == nil || fw.Env.KeyGeneration == nil || fw.Env.KeyGeneration.EnvKey == "" {
+		return Check{}, false
+	}
+	kg := fw.Env.KeyGeneration
+	detail := fmt.Sprintf("%s is empty, so encryption, signed URLs, and sessions won't work until it's set.", kg.EnvKey)
+	return checkEnvKeySet(envPath, "app_key", kg.EnvKey, kg.Command, detail), true
+}
+
+// checkEnvKeySet fails when key is empty in the env file.
+func checkEnvKeySet(envPath, name, key, fix, detail string) Check {
+	if strings.TrimSpace(envfile.ReadKey(envPath, key)) == "" {
+		if detail == "" {
+			detail = fmt.Sprintf("%s is empty.", key)
+		}
+		return Check{Name: name, Status: StatusFail, Detail: detail, Fix: fix}
+	}
+	return Check{Name: name, Status: StatusOK}
 }
 
 // checkEnvDrift warns when .env.example declares keys the project's .env is
 // missing — the classic "pulled main, app breaks on a new env var" trap. Only
 // key names are surfaced, never values, so it's safe to return over the wire.
 // Skipped (ok=false) when there's no .env.example to compare against.
-func checkEnvDrift(path, envPath string) (Check, bool) {
-	examplePath := filepath.Join(path, ".env.example")
+func checkEnvDrift(path, envPath, examplePath string) (Check, bool) {
 	if _, err := os.Stat(examplePath); err != nil {
 		return Check{}, false
 	}
@@ -276,89 +436,288 @@ func summariseKeys(keys []string, max int) string {
 	return strings.Join(keys[:max], ", ") + fmt.Sprintf(", +%d more", len(keys)-max)
 }
 
-// checkAppDebug warns about the production footgun of APP_DEBUG=true while
-// APP_ENV=production, which leaks stack traces. Plain local dev (APP_ENV=local
-// with debug on) is expected and passes quietly.
-func checkAppDebug(envPath string) Check {
-	env := strings.ToLower(strings.TrimSpace(envfile.ReadKey(envPath, "APP_ENV")))
-	debug := strings.ToLower(strings.TrimSpace(envfile.ReadKey(envPath, "APP_DEBUG")))
-	debugOn := debug == "true" || debug == "1" || debug == "on" || debug == "yes"
-	if env == "production" && debugOn {
-		return Check{
-			Name:   "app_debug",
-			Status: StatusWarn,
-			Detail: "APP_DEBUG is on while APP_ENV=production — stack traces and config will leak. Turn debug off.",
+// triggeredStatus returns the status a triggered check reports, honouring a
+// per-check Severity override and falling back to def.
+func triggeredStatus(spec config.DoctorCheck, def string) string {
+	switch strings.ToLower(spec.Severity) {
+	case StatusWarn, StatusFail:
+		return strings.ToLower(spec.Severity)
+	default:
+		return def
+	}
+}
+
+// valueMatches compares an env value to an expected value, treating true/false
+// truthily (so APP_DEBUG=1/on/yes all match "true") and everything else as a
+// case-insensitive string equality.
+func valueMatches(actual, expected string) bool {
+	a := strings.ToLower(strings.TrimSpace(actual))
+	switch strings.ToLower(strings.TrimSpace(expected)) {
+	case "true":
+		return a == "true" || a == "1" || a == "on" || a == "yes"
+	case "false":
+		return a == "false" || a == "0" || a == "off" || a == "no" || a == ""
+	default:
+		return a == strings.ToLower(strings.TrimSpace(expected))
+	}
+}
+
+// checkEnvCombo warns (the production footgun pattern) when every key in When
+// matches and every key in WarnIf matches — e.g. APP_ENV=production with
+// APP_DEBUG on. Any mismatch passes quietly.
+func checkEnvCombo(envPath string, spec config.DoctorCheck) Check {
+	for k, v := range spec.When {
+		if !valueMatches(envfile.ReadKey(envPath, k), v) {
+			return Check{Name: spec.Name, Status: StatusOK}
 		}
 	}
-	return Check{Name: "app_debug", Status: StatusOK}
+	for k, v := range spec.WarnIf {
+		if !valueMatches(envfile.ReadKey(envPath, k), v) {
+			return Check{Name: spec.Name, Status: StatusOK}
+		}
+	}
+	return Check{Name: spec.Name, Status: triggeredStatus(spec, StatusWarn), Detail: spec.Detail, Fix: spec.Fix}
 }
 
-// checkStorageLink warns when a project that uses the public disk
-// (storage/app/public exists) is missing its public/storage symlink, so served
-// uploads 404. Skipped (ok=false) for apps with no public disk or no public/
-// dir, where the symlink is irrelevant.
-func checkStorageLink(path string) (Check, bool) {
-	link := filepath.Join(path, "public", "storage")
-	if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return Check{Name: "storage_link", Status: StatusOK}, true
+// checkSymlink warns when Link isn't a symlink while Target and RequiresDir both
+// exist (Laravel's public/storage link). Skipped when the target/dir is absent,
+// where the link is irrelevant.
+func checkSymlink(path string, spec config.DoctorCheck) (Check, bool) {
+	if fi, err := os.Lstat(filepath.Join(path, spec.Link)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return Check{Name: spec.Name, Status: StatusOK}, true
 	}
-	if info, err := os.Stat(filepath.Join(path, "storage", "app", "public")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(path, spec.Target)); err != nil || !info.IsDir() {
 		return Check{}, false
 	}
-	if info, err := os.Stat(filepath.Join(path, "public")); err != nil || !info.IsDir() {
-		return Check{}, false
+	if spec.RequiresDir != "" {
+		if info, err := os.Stat(filepath.Join(path, spec.RequiresDir)); err != nil || !info.IsDir() {
+			return Check{}, false
+		}
 	}
-	return Check{
-		Name:   "storage_link",
-		Status: StatusWarn,
-		Detail: "public/storage symlink is missing — files on the public disk won't be web-accessible.",
-		Fix:    "storage:link",
-	}, true
+	return Check{Name: spec.Name, Status: triggeredStatus(spec, StatusWarn), Detail: spec.Detail, Fix: spec.Fix}, true
 }
 
-// checkMigrations execs `php artisan migrate:status` in the site's container.
-// It fails on pending migrations, passes when all have run, and degrades to
-// "unknown" when the command can't run (app down, DB unreachable) so a wedged
-// app never turns the whole panel into an error.
-func checkMigrations(ctx context.Context, path string) Check {
-	cctx, cancel := context.WithTimeout(ctx, migrateStatusTimeout)
+// checkCommand execs a console command in the site's container and fails when
+// the output contains FailIfOutputContains (pending migrations). When the
+// command can't run it degrades to "unknown" if UnknownOnError is set, so a
+// wedged app never turns the whole panel into an error.
+func checkCommand(ctx context.Context, path string, spec config.DoctorCheck) Check {
+	timeout := commandTimeout
+	if spec.TimeoutSeconds > 0 {
+		timeout = time.Duration(spec.TimeoutSeconds) * time.Second
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, exit, err := runArtisanCapture(cctx, path, "php artisan migrate:status")
+	out, exit, err := runCapture(cctx, path, spec.Command)
 	if err != nil || exit != 0 {
-		return Check{
-			Name:   "migrations",
-			Status: StatusUnknown,
-			Detail: "Couldn't read migration status — the app may be down or the database unreachable.",
+		if spec.UnknownOnError {
+			return Check{Name: spec.Name, Status: StatusUnknown, Detail: "Couldn't run the check, the app may be down or a dependency unreachable."}
 		}
+		return Check{Name: spec.Name, Status: triggeredStatus(spec, StatusFail), Detail: spec.Detail, Fix: spec.Fix}
 	}
-	if migrationsPending(out) {
-		return Check{
-			Name:   "migrations",
-			Status: StatusFail,
-			Detail: "There are pending migrations — run migrate to apply them.",
-			Fix:    "migrate",
-		}
+	if spec.FailIfOutputContains != "" && strings.Contains(out, spec.FailIfOutputContains) {
+		return Check{Name: spec.Name, Status: triggeredStatus(spec, StatusFail), Detail: spec.Detail, Fix: spec.Fix}
 	}
-	return Check{Name: "migrations", Status: StatusOK}
+	return Check{Name: spec.Name, Status: StatusOK}
 }
 
-// migrationsPending reports whether `migrate:status` output lists any not-yet-
-// run migration. Laravel marks those rows "Pending" across the supported
-// versions; the header carries no such token.
-func migrationsPending(output string) bool {
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "Pending") {
-			return true
-		}
+// dependencyChecks runs the universal package-manager checks: composer and node
+// dependency install + lock state, plus their security audits. Each is skipped
+// when its manifest is absent.
+func dependencyChecks(ctx context.Context, path string, fw *config.Framework) []Check {
+	var checks []Check
+	if fileExists(filepath.Join(path, "composer.json")) && !composerDisabled(fw) {
+		checks = append(checks, checkComposerDeps(ctx, path))
+		checks = append(checks, checkComposerAudit(ctx, path))
 	}
-	return false
+	if fileExists(filepath.Join(path, "package.json")) {
+		checks = append(checks, checkNodeDeps(path))
+		checks = append(checks, checkNodeAudit(ctx, path))
+	}
+	return checks
 }
 
-// runArtisanCapture runs a shell command in cwd with lerd's bin shims on PATH
-// (so `php` resolves to the container shim under launchd's restricted PATH),
-// mirroring the command runner. Returns combined output and the exit code; a
-// non-ExitError (couldn't even start) comes back as exit -1 with the error.
-func runArtisanCapture(ctx context.Context, cwd, command string) (string, int, error) {
+// composerDisabled reports whether the framework explicitly opts out of composer
+// handling (composer: false in the store).
+func composerDisabled(fw *config.Framework) bool {
+	return fw != nil && strings.EqualFold(fw.Composer, "false")
+}
+
+// checkComposerDeps warns when composer dependencies aren't installed or the
+// lock file has drifted from composer.json. Degrades to "unknown" when composer
+// can't run.
+func checkComposerDeps(ctx context.Context, path string) Check {
+	if !dirExists(filepath.Join(path, "vendor")) {
+		return Check{Name: "composer_deps", Status: StatusWarn, Detail: "Composer dependencies aren't installed, run composer install.", Fix: FixComposerInstall}
+	}
+	if !fileExists(filepath.Join(path, "composer.lock")) {
+		return Check{Name: "composer_deps", Status: StatusWarn, Detail: "No composer.lock is committed, run composer install to create one.", Fix: FixComposerInstall}
+	}
+	cctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	out, exit, err := runCapture(cctx, path, "composer validate --no-check-all --no-check-publish")
+	if err != nil || exit < 0 {
+		return Check{Name: "composer_deps", Status: StatusUnknown, Detail: "Couldn't validate composer state."}
+	}
+	if composerLockStale(out) {
+		return Check{Name: "composer_deps", Status: StatusWarn, Detail: "composer.lock is out of date with composer.json, run composer update.", Fix: FixComposerUpdate}
+	}
+	return Check{Name: "composer_deps", Status: StatusOK}
+}
+
+// composerLockStale reports whether `composer validate` flagged the lock file as
+// out of date with composer.json.
+func composerLockStale(output string) bool {
+	o := strings.ToLower(output)
+	return strings.Contains(o, "lock file is not up to date") || strings.Contains(o, "lock file is out of date")
+}
+
+// checkComposerAudit warns when `composer audit` reports advisories against the
+// installed packages. Network-dependent, so it degrades to "unknown" offline.
+func checkComposerAudit(ctx context.Context, path string) Check {
+	cctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	out, exit, err := runCapture(cctx, path, "composer audit --format=json --no-interaction")
+	if err != nil || exit < 0 {
+		return Check{Name: "composer_audit", Status: StatusUnknown, Detail: "Couldn't run composer audit, packages may not be installed or the network is unreachable."}
+	}
+	n := parseComposerAudit(out)
+	if n < 0 {
+		return Check{Name: "composer_audit", Status: StatusUnknown, Detail: "Couldn't read composer audit output."}
+	}
+	if n > 0 {
+		return Check{Name: "composer_audit", Status: StatusWarn, Detail: fmt.Sprintf("%d known security advisor%s in composer packages, run composer update.", n, plural(n, "y", "ies")), Fix: FixComposerUpdate}
+	}
+	return Check{Name: "composer_audit", Status: StatusOK}
+}
+
+// parseComposerAudit returns the total advisory count in `composer audit
+// --format=json` output, or -1 when the JSON can't be read. The advisories field
+// is an object keyed by package when present but an empty array when there are
+// none, so both shapes are handled.
+func parseComposerAudit(output string) int {
+	start := strings.IndexByte(output, '{')
+	if start < 0 {
+		return -1
+	}
+	var parsed struct {
+		Advisories json.RawMessage `json:"advisories"`
+	}
+	if err := json.Unmarshal([]byte(output[start:]), &parsed); err != nil {
+		return -1
+	}
+	if len(parsed.Advisories) == 0 {
+		return 0
+	}
+	var byPackage map[string][]json.RawMessage
+	if json.Unmarshal(parsed.Advisories, &byPackage) == nil {
+		total := 0
+		for _, advs := range byPackage {
+			total += len(advs)
+		}
+		return total
+	}
+	var empty []json.RawMessage
+	if json.Unmarshal(parsed.Advisories, &empty) == nil {
+		return len(empty)
+	}
+	return -1
+}
+
+// checkNodeDeps warns when node dependencies aren't installed or no lockfile is
+// committed (npm, pnpm, yarn, or bun).
+func checkNodeDeps(path string) Check {
+	if !dirExists(filepath.Join(path, "node_modules")) {
+		return Check{Name: "node_deps", Status: StatusWarn, Detail: "Node dependencies aren't installed, run npm install.", Fix: FixNpmInstall}
+	}
+	for _, lock := range []string{"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"} {
+		if fileExists(filepath.Join(path, lock)) {
+			return Check{Name: "node_deps", Status: StatusOK}
+		}
+	}
+	return Check{Name: "node_deps", Status: StatusWarn, Detail: "No lockfile is committed, installs won't be reproducible."}
+}
+
+// checkNodeAudit warns when `npm audit` reports vulnerabilities. Network- and
+// lock-dependent, so it degrades to "unknown" when it can't run.
+func checkNodeAudit(ctx context.Context, path string) Check {
+	cctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	out, exit, err := runCapture(cctx, path, "npm audit --json")
+	if err != nil || exit < 0 {
+		return Check{Name: "node_audit", Status: StatusUnknown, Detail: "Couldn't run npm audit, dependencies may not be installed or the network is unreachable."}
+	}
+	n := parseNpmAudit(out)
+	if n < 0 {
+		return Check{Name: "node_audit", Status: StatusUnknown, Detail: "Couldn't read npm audit output."}
+	}
+	if n > 0 {
+		return Check{Name: "node_audit", Status: StatusWarn, Detail: fmt.Sprintf("%d known vulnerabilit%s in node packages, run npm audit fix.", n, plural(n, "y", "ies")), Fix: FixNpmAuditFix}
+	}
+	return Check{Name: "node_audit", Status: StatusOK}
+}
+
+// parseNpmAudit returns the total vulnerability count in `npm audit --json`
+// output, or -1 when the JSON can't be read.
+func parseNpmAudit(output string) int {
+	start := strings.IndexByte(output, '{')
+	if start < 0 {
+		return -1
+	}
+	var parsed struct {
+		Metadata struct {
+			Vulnerabilities struct {
+				Total int `json:"total"`
+			} `json:"vulnerabilities"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(output[start:]), &parsed); err != nil {
+		return -1
+	}
+	return parsed.Metadata.Vulnerabilities.Total
+}
+
+// checkPHPVersion warns when the project's resolved PHP version falls outside the
+// framework's supported range. Skipped when fw declares no range.
+func checkPHPVersion(path string, fw *config.Framework) (Check, bool) {
+	if fw == nil || (fw.PHP.Min == "" && fw.PHP.Max == "") {
+		return Check{}, false
+	}
+	v, err := phpkg.DetectVersion(path)
+	if err != nil || v == "" {
+		return Check{}, false
+	}
+	if fw.PHP.Min != "" && phpkg.CompareMajorMinor(v, fw.PHP.Min) < 0 {
+		return Check{Name: "php_version", Status: StatusWarn, Detail: fmt.Sprintf("PHP %s is below %s's minimum %s.", v, fw.Label, fw.PHP.Min)}, true
+	}
+	if fw.PHP.Max != "" && phpkg.CompareMajorMinor(v, fw.PHP.Max) > 0 {
+		return Check{Name: "php_version", Status: StatusWarn, Detail: fmt.Sprintf("PHP %s is above %s's tested maximum %s.", v, fw.Label, fw.PHP.Max)}, true
+	}
+	return Check{Name: "php_version", Status: StatusOK}, true
+}
+
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// runCapture runs a shell command in cwd with lerd's bin shims on PATH (so php,
+// composer, and npm resolve to the container shims under launchd's restricted
+// PATH), mirroring the command runner. Returns combined output and the exit
+// code; a non-ExitError (couldn't even start) comes back as exit -1.
+func runCapture(ctx context.Context, cwd, command string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = cwd
 	path := config.BinDir()

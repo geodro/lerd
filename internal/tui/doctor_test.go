@@ -44,15 +44,17 @@ func TestSiteDoctorContent_RendersChecks(t *testing.T) {
 	}
 }
 
-func TestOpenDoctorTab_NoOpForNonLaravel(t *testing.T) {
+// The doctor is framework-agnostic now, so it opens for any site, not just
+// Laravel — a non-Laravel site switches to the tab and kicks off a run.
+func TestOpenDoctorTab_OpensForAnyFramework(t *testing.T) {
 	m := NewModel("test")
-	m.snap.Sites = []siteinfo.EnrichedSite{{Name: "static", Domains: []string{"static.test"}}}
+	m.snap.Sites = []siteinfo.EnrichedSite{{Name: "static", Domains: []string{"static.test"}, FrameworkName: "wordpress"}}
 	m.focus = paneSites
 	m.siteCursor = 0
-	if cmd := m.openDoctorTab(); cmd != nil {
-		t.Error("openDoctorTab should be a no-op for a non-Laravel site")
+	if cmd := m.openDoctorTab(); cmd == nil {
+		t.Error("openDoctorTab should run for a non-Laravel site")
 	}
-	if m.siteTab == tabSiteDoctor {
-		t.Error("siteTab should not switch to Doctor for a non-Laravel site")
+	if m.siteTab != tabSiteDoctor {
+		t.Error("siteTab should switch to Doctor for any framework")
 	}
 }

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -179,6 +180,14 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 		return
 	}
 
+	streamShellRun(w, r.Context(), cwd, target.Command, target.Output == config.CommandOutputURL)
+}
+
+// streamShellRun execs shell in cwd and streams stdout/stderr to the client as
+// SSE (event: stdout|stderr), closing with a done frame carrying the exit code,
+// duration, and (when captureURL) a URL parsed from the output. Shared by the
+// command runner and the doctor fix runner so both produce an identical stream.
+func streamShellRun(w http.ResponseWriter, ctx context.Context, cwd, shell string, captureURL bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, map[string]any{"error": "streaming not supported"})
@@ -215,8 +224,7 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 		flusher.Flush()
 	}
 
-	ctx := r.Context()
-	cmd := exec.CommandContext(ctx, "sh", "-c", target.Command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", shell)
 	cmd.Dir = cwd
 	// Prepend BinDir so php/composer/npm shims resolve under launchd's
 	// restricted PATH on macOS. Skip the trailing separator when PATH is
@@ -287,7 +295,7 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 		"exit":       exitCode,
 		"durationMs": time.Since(start).Milliseconds(),
 	}
-	if target.Output == config.CommandOutputURL {
+	if captureURL {
 		if u := urlRegex.FindString(captured.String()); u != "" {
 			payload["url"] = u
 		}

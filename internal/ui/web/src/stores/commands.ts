@@ -64,11 +64,40 @@ export async function runCommand(
     }
     return;
   }
+  await readSSE(res, cb);
+}
+
+// runDoctorFix POSTs to the doctor fix endpoint, which runs an allowlisted
+// package-manager command (composer install/update, npm install, npm audit fix)
+// and streams the same SSE contract as runCommand.
+export async function runDoctorFix(
+  domain: string,
+  key: string,
+  cb: RunCallbacks = {},
+  branch = ''
+): Promise<void> {
+  const path = `/api/sites/${encodeURIComponent(domain)}/doctor/fix/${encodeURIComponent(key)}/run`;
+  const q = branch ? `?branch=${encodeURIComponent(branch)}` : '';
+  const res = await apiFetch(path + q, { method: 'POST', signal: cb.signal });
+  if (!res.ok || !(res.headers.get('Content-Type') || '').startsWith('text/event-stream')) {
+    try {
+      const payload = await res.json();
+      cb.onError?.(String(payload?.error ?? `${res.status} ${res.statusText}`));
+    } catch {
+      cb.onError?.(`${res.status} ${res.statusText}`);
+    }
+    return;
+  }
+  await readSSE(res, cb);
+}
+
+// readSSE consumes a fetch Response body as the SSE event stream both runners
+// emit, dispatching each frame to the callbacks.
+async function readSSE(res: Response, cb: RunCallbacks): Promise<void> {
   if (!res.body) {
     cb.onError?.('streaming not supported by this browser');
     return;
   }
-
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -174,6 +203,24 @@ export function launchCommand(domain: string, cmd: Command, opts: { skipConfirm?
 }
 
 export async function executeCommand(domain: string, cmd: Command, branch = '') {
+  return runInModal(domain, cmd, branch, (cb) => runCommand(domain, cmd.name, cb, branch));
+}
+
+// executeDoctorFix runs a doctor fix (composer update, npm audit fix, …) in the
+// same run modal as commands, so the user watches the streamed output. Awaitable
+// so the caller can re-check once it finishes; no-ops if a run is already live.
+export async function executeDoctorFix(domain: string, key: string, label: string, branch = '') {
+  if (get(currentRun).kind === 'running') {
+    setToast('Another command is running. Wait for it to finish.', 2400);
+    return;
+  }
+  const cmd: Command = { name: key, label, command: '' };
+  return runInModal(domain, cmd, branch, (cb) => runDoctorFix(domain, key, cb, branch));
+}
+
+// runInModal drives the shared CommandRunModal state for any streaming runner,
+// folding stdout/stderr/done/error into currentRun and persisting history.
+async function runInModal(domain: string, cmd: Command, branch: string, run: (cb: RunCallbacks) => Promise<void>) {
   const started = Date.now();
   runningName.set(cmd.name);
   if (cmd.output === 'terminal') {
@@ -191,10 +238,7 @@ export async function executeCommand(domain: string, cmd: Command, branch = '') 
   };
 
   try {
-    await runCommand(
-      domain,
-      cmd.name,
-      {
+    await run({
       signal: abortCtrl.signal,
       onStdout: (l) => append('stdout', l),
       onStderr: (l) => append('stderr', l),
@@ -226,9 +270,7 @@ export async function executeCommand(domain: string, cmd: Command, branch = '') 
           return s;
         });
       }
-      },
-      branch
-    );
+    });
   } finally {
     runningName.set(null);
     abortCtrl = null;

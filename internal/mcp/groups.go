@@ -189,6 +189,7 @@ var groupDispatch = map[string]map[string]handlerFn{
 	"diag": {
 		"status":          func(a map[string]any) (any, *rpcError) { return execStatus() },
 		"doctor":          func(a map[string]any) (any, *rpcError) { return execDoctor() },
+		"site_doctor":     execSiteDoctor,
 		"which":           execWhich,
 		"check":           execCheck,
 		"dns_diagnose":    execDNSDiagnose,
@@ -480,13 +481,13 @@ func frameworkTool() mcpTool {
 func diagTool() mcpTool {
 	return mcpTool{
 		Name:        "diag",
-		Description: "Diagnostics & observability. action: status, doctor, which, check, dns_diagnose, bug_report, analyze_queries (N+1/slow queries), dumps_recent, dumps_status, dumps_clear, dumps_toggle, profiler_toggle, profiler_status, profiler_clear, xdebug_on, xdebug_off, xdebug_status. (Reading logs moved to the `logs` tool.)",
+		Description: "Diagnostics & observability. action: status, doctor (lerd environment), site_doctor (app-level checks for a site: env, dependencies, security audit, framework specifics), which, check, dns_diagnose, bug_report, analyze_queries (N+1/slow queries), dumps_recent, dumps_status, dumps_clear, dumps_toggle, profiler_toggle, profiler_status, profiler_clear, xdebug_on, xdebug_off, xdebug_status. (Reading logs moved to the `logs` tool.)",
 		InputSchema: mcpSchema{
 			Type: "object",
 			Properties: map[string]mcpProp{
-				"action":          {Type: "string", Enum: []string{"status", "doctor", "which", "check", "dns_diagnose", "bug_report", "analyze_queries", "dumps_recent", "dumps_status", "dumps_clear", "dumps_toggle", "profiler_toggle", "profiler_status", "profiler_clear", "xdebug_on", "xdebug_off", "xdebug_status"}},
-				"path":            {Type: "string", Description: "Project root (which/check). Defaults to cwd."},
-				"site":            {Type: "string", Description: "dumps/analyze_queries: site filter."},
+				"action":          {Type: "string", Enum: []string{"status", "doctor", "site_doctor", "which", "check", "dns_diagnose", "bug_report", "analyze_queries", "dumps_recent", "dumps_status", "dumps_clear", "dumps_toggle", "profiler_toggle", "profiler_status", "profiler_clear", "xdebug_on", "xdebug_off", "xdebug_status"}},
+				"path":            {Type: "string", Description: "Project root (which/check/site_doctor). Defaults to cwd."},
+				"site":            {Type: "string", Description: "dumps/analyze_queries/site_doctor: site filter (domain for site_doctor)."},
 				"branch":          {Type: "string", Description: "dumps_recent: worktree branch filter."},
 				"ctx":             {Type: "string", Enum: []string{"fpm", "cli"}, Description: "dumps_recent: context filter."},
 				"kind":            {Type: "string", Enum: []string{"dump", "query", "job", "view", "mail", "cache", "event", "http"}, Description: "dumps_recent: event kind."},

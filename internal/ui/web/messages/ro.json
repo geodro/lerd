@@ -708,7 +708,7 @@
   "tinker_lineLabel": "Linia {n}",
   "tinker_lineTitle": "Generat de linia {n} din editor",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Rulează din nou verificările",
   "sites_doctor_running": "Se rulează verificările…",
   "sites_doctor_allClear": "Toate verificările au trecut",

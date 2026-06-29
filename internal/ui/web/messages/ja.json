@@ -708,7 +708,7 @@
   "tinker_lineLabel": "{n} 行目",
   "tinker_lineTitle": "エディタの {n} 行目で生成",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "チェックを再実行",
   "sites_doctor_running": "チェック実行中…",
   "sites_doctor_allClear": "すべてのチェックに合格",

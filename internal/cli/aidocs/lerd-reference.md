@@ -92,8 +92,9 @@ Actions: `list`, `add`, `remove`, `search`, `install`, `project_new`, `setup`.
 - `setup` runs the framework's post-install steps (migrations, storage:link…) — MANDATORY after `env setup` on new/cloned projects; idempotent
 
 #### `diag` — diagnostics & observability
-Actions: `status`, `doctor`, `which`, `check`, `dns_diagnose`, `bug_report`, `analyze_queries`, `dumps_recent`, `dumps_status`, `dumps_clear`, `dumps_toggle`, `profiler_toggle`, `profiler_status`, `profiler_clear`, `xdebug_on`, `xdebug_off`, `xdebug_status`.
+Actions: `status`, `doctor`, `site_doctor`, `which`, `check`, `dns_diagnose`, `bug_report`, `analyze_queries`, `dumps_recent`, `dumps_status`, `dumps_clear`, `dumps_toggle`, `profiler_toggle`, `profiler_status`, `profiler_clear`, `xdebug_on`, `xdebug_off`, `xdebug_status`.
 - `status` (DNS/nginx/FPM/watcher health) and `doctor` (full JSON diagnostic) are the first stops when something is broken; `dns_diagnose` walks the DNS chain
+- `site_doctor` runs framework-agnostic app-level checks for one site (env file, env drift, app key, composer/node dependency install + lock, `composer audit`/`npm audit`, PHP range, plus the framework's own checks); pass `site` (domain) or `path`, defaults to cwd
 - reading logs lives in the `logs` tool (below), not here
 - `which` shows resolved PHP/Node/docroot/nginx for a site; `check` validates `.lerd.yaml`
 - debug bridge loop: `dumps_toggle` (enable) → `dumps_clear` → hit the page → `analyze_queries` (N+1 / slow-query report with file:line) or `dumps_recent` (filter by site/branch/ctx/kind/since/limit)

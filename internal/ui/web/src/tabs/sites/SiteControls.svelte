@@ -83,10 +83,11 @@
   let dbBusy = $state(false);
   let isolateModalOpen = $state(false);
 
-  // Laravel Doctor lives behind an on-demand button next to Commands rather than
-  // a permanent tab: its checks (including a migrate:status exec) only run when
-  // the modal is opened, so a healthy site carries no extra weight.
-  const canDoctor = $derived(Boolean(site.is_laravel));
+  // The doctor lives behind an on-demand button next to Commands rather than a
+  // permanent tab: its checks (command and audit execs) only run when the modal
+  // is opened, so a healthy site carries no extra weight. Framework-agnostic, so
+  // every site can run it.
+  const canDoctor = true;
   let doctorOpen = $state(false);
 
   function onDBIsolatedChange() {

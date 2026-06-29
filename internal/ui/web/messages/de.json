@@ -681,7 +681,7 @@
   "tinker_lineLabel": "Zeile {n}",
   "tinker_lineTitle": "Erzeugt von Editorzeile {n}",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Prüfungen erneut ausführen",
   "sites_doctor_running": "Prüfungen laufen…",
   "sites_doctor_allClear": "Alle Prüfungen bestanden",

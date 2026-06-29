@@ -681,7 +681,7 @@
   "tinker_lineLabel": "Ligne {n}",
   "tinker_lineTitle": "Produit par la ligne {n} de l'éditeur",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Relancer les vérifications",
   "sites_doctor_running": "Vérifications en cours…",
   "sites_doctor_allClear": "Toutes les vérifications réussies",

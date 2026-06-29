@@ -681,7 +681,7 @@
   "tinker_lineLabel": "Regel {n}",
   "tinker_lineTitle": "Gegenereerd door editorregel {n}",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Controles opnieuw uitvoeren",
   "sites_doctor_running": "Controles uitvoeren…",
   "sites_doctor_allClear": "Alle controles geslaagd",

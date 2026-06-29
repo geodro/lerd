@@ -78,22 +78,16 @@ func renderSiteTabHeader(active siteTab, innerW int, tabs []siteTab) []string {
 	}
 }
 
-// availableSiteTabs returns the tabs a site offers, in display order. Doctor is
-// Laravel-only. This is the single source the strip numbering, the number-key
-// shortcuts, and the render dispatch all derive from, so a tab's position,
-// label, and availability can never drift apart.
+// availableSiteTabs returns the tabs a site offers, in display order. The doctor
+// runs framework-agnostic checks, so every site gets the tab. This is the single
+// source the strip numbering, the number-key shortcuts, and the render dispatch
+// all derive from, so a tab's position, label, and availability can never drift.
 func availableSiteTabs(s *siteinfo.EnrichedSite) []siteTab {
 	tabs := []siteTab{tabSiteOverview, tabSiteEnv, tabSiteDebug}
-	if siteIsLaravel(s) {
+	if s != nil {
 		tabs = append(tabs, tabSiteDoctor)
 	}
 	return tabs
-}
-
-// siteIsLaravel reports whether the site can run the Laravel Doctor checks,
-// gating both the tab strip entry and the `5` shortcut.
-func siteIsLaravel(s *siteinfo.EnrichedSite) bool {
-	return s != nil && s.FrameworkName == "laravel"
 }
 
 // siteEnvContentLines reads the site's .env file and renders one line per

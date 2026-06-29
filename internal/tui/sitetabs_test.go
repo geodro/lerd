@@ -22,10 +22,10 @@ func TestSiteTabsHeader_HighlightsActive(t *testing.T) {
 	}
 }
 
-func TestAvailableSiteTabs_DoctorOnlyForLaravel(t *testing.T) {
-	plain := availableSiteTabs(&siteinfo.EnrichedSite{Name: "static"})
-	if slices.Contains(plain, tabSiteDoctor) {
-		t.Errorf("non-Laravel site should not offer the Doctor tab, got %v", plain)
+func TestAvailableSiteTabs_DoctorForEveryFramework(t *testing.T) {
+	plain := availableSiteTabs(&siteinfo.EnrichedSite{Name: "static", FrameworkName: "wordpress"})
+	if !slices.Contains(plain, tabSiteDoctor) {
+		t.Errorf("every framework should offer the Doctor tab, got %v", plain)
 	}
 	laravel := availableSiteTabs(&siteinfo.EnrichedSite{Name: "app", FrameworkName: "laravel"})
 	if !slices.Contains(laravel, tabSiteDoctor) {
@@ -33,7 +33,7 @@ func TestAvailableSiteTabs_DoctorOnlyForLaravel(t *testing.T) {
 	}
 	// Doctor is the fourth tab, so the strip numbers it [4].
 	if got := stripANSI(siteTabsHeader(tabSiteOverview, laravel)); !strings.Contains(got, "[4] Doctor") {
-		t.Errorf("Laravel strip should carry [4] Doctor, got %q", got)
+		t.Errorf("strip should carry [4] Doctor, got %q", got)
 	}
 }
 

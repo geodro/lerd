@@ -681,7 +681,7 @@
   "tinker_lineLabel": "Satır {n}",
   "tinker_lineTitle": "Düzenleyici satırı {n} tarafından üretildi",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Kontrolleri yeniden çalıştır",
   "sites_doctor_running": "Kontroller çalışıyor…",
   "sites_doctor_allClear": "Tüm kontroller başarılı",

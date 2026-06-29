@@ -681,7 +681,7 @@
   "tinker_lineLabel": "Baris {n}",
   "tinker_lineTitle": "Dihasilkan oleh baris editor {n}",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Jalankan ulang pemeriksaan",
   "sites_doctor_running": "Menjalankan pemeriksaan…",
   "sites_doctor_allClear": "Semua pemeriksaan lolos",

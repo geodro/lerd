@@ -25,6 +25,7 @@
 | `lerd tui` | Open a btop-style terminal dashboard with live site / service / worker status, per-site detail pane, inline domain and version editing, shell drop-in, log tailing, filter + sort, and global settings |
 | `lerd check` | Validate `.lerd.yaml` syntax, services, and PHP version before setup |
 | `lerd doctor` | Full environment diagnostic: podman, systemd, DNS, ports, PHP images, config validity; also reports how much podman disk is reclaimable |
+| `lerd site:doctor [domain]` | App-level health checks for a single site (env file, env drift, application key, composer/node dependency install + lock, `composer audit`/`npm audit`, PHP version range, plus the framework's own checks). Defaults to the site in the current directory; pass a domain to target another. Add `--json` for machine-readable output |
 | `lerd cleanup` | Reclaim podman disk from orphaned lerd images: old PHP build images and stale base images a rebuild left behind. Previews the list and confirms before removing. Only ever touches lerd's own images, never your databases, volumes, or other images |
 | `lerd cleanup --dry-run` | Show what would be reclaimed and the approximate size, remove nothing |
 | `lerd cleanup --deep` | Also remove unused service images no installed service references any more (e.g. an old `mysql:8.0` after upgrading), keeping each service's current image and its one-back rollback target |

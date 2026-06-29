@@ -4,6 +4,7 @@ import { apiJson } from '$lib/api';
 // the site's command set (loadCommands) that resolves the finding.
 export interface DoctorCheck {
   name: string;
+  label?: string;
   status: 'ok' | 'warn' | 'fail' | 'unknown';
   detail?: string;
   fix?: string;

@@ -81,6 +81,10 @@ type Framework struct {
 	// for this framework. When absent, lerd falls back to the generic
 	// `frankenphp php-server -r <public>/` entrypoint.
 	FrankenPHP *FrameworkFrankenPHP `yaml:"frankenphp,omitempty"`
+	// Doctor, when set, declares framework-specific health checks the site
+	// doctor runs in addition to the universal defaults (env, dependency, and
+	// audit checks every framework gets). See FrameworkDoctor.
+	Doctor *FrameworkDoctor `yaml:"doctor,omitempty"`
 }
 
 // FrameworkFrankenPHP describes how to serve the framework via FrankenPHP.
@@ -317,6 +321,47 @@ type EnvKeyGeneration struct {
 	FallbackPrefix string `yaml:"fallback_prefix,omitempty"` // prefix for random key fallback (e.g. "base64:")
 }
 
+// FrameworkDoctor declares a framework's site-doctor checks, run after the
+// universal baseline (env, dependency install/lock, audit, PHP range) that every
+// framework gets. Keeping it declarative means new frameworks need no Go change.
+type FrameworkDoctor struct {
+	Checks []DoctorCheck `yaml:"checks,omitempty"`
+}
+
+// DoctorCheck is one declarative health check; Type selects the evaluator
+// (env_key_set, env_combo, symlink, command) and which other fields apply.
+type DoctorCheck struct {
+	Name  string `yaml:"name"`
+	Type  string `yaml:"type"`
+	Label string `yaml:"label,omitempty"`
+	// Fix names a command from the framework's command set a UI can run to
+	// resolve the finding, so the doctor never grows its own mutation endpoints.
+	Fix string `yaml:"fix,omitempty"`
+	// Detail overrides the generated finding message when set.
+	Detail string `yaml:"detail,omitempty"`
+	// Severity overrides the triggered status ("warn" or "fail"); each type has
+	// a sensible default (command→fail, the rest→warn).
+	Severity string `yaml:"severity,omitempty"`
+
+	// env_key_set
+	EnvKey string `yaml:"env_key,omitempty"`
+
+	// env_combo
+	When   map[string]string `yaml:"when,omitempty"`
+	WarnIf map[string]string `yaml:"warn_if,omitempty"`
+
+	// symlink
+	Link        string `yaml:"link,omitempty"`
+	Target      string `yaml:"target,omitempty"`
+	RequiresDir string `yaml:"requires_dir,omitempty"`
+
+	// command
+	Command              string `yaml:"command,omitempty"`
+	FailIfOutputContains string `yaml:"fail_if_output_contains,omitempty"`
+	UnknownOnError       bool   `yaml:"unknown_on_error,omitempty"`
+	TimeoutSeconds       int    `yaml:"timeout,omitempty"`
+}
+
 // FrameworkServiceDef describes how a service is detected and configured for a framework.
 type FrameworkServiceDef struct {
 	// Detect lists env key conditions; any match signals the service is in use.
@@ -538,6 +583,30 @@ var laravelFramework = &Framework{
 		{Name: "optimize:clear", Label: "Clear all caches", Command: "php artisan optimize:clear", Description: "Clear config, route, view, event, and compiled caches", Output: "silent", Icon: "broom"},
 		{Name: "migrate", Label: "Run migrations", Command: "php artisan migrate --force", Description: "Apply pending database migrations", Output: "silent", Icon: "database"},
 		{Name: "migrate:fresh", Label: "Drop and re-migrate", Command: "php artisan migrate:fresh --seed --force", Description: "Wipe the database, re-run all migrations, then seed", Output: "silent", Confirm: true, Icon: "refresh"},
+	},
+	Doctor: &FrameworkDoctor{
+		Checks: []DoctorCheck{
+			{
+				Name: "app_debug", Type: "env_combo",
+				When:   map[string]string{"APP_ENV": "production"},
+				WarnIf: map[string]string{"APP_DEBUG": "true"},
+				Detail: "APP_DEBUG is on while APP_ENV=production, so stack traces and config will leak. Turn debug off.",
+			},
+			{
+				Name: "storage_link", Type: "symlink",
+				Link: "public/storage", Target: "storage/app/public", RequiresDir: "public",
+				Fix:    "storage:link",
+				Detail: "public/storage symlink is missing, so files on the public disk won't be web-accessible.",
+			},
+			{
+				Name: "migrations", Type: "command",
+				Command:              "php artisan migrate:status",
+				FailIfOutputContains: "Pending",
+				UnknownOnError:       true,
+				Fix:                  "migrate",
+				Detail:               "There are pending migrations, run migrate to apply them.",
+			},
+		},
 	},
 }
 

@@ -717,7 +717,7 @@
   "tinker_lspConnecting": "Language server starting…",
   "tinker_lspUnavailable": "Language server unavailable",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Re-run checks",
   "sites_doctor_running": "Running checks…",
   "sites_doctor_allClear": "All checks passed",

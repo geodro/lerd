@@ -468,14 +468,7 @@ func (m *Model) renderDetailInline(w, h int, focused bool) string {
 				padToWidth(dimStyle.Render("no site selected"), contentW),
 			}
 		} else {
-			// The Doctor tab is Laravel-only; render Overview instead when the
-			// focused site can't run it, computed locally so the render path
-			// stays free of side effects (tab selection is clamped on navigation
-			// by the key handler, not here).
 			tab := m.siteTab
-			if tab == tabSiteDoctor && !siteIsLaravel(site) {
-				tab = tabSiteOverview
-			}
 			switch tab {
 			case tabSiteEnv:
 				content = siteEnvContentLines(m, site, contentW)

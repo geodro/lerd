@@ -47,7 +47,19 @@
     storage_link:
       'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
     migrations:
-      'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4'
+      'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4',
+    env_present:
+      'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    composer_deps:
+      'M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9',
+    node_deps:
+      'M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9',
+    composer_audit:
+      'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
+    node_audit:
+      'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
+    php_version:
+      'M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3'
   };
   const FALLBACK_ICON = 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2';
 </script>
@@ -55,7 +67,7 @@
 <script lang="ts">
   import Modal from '$components/Modal.svelte';
   import { loadDoctor, type DoctorCheck, type DoctorReport } from '$stores/doctor';
-  import { loadCommands, executeCommand, type Command } from '$stores/commands';
+  import { loadCommands, executeCommand, executeDoctorFix, type Command } from '$stores/commands';
   import { goToTab } from '$stores/route';
   import type { Site } from '$stores/sites';
   import { m } from '../../paraglide/messages.js';
@@ -106,15 +118,28 @@
     wasOpen = open;
   });
 
+  // Universal package-manager fixes run through the doctor fix endpoint rather
+  // than a framework command. The key matches sitedoctor's fix constants.
+  const DOCTOR_FIX: Record<string, string> = {
+    composer_install: 'composer install',
+    composer_update: 'composer update',
+    npm_install: 'npm install',
+    npm_audit_fix: 'npm audit fix'
+  };
+
   async function runFix(check: DoctorCheck) {
     if (!check.fix || fixing) return;
-    const cmd = commands.find((c) => c.name === check.fix);
-    if (!cmd) return;
     fixing = check.name;
     try {
-      // executeCommand drives the global CommandRunModal so the user sees the
-      // command's output; it resolves once the run finishes, then we re-check.
-      await executeCommand(site.domain, cmd, branch);
+      // Both paths drive the global CommandRunModal so the user sees streamed
+      // output; once the run finishes we re-check.
+      if (check.fix in DOCTOR_FIX) {
+        await executeDoctorFix(site.domain, check.fix, 'Run ' + DOCTOR_FIX[check.fix], branch);
+      } else {
+        const cmd = commands.find((c) => c.name === check.fix);
+        if (!cmd) return;
+        await executeCommand(site.domain, cmd, branch);
+      }
       await reload();
     } finally {
       fixing = '';
@@ -123,8 +148,8 @@
 
   const st = (s: DoctorCheck['status']) => STATUS[(s as Status) in STATUS ? (s as Status) : 'unknown'];
 
-  const checkTitle = (name: string): string => {
-    switch (name) {
+  const checkTitle = (check: DoctorCheck): string => {
+    switch (check.name) {
       case 'app_key':
         return m.sites_doctor_check_appKey();
       case 'env_drift':
@@ -136,7 +161,7 @@
       case 'migrations':
         return m.sites_doctor_check_migrations();
       default:
-        return name;
+        return check.label ?? check.name;
     }
   };
 
@@ -163,7 +188,7 @@
   const okCount = $derived(report ? report.checks.filter((c) => c.status === 'ok').length : 0);
 
   const canFix = (check: DoctorCheck): boolean =>
-    Boolean(check.fix) && commands.some((c) => c.name === check.fix);
+    Boolean(check.fix) && (check.fix! in DOCTOR_FIX || commands.some((c) => c.name === check.fix));
 
   // Env drift has no automated fix; offer a pencil that jumps to the Env tab so
   // the user can reconcile .env by hand. Only when there's actually a warning.
@@ -281,7 +306,7 @@
               </svg>
             </span>
             <div class="min-w-0 flex-1">
-              <span class="text-sm font-medium text-gray-900 dark:text-white">{checkTitle(check.name)}</span>
+              <span class="text-sm font-medium text-gray-900 dark:text-white">{checkTitle(check)}</span>
               {#if check.detail}
                 <p class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400 break-words">{check.detail}</p>
               {/if}

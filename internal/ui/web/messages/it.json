@@ -708,7 +708,7 @@
   "tinker_lineLabel": "Riga {n}",
   "tinker_lineTitle": "Prodotto dalla riga {n} dell'editor",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Riesegui i controlli",
   "sites_doctor_running": "Esecuzione dei controlli…",
   "sites_doctor_allClear": "Tutti i controlli superati",

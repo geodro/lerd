@@ -708,7 +708,7 @@
   "tinker_lineLabel": "Wiersz {n}",
   "tinker_lineTitle": "Wygenerowane przez wiersz {n} edytora",
   "sites_doctor_button": "Doctor",
-  "sites_doctor_title": "Laravel Doctor",
+  "sites_doctor_title": "Doctor",
   "sites_doctor_refresh": "Uruchom ponownie sprawdzenia",
   "sites_doctor_running": "Trwa sprawdzanie…",
   "sites_doctor_allClear": "Wszystkie sprawdzenia zaliczone",
