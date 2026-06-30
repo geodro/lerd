@@ -85,21 +85,39 @@ func RegenerateHostProxyVhostsOnGatewayChange() {
 
 // rebindHostProxyDevServer rewrites a host-proxy dev server's unit with the
 // current host-gateway bind address and restarts it so a network change can't
-// strand it on a stale IP. It only acts on a server that is already running and
-// whose bind lerd actually injects (inject_host:false servers manage their own
-// bind), so lerd never starts a server the user stopped or churns one it doesn't
-// control.
+// strand it on a stale IP. It only touches a server that is already running and
+// whose bind lerd injects (inject_host:false servers manage their own bind), and
+// it restarts only when the rewritten unit actually changed, so an unchanged bind
+// never churns a running server. This is a rewrite-and-restart rather than the
+// full start path, which would tear down conflicts and emit a spurious "starting".
 func rebindHostProxyDevServer(proxy *config.ProxyConfig, siteName, sitePath string, w config.FrameworkWorker) {
 	if !hostProxyShouldBind(proxy) {
 		return
 	}
-	unitName, _ := workerNames(siteName, sitePath, hostProxyWorkerName)
+	unitName, unitSiteName := workerNames(siteName, sitePath, hostProxyWorkerName)
 	if !isServiceActiveOrRestarting(unitName) {
 		return
 	}
-	if err := WorkerStartForSite(siteName, sitePath, "", hostProxyWorkerName, w, false); err != nil {
+	label := w.Label
+	if label == "" {
+		label = hostProxyWorkerName
+	}
+	restart := w.Restart
+	if restart == "" {
+		restart = "always"
+	}
+	command := resolveWorkerCommand(sitePath, hostProxyWorkerName, w)
+	fpmUnit := resolveWorkerFPMUnit(siteName, "")
+	changed, err := writeWorkerUnitFile(unitName, label, unitSiteName, sitePath, "", command, restart, w.Schedule, fpmUnit, w.Host)
+	if err != nil {
 		feedback.Warn("rebinding dev server for %s: %v", siteName, err)
 		return
+	}
+	if !changed {
+		return // bind unchanged — leave the running server alone
+	}
+	if err := podman.DaemonReloadFn(); err != nil {
+		feedback.Warn("daemon-reload for %s: %v", siteName, err)
 	}
 	if err := podman.RestartUnit(unitName); err != nil {
 		feedback.Warn("restarting dev server for %s: %v", siteName, err)
