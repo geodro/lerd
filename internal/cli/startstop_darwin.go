@@ -87,11 +87,29 @@ var requiredMachineMounts = []string{"/Users", "/private", "/var/folders", "/Vol
 // can start.
 const homeMachineMount = "/Users"
 
+// machineProvider returns the machine provider to pin for `podman machine
+// init`, or "" to accept podman's default. Podman 6 switched the macOS
+// Apple-Silicon default to libkrun, which needs a `krunkit` binary that is not
+// in Homebrew core, so an unpinned init fails with "krunkit: executable file
+// not found". Pin applehv (the vfkit backend bundled with podman, which lerd
+// has always used) so init works with no extra dependency. Empty on podman <6,
+// where applehv is already the default and --provider may be unsupported.
+func machineProvider() string {
+	if ok, _, err := podman.VersionAtLeast(6, 0); err == nil && ok {
+		return "applehv"
+	}
+	return ""
+}
+
 // machineInitArgs builds `podman machine init` arguments with every required
 // mount and the host-scaled memory. name re-creates a specific machine
-// (preserving a custom name); "" creates Podman's default.
-func machineInitArgs(name string, targetMemoryMiB int64) []string {
+// (preserving a custom name); "" creates Podman's default. provider pins the
+// VM backend ("" leaves podman's default); see machineProvider.
+func machineInitArgs(name string, targetMemoryMiB int64, provider string) []string {
 	args := []string{"machine", "init", "--rootful"}
+	if provider != "" {
+		args = append(args, "--provider", provider)
+	}
 	for _, m := range requiredMachineMounts {
 		args = append(args, "-v", m+":"+m)
 	}
@@ -161,7 +179,7 @@ func recreateBrokenMachine(name string, running bool, targetMemoryMiB int64) {
 		feedback.Warn("podman machine rm: %v", err)
 		return
 	}
-	initCmd := podman.Cmd(machineInitArgs(name, targetMemoryMiB)...)
+	initCmd := podman.Cmd(machineInitArgs(name, targetMemoryMiB, machineProvider())...)
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
@@ -236,7 +254,7 @@ func ensurePodmanMachineRunning() error {
 		cfg, _ := config.LoadGlobal()
 		execMode := cfg != nil && cfg.WorkerExecMode() != config.WorkerExecModeContainer
 		targetMemoryMiB := recommendedVMMemoryMiB(hostMemoryGiB(), execMode)
-		cmd := podman.Cmd(machineInitArgs("", targetMemoryMiB)...)
+		cmd := podman.Cmd(machineInitArgs("", targetMemoryMiB, machineProvider())...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
