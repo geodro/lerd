@@ -635,8 +635,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// When the Podman Machine's container storage is left corrupt after an
 	// unclean host shutdown, every container start fails. Remount storage and
 	// rebuild the stale containers (data is host bind-mounted, so this is safe),
-	// then retry the start pass once.
-	if healOverlayCorruptionIfNeeded(serviceErr) {
+	// then retry the start pass once. A ghost container (libpod DB entry intact
+	// but its storage layer gone) is the other unclean-shutdown failure; purge it
+	// inside the VM and retry the same way. The two signatures are exclusive.
+	if healOverlayCorruptionIfNeeded(serviceErr) || healGhostContainersIfNeeded(serviceErr) {
 		serviceErr = RunParallel(makeJobs(serviceUnits))
 	}
 	// If the storage is still corrupt the heal couldn't fix it; every worker
