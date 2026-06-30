@@ -151,6 +151,10 @@ type FrameworkWorker struct {
 	// and lerd setup to skip the npm run build step when the user opted into
 	// such a worker (vite is the canonical case).
 	ReplacesBuild bool `yaml:"replaces_build,omitempty"`
+	// ProjectOrigin marks a worker that came from the untrusted project .lerd.yaml
+	// (custom_workers), so the host-execution gate can require consent for it.
+	// Never persisted; set only at the merge point.
+	ProjectOrigin bool `yaml:"-" json:"-"`
 }
 
 // IsPerWorktree reports whether this worker can run independently per git
@@ -200,6 +204,10 @@ type FrameworkCommand struct {
 	// Disabled, in a project .lerd.yaml entry, suppresses the framework default
 	// of the same Name without replacing it. Ignored when read from a framework yaml.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
+	// ProjectOrigin marks a command that came from the untrusted project .lerd.yaml
+	// (top-level commands or framework_def), so the host-execution gate can require
+	// consent before running it. Never persisted; set only at the merge point.
+	ProjectOrigin bool `yaml:"-" json:"-"`
 }
 
 // Valid Output values for FrameworkCommand.
@@ -242,6 +250,9 @@ func ResolveCommands(fw *Framework, proj *ProjectConfig, projectDir string) []Fr
 	}
 	if proj != nil {
 		for _, c := range proj.Commands {
+			// Tag project commands as project-origin so the host-execution gate can
+			// require consent; framework-defined commands stay untagged.
+			c.ProjectOrigin = true
 			if frameworkNames[c.Name] {
 				overrides[c.Name] = c
 			} else if !c.Disabled {
@@ -953,6 +964,9 @@ func mergeProjectWorkers(fw *Framework, projectDir string) *Framework {
 		fw.Workers = make(map[string]FrameworkWorker)
 	}
 	for k, v := range proj.CustomWorkers {
+		// Tag custom workers as project-origin so the host-execution gate can
+		// require consent; trusted store/built-in/overlay workers stay untagged.
+		v.ProjectOrigin = true
 		fw.Workers[k] = v
 	}
 	return fw
@@ -1199,14 +1213,30 @@ func stripUntrustedDoctorChecks(fw *Framework) {
 // original is left untouched so config diffs and round-trips see the real file.
 func SanitizeProjectFrameworkDef(def *Framework) *Framework {
 	safe := cloneFrameworkMutable(def)
+	if safe == nil {
+		return nil
+	}
 	// cloneFrameworkMutable shares the Doctor pointer, so copy it before stripping
 	// or we'd mutate the caller's (and the cached project config's) checks.
-	if safe != nil && safe.Doctor != nil {
+	if safe.Doctor != nil {
 		d := *safe.Doctor
 		d.Checks = append([]DoctorCheck(nil), safe.Doctor.Checks...)
 		safe.Doctor = &d
 	}
 	stripUntrustedDoctorChecks(safe)
+	// Drop host-execution surfaces: a host worker runs its command on the host,
+	// and every command runs via `sh -c` on the host, so an untrusted framework_def
+	// must contribute neither. In-container workers (host:false) stay; a project's
+	// own commands live in top-level proj.Commands, which never passes through here.
+	for k, w := range safe.Workers {
+		if w.Host {
+			delete(safe.Workers, k)
+		}
+	}
+	if len(safe.Workers) == 0 {
+		safe.Workers = nil
+	}
+	safe.Commands = nil
 	return safe
 }
 

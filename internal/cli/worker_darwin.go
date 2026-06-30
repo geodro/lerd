@@ -261,6 +261,14 @@ func reapInContainerWorker(reapPath string) {
 // phase 2 of runStart so we don't saturate the Podman Machine SSH connection
 // before containers are ready.
 func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) {
+	// A project-supplied host worker only restores on boot if the user already
+	// approved its command; otherwise skip silently so a cloned repo's host worker
+	// can't run unattended on reboot.
+	if w.Host && w.ProjectOrigin {
+		if allowed, _ := config.HostCommandAllowed(siteName, w.Command); !allowed {
+			return
+		}
+	}
 	fpmUnit := resolveWorkerFPMUnit(siteName, phpVersion)
 	unitName, displaySite := workerNames(siteName, sitePath, workerName)
 	restart := w.Restart

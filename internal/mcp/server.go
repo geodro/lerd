@@ -3151,6 +3151,21 @@ func execCommandsRun(args map[string]any) (any, *rpcError) {
 	if target.Command == "" {
 		return toolErr(fmt.Sprintf("command %q has no shell invocation", name)), nil
 	}
+	// A command from the project's untrusted .lerd.yaml runs on the host, so
+	// require explicit consent (force: true) before running it; the approval is
+	// remembered per site. Framework-provided commands are unaffected.
+	if target.ProjectOrigin {
+		allowed, disabled := config.HostCommandAllowed(siteName, target.Command)
+		switch {
+		case disabled:
+			return toolErr(fmt.Sprintf("command %q is project-supplied and project host commands are disabled (host_commands.disabled)", name)), nil
+		case !allowed:
+			if force, _ := args["force"].(bool); !force {
+				return toolErr(fmt.Sprintf("command %q comes from the project's .lerd.yaml and runs on your host. Re-run with force: true to approve it. Will execute: %s", name, target.Command)), nil
+			}
+			_ = config.ApproveSiteCommand(siteName, target.Command)
+		}
+	}
 	if target.Confirm {
 		force, _ := args["force"].(bool)
 		if !force {

@@ -77,6 +77,14 @@ func commandRoute(w http.ResponseWriter, r *http.Request, domain string, rest []
 func handleCommandsList(w http.ResponseWriter, r *http.Request, site *config.Site) {
 	branch := r.URL.Query().Get("branch")
 	cmds := resolveSiteCommands(site, branch)
+	// A project-supplied command that hasn't been approved yet runs on the host,
+	// so force the confirm modal (which shows the command) until the user approves
+	// it once. ProjectOrigin itself is not serialized; the UI only sees Confirm.
+	for i := range cmds {
+		if cmds[i].ProjectOrigin && !site.CommandApproved(cmds[i].Command) {
+			cmds[i].Confirm = true
+		}
+	}
 	writeJSON(w, map[string]any{"commands": cmds})
 }
 
@@ -130,6 +138,23 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request, site *config.Site,
 	if target.Command == "" {
 		writeJSON(w, map[string]any{"error": "command has no shell invocation"})
 		return
+	}
+
+	// A project-supplied command runs on the host. Require the user to have
+	// approved this exact command (the confirm modal posts approve=1) before
+	// running it; trusted framework commands are unaffected.
+	if target.ProjectOrigin {
+		allowed, disabled := config.HostCommandAllowed(site.Name, target.Command)
+		switch {
+		case disabled:
+			writeJSON(w, map[string]any{"error": "project-supplied host commands are disabled (host_commands.disabled)"})
+			return
+		case !allowed && r.URL.Query().Get("approve") != "1":
+			writeJSON(w, map[string]any{"needsConfirm": true, "command": target.Command})
+			return
+		case !allowed:
+			_ = config.ApproveSiteCommand(site.Name, target.Command)
+		}
 	}
 
 	// Per-site mutex: refuse if another command is already running on this

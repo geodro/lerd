@@ -135,6 +135,19 @@ func runNamedCommand(cwd string, cmds []config.FrameworkCommand, name string, as
 		return fmt.Errorf("command %q has no shell invocation", name)
 	}
 
+	// A command from the project's untrusted .lerd.yaml (top-level commands or an
+	// embedded framework_def) runs on the host, so require consent the first time;
+	// trusted framework commands are unaffected. --yes bypasses the gate.
+	if target.ProjectOrigin && !assumeYes {
+		siteName := ""
+		if site, _ := config.FindSiteByPath(projectRootFromCwd(cwd)); site != nil {
+			siteName = site.Name
+		}
+		if err := approveHostCommand(siteName, target.Command, fmt.Sprintf("command %q", name)); err != nil {
+			return err
+		}
+	}
+
 	if target.Confirm && !assumeYes {
 		if !feedback.Confirm("This will run: "+target.Command+"\nContinue?", false) {
 			return fmt.Errorf("aborted")

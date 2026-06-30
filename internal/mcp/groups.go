@@ -430,7 +430,7 @@ func execTool() mcpTool {
 				"site":           {Type: "string", Description: "commands_*/command_*: site name."},
 				"name":           {Type: "string", Description: "commands_run/command_*: command name."},
 				"command":        {Type: "string", Description: "command_add: shell command (sh -c)."},
-				"force":          {Type: "boolean", Description: "commands_run: required for confirm-gated commands."},
+				"force":          {Type: "boolean", Description: "commands_run: required for confirm-gated commands and for project-supplied (.lerd.yaml) commands that run on the host; approval is then remembered per site."},
 				"label":          {Type: "string", Description: "command_add: dashboard label."},
 				"description":    {Type: "string", Description: "command_add: tooltip."},
 				"output":         {Type: "string", Enum: []string{"silent", "text", "url", "terminal"}, Description: "command_add: output mode."},

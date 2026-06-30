@@ -109,7 +109,7 @@
       <div class="mt-5 flex items-center justify-end gap-2">
         <button onclick={closeRun} class="px-3 py-1.5 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5">{m.common_cancel()}</button>
         <button
-          onclick={() => $currentRun.kind === 'confirm' && executeCommand($currentRun.domain, cmd)}
+          onclick={() => $currentRun.kind === 'confirm' && executeCommand($currentRun.domain, cmd, '', true)}
           class="px-3 py-1.5 rounded-md text-xs font-medium bg-lerd-red hover:bg-lerd-redhov text-white"
         >{m.cmdrun_runAnyway()}</button>
       </div>

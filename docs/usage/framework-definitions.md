@@ -16,7 +16,9 @@ Lerd resolves framework definitions from multiple sources. Higher priority wins:
 Workers from the user overlay and project `.lerd.yaml` are merged on top of store or built-in definitions. See [Framework workers](framework-workers.md) for the worker lifecycle and how custom workers are added and managed.
 
 ::: warning Untrusted projects
-A `.lerd.yaml` ships inside a project, so its embedded `framework_def` is treated as untrusted. When lerd restores it into the store it strips any `command`-type doctor check, because the site doctor would otherwise run that command on your host straight from a cloned repo. Command doctor checks run only for frameworks that come from the store, a built-in, or your user overlay (`~/.config/lerd/frameworks/`); a definition already installed there is never overwritten by a project's embedded copy. Env, symlink, and combo checks are inert and still work from a project definition.
+A `.lerd.yaml` ships inside a project, so its embedded `framework_def` is treated as untrusted, and lerd strips its host-execution surfaces when restoring it into the store: `command`-type doctor checks, `host: true` workers, and the whole `commands:` list are dropped, because each would otherwise run on your host straight from a cloned repo. Those run only for frameworks that come from the store, a built-in, or your user overlay (`~/.config/lerd/frameworks/`); a definition already installed there is never overwritten by a project's embedded copy. In-container workers, env, symlink, and combo checks are inert and still work from a project definition.
+
+A project's own host extensions still work, just with consent: a `host: true` entry in top-level `custom_workers`, and any top-level `commands:` you run via `lerd run` or the dashboard, prompt once showing the exact command before they run on your host, and the approval is remembered per site. Set `host_commands.skip_confirmation: true` (or `host_commands.disabled: true` to refuse them outright) in the global config to change that.
 :::
 
 ## Version resolution

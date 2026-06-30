@@ -62,6 +62,10 @@ type Site struct {
 	// (e.g. "npm run start:dev"). Empty means proxy-only: the user runs the
 	// server themselves and lerd only wires the proxy.
 	HostCommand string `yaml:"host_command,omitempty"`
+	// ApprovedCommands holds exact command strings the user has consented to run
+	// on the host for this site (project-origin custom host workers and commands).
+	// Keyed by the exact string so a changed command re-prompts.
+	ApprovedCommands []string `yaml:"approved_commands,omitempty"`
 	// Group is the group key shared by a main site and its secondaries. It is
 	// set to the main site's name. Empty when the site is not grouped.
 	Group string `yaml:"group,omitempty"`
@@ -178,6 +182,7 @@ type siteYAML struct {
 	HostPort              int                 `yaml:"host_port,omitempty"`
 	HostSSL               bool                `yaml:"host_ssl,omitempty"`
 	HostCommand           string              `yaml:"host_command,omitempty"`
+	ApprovedCommands      []string            `yaml:"approved_commands,omitempty"`
 	Group                 string              `yaml:"group,omitempty"`
 	GroupSubdomain        string              `yaml:"group_subdomain,omitempty"`
 	GroupSharedDB         bool                `yaml:"group_shared_db,omitempty"`
@@ -208,6 +213,7 @@ func (s Site) toYAML() siteYAML {
 		HostPort:              s.HostPort,
 		HostSSL:               s.HostSSL,
 		HostCommand:           s.HostCommand,
+		ApprovedCommands:      s.ApprovedCommands,
 		Group:                 s.Group,
 		GroupSubdomain:        s.GroupSubdomain,
 		GroupSharedDB:         s.GroupSharedDB,
@@ -243,6 +249,7 @@ func (sy siteYAML) toSite() Site {
 		HostPort:              sy.HostPort,
 		HostSSL:               sy.HostSSL,
 		HostCommand:           sy.HostCommand,
+		ApprovedCommands:      sy.ApprovedCommands,
 		Group:                 sy.Group,
 		GroupSubdomain:        sy.GroupSubdomain,
 		GroupSharedDB:         sy.GroupSharedDB,
@@ -402,6 +409,59 @@ func AddSite(site Site) error {
 
 	reg.Sites = append(reg.Sites, site)
 	return SaveSites(reg)
+}
+
+// CommandApproved reports whether the user has consented to run command on the
+// host for this site (see ApprovedCommands).
+func (s Site) CommandApproved(command string) bool {
+	for _, c := range s.ApprovedCommands {
+		if c == command {
+			return true
+		}
+	}
+	return false
+}
+
+// HostCommandAllowed reports whether a project-supplied host command may run for
+// a site without prompting. disabled is true when the global switch refuses all
+// project host commands; otherwise allowed is true when the global skip is set or
+// the user already approved this exact command for the site.
+func HostCommandAllowed(siteName, command string) (allowed, disabled bool) {
+	gcfg, _ := LoadGlobal()
+	if gcfg.HostCommands.Disabled {
+		return false, true
+	}
+	if gcfg.HostCommands.SkipConfirmation {
+		return true, false
+	}
+	site, _ := FindSite(siteName)
+	return site != nil && site.CommandApproved(command), false
+}
+
+// ApproveSiteCommand records that the user consented to run command on the host
+// for the named site, so future runs and boot restore don't re-prompt. No-op if
+// already recorded or the site is unknown.
+func ApproveSiteCommand(siteName, command string) error {
+	if command == "" {
+		return nil
+	}
+	siteWriteMu.Lock()
+	defer siteWriteMu.Unlock()
+	reg, err := LoadSites()
+	if err != nil {
+		return err
+	}
+	for i := range reg.Sites {
+		if reg.Sites[i].Name != siteName {
+			continue
+		}
+		if reg.Sites[i].CommandApproved(command) {
+			return nil
+		}
+		reg.Sites[i].ApprovedCommands = append(reg.Sites[i].ApprovedCommands, command)
+		return SaveSites(reg)
+	}
+	return nil
 }
 
 // RemoveSite removes a site by name from the registry.

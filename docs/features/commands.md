@@ -64,6 +64,8 @@ The merge rules are:
 
 Validation runs as part of `lerd check`. Invalid `output:` values, unknown icons, duplicate names, and missing commands all surface there.
 
+Because a `.lerd.yaml` `commands:` entry comes from the project (an untrusted cloned repo), lerd asks before running one on your host: the first run via `lerd run` or the dashboard shows the exact command and prompts, and the approval is remembered per site so later runs don't re-prompt. `lerd run --yes` bypasses the prompt, and `host_commands.skip_confirmation: true` (or `host_commands.disabled: true` to refuse them) in the global config changes the default. Framework-provided commands (store, built-in, user overlay) run without this prompt.
+
 ## Schema
 
 ```yaml

@@ -310,6 +310,15 @@ func WorkerStartForSite(siteName, sitePath, phpVersion, workerName string, w con
 		return nil
 	}
 
+	// A host worker from an untrusted project .lerd.yaml (custom_workers) runs its
+	// command on the host, so require consent before starting it. Trusted workers
+	// (store/built-in/overlay) and in-container workers are unaffected.
+	if w.Host && w.ProjectOrigin {
+		if err := approveHostCommand(siteName, w.Command, fmt.Sprintf("worker %q", workerName)); err != nil {
+			return err
+		}
+	}
+
 	// Stop conflicting workers before starting. Match the new worker's
 	// path so a per-worktree start tears down only the same worktree's
 	// conflicting unit and doesn't touch the parent's.
@@ -807,6 +816,32 @@ func stopAllSiteWorkerUnits(site *config.Site) {
 func isServiceActiveOrRestarting(name string) bool {
 	status, _ := podman.UnitStatus(name)
 	return status == "active" || status == "activating"
+}
+
+// approveHostCommand gates running a project-supplied command on the host for a
+// site: it proceeds when the global switch allows it or the user already approved
+// the exact command, prompts and persists the approval interactively, and refuses
+// non-interactively when unapproved. what labels the thing being run for messages
+// (e.g. `worker "vite"`). Empty command is a no-op.
+func approveHostCommand(siteName, command, what string) error {
+	if command == "" {
+		return nil
+	}
+	allowed, disabled := config.HostCommandAllowed(siteName, command)
+	if disabled {
+		return fmt.Errorf("%s: project-supplied host commands are disabled (set host_commands.disabled: false to allow)", what)
+	}
+	if allowed {
+		return nil
+	}
+	if !isInteractive() {
+		return fmt.Errorf("%s: not approved; run it once interactively to confirm, or set host_commands.skip_confirmation: true", what)
+	}
+	fmt.Printf("\nlerd will run this on your host, outside any container:\n\n  %s\n", command)
+	if !promptConfirm(fmt.Sprintf("Run it for %s?", siteName)) {
+		return fmt.Errorf("%s declined for %s", what, siteName)
+	}
+	return config.ApproveSiteCommand(siteName, command)
 }
 
 // findOrphanedWorkers returns worker names that are running but not in the known set.

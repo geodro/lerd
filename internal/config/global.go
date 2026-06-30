@@ -202,6 +202,16 @@ type GlobalConfig struct {
 		// command from a cloned repo never runs unconfirmed.
 		SkipConfirmation bool `yaml:"skip_confirmation,omitempty" mapstructure:"skip_confirmation"`
 	} `yaml:"host_proxy,omitempty" mapstructure:"host_proxy"`
+	HostCommands struct {
+		// Disabled refuses to run any project-supplied host command or host
+		// worker (custom_workers / commands from a project .lerd.yaml). Inverted
+		// so the zero value keeps the feature available.
+		Disabled bool `yaml:"disabled,omitempty" mapstructure:"disabled"`
+		// SkipConfirmation runs project-supplied host commands and workers without
+		// the interactive confirm. Off by default so a command from a cloned repo
+		// never runs unconfirmed.
+		SkipConfirmation bool `yaml:"skip_confirmation,omitempty" mapstructure:"skip_confirmation"`
+	} `yaml:"host_commands,omitempty" mapstructure:"host_commands"`
 	IdleSuspend struct {
 		// Enabled turns on activity-driven worker suspension: when a site sees
 		// no activity for Timeout, its suspendable workers (queue, horizon, ...)
