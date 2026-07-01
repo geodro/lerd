@@ -52,6 +52,17 @@ describe('dashboard store', () => {
     open.mockRestore();
   });
 
+  it('openDocs embeds the docs landing page in the overlay', async () => {
+    const { openDocs, dashboardOpen } = await import('./dashboard');
+
+    dashboardOpen.set(null);
+    openDocs();
+    const cur = get(dashboardOpen);
+    expect(cur?.name).toBe('docs');
+    expect(cur?.dashboard).toBe('https://lerd.sh/getting-started/requirements');
+    expect(location.hash).toBe('#docs');
+  });
+
   it('openMailpitMessage opens overlay with extraPath when mailpit is present', async () => {
     const { services } = await import('./services');
     const { openMailpitMessage, dashboardOpen } = await import('./dashboard');

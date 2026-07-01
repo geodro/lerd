@@ -16,7 +16,7 @@ export const dashboardOpen = writable<DashboardRef | null>(null);
 const DOCS_REF: DashboardRef = {
   name: 'docs',
   label: 'Documentation',
-  dashboard: 'https://lerd.sh/'
+  dashboard: 'https://lerd.sh/getting-started/requirements'
 };
 
 // PROFILER_REF is the synthetic entry for the SPX profiler. The UI is proxied
