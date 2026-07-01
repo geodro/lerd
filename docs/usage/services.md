@@ -40,9 +40,9 @@ Default services are defined as YAML presets with `default: true` in the lerd bi
 
 The Web UI, the TUI, and `lerd status` display the same labels. Services pinned to rolling tags (`latest`, `main`) show the tag verbatim. Services where an update is available show `→ <new-tag>`; cross-strategy upgrades show `⇧ <new-tag>` in amber.
 
-### Exposing extra ports on built-in services
+### Exposing extra ports on bundled services
 
-Built-in services publish a fixed set of ports by default. Use `lerd service expose` to bind additional host ports without recompiling or replacing the service:
+Bundled services publish a fixed set of ports by default. Use `lerd service expose` to bind additional host ports without recompiling or replacing the service. This works for any service lerd ships as a preset, both the default-stack ones (MySQL, PostgreSQL, Redis) and the optional ones you install on demand (Gotenberg, MongoDB, Elasticsearch, and so on). Only genuinely custom services you define yourself are excluded, since those declare their ports in their own YAML.
 
 ```bash
 # Expose MySQL on an extra port (e.g. for a second GUI client using a different port)

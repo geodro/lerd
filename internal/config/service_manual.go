@@ -115,3 +115,18 @@ func ServicePublishedPort(name string) int {
 	}
 	return 0
 }
+
+// ServiceExtraPorts returns the extra published port mappings recorded for a
+// service (set via `lerd service expose` or the Web UI ports modal), or nil when
+// none. Applied at the quadlet choke point so every preset-backed service, not
+// just the default-stack ones, honours the same extra-port overrides.
+func ServiceExtraPorts(name string) []string {
+	cfg, err := LoadGlobal()
+	if err != nil {
+		return nil
+	}
+	if sc, ok := cfg.Services[name]; ok {
+		return sc.ExtraPorts
+	}
+	return nil
+}

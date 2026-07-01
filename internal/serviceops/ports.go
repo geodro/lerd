@@ -164,15 +164,16 @@ func SetPublishedPort(name string, port int) (PortChange, error) {
 	return res, nil
 }
 
-// SetExtraPorts replaces a built-in service's extra published ports with ports
+// SetExtraPorts replaces a bundled preset's extra published ports with ports
 // (each a bare "host", "host:container", or "ip:host:container" mapping),
 // de-duplicating and validating, then re-rendering and restarting the unit when
 // it is running. Shared by the CLI `service expose`, MCP service:expose, and the
-// Web UI ports endpoint. Custom services declare their ports in their own YAML,
-// so this is preset-only.
+// Web UI ports endpoint. Any preset lerd ships qualifies (default-stack or
+// optional like gotenberg); genuinely custom services declare their ports in
+// their own YAML, so they're excluded.
 func SetExtraPorts(name string, ports []string) error {
-	if !config.IsDefaultPreset(name) {
-		return fmt.Errorf("%q is not a built-in service", name)
+	if !config.PresetExists(name) {
+		return fmt.Errorf("%q is not a bundled service", name)
 	}
 	cfg, err := config.LoadGlobal()
 	if err != nil {
@@ -217,7 +218,7 @@ func SetExtraPorts(name string, ports []string) error {
 	if !ServiceInstalled(name) {
 		return nil
 	}
-	if err := EnsureDefaultPresetQuadlet(name); err != nil {
+	if err := rerenderServiceQuadlet(name); err != nil {
 		return err
 	}
 	if status, _ := podman.UnitStatus("lerd-" + name); status == "active" {

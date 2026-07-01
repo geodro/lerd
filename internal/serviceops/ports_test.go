@@ -146,6 +146,25 @@ func TestSetExtraPortsRejectsCustomName(t *testing.T) {
 	}
 }
 
+// TestSetExtraPortsOptionalPreset persists extra ports for an optional (non
+// default-stack) preset like gotenberg: it's a service we ship, so the gate is
+// preset ownership, not the default flag.
+func TestSetExtraPortsOptionalPreset(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", tmp)
+	if err := SetExtraPorts("gotenberg", []string{"39580:80"}); err != nil {
+		t.Fatalf("SetExtraPorts(gotenberg): %v", err)
+	}
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Services["gotenberg"].ExtraPorts; len(got) != 1 || got[0] != "39580:80" {
+		t.Errorf("gotenberg ExtraPorts = %v, want [39580:80]", got)
+	}
+}
+
 // TestSetPublishedPortRejectsSiblingPort refuses a port another lerd service
 // already claims (postgres's default 5432) even while that sibling is stopped.
 func TestSetPublishedPortRejectsSiblingPort(t *testing.T) {

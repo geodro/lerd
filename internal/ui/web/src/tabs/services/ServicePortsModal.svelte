@@ -11,7 +11,7 @@
   }
   let { open, svc, onclose }: Props = $props();
 
-  const isBuiltin = $derived(Boolean(svc.is_default));
+  const isBuiltin = $derived(Boolean(svc.preset_owned));
 
   // Shared with the domains modal's add inputs so the two read identically.
   const inputCls =

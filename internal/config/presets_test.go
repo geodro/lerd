@@ -1189,25 +1189,29 @@ func TestDefaultPresetMeta_Caches(t *testing.T) {
 	}
 }
 
-// DefaultPresetPorts must return the same ports as DefaultPresetMeta without the
-// deep copy, and nil for a non-default preset, so the services snapshot can read
-// a preset's ports without cloning the whole struct on every refresh.
-func TestDefaultPresetPorts(t *testing.T) {
+// PresetPorts must return the same ports as DefaultPresetMeta without the deep
+// copy for a default-stack preset, the declared ports for an optional preset
+// (gotenberg), and nil for a name we don't ship, so the services snapshot can
+// read any preset's ports without cloning the whole struct on every refresh.
+func TestPresetPorts(t *testing.T) {
 	meta, err := DefaultPresetMeta("mysql")
 	if err != nil {
 		t.Fatalf("DefaultPresetMeta(mysql): %v", err)
 	}
-	got := DefaultPresetPorts("mysql")
+	got := PresetPorts("mysql")
 	if len(got) != len(meta.Ports) {
-		t.Fatalf("DefaultPresetPorts(mysql) = %v, want %v", got, meta.Ports)
+		t.Fatalf("PresetPorts(mysql) = %v, want %v", got, meta.Ports)
 	}
 	for i := range got {
 		if got[i] != meta.Ports[i] {
 			t.Errorf("port %d = %q, want %q", i, got[i], meta.Ports[i])
 		}
 	}
-	if DefaultPresetPorts("sqlite") != nil {
-		t.Error("DefaultPresetPorts(sqlite) must be nil for a non-default preset")
+	if goten := PresetPorts("gotenberg"); len(goten) != 1 || goten[0] != "3000:3000" {
+		t.Errorf("PresetPorts(gotenberg) = %v, want [3000:3000] for an optional preset", goten)
+	}
+	if PresetPorts("sqlite") != nil {
+		t.Error("PresetPorts(sqlite) must be nil for a name we don't ship as a preset")
 	}
 }
 

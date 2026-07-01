@@ -360,18 +360,17 @@ func EnsureDefaultPresetQuadletPinned(name, pinnedImage string) error {
 	}
 	canonicalPin := ""
 	pinnedUserImage := ""
-	var extraPorts []string
 	if cfg, loadErr := config.LoadGlobal(); loadErr == nil {
 		if svcCfg, ok := cfg.Services[name]; ok {
 			canonicalPin = svcCfg.CanonicalVersion
 			pinnedUserImage = svcCfg.Image
-			extraPorts = svcCfg.ExtraPorts
 		}
 	}
-	// The published-port override and the generic port-availability guard are now
-	// applied once, downstream, in EnsureCustomServiceQuadlet (the choke point every
-	// service quadlet passes through), so this preset path just resolves the default
-	// ports and hands the service off.
+	// The published-port override, the extra published ports, and the generic
+	// port-availability guard are all applied once, downstream, in
+	// EnsureCustomServiceQuadlet (the choke point every service quadlet passes
+	// through), so this preset path just resolves the default ports and hands the
+	// service off.
 	hasUserPin := pinnedUserImage != ""
 	// Backfill for pre-existing installs that pre-date this feature: if no
 	// pin is recorded but a container is running, derive the major from the
@@ -398,9 +397,6 @@ func EnsureDefaultPresetQuadletPinned(name, pinnedImage string) error {
 	}
 	if hasUserPin {
 		svc.Image = pinnedUserImage
-	}
-	if len(extraPorts) > 0 {
-		svc.Ports = append(svc.Ports, extraPorts...)
 	}
 	// First-install / backfill pin: persist the canonical tag so future YAML
 	// canonical flips don't silently major-jump this install.
@@ -531,6 +527,14 @@ func EnsureCustomServiceQuadlet(svc *config.CustomService) error {
 	if pp > 0 {
 		svc.Ports = podman.SetPrimaryHostPort(svc.Ports, pp)
 		svc.ConnectionURL = WithURLPort(svc.ConnectionURL, pp)
+	}
+	// Extra published ports (set via `lerd service expose` / the Web UI ports
+	// modal) apply to any bundled preset, not just default-stack ones. Appended
+	// here at the shared choke point — after the primary-port guard reads the
+	// unpolluted mapping — so the preset and materialised-preset paths behave
+	// identically.
+	if extra := config.ServiceExtraPorts(svc.Name); len(extra) > 0 {
+		svc.Ports = append(svc.Ports, extra...)
 	}
 	if svc.DataDir != "" {
 		if err := os.MkdirAll(config.DataSubDir(svc.Name), 0755); err != nil {

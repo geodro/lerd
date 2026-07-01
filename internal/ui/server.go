@@ -1002,6 +1002,11 @@ type ServiceResponse struct {
 	ExtraPorts    []string `json:"extra_ports,omitempty"`
 	Custom        bool     `json:"custom,omitempty"`
 	IsDefault     bool     `json:"is_default,omitempty"`
+	// PresetOwned is true when lerd ships this service as a bundled preset
+	// (default-stack or optional like gotenberg). The ports modal keys the
+	// extra-ports affordance off this, not is_default, so every service we
+	// provide can publish extra ports while genuinely custom services can't.
+	PresetOwned bool `json:"preset_owned,omitempty"`
 	// Tunable is true when the service exposes a user-editable runtime config
 	// override (see config.ServiceTuningMount), so the UI can show a Tuning tab.
 	Tunable            bool     `json:"tunable,omitempty"`
@@ -1111,7 +1116,7 @@ func buildServiceResponseWithPortList(services map[string]config.ServiceConfig, 
 		}
 	}
 
-	presetPorts := config.DefaultPresetPorts(name)
+	presetPorts := config.PresetPorts(name)
 	hostPort := effectiveHostPort(services, name, presetPorts)
 	defaultPort := podman.PrimaryHostPort(presetPorts)
 	if sc, ok := services[name]; ok && sc.Port > 0 {
@@ -1130,6 +1135,7 @@ func buildServiceResponseWithPortList(services map[string]config.ServiceConfig, 
 		Pinned:        config.ServiceIsPinned(name),
 		Paused:        config.ServiceIsPaused(name),
 		IsDefault:     config.IsDefaultPreset(name),
+		PresetOwned:   config.PresetExists(name),
 		DefaultPort:   defaultPort,
 	}
 	if sc, ok := services[name]; ok {
@@ -1252,6 +1258,10 @@ func buildServicesList() []ServiceResponse {
 			dashboard, dashboardExternal = dashProxyPath(svc.Name), false
 		}
 		hostPort := effectiveHostPort(svcCfg, svc.Name, svc.Ports)
+		// Optional presets (gotenberg, mongo, …) materialise as custom services, so
+		// they land here rather than in the default-preset loop. Surface the same
+		// port fields the ports modal needs: preset ownership drives the extra-ports
+		// affordance, and the declared default host port drives the autofill.
 		services = append(services, ServiceResponse{
 			Name:              svc.Name,
 			Status:            status,
@@ -1262,6 +1272,10 @@ func buildServicesList() []ServiceResponse {
 			ConnectionURL:     serviceops.WithURLPort(svc.ConnectionURL, hostPort),
 			Port:              hostPort,
 			Custom:            true,
+			PresetOwned:       config.PresetExists(svc.Name),
+			DefaultPort:       podman.PrimaryHostPort(svc.Ports),
+			PublishedPort:     config.ServicePublishedPort(svc.Name),
+			ExtraPorts:        config.ServiceExtraPorts(svc.Name),
 			Tunable:           tunable,
 			SiteCount:         countSitesUsingService(svc.Name),
 			SiteDomains:       sitesUsingService(svc.Name),
@@ -2361,9 +2375,9 @@ func handleServicePorts(w http.ResponseWriter, r *http.Request, name string) {
 		fail(err)
 		return
 	}
-	// Extra ports apply to built-in services only; custom services declare ports
-	// in their own YAML.
-	if config.IsDefaultPreset(name) {
+	// Extra ports apply to any preset lerd ships; genuinely custom services
+	// declare their ports in their own YAML.
+	if config.PresetExists(name) {
 		if err := serviceops.SetExtraPorts(name, body.ExtraPorts); err != nil {
 			fail(err)
 			return
